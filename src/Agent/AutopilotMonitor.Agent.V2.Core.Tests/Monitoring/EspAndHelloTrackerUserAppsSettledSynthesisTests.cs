@@ -159,5 +159,84 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             var posted = Assert.Single(f.Ingress.Posted);
             Assert.Equal(DecisionSignalKind.EspExiting, posted.Kind);
         }
+
+        // ------------------------------------------------------------------------------
+        // sits-d Cloud-PC fix (2026-08-19) — the synthesis is no longer edge-only.
+        // Sessions 8110e262 / a89aac2d: the ESP page exited while 138 required user-ESP apps
+        // were still in flight, they all reached a terminal state (0 failed) minutes later,
+        // and because nothing re-checked, the enrollment never completed.
+        // ------------------------------------------------------------------------------
+
+        [Fact]
+        public void Reevaluate_after_apps_settle_synthesizes_without_a_second_exit()
+        {
+            using var f = new Fixture();
+            var settled = false;
+            using var coordinator = f.BuildCoordinator(() => settled);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+
+            // The apps settle later; only the IME app-state callback fires — there is NO second
+            // ESP exit on a real device, which is exactly why the edge-only version starved.
+            settled = true;
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
+            Assert.True(coordinator.UserAppsSettledSynthesisFiredForTest);
+
+            var info = Assert.Single(f.TrackerPostSink.Posted);
+            var data = Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyDictionary<string, object>>(info.TypedPayload);
+            Assert.Equal("esp_exited_user_apps_settled_category_unresolved", data["fallbackReason"]);
+        }
+
+        [Fact]
+        public void Reevaluate_without_an_observed_esp_exit_never_synthesizes()
+        {
+            // The gate needs BOTH facts. Settled apps alone must never open it — otherwise every
+            // quiet moment during AccountSetup would look like completion.
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(() => true);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.Empty(f.Ingress.Posted);
+            Assert.Empty(f.TrackerPostSink.Posted);
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+        }
+
+        [Fact]
+        public void Reevaluate_is_idempotent_after_the_synthesis_fired()
+        {
+            // The IME callback fires per app-state transition — on these tenants that is 138+
+            // times. The synthesis must stay fire-once.
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(() => true);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            for (var i = 0; i < 20; i++) coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
+            Assert.Single(f.TrackerPostSink.Posted);
+        }
+
+        [Fact]
+        public void Reevaluate_stays_silent_while_apps_are_still_unsettled()
+        {
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(() => false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            for (var i = 0; i < 5; i++) coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.Equal(DecisionSignalKind.EspExiting, posted.Kind);
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+        }
     }
 }

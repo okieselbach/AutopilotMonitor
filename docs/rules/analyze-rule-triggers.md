@@ -101,6 +101,10 @@ Interim evaluation changes what a rule's conditions mean mid-flight. Three new l
 - WG battery rule (sits-d): `evaluateOn: ["enrollment_end", "whiteglove_sealed"]` — technician gets the channel alert at the bench; Part-2 terminal pass finalizes or resolves the finding.
 - Hybrid-affinity stuck (esa): ANALYZE-ID-004 gets `evaluateOn: ["enrollment_end", "on_event:hybrid_login_pending"]` — the second overdue-login event (threshold 65) produces a live finding on the still-InProgress session. ANALYZE-APP-015 stays `enrollment_end`-only until its conditions are hardened (lint 1).
 
+- Stuck after a forced mid-ESP reboot (sits-d Cloud PCs, 2026-08-19): `on_event:session_stalled` is the established trigger for the never-terminal stuck session. The agent emits `session_stalled` exactly once per session (60-minute stall probe), so the trigger is rare by construction and needs no throttle. Five Cloud PCs sat at `InProgress` with **zero findings** for hours — a mid-ESP reboot had killed the agent in `Stage=EspAccountSetup` — before the max-lifetime watchdog eventually terminalised them as `Incomplete`. ANALYZE-ESP-005 carries the trigger and fires on that stream at confidence 95 (verified against session `8110e262`): both its conditions (`mdm_policy_reboot_required.firstRebootUri` exists, `system_reboot_detected` count ≥ 1) are **monotonic** and it has no terminal preconditions, so lint 1 does not apply. ANALYZE-APP-016 is interim-safe for the same reason (`app_install_starved` count ≥ 1 only ever grows).
+
+  Two rules were considered and deliberately **not** given the trigger: ANALYZE-APP-015 is the worked example of lint 1 above and stays `enrollment_end`-only; ANALYZE-ESP-001 gates on `phase_duration` of a phase that is still open mid-run, and that evaluation is not pinned by a test — an unverified trigger is not worth a possible false positive on every slow DeviceSetup.
+
 # Product Decisions (settled 2026-08-14)
 
 1. Notify-on-resolve (a "finding healed" message)? **No** (v1) — resolution is visible in UI/MCP.

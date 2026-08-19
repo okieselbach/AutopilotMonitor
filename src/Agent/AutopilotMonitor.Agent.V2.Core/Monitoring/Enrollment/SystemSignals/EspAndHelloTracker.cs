@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
@@ -46,7 +47,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         // Session caa6cf50 gate-starvation fix (2026-06-11) — fire-once guard for the
         // user-ESP-apps-settled AccountSetup synthesis (see MaybeSynthesizeAccountSetupComplete).
-        private bool _userAppsSettledSynthesisFired;
+        // Interlocked rather than a plain bool: since the sits-d Cloud-PC fix the synthesis is
+        // ALSO re-evaluated from the IME app-state-change thread, so two threads can reach the
+        // guard concurrently (Shell-Core watcher thread + IME log thread).
+        private int _userAppsSettledSynthesisFired;
+
+        // sits-d Cloud-PC fix (2026-08-19) — set once a Shell-Core normal ESP exit has been
+        // observed (live OR backfill). The synthesis needs two facts: the ESP exit is an EDGE
+        // that happens once, the settled user-ESP apps are a LEVEL that may only be reached
+        // minutes later. Recording the edge lets ReevaluateUserAppsSettledSynthesis re-check
+        // the level afterwards instead of losing the completion for the rest of the session.
+        private volatile bool _espExitObserved;
 
         // Liveness plan PR3 — one-shot-per-appId dedupe for app_install_starved emissions.
         // Written from the Shell-Core watcher thread (esp_exited path), read at termination by
@@ -319,6 +330,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// Secondary recovery mechanism when state persistence is unavailable.
         /// </summary>
         public void BackfillRecentEspExitEvents() => _shellCoreTracker?.BackfillRecentEspExitEvents();
+
+        /// <summary>
+        /// Same backfill with an explicit lookback window. Called by <c>EspAndHelloHost</c> right
+        /// after <see cref="Start"/> — see the host for why the window widens after a reboot.
+        /// </summary>
+        public void BackfillRecentEspExitEvents(int lookbackMinutes)
+            => _shellCoreTracker?.BackfillRecentEspExitEvents(lookbackMinutes);
+
+        /// <summary>
+        /// sits-d Cloud-PC fix (2026-08-19) — re-check the user-apps-settled AccountSetup
+        /// synthesis after the ESP exit has already been observed. Wired to the IME tracker's
+        /// app-state-change callback in <c>DefaultComponentFactory</c>.
+        /// <para>
+        /// Before this, the synthesis ran ONLY on the <c>EspExited</c> edge. When the ESP page
+        /// exits while user-ESP apps are still in flight (the normal case on a tenant with a
+        /// large required-app set), the single attempt misses and nothing re-checks — even once
+        /// every tracked app has reached a terminal state minutes later. Sessions 8110e262 and
+        /// a89aac2d reached 138/138 apps with 0 failed and still never completed.
+        /// </para>
+        /// <para>
+        /// Adds NO new completion path: the gate conditions inside the synthesis are unchanged
+        /// (real ESP exit + every required user-ESP app terminal + zero failures). This only
+        /// grants the existing, deliberately conservative check a second look.
+        /// </para>
+        /// </summary>
+        public void ReevaluateUserAppsSettledSynthesis()
+        {
+            if (!_espExitObserved) return;
+            if (Volatile.Read(ref _userAppsSettledSynthesisFired) != 0) return;
+            MaybeSynthesizeAccountSetupCompleteFromSettledUserApps(emitStarvedOnMiss: false);
+        }
 
         // =====================================================================
         // Lifecycle
@@ -675,6 +717,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 try { EspExited?.Invoke(this, args); }
                 catch (Exception ex) { _logger.Error("Error forwarding EspExited", ex); }
 
+                // Record the edge BEFORE the synthesis attempt so a later app-state change can
+                // re-run it even when the apps are not settled yet at this instant.
+                _espExitObserved = true;
+
                 // Session caa6cf50 gate-starvation fix: a Shell-Core normal exit while IME's
                 // user-ESP app tracking is fully settled is alternative evidence that
                 // AccountSetup completed. Raised AFTER the EspExited forward so the reducer
@@ -704,9 +750,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// conservative stall behaviour.
         /// </para>
         /// </summary>
-        private void MaybeSynthesizeAccountSetupCompleteFromSettledUserApps()
+        private void MaybeSynthesizeAccountSetupCompleteFromSettledUserApps(bool emitStarvedOnMiss = true)
         {
-            if (_userAppsSettledSynthesisFired) return;
+            if (Volatile.Read(ref _userAppsSettledSynthesisFired) != 0) return;
 
             bool settled;
             try { settled = _userEspAppsSettledProbe(); }
@@ -722,11 +768,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // operator with an anonymous "session hangs in AccountSetup". One-shot per
                 // appId; apps that are alive (Downloading/Installing) or failed are excluded
                 // by the probe itself.
-                EmitStarvedUserEspApps(trigger: "esp_exited_user_apps_not_settled");
+                // Only on the ESP-exit edge: the re-evaluation path passes false so a repeated
+                // miss cannot re-walk the probe on every single app-state change (the per-appId
+                // dedupe would swallow the events anyway — this keeps the work off the hot path).
+                if (emitStarvedOnMiss)
+                    EmitStarvedUserEspApps(trigger: "esp_exited_user_apps_not_settled");
                 return;
             }
 
-            _userAppsSettledSynthesisFired = true;
+            // Claim the single synthesis slot; a concurrent caller that loses the race returns.
+            if (Interlocked.CompareExchange(ref _userAppsSettledSynthesisFired, 1, 0) != 0) return;
             _logger.Warning(
                 "EspAndHelloTracker: ESP exited normally with all tracked user-ESP apps terminal (0 failed) " +
                 "but AccountSetupCategory.Status never confirmed categorySucceeded — treating AccountSetup as complete " +
@@ -820,6 +871,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         // Test seam for the user-apps-settled synthesis — drives OnEspExited with the live
         // handler signature, mirroring TriggerEspExitedForTest's contract.
-        internal bool UserAppsSettledSynthesisFiredForTest => _userAppsSettledSynthesisFired;
+        internal bool UserAppsSettledSynthesisFiredForTest => Volatile.Read(ref _userAppsSettledSynthesisFired) != 0;
     }
 }

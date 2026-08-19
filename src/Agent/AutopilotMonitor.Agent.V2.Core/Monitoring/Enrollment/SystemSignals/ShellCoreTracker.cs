@@ -34,6 +34,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const int EventId_ShellCore_WebAppEvent = 62407;
         internal const int BackfillLookbackMinutes = 5;
 
+        /// <summary>
+        /// Upper bound for the caller-supplied backfill lookback. Matches the agent's max
+        /// lifetime (360 min) — a window wider than the agent can ever live would only widen
+        /// the blast radius of a stale Shell-Core record without recovering anything the
+        /// current enrollment could still act on.
+        /// </summary>
+        internal const int BackfillLookbackMaxMinutes = 360;
+
         private static readonly HashSet<int> TrackedShellCoreEventIds = new HashSet<int>
         {
             EventId_ShellCore_WebAppStarted,
@@ -356,11 +364,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// unavailable — an agent restart while the user sits inside the Hello wizard would
         /// otherwise lose the wizard-start observation (session 772fe502).
         /// </summary>
-        public void BackfillRecentEspExitEvents()
+        /// <summary>Clamps a caller-supplied lookback into [1, <see cref="BackfillLookbackMaxMinutes"/>].</summary>
+        internal static int ClampLookbackMinutes(int lookbackMinutes)
+        {
+            if (lookbackMinutes < 1) return 1;
+            if (lookbackMinutes > BackfillLookbackMaxMinutes) return BackfillLookbackMaxMinutes;
+            return lookbackMinutes;
+        }
+
+        public void BackfillRecentEspExitEvents() => BackfillRecentEspExitEvents(BackfillLookbackMinutes);
+
+        /// <summary>
+        /// Same recovery with a caller-chosen lookback. A restart after a mid-ESP reboot must
+        /// reach back over the whole downtime (agent dead from the restart until the post-reboot
+        /// logon re-launches it), which the 5-minute default cannot span — the ESP exit that ends
+        /// AccountSetup then lands in the gap and the session never observes it. The value is
+        /// clamped to [1, <see cref="BackfillLookbackMaxMinutes"/>].
+        /// </summary>
+        public void BackfillRecentEspExitEvents(int lookbackMinutes)
         {
             try
             {
-                var lookbackMs = BackfillLookbackMinutes * 60 * 1000;
+                var lookbackMs = ClampLookbackMinutes(lookbackMinutes) * 60 * 1000;
                 var query = new EventLogQuery(
                     ShellCoreEventLogChannel,
                     PathType.LogName,

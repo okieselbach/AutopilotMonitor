@@ -74,13 +74,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly string _stateDirectory;
         private readonly Persistence.StartupEventGate? _startupEventGate;
 
+        /// <summary>
+        /// OS boot time when the previous agent run was killed by a reboot (<c>reboot_kill</c>),
+        /// otherwise null. Widens the Shell-Core ESP-exit backfill so a completion signal written
+        /// while the agent was down is still recovered — see the backfill block in
+        /// <see cref="CreateCollectorHosts"/>.
+        /// </summary>
+        private readonly DateTime? _previousBootUtc;
+
         public DefaultComponentFactory(
             AgentConfiguration agentConfig,
             AgentConfigResponse remoteConfig,
             NetworkMetrics? networkMetrics,
             string agentVersion,
             string stateDirectory,
-            Persistence.StartupEventGate? startupEventGate = null)
+            Persistence.StartupEventGate? startupEventGate = null,
+            DateTime? previousBootUtc = null)
         {
             _agentConfig = agentConfig ?? throw new ArgumentNullException(nameof(agentConfig));
             _remoteConfig = remoteConfig ?? throw new ArgumentNullException(nameof(remoteConfig));
@@ -88,6 +97,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _agentVersion = string.IsNullOrEmpty(agentVersion) ? "unknown" : agentVersion;
             _stateDirectory = stateDirectory ?? throw new ArgumentNullException(nameof(stateDirectory));
             _startupEventGate = startupEventGate;
+            _previousBootUtc = previousBootUtc;
         }
 
         public CollectorSurfaces CreateCollectorHosts(
@@ -150,6 +160,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // on esp_exiting events long after Start.
             ImeLogHost? imeLogHostRef = null;
 
+            // sits-d Cloud-PC fix (2026-08-19): after a mid-ESP reboot the agent is dead from the
+            // forced restart until the post-reboot logon re-launches it. The Shell-Core ESP exit
+            // that ends AccountSetup can land anywhere in that window, and the 5-minute default
+            // backfill is far too narrow to reach it. Widen to "everything since the boot that
+            // killed us" — the exit we care about is by definition after that boot. Clamped to
+            // ShellCoreTracker.BackfillLookbackMaxMinutes inside the tracker.
+            var espExitBackfillLookbackMinutes = ShellCoreTracker.BackfillLookbackMinutes;
+            if (_previousBootUtc.HasValue)
+            {
+                var sinceBoot = DateTime.UtcNow - _previousBootUtc.Value;
+                if (sinceBoot > TimeSpan.Zero)
+                {
+                    var sinceBootMinutes = (int)Math.Ceiling(sinceBoot.TotalMinutes) + 1;
+                    if (sinceBootMinutes > espExitBackfillLookbackMinutes)
+                    {
+                        espExitBackfillLookbackMinutes = sinceBootMinutes;
+                        logger.Info(
+                            "DefaultComponentFactory: previous run died to a reboot — widening the Shell-Core " +
+                            $"ESP-exit backfill to {espExitBackfillLookbackMinutes} min (since boot {_previousBootUtc.Value:o})");
+                    }
+                }
+            }
+
             var espAndHelloHost = new EspAndHelloHost(
                 sessionId: sessionId,
                 tenantId: tenantId,
@@ -174,7 +207,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // covers Store/WinGet apps invisible to the starved/correlation paths.
                 packageStatesProbe: () =>
                     imeLogHostRef?.AllKnownPackageStates
-                    ?? Array.Empty<Monitoring.Enrollment.Ime.AppPackageState>());
+                    ?? Array.Empty<Monitoring.Enrollment.Ime.AppPackageState>(),
+                espExitBackfillLookbackMinutes: espExitBackfillLookbackMinutes);
             hosts.Add(espAndHelloHost);
 
             // Hybrid User-Driven completion-gap fix (2026-05-01): the AadJoinHost notifies
@@ -308,6 +342,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 simulationSpeedFactor: _agentConfig.ReplaySpeedFactor);
             hosts.Add(imeLogHost);
             imeLogHostRef = imeLogHost;
+
+            // sits-d Cloud-PC fix (2026-08-19): the user-apps-settled AccountSetup synthesis used
+            // to run ONLY on the EspExited edge. On a tenant with a large required-app set the ESP
+            // page exits while apps are still in flight, the single attempt misses, and nothing
+            // ever re-checks — sessions 8110e262 / a89aac2d reached 138/138 apps with 0 failed and
+            // still never completed. Chain into the tracker's app-state callback (same
+            // preserve-previous pattern DeliveryOptimizationHost uses) so every terminal app
+            // transition gives the synthesis another look. Cheap: the re-check returns immediately
+            // unless the ESP exit was already observed and the synthesis has not fired yet.
+            var previousAppStateChanged = imeLogHost.Tracker.OnAppStateChanged;
+            imeLogHost.Tracker.OnAppStateChanged = (pkg, oldState, newState) =>
+            {
+                try { previousAppStateChanged?.Invoke(pkg, oldState, newState); }
+                catch (Exception ex)
+                {
+                    logger.Warning($"DefaultComponentFactory: previous OnAppStateChanged handler threw: {ex.Message}");
+                }
+
+                try { espAndHelloHost.ReevaluateUserAppsSettledSynthesis(); }
+                catch (Exception ex)
+                {
+                    logger.Warning($"DefaultComponentFactory: user-apps-settled re-check threw: {ex.Message}");
+                }
+            };
 
             if (collectors.StallProbeEnabled)
             {

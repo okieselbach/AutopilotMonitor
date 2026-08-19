@@ -14,6 +14,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private readonly EspAndHelloTracker _tracker;
         private readonly EspAndHelloTrackerAdapter _adapter;
+        private readonly int _espExitBackfillLookbackMinutes;
         private int _disposed;
 
         /// <summary>
@@ -73,8 +74,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             bool isDevicePreparation = false,
             Func<bool>? userEspAppsSettledProbe = null,
             Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? starvedUserEspAppsProbe = null,
-            Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? packageStatesProbe = null)
+            Func<System.Collections.Generic.IReadOnlyList<Monitoring.Enrollment.Ime.AppPackageState>>? packageStatesProbe = null,
+            int espExitBackfillLookbackMinutes = ShellCoreTracker.BackfillLookbackMinutes)
         {
+            _espExitBackfillLookbackMinutes = espExitBackfillLookbackMinutes;
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             var post = new InformationalEventPost(ingress, clock);
@@ -100,8 +103,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _adapter = new EspAndHelloTrackerAdapter(_tracker, ingress, clock);
         }
 
-        public void Start() => _tracker.Start();
+        /// <summary>
+        /// Starts the tracker and then replays recent Shell-Core ESP-exit / Hello-wizard records.
+        /// <para>
+        /// The backfill has existed since session 772fe502 but was never wired to a caller, so
+        /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
+        /// agent restart therefore lost an ESP exit (62407) or Hello-wizard start (62404) that
+        /// happened while the agent was down — and after a mid-ESP reboot that is exactly the
+        /// window the completion signal lands in (sits-d Cloud PCs, 2026-08-19: five sessions
+        /// hung in AccountSetup until the server-side timeout while the devices were fine).
+        /// </para>
+        /// <para>
+        /// Ordering is deliberate: Start first, then backfill. A record written between the two
+        /// is observed twice, and that is by design tolerable — the tracker dedups the REPLAY
+        /// (single-shot per rail) but never the live stream, because Shell-Core emits 62407 at
+        /// every ESP phase transition anyway. Duplicates are absorbed downstream: the reducer
+        /// (<c>ShouldTransitionToAwaitingHello</c>) picks the genuine post-AccountSetup exit, and
+        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag. The
+        /// reverse order could drop a record entirely, which costs the session its completion —
+        /// a duplicate costs nothing.
+        /// </para>
+        /// </summary>
+        public void Start()
+        {
+            _tracker.Start();
+            _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
+        }
+
         public void Stop() => _tracker.Stop();
+
+        /// <summary>
+        /// Re-checks the user-apps-settled AccountSetup synthesis — see
+        /// <see cref="EspAndHelloTracker.ReevaluateUserAppsSettledSynthesis"/>. Driven by the IME
+        /// tracker's app-state-change callback (wired in <c>DefaultComponentFactory</c>).
+        /// </summary>
+        public void ReevaluateUserAppsSettledSynthesis() => _tracker.ReevaluateUserAppsSettledSynthesis();
 
         private void OnTrackerWhiteGloveCompleted(object sender, EventArgs e)
             => WhiteGloveCompleted?.Invoke(this, e);

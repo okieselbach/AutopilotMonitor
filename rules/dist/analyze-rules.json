@@ -832,6 +832,118 @@
       ]
     },
     {
+      "ruleId": "ANALYZE-APP-016",
+      "title": "Required Apps Never Started — ESP Apps Gate Starved",
+      "description": "One or more required user-ESP apps never started installing while the ESP AccountSetup apps gate waited on them — the agent observed the ESP page exit with those apps still in a non-terminal, never-started state. Unlike ANALYZE-APP-015 (which reports that completion was DEFERRED because of a pending app, and stays silent once the session reaches a terminal verdict) this rule reports the delivery gap itself and fires regardless of the final outcome: an enrollment that Windows called done while required apps never ran is a successful enrollment with missing software, and the operator must see it.",
+      "severity": "warning",
+      "category": "apps",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed",
+        "on_event:session_stalled"
+      ],
+      "trigger": "single",
+      "baseConfidence": 75,
+      "confidenceThreshold": 70,
+      "conditions": [
+        {
+          "signal": "starved_apps_present",
+          "source": "event_count",
+          "eventType": "app_install_starved",
+          "operator": "count_gte",
+          "value": "1",
+          "required": true
+        },
+        {
+          "signal": "many_starved_apps",
+          "source": "event_count",
+          "eventType": "app_install_starved",
+          "operator": "count_gte",
+          "value": "5",
+          "required": false
+        },
+        {
+          "signal": "appName",
+          "source": "event_type",
+          "eventType": "app_install_starved",
+          "dataField": "appName",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        },
+        {
+          "signal": "state",
+          "source": "event_type",
+          "eventType": "app_install_starved",
+          "dataField": "state",
+          "operator": "exists",
+          "value": "",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "many_starved_apps",
+          "condition": "exists",
+          "weight": 15
+        },
+        {
+          "signal": "appName",
+          "condition": "exists",
+          "weight": 10
+        }
+      ],
+      "explanation": "At least one **required** app assigned to the user ESP never started installing. The Intune Management Extension never moved it out of its initial state (`{{state}}`) — it did not download, did not install, and did not fail — while the ESP AccountSetup apps gate was waiting on it. First app observed: `{{appName}}`.\n\nEvery starved app has its own `app_install_starved` timeline event carrying `appId`, `appName` and `state` — open the timeline and filter on that event type for the complete list.\n\nThis is a **delivery** problem, not an install error, and it is invisible in the Intune console: the app simply never appears. Typical causes:\n\n- far more required apps targeted at the ESP than the gate can service in the available window,\n- requirement rules that are never met on this device (OS / architecture / registry / script checks),\n- an unsatisfied dependency or supersedence chain,\n- an app that needs a context unavailable during provisioning (e.g. a VPN client waiting on a portal sign-in),\n- a mid-ESP reboot that cut the gate short — check whether the mid-ESP reboot advisory also fired for this session.\n\nNote that this finding is independent of the session verdict. A session can be marked **Succeeded** and still be missing every app listed here.",
+      "remediation": [
+        {
+          "title": "Shrink the ESP blocking set",
+          "steps": [
+            "Open the Enrollment Status Page profile and review the blocking app list — every required app there must finish before the user reaches the desktop.",
+            "Move apps that do not have to be present at first logon from *required* to *available*, or remove them from the ESP's blocking apps selection.",
+            "Prefer a small, deliberately chosen blocking set (security agent, VPN, management tooling) over the full application catalogue."
+          ]
+        },
+        {
+          "title": "Unblock the individual apps",
+          "steps": [
+            "Collect the app names from the `app_install_starved` timeline events in this session.",
+            "For each app, review its requirement rules and dependencies in Intune — IntuneManagementExtension.log records every requirement evaluation.",
+            "Verify the assignment actually targets the signed-in user (user-targeted apps need an established Entra user affinity; check the hybrid user-affinity finding if it also fired).",
+            "Re-run an enrollment and confirm the apps now reach a terminal state before the ESP exits."
+          ]
+        },
+        {
+          "title": "Rule out a truncated gate",
+          "steps": [
+            "Check whether a mid-ESP reboot was observed for this session — a forced restart during AccountSetup cuts the apps gate short and can starve everything still queued.",
+            "If so, reassign the reboot-forcing device policies to user groups so the restart lands after AccountSetup."
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Enrollment Status Page — blocking apps",
+          "url": "https://learn.microsoft.com/en-us/intune/intune-service/enrollment/windows-enrollment-status"
+        },
+        {
+          "title": "Microsoft Learn: Win32 app requirement rules",
+          "url": "https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-win32-add"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "apps",
+        "esp",
+        "starvation",
+        "assignment",
+        "blocking",
+        "delivery-gap"
+      ]
+    },
+    {
       "ruleId": "ANALYZE-CORR-003",
       "title": "Proxy Configuration Causing Download Failure",
       "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
@@ -2069,12 +2181,13 @@
       "description": "Attributes an observed enrollment reboot to device-assigned MDM policies that Windows flagged as reboot-required. Fires ONLY when both facts are present in the session: at least one actually-observed reboot (system_reboot_detected) AND reboot-required policy flags (mdm_policy_reboot_required). Policy flags alone — e.g. from a user-policy sync during AccountSetup — force no reboot and stay advisory-silent.",
       "severity": "warning",
       "category": "esp",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "author": "Autopilot Monitor",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
-        "whiteglove_sealed"
+        "whiteglove_sealed",
+        "on_event:session_stalled"
       ],
       "trigger": "single",
       "baseConfidence": 70,

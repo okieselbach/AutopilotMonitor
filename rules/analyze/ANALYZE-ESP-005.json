@@ -5,12 +5,13 @@
   "description": "Attributes an observed enrollment reboot to device-assigned MDM policies that Windows flagged as reboot-required. Fires ONLY when both facts are present in the session: at least one actually-observed reboot (system_reboot_detected) AND reboot-required policy flags (mdm_policy_reboot_required). Policy flags alone — e.g. from a user-policy sync during AccountSetup — force no reboot and stay advisory-silent.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "evaluateOn": [
     "enrollment_end",
-    "whiteglove_sealed"
+    "whiteglove_sealed",
+    "on_event:session_stalled"
   ],
   "trigger": "single",
   "baseConfidence": 70,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Shared.Models;
@@ -121,6 +122,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 // over the ImeLogHost reference, which is assigned during the same factory call —
                 // the host must therefore exist in the returned list.
                 Assert.Equal(1, hosts.Count(h => h is ImeLogHost));
+            }
+            finally
+            {
+                foreach (var host in hosts)
+                {
+                    try { host.Dispose(); } catch { /* construction-only test — best-effort cleanup */ }
+                }
+            }
+        }
+
+        [Fact]
+        public void Ime_app_state_callback_is_chained_into_the_user_apps_settled_recheck()
+        {
+            // sits-d Cloud-PC fix (2026-08-19): the AccountSetup synthesis is re-evaluated on every
+            // terminal IME app transition, which only works while the factory keeps this chain
+            // wired. It is five lines that a refactor can drop silently and whose absence costs a
+            // whole class of sessions their completion — so pin it here.
+            var surfaces = CreateSurfaces();
+            var hosts = surfaces.Hosts;
+            try
+            {
+                var imeHost = hosts.OfType<ImeLogHost>().Single();
+                var handler = imeHost.Tracker.OnAppStateChanged;
+
+                Assert.NotNull(handler);
+
+                // Invoking it must reach the re-check without throwing. The re-check is a no-op
+                // here (no ESP exit observed), which is the point — it must stay cheap and silent
+                // on the IME hot path until both facts are in.
+                var pkg = new AppPackageState("app-1", listPos: 0);
+                var ex = Record.Exception(() => handler!(
+                    pkg,
+                    AppInstallationState.Installing,
+                    AppInstallationState.Installed));
+                Assert.Null(ex);
             }
             finally
             {
