@@ -104,8 +104,11 @@ function Get-PublishedBytes {
         if ((Get-HttpStatus $_) -eq 404) { return $null }
         throw
     }
-    if ($resp.Content -is [byte[]]) { return $resp.Content }
-    return [System.Text.Encoding]::UTF8.GetBytes([string]$resp.Content)
+    # Comma operator: PowerShell unrolls an array returned from a function into the output
+    # stream and reassembles it as Object[], which would silently defeat every [byte[]] use
+    # downstream. ',' wraps it so the byte[] survives the return.
+    if ($resp.Content -is [byte[]]) { return ,$resp.Content }
+    return ,[System.Text.Encoding]::UTF8.GetBytes([string]$resp.Content)
 }
 
 # Deterministic publish form: CRLF, UTF-8 without BOM. Git normalises line endings on
@@ -116,12 +119,19 @@ function Get-PublishedBytes {
 function Get-PublishBytes {
     param([string]$Text)
     $normalised = $Text.Replace("`r`n", "`n").Replace("`n", "`r`n")
-    return (New-Object System.Text.UTF8Encoding $false).GetBytes($normalised)
+    # ',' keeps this a byte[]: without it PowerShell unrolls the array into the output stream
+    # and the caller receives Object[]. Invoke-RestMethod then serialises an Object[] body as
+    # space-separated decimals instead of raw bytes -- a silent corruption of the upload.
+    return ,(New-Object System.Text.UTF8Encoding $false).GetBytes($normalised)
 }
 
 function Get-BootstrapScriptVersion {
-    param([string]$Content, [string]$Origin)
+    param([string]$Content, [string]$Origin, [switch]$Optional)
     if ($Content -match '\$ScriptVersion\s*=\s*"([\d\.\-a-zA-Z]+)"') { return $Matches[1] }
+    # Unreadable SOURCE is fatal. An unreadable PUBLISHED copy must not be: that is exactly
+    # the state a republish is meant to repair, and a guard that blocks the repair is worse
+    # than no guard.
+    if ($Optional) { return $null }
     throw "Could not parse ScriptVersion from $Origin"
 }
 
@@ -168,9 +178,11 @@ if ($null -eq $publishedBytes) {
     Write-Host 'Published bootstrap is already byte-identical to the source'
 } else {
     $publishedText    = [System.Text.Encoding]::UTF8.GetString($publishedBytes)
-    $publishedVersion = Get-BootstrapScriptVersion -Content $publishedText -Origin "$AliasUrl/$BootstrapBlob"
+    $publishedVersion = Get-BootstrapScriptVersion -Content $publishedText -Origin "$AliasUrl/$BootstrapBlob" -Optional
 
-    if ($publishedVersion -ne $scriptVersion) {
+    if ($null -eq $publishedVersion) {
+        Write-Host "::warning::The published $BootstrapBlob is not a readable bootstrap script (no ScriptVersion found). Republishing over it."
+    } elseif ($publishedVersion -ne $scriptVersion) {
         Write-Host "Version bump: $publishedVersion -> $scriptVersion"
     } elseif ((Get-CodeFingerprint -Text $publishedText -Origin "$AliasUrl/$BootstrapBlob") -eq
               (Get-CodeFingerprint -Text $sourceContent -Origin $BootstrapSource)) {
@@ -209,7 +221,10 @@ $legacySas = if ($LegacySasToken) { $LegacySasToken.TrimStart('?') } else { '' }
 $writeSas  = if ($SasToken) { $SasToken.TrimStart('?') } else { '' }
 
 foreach ($item in $publishSet) {
-    $bytes = $item.Bytes
+    # Explicit type, not a convenience: an Object[] body is uploaded as space-separated
+    # decimals rather than raw bytes, and every hash check still passes because [byte[]]
+    # parameter coercion repairs it everywhere EXCEPT the wire.
+    [byte[]]$bytes = $item.Bytes
     $item | Add-Member -NotePropertyName Sha256 -NotePropertyValue (Get-Sha256 $bytes) -Force
 
     if ($DryRun) {
@@ -228,7 +243,18 @@ foreach ($item in $publishSet) {
     # impossible even if caching is ever re-enabled.
     $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'Content-Type' = $ScriptContentType; 'x-ms-blob-cache-control' = 'no-cache' }
     Invoke-RestMethod -Uri "$ContainerUrl/$($item.BlobName)?$writeSas" -Method Put -Headers $headers -Body $bytes | Out-Null
-    Write-Host "  uploaded $($item.BlobName) ($($bytes.Length) bytes)"
+
+    # Read straight back from the blob (authoritative, no CDN in the way) before touching the
+    # mirror or the next file. The alias verification at the end would catch a bad body too,
+    # but only after every blob was already overwritten -- these are live customer downloads.
+    $written = Get-PublishedBytes "$ContainerUrl/$($item.BlobName)"
+    if ($null -eq $written -or (Get-Sha256 $written) -ne $item.Sha256) {
+        $writtenLength = if ($null -eq $written) { 'missing' } else { "$($written.Length) bytes" }
+        throw ("Upload of $($item.BlobName) did not round-trip: sent $($bytes.Length) bytes, " +
+               "blob now holds $writtenLength. Publishing stopped before the mirror and the " +
+               'remaining files, so no further blob was touched.')
+    }
+    Write-Host "  uploaded $($item.BlobName) ($($bytes.Length) bytes, round-trip verified)"
 
     if ($legacySas) {
         try {
