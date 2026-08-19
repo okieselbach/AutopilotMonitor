@@ -40,6 +40,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             return this;
         }
 
+        /// <summary>
+        /// Queues an arbitrary response — for shapes <see cref="QueueStatus"/> can't build,
+        /// e.g. content without a Content-Length header (what AutomaticDecompression leaves
+        /// behind on real compressed responses).
+        /// </summary>
+        public RecordingHttpMessageHandler QueueResponse(Func<HttpResponseMessage> factory)
+        {
+            _script.Enqueue(_ => factory());
+            return this;
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)

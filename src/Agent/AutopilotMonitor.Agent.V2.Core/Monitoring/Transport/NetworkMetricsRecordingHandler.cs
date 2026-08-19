@@ -21,12 +21,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
     /// <remarks>
     /// <b>bytes-up</b> is read from <see cref="System.Net.Http.Headers.HttpContentHeaders.ContentLength"/>
     /// on the request content (set eagerly by <c>ByteArrayContent</c>/<c>StringContent</c>).
-    /// <b>bytes-down</b> is read from the response Content-Length header — when
-    /// <c>AutomaticDecompression</c> is enabled the framework may strip this, so the value
-    /// is best-effort (degrades to 0). The request count and failure count are always exact.
+    /// <b>bytes-down</b> prefers the response Content-Length header; the pipeline's
+    /// <c>AutomaticDecompression</c> strips that header on compressed responses (i.e. on
+    /// virtually every backend JSON response), so when it is absent the content is buffered
+    /// and the DECOMPRESSED payload size is recorded instead — before the fallback the
+    /// counter read 0 on healthy sessions. <c>HttpClient</c> buffers responses anyway
+    /// (default <c>HttpCompletionOption.ResponseContentRead</c>), so this adds no real
+    /// memory cost. The request count and failure count are always exact.
     /// </remarks>
     internal sealed class NetworkMetricsRecordingHandler : DelegatingHandler
     {
+        // Buffering cap for the bytes-down fallback. Backend responses are small JSON
+        // (config, ingest acks); anything larger is counted as 0 rather than buffered.
+        private const long MaxCountedResponseBytes = 16 * 1024 * 1024;
+
         private readonly NetworkMetrics _metrics;
 
         public NetworkMetricsRecordingHandler(NetworkMetrics metrics)
@@ -54,6 +62,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             {
                 response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 bytesDown = response?.Content?.Headers?.ContentLength ?? 0L;
+                if (bytesDown == 0 && response?.Content != null)
+                {
+                    // AutomaticDecompression stripped Content-Length (the norm for the
+                    // backend's gzipped JSON). Buffer the content — after buffering the
+                    // header reflects the decompressed length. Fail-soft: a buffering
+                    // error (too large, connection dropped mid-body) keeps 0 and leaves
+                    // the response for the caller to observe the failure itself.
+                    try
+                    {
+                        await response.Content.LoadIntoBufferAsync(MaxCountedResponseBytes).ConfigureAwait(false);
+                        bytesDown = response.Content.Headers.ContentLength ?? 0L;
+                    }
+                    catch
+                    {
+                        // keep bytesDown = 0
+                    }
+                }
                 if (response != null && !response.IsSuccessStatusCode)
                 {
                     failed = true;

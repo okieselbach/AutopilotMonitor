@@ -145,6 +145,77 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task Captures_bytes_down_via_buffering_when_content_length_is_missing()
+        {
+            // AutomaticDecompression strips Content-Length on the backend's gzipped JSON —
+            // the pre-fix handler recorded 0 for every such (healthy) response. A non-seekable
+            // stream body reproduces the headerless shape.
+            var metrics = new NetworkMetrics();
+            var inner = new RecordingHttpMessageHandler();
+            var payload = Encoding.UTF8.GetBytes("{\"ok\":true}"); // 11 bytes
+            inner.QueueResponse(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new NonSeekableReadStream(payload)),
+            });
+            using var client = BuildClient(metrics, inner);
+
+            using var resp = await client.SendAsync(NewPost(""));
+
+            var snap = metrics.GetSnapshot();
+            Assert.Equal(payload.Length, snap.TotalBytesDown);
+            // Buffering must not consume the body away from the caller.
+            Assert.Equal("{\"ok\":true}", await resp.Content.ReadAsStringAsync());
+        }
+
+        [Fact]
+        public async Task Bytes_down_fails_soft_to_zero_when_buffering_throws()
+        {
+            var metrics = new NetworkMetrics();
+            var inner = new RecordingHttpMessageHandler();
+            inner.QueueResponse(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ThrowingContent(),
+            });
+            using var client = BuildClient(metrics, inner);
+
+            // ResponseHeadersRead keeps HttpClient's own post-pipeline buffering out of the
+            // picture — the test isolates the handler's fallback catch (which must swallow
+            // the serialization failure and record 0, never throw).
+            using var resp = await client.SendAsync(NewPost(""), HttpCompletionOption.ResponseHeadersRead);
+
+            var snap = metrics.GetSnapshot();
+            Assert.Equal(1, snap.RequestCount);
+            Assert.Equal(0, snap.TotalBytesDown);
+        }
+
+        /// <summary>Read-only, non-seekable stream — CanSeek=false keeps StreamContent from
+        /// computing a Content-Length, mirroring a decompression-wrapped response body.</summary>
+        private sealed class NonSeekableReadStream : System.IO.Stream
+        {
+            private readonly System.IO.MemoryStream _inner;
+            public NonSeekableReadStream(byte[] data) { _inner = new System.IO.MemoryStream(data); }
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+            public override long Seek(long offset, System.IO.SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            protected override void Dispose(bool disposing) { if (disposing) _inner.Dispose(); base.Dispose(disposing); }
+        }
+
+        /// <summary>Content whose serialization always fails — drives the fallback's catch path.</summary>
+        private sealed class ThrowingContent : HttpContent
+        {
+            protected override Task SerializeToStreamAsync(System.IO.Stream stream, System.Net.TransportContext? context)
+                => throw new System.IO.IOException("connection dropped mid-body");
+            protected override bool TryComputeLength(out long length) { length = 0; return false; }
+        }
+
+        [Fact]
         public void Constructor_rejects_null_metrics()
         {
             Assert.Throws<ArgumentNullException>(() => new NetworkMetricsRecordingHandler(null!));
