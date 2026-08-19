@@ -11,6 +11,10 @@ import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { trackEvent } from "@/lib/appInsights";
+// Static import is safe: appReportData is pure data prep with no jsPDF dependency —
+// jsPDF itself only loads with the dynamic import inside handleExportPdf.
+import { scopeLabel } from "@/utils/pdf/appReportData";
 import { useAggregatedAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -215,6 +219,7 @@ function AppDetailContent() {
   const [days, setDays] = useState<7 | 30 | 90>(initialDays as 7 | 30 | 90);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const progress = useFetchProgress("appAnalytics.lastFetchMs");
   const { begin: progressBegin, finish: progressFinish } = progress;
 
@@ -370,6 +375,47 @@ function AppDetailContent() {
     }
   };
 
+  const handleExportPdf = async () => {
+    if (!analytics || exporting) return;
+    setExporting(true);
+    const t0 = performance.now();
+    const baseProps = {
+      appName,
+      appType: analytics.appType,
+      windowDays: days,
+      scope: scope.isAggregatedGlobalView ? "aggregated" : "tenant",
+    };
+    try {
+      // Lazy import keeps jsPDF out of the route bundle; a failed chunk load
+      // (deploy skew, offline) lands in the catch below and is tracked too.
+      const { generateAppReportPdf } = await import("@/utils/pdf/appReportPdf");
+      const result = generateAppReportPdf({
+        analytics,
+        appName,
+        days,
+        scopeLabel: scopeLabel(scope),
+        generatedAt: new Date(),
+      });
+      trackEvent("app_report_pdf_exported", {
+        ...baseProps,
+        success: true,
+        durationMs: Math.round(performance.now() - t0),
+        pageCount: result.pageCount,
+      });
+    } catch (err) {
+      trackEvent("app_report_pdf_exported", {
+        ...baseProps,
+        success: false,
+        durationMs: Math.round(performance.now() - t0),
+        errorName: err instanceof Error ? err.name : "UnknownError",
+      });
+      console.error("PDF export failed", err);
+      addNotification("error", "Export Failed", "Unable to generate the PDF report.", "app-pdf-export-error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Single fetch effect: re-runs when scope, app, days, or tenant selection change.
   // Gated on scopeInitialized so we don't waste a backend hit fetching the
   // wrong scope before the GA default-to-own-tenant has settled.
@@ -442,6 +488,22 @@ function AppDetailContent() {
                     {d} Days
                   </button>
                 ))}
+                <button
+                  onClick={handleExportPdf}
+                  disabled={loading || !analytics || exporting}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40 transition-colors"
+                  title="Download this report as a PDF"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"
+                    />
+                  </svg>
+                  <span>{exporting ? "Exporting…" : "Export PDF"}</span>
+                </button>
               </div>
             </div>
           </div>
