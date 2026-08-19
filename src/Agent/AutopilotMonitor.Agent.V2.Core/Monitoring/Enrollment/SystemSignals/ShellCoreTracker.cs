@@ -391,6 +391,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     PathType.LogName,
                     $"*[System[(EventID=62404 or EventID=62407) and TimeCreated[timediff(@SystemTime) <= {lookbackMs}]]]");
 
+                var records = new List<(int Id, string Description, DateTime OccurredAtUtc)>();
                 using (var reader = new EventLogReader(query))
                 {
                     for (EventRecord record = reader.ReadEvent(); record != null; record = reader.ReadEvent())
@@ -402,14 +403,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                             // (EspAndHelloTrackerAdapter) can stamp signals with the source time
                             // rather than collapsing to wall-clock-now.
                             var timestamp = (record.TimeCreated ?? DateTime.UtcNow).ToUniversalTime();
-                            HandleBackfillRecord(record.Id, description, timestamp);
+                            records.Add((record.Id, description, timestamp));
                         }
                     }
                 }
+
+                ReplayBackfillRecords(records);
             }
             catch (Exception ex)
             {
                 _logger.Warning($"ESP exit/failure event backfill failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Codex review P1 (2026-08-19) — replays a chronological batch of Shell-Core records.
+        /// <para>
+        /// The reader walks oldest-first and the ESP-exit branch is fire-once, so a naive
+        /// record-by-record replay hands the FIRST match downstream. With the downtime-sized
+        /// lookback the window routinely holds both the intermediate DeviceSetup→AccountSetup exit
+        /// and the final post-AccountSetup one — and the first match is the intermediate one, i.e.
+        /// exactly the wrong edge, with the right one swallowed by the fire-once guard.
+        /// </para>
+        /// <para>
+        /// So: everything is replayed in chronological order (ESP failures and the Hello-wizard
+        /// rail keep their existing semantics verbatim), but only the NEWEST exit-matching record
+        /// is allowed through the exit branch. Internal for direct testing without an event log.
+        /// </para>
+        /// </summary>
+        internal void ReplayBackfillRecords(
+            IReadOnlyList<(int Id, string Description, DateTime OccurredAtUtc)> records)
+        {
+            if (records == null || records.Count == 0) return;
+
+            var lastExitIndex = -1;
+            for (var i = 0; i < records.Count; i++)
+            {
+                if (EspExitingPattern.IsMatch(records[i].Description ?? ""))
+                    lastExitIndex = i;
+            }
+
+            for (var i = 0; i < records.Count; i++)
+            {
+                var record = records[i];
+                HandleBackfillRecord(
+                    record.Id,
+                    record.Description ?? "",
+                    record.OccurredAtUtc,
+                    allowEspExit: i == lastExitIndex);
             }
         }
 
@@ -420,7 +461,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// (<c>record.TimeCreated</c>); subscribers read it via
         /// <see cref="LastEventOccurredAtUtc"/> during their synchronous event handler.
         /// </summary>
-        internal void HandleBackfillRecord(int eventId, string description, DateTime occurredAtUtc)
+        internal void HandleBackfillRecord(
+            int eventId, string description, DateTime occurredAtUtc, bool allowEspExit = true)
         {
             if (eventId == EventId_ShellCore_WebAppStarted)
             {
@@ -452,7 +494,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
-            if (EspExitingPattern.IsMatch(description))
+            if (allowEspExit && EspExitingPattern.IsMatch(description))
             {
                 bool shouldNotify = false;
                 lock (_stateLock)

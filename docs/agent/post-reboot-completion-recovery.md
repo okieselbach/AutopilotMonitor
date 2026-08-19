@@ -56,6 +56,14 @@ and the lookback becomes "everything since the boot that killed us", clamped to
 `ShellCoreTracker.BackfillLookbackMaxMinutes` (360 — the agent's max lifetime). Every other
 exit type keeps the 5-minute default.
 
+**Newest exit wins.** Widening the window changes what the replay contains. The reader walks
+oldest-first and the exit branch is fire-once, so a naive record-by-record replay hands over
+the *first* match — with a downtime-sized window that is the intermediate
+DeviceSetup→AccountSetup exit, and the final post-AccountSetup exit is then swallowed by the
+fire-once guard. `ReplayBackfillRecords` therefore buffers the batch and lets only the newest
+exit-matching record through the exit branch; ESP failures and the Hello-wizard rail keep
+replaying chronologically, exactly as before.
+
 ## Defect 2 — the synthesis was edge-triggered
 
 `MaybeSynthesizeAccountSetupCompleteFromSettledUserApps()` ran **only** from `OnEspExited`.
@@ -72,11 +80,35 @@ uses). Every terminal app transition gives the synthesis another look.
 
 This adds **no new completion path**. The gate conditions are unchanged — real ESP exit,
 every required user-ESP app terminal, zero failures. The re-check only grants the existing,
-deliberately conservative check a second opportunity. Two guards keep it cheap and safe:
+deliberately conservative check a second opportunity. Three guards keep it cheap and safe:
 the fire-once claim is an `Interlocked.CompareExchange` (the re-check runs on the IME log
-thread, the edge on the Shell-Core watcher thread), and the re-check path suppresses
+thread, the edge on the Shell-Core watcher thread); the re-check path suppresses
 `app_install_starved` emission so the one-shot warning does not become a per-transition
-stream.
+stream; and the edge itself is gated.
+
+**Only a confirmed post-AccountSetup exit may be remembered.** Shell-Core raises 62407 at
+every ESP phase transition. Remembering the DeviceSetup→AccountSetup one would let the
+deferred re-check open the strong AccountSetup gate the moment the last user app settles —
+while the AccountSetup page is still up and its other subcategories are still running, i.e.
+a premature success. `IsConfirmedPostAccountSetupExit()` demands positive evidence and is
+deliberately stricter than the existing `IsIntermediateDeviceEspExit()` forward guard:
+
+| Evidence | Meaning |
+|---|---|
+| provisioning tracker reports AccountSetup activity | the page that just tore down is the AccountSetup one |
+| `SkipUser == true` | the profile has no user ESP; the Device-ESP exit **is** the final one |
+
+Anything else — including an unknown `SkipUser` — counts as *not confirmed*. The asymmetry is
+intentional: erring strict costs at worst the pre-fix behaviour (the session stalls), while
+erring loose costs a premature `Succeeded`, which nothing downstream can take back.
+
+**The re-check must also run after the IME state restore.** `ImeLogTracker.Start()` restores
+the persisted package states via `LoadState()` and raises no `OnAppStateChanged` for them, and
+`ImeLogHost` starts *after* `EspAndHelloHost` (pinned by
+`DefaultComponentFactoryOrderingTests`). So on a restart the ESP-exit replay runs against an
+empty app list. `ImeLogHost` takes an `onStateRestored` callback — wired in the factory to the
+re-check — which covers the sharpest case of all: apps already terminal *before* the reboot,
+with only the final exit lost to the downtime.
 
 # Examples
 

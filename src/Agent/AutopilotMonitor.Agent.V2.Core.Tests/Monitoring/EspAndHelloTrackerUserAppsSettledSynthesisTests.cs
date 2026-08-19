@@ -35,14 +35,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             public Fixture() { Logger = new AgentLogger(Tmp.Path, AgentLogLevel.Debug); }
 
             public EspAndHelloTracker BuildCoordinator(Func<bool> settledProbe)
+                => BuildCoordinator(settledProbe, accountSetupActivityProbe: () => true, skipUserEsp: false);
+
+            /// <summary>
+            /// Codex review P1 (2026-08-19): the remembered exit edge is gated on positive evidence
+            /// that the exit is post-AccountSetup, so these two probes decide whether the deferred
+            /// re-check may fire at all.
+            /// </summary>
+            public EspAndHelloTracker BuildCoordinator(
+                Func<bool> settledProbe,
+                Func<bool> accountSetupActivityProbe,
+                bool? skipUserEsp)
             {
                 return new EspAndHelloTracker(
                     sessionId: "S1",
                     tenantId: "T1",
                     post: new InformationalEventPost(TrackerPostSink, Clock),
                     logger: Logger,
-                    skipConfigProbe: () => ((bool?)false, (bool?)false),
-                    accountSetupActivityProbe: () => true,
+                    skipConfigProbe: () => (skipUserEsp, (bool?)false),
+                    accountSetupActivityProbe: accountSetupActivityProbe,
                     userEspAppsSettledProbe: settledProbe);
             }
 
@@ -222,6 +233,90 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
 
             Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
             Assert.Single(f.TrackerPostSink.Posted);
+        }
+
+        // ------------------------------------------------------------------------------
+        // Codex review P1 (2026-08-19): Shell-Core raises 62407 at EVERY ESP phase transition.
+        // Remembering the intermediate DeviceSetup→AccountSetup exit would let the deferred
+        // re-check open the strong AccountSetup gate as soon as the last user app settles —
+        // while the AccountSetup page is still up and its other subcategories still running.
+        // ------------------------------------------------------------------------------
+
+        [Fact]
+        public void Intermediate_device_exit_is_not_remembered_as_the_edge()
+        {
+            using var f = new Fixture();
+            var settled = false;
+            // Classic user-driven enrollment (SkipUser=false) that has NOT reached AccountSetup:
+            // this 62407 is the DeviceSetup→AccountSetup transition, not the final exit.
+            using var coordinator = f.BuildCoordinator(
+                () => settled, accountSetupActivityProbe: () => false, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+
+            // Apps settle afterwards — the level is reached, but the edge was never a valid one.
+            settled = true;
+            for (var i = 0; i < 10; i++) coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+            Assert.Empty(f.TrackerPostSink.Posted);
+        }
+
+        [Fact]
+        public void Unknown_skip_user_is_treated_as_unconfirmed()
+        {
+            // Erring strict costs at worst today's stall; erring loose costs a premature Succeeded.
+            using var f = new Fixture();
+            var settled = false;
+            using var coordinator = f.BuildCoordinator(
+                () => settled, accountSetupActivityProbe: () => false, skipUserEsp: null);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            settled = true;
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+        }
+
+        [Fact]
+        public void Skip_user_profile_confirms_the_device_exit_as_final()
+        {
+            // SkipUser=true means there is no user ESP at all — the Device-ESP exit IS the final
+            // one and no second exit is coming, so the edge is legitimately remembered.
+            using var f = new Fixture();
+            var settled = false;
+            using var coordinator = f.BuildCoordinator(
+                () => settled, accountSetupActivityProbe: () => false, skipUserEsp: true);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            settled = true;
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
+        }
+
+        [Fact]
+        public void Account_setup_activity_confirms_the_edge_for_the_deferred_recheck()
+        {
+            // The real reboot shape: AccountSetup activity is visible in the registry, the final
+            // exit lands, the apps settle a moment later.
+            using var f = new Fixture();
+            var settled = false;
+            using var coordinator = f.BuildCoordinator(
+                () => settled, accountSetupActivityProbe: () => true, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed);
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+
+            settled = true;
+            coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
         }
 
         [Fact]

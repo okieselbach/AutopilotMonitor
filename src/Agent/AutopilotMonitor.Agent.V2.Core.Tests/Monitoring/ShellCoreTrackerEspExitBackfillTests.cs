@@ -163,6 +163,93 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             Assert.Equal(0, exits);
         }
 
+        // ------------------------------------------------------------------------------
+        // Codex review P1 (2026-08-19): the reader walks oldest-first and the exit branch is
+        // fire-once, so a naive replay hands over the FIRST match. With the downtime-sized
+        // lookback the window routinely holds the intermediate DeviceSetup→AccountSetup exit
+        // AND the final one — and the first match is the wrong edge, with the right one
+        // swallowed by the fire-once guard.
+        // ------------------------------------------------------------------------------
+
+        [Fact]
+        public void Replay_hands_over_the_newest_esp_exit_not_the_oldest()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+
+            var exits = new List<DateTime>();
+            tracker.EspExited += (_, args) => exits.Add(args.OccurredAtUtc);
+
+            var intermediate = ClockNow.AddMinutes(-40);   // DeviceSetup → AccountSetup
+            var final = ClockNow.AddMinutes(-9);           // AccountSetup → End (the one we need)
+
+            tracker.ReplayBackfillRecords(new List<(int, string, DateTime)>
+            {
+                (ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitDescription, intermediate),
+                (ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitDescription, final),
+            });
+
+            var raised = Assert.Single(exits);
+            Assert.Equal(final, raised);
+        }
+
+        [Fact]
+        public void Replay_keeps_chronological_order_for_non_exit_records()
+        {
+            // Only the exit branch is newest-wins; the Hello-wizard rail and ESP failures must
+            // keep replaying exactly as before, oldest-first.
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+
+            var order = new List<string>();
+            tracker.HelloWizardStarted += (_, args) => order.Add($"wizard:{args.OccurredAtUtc:HH:mm}");
+            tracker.EspExited += (_, args) => order.Add($"exit:{args.OccurredAtUtc:HH:mm}");
+
+            const string aadHello = "CloudExperienceHost web app activity started. CXID: 'AADHello'.";
+            tracker.ReplayBackfillRecords(new List<(int, string, DateTime)>
+            {
+                (ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitDescription, ClockNow.AddMinutes(-40)),
+                (ShellCoreTracker.EventId_ShellCore_WebAppStarted, aadHello, ClockNow.AddMinutes(-20)),
+                (ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitDescription, ClockNow.AddMinutes(-9)),
+            });
+
+            // Wizard replays at its own position; the exit fires once, for the newest record.
+            Assert.Equal(new[] { "wizard:" + ClockNow.AddMinutes(-20).ToString("HH:mm"),
+                                 "exit:" + ClockNow.AddMinutes(-9).ToString("HH:mm") }, order);
+        }
+
+        [Fact]
+        public void Replay_of_a_single_exit_is_unchanged()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+
+            var exits = new List<DateTime>();
+            tracker.EspExited += (_, args) => exits.Add(args.OccurredAtUtc);
+
+            var only = ClockNow.AddMinutes(-11);
+            tracker.ReplayBackfillRecords(new List<(int, string, DateTime)>
+            {
+                (ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitDescription, only),
+            });
+
+            Assert.Equal(only, Assert.Single(exits));
+        }
+
+        [Fact]
+        public void Replay_of_an_empty_batch_is_a_no_op()
+        {
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+
+            var exits = 0;
+            tracker.EspExited += (_, __) => exits++;
+
+            tracker.ReplayBackfillRecords(new List<(int, string, DateTime)>());
+
+            Assert.Equal(0, exits);
+        }
+
         [Theory]
         [InlineData(0, 1)]
         [InlineData(-42, 1)]

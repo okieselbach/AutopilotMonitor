@@ -339,7 +339,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 stateDirectory: _stateDirectory,
                 whiteGloveSealingPatternIds: whiteGloveSealingPatternIds,
                 simulationMode: simulationMode,
-                simulationSpeedFactor: _agentConfig.ReplaySpeedFactor);
+                simulationSpeedFactor: _agentConfig.ReplaySpeedFactor,
+                // Codex review P2 (2026-08-19): the IME tracker restores its persisted app states
+                // inside Start(), silently (LoadState raises no OnAppStateChanged). This host starts
+                // AFTER EspAndHelloHost, so the Shell-Core ESP-exit replay has already run against
+                // an empty app list. Nudge the synthesis once the restored level is in place —
+                // otherwise the exact reboot case (apps terminal BEFORE the reboot, only the final
+                // exit lost to the downtime) still never completes.
+                onStateRestored: () => espAndHelloHost.ReevaluateUserAppsSettledSynthesis());
             hosts.Add(imeLogHost);
             imeLogHostRef = imeLogHost;
 

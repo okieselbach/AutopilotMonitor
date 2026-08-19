@@ -18,6 +18,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         private readonly ImeLogTracker _tracker;
         private readonly ImeProcessWatcher _processWatcher;
+        private readonly Action? _onStateRestored;
         private readonly ImeLogTrackerAdapter _adapter;
         private readonly AgentLogger _logger;
         private int _disposed;
@@ -96,9 +97,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string stateDirectory,
             IReadOnlyCollection<string>? whiteGloveSealingPatternIds,
             bool simulationMode = false,
-            double simulationSpeedFactor = 50)
+            double simulationSpeedFactor = 50,
+            Action? onStateRestored = null)
         {
             _logger = logger;
+            _onStateRestored = onStateRestored;
             var logFolder = string.IsNullOrEmpty(imeLogPathOverride) ? DefaultImeLogFolder : imeLogPathOverride!;
             var expandedMatchLogPath = string.IsNullOrEmpty(imeMatchLogPath)
                 ? null
@@ -128,10 +131,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _processWatcher = new ImeProcessWatcher(sessionId, tenantId, processWatcherPost, logger);
         }
 
+        /// <summary>
+        /// Codex review P2 (2026-08-19) — <see cref="ImeLogTracker.Start"/> restores the persisted
+        /// package states (LoadState) and does NOT raise <c>OnAppStateChanged</c> for them. This
+        /// host is started AFTER <c>EspAndHelloHost</c>, so on an agent restart the Shell-Core
+        /// ESP-exit replay runs against an empty app list and synthesises nothing — and without a
+        /// nudge here nothing would ever re-check, which is precisely the reboot case the
+        /// completion recovery exists for (apps already terminal before the reboot, only the final
+        /// exit lost to the downtime). <paramref name="onStateRestored"/> fires once, after the
+        /// restore, so the deferred synthesis gets its look at the restored level.
+        /// </summary>
         public void Start()
         {
             _tracker.Start();
             _processWatcher.Start();
+
+            try { _onStateRestored?.Invoke(); }
+            catch (Exception ex) { _logger.Warning($"ImeLogHost: onStateRestored callback threw: {ex.Message}"); }
         }
 
         public void Stop()

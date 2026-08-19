@@ -118,6 +118,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                     hosts,
                     "AadJoinHost wires its onRealUserJoined callback to the already-constructed DesktopArrivalHost.");
 
+                // Codex review P2 (2026-08-19): EspAndHelloHost.Start() replays the Shell-Core
+                // ESP exit, but ImeLogTracker only restores its persisted app states in its own
+                // Start() — which happens later. Pin the order that makes ImeLogHost's
+                // onStateRestored nudge necessary, so a future reshuffle either keeps the nudge
+                // meaningful or fails here loudly.
+                AssertBefore<EspAndHelloHost, ImeLogHost>(
+                    hosts,
+                    "the ESP-exit replay runs before the IME app-state restore, which is why " +
+                    "ImeLogHost re-triggers the user-apps-settled synthesis after LoadState.");
+
                 // Closure-latch sanity (factory lines ~139/297): the EspAndHelloHost probes close
                 // over the ImeLogHost reference, which is assigned during the same factory call —
                 // the host must therefore exist in the returned list.

@@ -52,11 +52,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // guard concurrently (Shell-Core watcher thread + IME log thread).
         private int _userAppsSettledSynthesisFired;
 
-        // sits-d Cloud-PC fix (2026-08-19) — set once a Shell-Core normal ESP exit has been
-        // observed (live OR backfill). The synthesis needs two facts: the ESP exit is an EDGE
-        // that happens once, the settled user-ESP apps are a LEVEL that may only be reached
-        // minutes later. Recording the edge lets ReevaluateUserAppsSettledSynthesis re-check
-        // the level afterwards instead of losing the completion for the rest of the session.
+        // sits-d Cloud-PC fix (2026-08-19) — set once a CONFIRMED post-AccountSetup Shell-Core
+        // exit has been observed (live OR backfill). The synthesis needs two facts: the ESP exit
+        // is an EDGE that happens once, the settled user-ESP apps are a LEVEL that may only be
+        // reached minutes later. Recording the edge lets ReevaluateUserAppsSettledSynthesis
+        // re-check the level afterwards instead of losing the completion for the rest of the
+        // session.
+        //
+        // Codex review P1 (2026-08-19): "confirmed" is load-bearing. Shell-Core raises 62407 at
+        // EVERY ESP phase transition, DeviceSetup→AccountSetup included. Remembering that
+        // intermediate exit would let the deferred re-check open the strong AccountSetup gate the
+        // moment the last user app settles — while the AccountSetup page is still up and its other
+        // subcategories are still running. See IsConfirmedPostAccountSetupExit.
         private volatile bool _espExitObserved;
 
         // Liveness plan PR3 — one-shot-per-appId dedupe for app_install_starved emissions.
@@ -578,6 +585,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             return skipUser == false;
         }
 
+        /// <summary>
+        /// Codex review P1 (2026-08-19) — may THIS <c>esp_exiting</c> be remembered as the edge the
+        /// deferred user-apps-settled re-check builds on?
+        /// <para>
+        /// Deliberately STRICTER than <c>!IsIntermediateDeviceEspExit()</c>: that helper forwards
+        /// on an unknown SkipUser (forwarding a signal early is cheap), whereas remembering the
+        /// wrong edge here can open a completion gate minutes later with no second chance to take
+        /// it back. So this one demands positive evidence and treats "unknown" as "not confirmed":
+        /// </para>
+        /// <list type="bullet">
+        ///   <item>the provisioning tracker has seen AccountSetup activity — the page that just
+        ///         tore down is demonstrably the AccountSetup one; or</item>
+        ///   <item>SkipUser is explicitly <c>true</c> — the profile has no user ESP at all, so the
+        ///         Device-ESP exit IS the final one and no second exit is coming.</item>
+        /// </list>
+        /// <para>
+        /// Erring strict costs at worst today's behaviour (the session stalls as it did before the
+        /// fix); erring loose costs a premature Succeeded, which is unrecoverable.
+        /// </para>
+        /// </summary>
+        private bool IsConfirmedPostAccountSetupExit()
+        {
+            bool accountSetupSeen;
+            try { accountSetupSeen = _accountSetupActivityProbe(); }
+            catch (Exception ex)
+            {
+                _logger.Debug($"EspAndHelloTracker: account-setup-activity probe threw: {ex.Message}");
+                accountSetupSeen = false;
+            }
+            if (accountSetupSeen) return true;
+
+            return GetSkipUserEspCached() == true;
+        }
+
         private bool? GetSkipUserEspCached()
         {
             lock (_skipConfigLock)
@@ -718,8 +759,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 catch (Exception ex) { _logger.Error("Error forwarding EspExited", ex); }
 
                 // Record the edge BEFORE the synthesis attempt so a later app-state change can
-                // re-run it even when the apps are not settled yet at this instant.
-                _espExitObserved = true;
+                // re-run it even when the apps are not settled yet at this instant — but ONLY for
+                // an exit we can positively place after AccountSetup. The immediate attempt below
+                // is deliberately left ungated: it keeps its pre-existing behaviour exactly.
+                if (IsConfirmedPostAccountSetupExit())
+                    _espExitObserved = true;
 
                 // Session caa6cf50 gate-starvation fix: a Shell-Core normal exit while IME's
                 // user-ESP app tracking is fully settled is alternative evidence that
