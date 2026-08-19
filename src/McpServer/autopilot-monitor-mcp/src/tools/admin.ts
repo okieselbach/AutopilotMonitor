@@ -153,17 +153,26 @@ export function buildGeoLocationParams(input: {
  * 100), so on busy installs a wider `days` changes nothing — `truncated` flags
  * when the cap was hit (more sessions than analyzed likely exist). Prefers the
  * backend's clamped echo over the requested values.
+ *
+ * Truncation is decided on `sessionsScanned` (sessions the backend actually
+ * covered) when the backend sends it. The legacy fallback compares
+ * `sessionsAnalyzed` — the has-snapshots SUBSET — against the cap, which
+ * understates truncation on fleets where many sessions emit no snapshots;
+ * it only remains for the deploy window where the MCP is newer than the backend.
  */
 export function platformWindowEcho(
-  raw: { windowDays?: number; sessionLimit?: number },
+  raw: { windowDays?: number; sessionLimit?: number; sessionsScanned?: number },
   requested: { days: number; limit: number },
   sessionsAnalyzed: number,
-): { windowDays: number; sessionLimit: number; truncated: boolean } {
+): { windowDays: number; sessionLimit: number; truncated: boolean; sessionsScanned?: number } {
   const sessionLimit = raw.sessionLimit ?? requested.limit;
   return {
     windowDays: raw.windowDays ?? requested.days,
     sessionLimit,
-    truncated: sessionsAnalyzed >= sessionLimit,
+    truncated: raw.sessionsScanned != null
+      ? raw.sessionsScanned >= sessionLimit
+      : sessionsAnalyzed >= sessionLimit,
+    ...(raw.sessionsScanned != null ? { sessionsScanned: raw.sessionsScanned } : {}),
   };
 }
 
@@ -408,11 +417,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Get aggregated platform-level agent performance metrics across recent sessions. ' +
         'Returns: avg/max/p95 CPU, memory (working set, private bytes), network (bytes up/down, latency, requests), ' +
+        'spool queue stats, event delivery latency percentiles, agent crash rates (incl. top exceptions), ' +
         'top sessions by CPU/memory, and per-agent-version breakdown. Global Admin only. ' +
         'Only the newest maxSessions sessions inside the window are analyzed (default 100), so on a ' +
         'busy install widening days alone may not change the result — raise maxSessions to widen the ' +
-        'sample. The response echoes sessionLimit and a truncated flag when the cap was hit. ' +
-        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
+        'sample. The response echoes sessionLimit, sessionsScanned, and a truncated flag based on the ' +
+        'sessions actually scanned. days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90). ' +
+        'For per-agent-version percentiles computed server-side, prefer get_agent_efficiency_metrics. ' +
+        'Note totalBytesDown counts the agent\'s own HTTP traffic to the backend, NOT app downloads ' +
+        '(app/Delivery Optimization bytes live in get_app_install_metrics / get_geographic_metrics).',
       inputSchema: {
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
           .describe('Time window in days (1-365). Defaults to 30.'),
@@ -429,14 +442,39 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           avgCpu: number; maxCpu: number; avgWorkingSet: number; maxWorkingSet: number;
           avgPrivateBytes: number; avgLatency: number;
           totalBytesUp: number; totalBytesDown: number; totalRequests: number;
+          avgSpoolDepth: number; maxSpoolDepth: number; peakSpoolDepth: number;
+          maxSpoolFileBytes: number; totalEventsEmitted: number; spoolPressureDetected: boolean;
         };
-        const raw = await apiFetch(`/api/global/metrics/platform${buildQuery({ days: args.days, limit: args.maxSessions })}`) as
-          { sessions?: SessionMetric[]; windowDays?: number; sessionLimit?: number };
+        // Backend fans out one storage query per session (bounded to 32 concurrent), so
+        // 2000-session windows take longer than the default 30s client timeout — same
+        // override precedent as get_session_summary. Warm (cached) calls return instantly.
+        const raw = await apiFetch(
+          `/api/global/metrics/platform${buildQuery({ days: args.days, limit: args.maxSessions })}`,
+          { signal: AbortSignal.timeout(90_000) }) as
+          {
+            sessions?: SessionMetric[]; windowDays?: number; sessionLimit?: number; sessionsScanned?: number;
+            deliveryLatency?: { p50Ms: number; p95Ms: number; p99Ms: number; avgMs: number; sampleCount: number; clockSkewPercent: number };
+            crashRate?: {
+              totalStarts: number; cleanExits: number; exceptionCrashes: number; hardKills: number;
+              rebootKills: number; firstRuns: number; crashRatePercent: number;
+              topExceptions?: { exceptionType: string; count: number }[];
+            };
+            computedAt?: string; computeDurationMs?: number; fromCache?: boolean;
+          };
         const sessions = raw?.sessions ?? [];
         const requested = { days: args.days, limit: args.maxSessions };
+        // Backend-computed blocks that exist independently of snapshot availability
+        // (crash rate comes from agent_started events, latency from all sampled events).
+        const backendAggregates = {
+          deliveryLatency: raw?.deliveryLatency,
+          crashRate: raw?.crashRate,
+          computedAt: raw?.computedAt,
+          computeDurationMs: raw?.computeDurationMs,
+          fromCache: raw?.fromCache,
+        };
         if (sessions.length === 0) {
           return toolResultText(
-            { ...platformWindowEcho(raw, requested, 0), sessionsAnalyzed: 0, message: 'No performance data available' },
+            { ...platformWindowEcho(raw, requested, 0), sessionsAnalyzed: 0, ...backendAggregates, message: 'No performance data available' },
             MAX_RESULT_SIZE_CHARS.small);
         }
         const windowEcho = platformWindowEcho(raw, requested, sessions.length);
@@ -475,6 +513,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           windowDays: windowEcho.windowDays,
           sessionLimit: windowEcho.sessionLimit,
           truncated: windowEcho.truncated,
+          ...(windowEcho.sessionsScanned != null ? { sessionsScanned: windowEcho.sessionsScanned } : {}),
           sessionsAnalyzed: sessions.length,
           cpu: { avgPercent: round(avg(cpus)), maxPercent: round(Math.max(...maxCpus)), p95Percent: round(p95(maxCpus)) },
           memory: {
@@ -487,6 +526,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
             totalRequests: sessions.reduce((a, s) => a + s.totalRequests, 0),
             avgLatencyMs: round(avg(lat)),
           },
+          spool: {
+            avgDepth: round(avg(sessions.map(s => s.avgSpoolDepth ?? 0))),
+            maxDepth: round(Math.max(...sessions.map(s => s.maxSpoolDepth ?? 0))),
+            maxPeakDepth: round(Math.max(...sessions.map(s => s.peakSpoolDepth ?? 0))),
+            maxSpoolFileBytes: Math.max(...sessions.map(s => s.maxSpoolFileBytes ?? 0)),
+            totalEventsEmitted: sessions.reduce((a, s) => a + (s.totalEventsEmitted ?? 0), 0),
+            pressureDetectedSessions: sessions.filter(s => s.spoolPressureDetected).length,
+          },
+          ...backendAggregates,
           topSessionsByCpu: topCpu,
           topSessionsByMemory: topMem,
           agentVersionBreakdown: versionBreakdown,
@@ -494,6 +542,46 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(summary, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_platform_metrics', args, error);
+      }
+    })
+  );
+
+  // get_agent_efficiency_metrics — Global Admin/Reader only; server-side per-version aggregation.
+  if (ga) server.registerTool(
+    'get_agent_efficiency_metrics',
+    {
+      title: 'Agent Efficiency Metrics',
+      description:
+        'Get agent efficiency metrics aggregated by agent version, computed server-side: ' +
+        'p50/p95/max/avg percentiles for CPU, working set, private bytes, thread count, handle count, ' +
+        'spool depth/file size, API latency and request counts, plus crash rates (incl. top exceptions) ' +
+        'and spool-pressure session counts per version. Includes an overall cross-version bucket and ' +
+        'the top offender sessions per dimension (maxCpuPercent / maxWorkingSetMb / maxHandleCount) — ' +
+        'drill into those with get_session_summary only when a threshold is violated, instead of ' +
+        'pulling raw snapshot rows. Compare sessionsScanned against sessionLimit to detect truncation. ' +
+        'Global Admin only. Omit tenantId for the cross-tenant aggregate; pass it to scope to one tenant. ' +
+        'Prefer this over get_platform_metrics for version-comparison and efficiency reviews.',
+      inputSchema: {
+        days: z.coerce.number().int().min(1).max(365).optional().default(30)
+          .describe('Time window in days (1-365). Defaults to 30.'),
+        maxSessions: z.coerce.number().int().min(1).max(2000).optional().default(500)
+          .describe('Newest N sessions in the window to analyze (1-2000, default 500).'),
+        tenantId: z.string().optional()
+          .describe('Optional tenant GUID to scope the aggregate to a single tenant. Omit for cross-tenant.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_agent_efficiency_metrics', args, async () => {
+      try {
+        // Server-side aggregation is the point of this endpoint — pass the payload through.
+        // Cold 2000-session windows fan out one filtered storage query per session backend-side,
+        // so give it more headroom than the 30s default; warm (cached) calls return instantly.
+        const data = await apiFetch(
+          `/api/global/metrics/agent-efficiency${buildQuery({ days: args.days, limit: args.maxSessions, tenantId: args.tenantId })}`,
+          { signal: AbortSignal.timeout(120_000) });
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_agent_efficiency_metrics', args, error);
       }
     })
   );

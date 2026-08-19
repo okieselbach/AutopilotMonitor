@@ -109,6 +109,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // fails — that failure is the deliberate prompt to decide its role placement.
   const GA_FULL = [
     'annotate_session',
+    'get_agent_efficiency_metrics',
     'get_api_usage',
     'get_app_install_metrics',
     'get_audit_logs',
@@ -190,6 +191,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // cross-tenant aggregates.
   const PLATFORM_ONLY = [
     'annotate_session',
+    'get_agent_efficiency_metrics',
     'get_api_usage',
     'get_ops_events',
     'get_platform_metrics',

@@ -70,14 +70,37 @@ suite('get_geographic_sessions', () => {
 });
 
 suite('get_platform_metrics', () => {
-  it('should return agent performance metrics', async () => {
+  it('should return per-session agent metrics with the honest scan count', async () => {
     const data = await apiFetch<any>(`/api/global/metrics/platform`);
-    expect(data).toHaveProperty('sessionsAnalyzed');
-    expect(data).toHaveProperty('cpu');
-    expect(data).toHaveProperty('memory');
-    expect(data).toHaveProperty('network');
-    expect(data.cpu).toHaveProperty('avgPercent');
-    expect(data.memory).toHaveProperty('avgWorkingSetMB');
+    expect(Array.isArray(data.sessions)).toBe(true);
+    expect(data).toHaveProperty('sessionsScanned');
+    expect(data).toHaveProperty('windowDays');
+    expect(data).toHaveProperty('sessionLimit');
+    if (data.sessions.length > 0) {
+      const s = data.sessions[0];
+      expect(s).toHaveProperty('avgCpu');
+      expect(s).toHaveProperty('avgWorkingSet');
+      expect(s).toHaveProperty('avgSpoolDepth');
+    }
+  });
+});
+
+suite('get_agent_efficiency_metrics', () => {
+  it('should return per-version efficiency buckets with percentiles', async () => {
+    const data = await apiFetch<any>(`/api/global/metrics/agent-efficiency?days=30&limit=100`);
+    expect(data).toHaveProperty('sessionsScanned');
+    expect(data).toHaveProperty('sessionsWithSnapshots');
+    expect(Array.isArray(data.byVersion)).toBe(true);
+    if (data.byVersion.length > 0) {
+      const bucket = data.byVersion[0];
+      expect(bucket).toHaveProperty('agentVersion');
+      expect(bucket).toHaveProperty('sessionsScanned');
+      expect(bucket).toHaveProperty('crashRate');
+      if (bucket.maxWorkingSetMb) {
+        expect(bucket.maxWorkingSetMb).toHaveProperty('p50');
+        expect(bucket.maxWorkingSetMb).toHaveProperty('p95');
+      }
+    }
   });
 });
 

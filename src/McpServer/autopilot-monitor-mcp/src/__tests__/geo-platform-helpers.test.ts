@@ -59,12 +59,27 @@ describe('platformWindowEcho', () => {
     expect(echo.sessionLimit).toBe(2000);
   });
 
-  it('flags truncated when the analyzed count reaches the cap', () => {
-    const echo = platformWindowEcho({ sessionLimit: 100 }, { days: 30, limit: 100 }, 100);
+  it('decides truncated on sessionsScanned when the backend sends it', () => {
+    // The formerly-dishonest case: the cap WAS hit (2000 scanned) but only 1400
+    // sessions carried snapshots — the analyzed-count comparison read false.
+    const echo = platformWindowEcho({ sessionLimit: 2000, sessionsScanned: 2000 }, { days: 30, limit: 2000 }, 1400);
     expect(echo.truncated).toBe(true);
+    expect(echo.sessionsScanned).toBe(2000);
   });
 
-  it('does not flag truncated when fewer sessions than the cap were analyzed', () => {
+  it('does not flag truncated when the scan stayed under the cap, even if every session analyzed', () => {
+    const echo = platformWindowEcho({ sessionLimit: 100, sessionsScanned: 80 }, { days: 30, limit: 100 }, 80);
+    expect(echo.truncated).toBe(false);
+    expect(echo.sessionsScanned).toBe(80);
+  });
+
+  it('legacy fallback: flags truncated on the analyzed count when sessionsScanned is absent (old backend)', () => {
+    const echo = platformWindowEcho({ sessionLimit: 100 }, { days: 30, limit: 100 }, 100);
+    expect(echo.truncated).toBe(true);
+    expect(echo.sessionsScanned).toBeUndefined();
+  });
+
+  it('legacy fallback: does not flag truncated when fewer sessions than the cap were analyzed', () => {
     const echo = platformWindowEcho({ sessionLimit: 100 }, { days: 30, limit: 100 }, 42);
     expect(echo.truncated).toBe(false);
   });
