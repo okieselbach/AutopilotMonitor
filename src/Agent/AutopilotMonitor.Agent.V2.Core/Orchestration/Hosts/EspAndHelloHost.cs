@@ -104,8 +104,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// Starts the tracker and replays recent Shell-Core ESP-exit / Hello-wizard records —
-        /// restart recovery for observations no agent process was around to make.
+        /// Starts the tracker and replays the recent Shell-Core Hello-wizard start — restart
+        /// recovery for an observation no agent process was around to make.
         /// <para>
         /// The backfill has existed since session 772fe502 but was never wired to a caller, so
         /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
@@ -125,18 +125,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         /// <para>
         /// Ordering is deliberate: Start first, then replay. A record written between the two is
-        /// observed twice, which the design already tolerates — the tracker dedups the REPLAY
-        /// (single-shot per rail) but never the live stream, because Shell-Core emits 62407 at
-        /// every ESP phase transition anyway. Duplicates are absorbed downstream: the reducer
-        /// (<c>ShouldTransitionToAwaitingHello</c>) picks the genuine post-AccountSetup exit, and
-        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag. The
-        /// reverse order could drop a record entirely.
+        /// observed twice, which the wizard rail already tolerates (single-shot replay guard, plus
+        /// the HelloTracker once-guard and the adapter's dedup flag downstream). The reverse order
+        /// could drop a record entirely.
         /// </para>
         /// <para>
-        /// The replay feeds the reducer only. A replayed exit can never open the completion gate
-        /// (see <c>EspAndHelloTracker.OnEspExited</c>), so nothing here depends on the IME app
-        /// states being restored yet — which keeps this host's startup independent of the IME
-        /// host's.
+        /// The replay covers the Hello-wizard start only — a conservative fact that can make the
+        /// agent wait longer but never finish early. ESP exits are deliberately excluded because a
+        /// replayed 62407 cannot be placed in time; see
+        /// <c>ShellCoreTracker.ReplayBackfillRecords</c>.
         /// </para>
         /// </summary>
         public void Start()
@@ -144,7 +141,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _tracker.Start();
 
             if (_espExitBackfillLookbackMinutes > 0)
-                _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
+                _tracker.BackfillRecentHelloWizardStart(_espExitBackfillLookbackMinutes);
         }
 
         public void Stop() => _tracker.Stop();

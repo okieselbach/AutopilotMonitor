@@ -332,18 +332,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// </summary>
         public void ResetForEspResumption() => _helloTracker?.ResetForEspResumption();
 
-        /// <summary>
-        /// Backfills recent ESP exit and failure events from Shell-Core log on startup.
-        /// Secondary recovery mechanism when state persistence is unavailable.
-        /// </summary>
-        public void BackfillRecentEspExitEvents() => _shellCoreTracker?.BackfillRecentEspExitEvents();
 
         /// <summary>
-        /// Same backfill with an explicit lookback window. Called by <c>EspAndHelloHost</c> right
-        /// after <see cref="Start"/> — see the host for why the window widens after a reboot.
+        /// Replays the recent Shell-Core Hello-wizard start with an explicit lookback window.
+        /// Called by <c>EspAndHelloHost</c> right after <see cref="Start"/> — see the host for why
+        /// the window is sized to the previous run's downtime, and
+        /// <see cref="ShellCoreTracker.ReplayBackfillRecords"/> for why the ESP exit is not part
+        /// of the replay.
         /// </summary>
-        public void BackfillRecentEspExitEvents(int lookbackMinutes)
-            => _shellCoreTracker?.BackfillRecentEspExitEvents(lookbackMinutes);
+        public void BackfillRecentHelloWizardStart(int lookbackMinutes)
+            => _shellCoreTracker?.BackfillRecentHelloWizardStart(lookbackMinutes);
 
         /// <summary>
         /// sits-d Cloud-PC fix (2026-08-19) — re-check the user-apps-settled AccountSetup
@@ -649,8 +647,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // ShellCoreTracker.EspExited event raises. Drives the full coordinator re-raise path so
         // tests can assert LastEventOccurredAtUtc mirroring + the public EspExited event fire
         // without needing a real ShellCoreTracker + Event-Log watcher.
-        internal void TriggerEspExitedForTest(DateTime occurredAtUtc, bool isBackfill = false) =>
-            OnEspExited(this, new EspExitedEventArgs(occurredAtUtc, isBackfill));
+        internal void TriggerEspExitedForTest(DateTime occurredAtUtc) =>
+            OnEspExited(this, new EspExitedEventArgs(occurredAtUtc));
 
         // Test seam for HelloWizardStarted — same contract as TriggerEspExitedForTest.
         internal void TriggerHelloWizardStartedForTest(DateTime occurredAtUtc) =>
@@ -758,25 +756,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 try { EspExited?.Invoke(this, args); }
                 catch (Exception ex) { _logger.Error("Error forwarding EspExited", ex); }
 
-                // A REPLAYED exit must not touch the completion gate at all — neither the
-                // deferred edge nor the immediate attempt below (Codex review, 2026-08-19).
+                // Every exit reaching this handler is one the agent observed LIVE: the Shell-Core
+                // replay never re-raises 62407 (see ShellCoreTracker.ReplayBackfillRecords — a
+                // replayed exit cannot be placed in time and is therefore kept out of the decision
+                // stream entirely). That is what makes the AccountSetup read below a valid
+                // ordering fact: the agent was continuously observing up to this instant.
                 //
-                // Shell-Core writes the identical description
-                // (CommercialOOBE_ESPProgress_Page_Exiting) for the intermediate
-                // DeviceSetup→AccountSetup transition and for the final post-AccountSetup one, so
-                // a replayed record carries no evidence of its own position. Everything that could
-                // order it — IsConfirmedPostAccountSetupExit, the settled-apps probe — reads state
-                // as it is NOW, not as it was at the event's time. If the newest 62407 in the
-                // window is only the intermediate exit while the restored app states are already
-                // terminal, synthesising here would open the strong AccountSetup gate before the
-                // final exit has even happened.
-                //
-                // The replay keeps the job it was written for (session 772fe502): feeding
-                // EspExiting / FinalizingSetup / Hello-wizard to the reducer for the window in
-                // which no agent process was observing. Completion stays the exclusive business of
-                // exits this agent watched live.
-                if (args?.IsBackfill == true) return;
-
                 // Record the edge BEFORE the synthesis attempt so a later app-state change can
                 // re-run it even when the apps are not settled at this instant.
                 if (IsConfirmedPostAccountSetupExit())

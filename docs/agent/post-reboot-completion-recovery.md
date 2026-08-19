@@ -37,30 +37,61 @@ subcategory permanently `inProgress`, starving the registry path (session `caa6c
 
 Two independent defects made the synthesis unreachable after a reboot.
 
-## Defect 1 — the ESP-exit replay was never wired up
+## Defect 1 — the restart replay was never wired up
 
 `ShellCoreTracker.BackfillRecentEspExitEvents()` had existed since session `772fe502` but
 **no caller ever invoked it**. The Shell-Core `EventLogWatcher` only delivers records
-written after `Start()`, so every agent restart silently dropped an ESP exit (62407) or
-Hello-wizard start (62404) that occurred while the agent was down.
+written after `Start()`, so every agent restart silently dropped a Hello-wizard start
+(62404) that occurred while the agent was down.
 
-`EspAndHelloHost.Start()` now calls it. Ordering is Start-then-backfill: a record written
-between the two is observed twice, which the design already tolerates (Shell-Core emits
-62407 at every ESP phase transition; the reducer's `ShouldTransitionToAwaitingHello`
-picks the genuine post-AccountSetup one). The reverse order could drop a record, which
-costs the session its completion.
+`EspAndHelloHost.Start()` now calls it — as `BackfillRecentHelloWizardStart`, which is what
+it does.
 
-**Scope: restart recovery only.** The replay re-reads observations the agent could not make
-because no agent process was running. On `first_run` it stays **off** — no earlier process, no
-gap; a 62407 already in the log belongs to a transition this agent was never meant to observe,
-and replaying it would push an `EspExiting` into the reducer that the pre-fix agent never saw.
-The happy path is therefore untouched.
+### What the replay recovers, and what it deliberately does not
 
-**The window is measured, not guessed.** A constant is provably wrong here: the agent's
-scheduled task carries a `BootTrigger` **only**, with no restart-on-failure
-(`Program.InstallMode.BuildScheduledTaskXml`). After an `exception_crash` the agent does not
-come back until the next boot — possibly hours later, long after Windows wrote the final ESP
-exit. `ResolveEspExitBackfillLookbackMinutes` therefore reaches back to the last moment the
+Wiring up dead code activated three rails at once. Only one of them is safe to replay, and
+the asymmetry is the whole design:
+
+| Record | Replayed | Why |
+|---|---|---|
+| 62404 Hello-wizard start | **yes** | A *conservative* fact: it vetoes a premature "Hello is disabled" skip and can never by itself complete a session. Replaying it can only make the agent wait longer, never finish early. This is the observation `772fe502` was about. |
+| 62407 ESP exit | **no** | Cannot be placed in time — see below. |
+| 62407 ESP failure | **no** | Re-injecting a historic failure as fresh can fail a session that recovered on retry (`ANALYZE-ESP-006`). |
+
+A replayed exit is unusable, and every candidate ordering mechanism fails for a different
+reason:
+
+1. Windows writes the **identical** description `CommercialOOBE_ESPProgress_Page_Exiting`
+   for the intermediate DeviceSetup→AccountSetup transition and for the final
+   post-AccountSetup exit. The record carries no evidence of its own position.
+2. Everything that could order it after the fact — the AccountSetup registry probe, the
+   settled-apps probe — reads state as it is **now**, not as it was at the event's time. An
+   agent that was down across the Device→AccountSetup transition would confirm the stale
+   intermediate exit.
+3. The reducer orders exits by **ingest ordinal**, not by timestamp
+   (`IsPostAccountSetupFinalExit`, deliberately — replayed CMTrace lines carry backdated
+   source times). A historic exit replayed today is assigned a fresher ordinal than reality,
+   so it reads as post-AccountSetup by construction.
+4. `HandleEspExitingV1` passes `espFinalExitInFlight: true` for every arriving exit — the
+   signal carries no provenance at all. With restored state (AccountSetup entered, a genuine
+   IME user session, desktop arrived) **arm C** of `ShouldTransitionToAwaitingHello` then
+   opens on a historic intermediate exit.
+
+Point 4 is why the fix cannot live in the reducer: the reducer is itself a completion gate
+and cannot tell the two apart. `ClassicEspExitingOnRestoredStateTests` pins that it *does*
+open on any arriving exit; `ShellCoreTrackerReplayScopeTests` pins that the replay never
+produces one. The pair is the contract.
+
+Records that are read but not replayed are counted and reported once as an `agent_trace`
+(`skippedEspExits`, `skippedEspFailures`, oldest/newest). Silently dropping evidence is how
+this class of bug survives.
+
+### Sizing the window
+
+A constant is provably wrong: the agent's scheduled task carries a `BootTrigger` **only**,
+with no restart-on-failure (`Program.InstallMode.BuildScheduledTaskXml`). After an
+`exception_crash` the agent does not come back until the next boot — possibly hours later.
+`ResolveEspExitBackfillLookbackMinutes` therefore reaches back to the last moment the
 previous run is known to have been alive, taking the wider of two independent inputs:
 
 | Input | Available for | Source |
@@ -68,22 +99,14 @@ previous run is known to have been alive, taking the wider of two independent in
 | Snapshot mtime | every exit type | `snapshot.json` is rewritten on every decision step, so its last-write time is "when we last knew what was happening" |
 | `LastBootUtc` | `hard_kill` / `reboot_kill` | covers a missing or never-written snapshot |
 
-The 5-minute default remains the **floor** (a restart that returns in seconds still gets it) and
-`ShellCoreTracker.ClampLookbackMinutes` the **ceiling** (360 — the agent's max lifetime), so
-policy and backstop together can never build an unbounded event-log query. A timestamp in the
-future (clock skew across a reboot) is ignored rather than producing a negative window.
+On `first_run` the replay stays **off** — no earlier process, no gap — so the happy path is
+untouched. The 5-minute default is the **floor**, `ShellCoreTracker.ClampLookbackMinutes`
+(360) the **ceiling**, and a timestamp in the future (clock skew across a reboot) is ignored
+rather than producing a negative window.
 
-This is a *new* caller for existing code, not a change to any other backfill. The
+This is a new caller for existing code, not a change to any other backfill. The
 Hello/MDM-reboot/Windows-Update/ModernDeployment trackers each own a private backfill called
 from their own `Start()`; none of them is touched.
-
-**Newest exit wins.** Widening the window changes what the replay contains. The reader walks
-oldest-first and the exit branch is fire-once, so a naive record-by-record replay hands over
-the *first* match — with a downtime-sized window that is the intermediate
-DeviceSetup→AccountSetup exit, and the final post-AccountSetup exit is then swallowed by the
-fire-once guard. `ReplayBackfillRecords` therefore buffers the batch and lets only the newest
-exit-matching record through the exit branch; ESP failures and the Hello-wizard rail keep
-replaying chronologically, exactly as before.
 
 ## Defect 2 — the synthesis was edge-triggered
 
@@ -107,39 +130,12 @@ thread, the edge on the Shell-Core watcher thread); the re-check path suppresses
 `app_install_starved` emission so the one-shot warning does not become a per-transition
 stream; and the edge itself is gated.
 
-**Only a LIVE, confirmed post-AccountSetup exit may be remembered.** Shell-Core raises 62407 at
-every ESP phase transition and writes the *same* description
-(`CommercialOOBE_ESPProgress_Page_Exiting`) for the intermediate DeviceSetup→AccountSetup
-transition and for the final one — the event carries no evidence of its own position.
-Remembering the wrong one would let the deferred re-check open the strong AccountSetup gate the
-moment the last user app settles, while the AccountSetup page is still up and its other
-subcategories are still running: a premature success.
-
-Two filters therefore apply:
-
-1. **Live only — for the whole gate, not just the deferred edge.** A replayed exit
-   (`EspExitedEventArgs.IsBackfill`) returns before touching completion at all: it neither arms
-   the deferred re-check nor gets an immediate synthesis attempt. Everything that could order it
-   — the AccountSetup check, the settled-apps probe — reads state as it is *now*, not as it was
-   at the event's time. That read is a valid ordering fact only for an exit the agent observed
-   while continuously running; an agent that was down across the DeviceSetup→AccountSetup
-   transition would otherwise confirm the stale intermediate exit, and if the restored app states
-   happen to be terminal it would open the strong gate before the final exit has even happened.
-   The replay keeps the job it was written for (session 772fe502): feeding
-   `EspExiting` / `FinalizingSetup` / Hello-wizard to the reducer for the unobserved window.
-   Completion is the exclusive business of exits this agent watched live.
-2. **Confirmed post-AccountSetup.** For those live exits `IsConfirmedPostAccountSetupExit()`
-   demands positive evidence and is deliberately stricter than the existing
-   `IsIntermediateDeviceEspExit()` forward guard:
-
-| Evidence | Meaning |
-|---|---|
-| provisioning tracker reports AccountSetup activity | the page that just tore down is the AccountSetup one |
-| `SkipUser == true` | the profile has no user ESP; the Device-ESP exit **is** the final one |
-
-Anything else — including an unknown `SkipUser` — counts as *not confirmed*. The asymmetry is
-intentional: erring strict costs at worst the pre-fix behaviour (the session stalls), while
-erring loose costs a premature `Succeeded`, which nothing downstream can take back.
+**Only a confirmed post-AccountSetup exit may be remembered.** Every exit that reaches the
+coordinator is one the agent observed live — the replay never re-raises 62407 (above). That
+is what makes the AccountSetup read below a valid ordering fact: the agent was continuously
+observing up to that instant. On top of it, `IsConfirmedPostAccountSetupExit()` demands
+positive evidence and is deliberately stricter than the existing
+`IsIntermediateDeviceEspExit()` forward guard:
 
 **The re-check must also run after the IME state restore.** `ImeLogTracker.Start()` restores
 the persisted package states via `LoadState()` and raises no `OnAppStateChanged` for them, and

@@ -372,16 +372,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             return lookbackMinutes;
         }
 
-        public void BackfillRecentEspExitEvents() => BackfillRecentEspExitEvents(BackfillLookbackMinutes);
+        public void BackfillRecentHelloWizardStart() => BackfillRecentHelloWizardStart(BackfillLookbackMinutes);
 
         /// <summary>
-        /// Same recovery with a caller-chosen lookback. A restart after a mid-ESP reboot must
-        /// reach back over the whole downtime (agent dead from the restart until the post-reboot
-        /// logon re-launches it), which the 5-minute default cannot span — the ESP exit that ends
-        /// AccountSetup then lands in the gap and the session never observes it. The value is
-        /// clamped to [1, <see cref="BackfillLookbackMaxMinutes"/>].
+        /// Same recovery with a caller-chosen lookback, so a restart can reach back over its whole
+        /// downtime (after a mid-ESP reboot the agent is gone from the forced restart until the
+        /// post-reboot logon relaunches it; after a crash, until the next boot — the scheduled task
+        /// has a BootTrigger only). Clamped to [1, <see cref="BackfillLookbackMaxMinutes"/>].
+        /// <para>
+        /// The 62407 records in the window are read but deliberately NOT replayed — see
+        /// <see cref="ReplayBackfillRecords"/>. They are counted and reported once as an
+        /// <c>agent_trace</c> so the gap stays visible in the timeline without becoming
+        /// decision-relevant.
+        /// </para>
         /// </summary>
-        public void BackfillRecentEspExitEvents(int lookbackMinutes)
+        public void BackfillRecentHelloWizardStart(int lookbackMinutes)
         {
             try
             {
@@ -412,23 +417,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             }
             catch (Exception ex)
             {
-                _logger.Warning($"ESP exit/failure event backfill failed: {ex.Message}");
+                _logger.Warning($"Shell-Core replay failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Codex review P1 (2026-08-19) — replays a chronological batch of Shell-Core records.
+        /// Replays a chronological batch of Shell-Core records. <b>Only the Hello-wizard start
+        /// (62404) is replayed.</b> ESP exits and ESP failures (62407) are counted and reported,
+        /// never re-raised.
         /// <para>
-        /// The reader walks oldest-first and the ESP-exit branch is fire-once, so a naive
-        /// record-by-record replay hands the FIRST match downstream. With the downtime-sized
-        /// lookback the window routinely holds both the intermediate DeviceSetup→AccountSetup exit
-        /// and the final post-AccountSetup one — and the first match is the intermediate one, i.e.
-        /// exactly the wrong edge, with the right one swallowed by the fire-once guard.
+        /// Why the exit is excluded — the reasoning is the whole point of this method, so it lives
+        /// here rather than in a commit message:
+        /// </para>
+        /// <list type="number">
+        ///   <item>Windows writes the IDENTICAL description
+        ///     (<c>CommercialOOBE_ESPProgress_Page_Exiting</c>) for the intermediate
+        ///     DeviceSetup→AccountSetup transition and for the final post-AccountSetup exit, so a
+        ///     replayed record carries no evidence of its own position.</item>
+        ///   <item>Everything that could order it after the fact — the AccountSetup registry
+        ///     probe, the settled-apps probe — reads state as it is NOW, not as it was at the
+        ///     event's time.</item>
+        ///   <item>The reducer orders exits by INGEST ORDINAL, not by timestamp
+        ///     (<c>IsPostAccountSetupFinalExit</c>). A replayed historic exit is assigned a fresher
+        ///     ordinal than reality, so it looks post-AccountSetup by construction.</item>
+        ///   <item><c>HandleEspExitingV1</c> passes <c>espFinalExitInFlight: true</c> for every
+        ///     arriving exit. With restored state (AccountSetupEntered + a genuine IME user
+        ///     session + desktop arrived) arm C of <c>ShouldTransitionToAwaitingHello</c> then
+        ///     opens on a historic intermediate exit — a completion built on a fact that never
+        ///     happened.</item>
+        /// </list>
+        /// <para>
+        /// There is therefore no honest way to classify a replayed exit, so it must not enter the
+        /// decision stream at all. The same applies to a replayed ESP FAILURE, for the opposite
+        /// reason: re-injecting a historic failure as fresh can fail a session that recovered
+        /// (see ANALYZE-ESP-006, "ESP Failure Recovered After User Retry").
         /// </para>
         /// <para>
-        /// So: everything is replayed in chronological order (ESP failures and the Hello-wizard
-        /// rail keep their existing semantics verbatim), but only the NEWEST exit-matching record
-        /// is allowed through the exit branch. Internal for direct testing without an event log.
+        /// The Hello-wizard start is different in kind and is the observation this replay was
+        /// written for (session 772fe502): it is a CONSERVATIVE fact. It vetoes a premature
+        /// "Hello is disabled" skip and can never by itself complete a session, so replaying it
+        /// can only make the agent wait longer, never finish early.
         /// </para>
         /// </summary>
         internal void ReplayBackfillRecords(
@@ -436,33 +464,84 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         {
             if (records == null || records.Count == 0) return;
 
-            var lastExitIndex = -1;
-            for (var i = 0; i < records.Count; i++)
+            var skippedExits = 0;
+            var skippedFailures = 0;
+            DateTime? oldestSkipped = null;
+            DateTime? newestSkipped = null;
+
+            foreach (var record in records)
             {
-                if (EspExitingPattern.IsMatch(records[i].Description ?? ""))
-                    lastExitIndex = i;
+                var description = record.Description ?? string.Empty;
+
+                if (record.Id == EventId_ShellCore_WebAppStarted)
+                {
+                    HandleBackfillRecord(record.Id, description, record.OccurredAtUtc);
+                    continue;
+                }
+
+                var isFailure = HasEspFailurePattern(description);
+                var isExit = !isFailure && EspExitingPattern.IsMatch(description);
+                if (!isFailure && !isExit) continue;
+
+                if (isFailure) skippedFailures++; else skippedExits++;
+                if (oldestSkipped == null || record.OccurredAtUtc < oldestSkipped.Value)
+                    oldestSkipped = record.OccurredAtUtc;
+                if (newestSkipped == null || record.OccurredAtUtc > newestSkipped.Value)
+                    newestSkipped = record.OccurredAtUtc;
             }
 
-            for (var i = 0; i < records.Count; i++)
+            if (skippedExits > 0 || skippedFailures > 0)
+                EmitSkippedShellCoreRecords(skippedExits, skippedFailures, oldestSkipped, newestSkipped);
+        }
+
+        /// <summary>
+        /// One informational <c>agent_trace</c> naming the 62407 records the replay deliberately
+        /// did not re-raise. Decision-neutral by construction (informational events are exempt
+        /// from the dispatch guard) — its only job is to keep the blind window visible to whoever
+        /// debugs a session later, instead of the replay silently dropping evidence.
+        /// </summary>
+        private void EmitSkippedShellCoreRecords(
+            int skippedExits, int skippedFailures, DateTime? oldestUtc, DateTime? newestUtc)
+        {
+            try
             {
-                var record = records[i];
-                HandleBackfillRecord(
-                    record.Id,
-                    record.Description ?? "",
-                    record.OccurredAtUtc,
-                    allowEspExit: i == lastExitIndex);
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _sessionId,
+                    TenantId = _tenantId,
+                    EventType = Constants.EventTypes.AgentTrace,
+                    Severity = EventSeverity.Info,
+                    Source = "ShellCoreTracker",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message =
+                        $"Shell-Core replay skipped {skippedExits} ESP exit(s) and {skippedFailures} ESP failure(s) " +
+                        "from the window in which no agent process was running — a replayed 62407 cannot be placed " +
+                        "in time and must not reach the decision engine.",
+                    Data = new Dictionary<string, object>
+                    {
+                        { "skippedEspExits", skippedExits },
+                        { "skippedEspFailures", skippedFailures },
+                        { "oldestSkippedUtc", oldestUtc?.ToString("o") ?? string.Empty },
+                        { "newestSkippedUtc", newestUtc?.ToString("o") ?? string.Empty },
+                        { "reason", "replayed_62407_not_orderable" },
+                    },
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug($"ShellCoreTracker: skipped-records trace emit failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Internal backfill record handler — extracted for testability and to keep the
-        /// backfill loop free of direct event-processing logic. The
+        /// Internal backfill record handler — extracted for testability and to keep the replay
+        /// loop free of direct event-processing logic. Handles the Hello-wizard start ONLY; see
+        /// <see cref="ReplayBackfillRecords"/> for why 62407 is never replayed. The
         /// <paramref name="occurredAtUtc"/> is the original Shell-Core event time
         /// (<c>record.TimeCreated</c>); subscribers read it via
         /// <see cref="LastEventOccurredAtUtc"/> during their synchronous event handler.
         /// </summary>
-        internal void HandleBackfillRecord(
-            int eventId, string description, DateTime occurredAtUtc, bool allowEspExit = true)
+        internal void HandleBackfillRecord(int eventId, string description, DateTime occurredAtUtc)
         {
             if (eventId == EventId_ShellCore_WebAppStarted)
             {
@@ -494,42 +573,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 return;
             }
 
-            if (allowEspExit && EspExitingPattern.IsMatch(description))
-            {
-                bool shouldNotify = false;
-                lock (_stateLock)
-                {
-                    if (!_espExitDetected)
-                    {
-                        _espExitDetected = true;
-                        shouldNotify = true;
-                    }
-                }
-                if (shouldNotify)
-                {
-                    _helloTracker?.NotifyEspExited();
-                    _logger.Info($"Backfill: ESP exit event found in recent Shell-Core logs (originalAt={occurredAtUtc:o})");
-                    LastEventOccurredAtUtc = occurredAtUtc;
-                    try
-                    {
-                        try { FinalizingSetupPhaseTriggered?.Invoke(this, "esp_exiting"); }
-                        catch (Exception ex) { _logger.Error("Backfill: FinalizingSetupPhaseTriggered handler failed", ex); }
-                        try { EspExited?.Invoke(this, new EspExitedEventArgs(occurredAtUtc, isBackfill: true)); }
-                        catch (Exception ex) { _logger.Error("Backfill: EspExited handler failed", ex); }
-                    }
-                    finally { LastEventOccurredAtUtc = null; }
-                }
-            }
-
-            if (HasEspFailurePattern(description))
-            {
-                var failureType = ExtractEspFailureType(description);
-                _logger.Info($"Backfill: ESP failure event found in recent Shell-Core logs: {failureType} (originalAt={occurredAtUtc:o})");
-                LastEventOccurredAtUtc = occurredAtUtc;
-                try { EspFailureDetected?.Invoke(this, failureType); }
-                catch (Exception ex) { _logger.Error($"Backfill: EspFailureDetected handler failed for '{failureType}'", ex); }
-                finally { LastEventOccurredAtUtc = null; }
-            }
         }
 
         // =====================================================================

@@ -17,14 +17,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
 {
     /// <summary>
     /// Plan §EspExiting Adapter — wire-through verification of the production EspExiting path:
-    /// <c>ShellCoreTracker.HandleBackfillRecord</c> → <c>EspExited</c> event → inner re-raise on
-    /// <c>EspAndHelloTracker.EspExited</c> → <c>EspAndHelloTrackerAdapter</c> → ingress → engine
-    /// reducer. This is the path the live V2-Host uses; without the coordinator forward the
-    /// EspExiting signal would never reach the engine in production.
+    /// <c>ShellCoreTracker.ProcessEvent</c> (live Shell-Core 62407) → <c>EspExited</c> event →
+    /// inner re-raise on <c>EspAndHelloTracker.EspExited</c> → <c>EspAndHelloTrackerAdapter</c> →
+    /// ingress → engine reducer. Without the coordinator forward the EspExiting signal would
+    /// never reach the engine in production.
     /// <para>
     /// The first test isolates the tracker's <c>EspExited</c> contract (source-event timestamp
-    /// preserved through backfill); the coordinator tests drive the full production chain through
-    /// to the <c>HelloSafety</c> deadline when AccountSetup is already entered.
+    /// preserved rather than collapsed to wall-clock-now); the coordinator tests drive the full
+    /// production chain through to the <c>HelloSafety</c> deadline when AccountSetup is already
+    /// entered.
+    /// </para>
+    /// <para>
+    /// It used to drive that first test through <c>HandleBackfillRecord</c> because the replay is
+    /// easier to call than the event-log watcher — but the replay no longer raises
+    /// <c>EspExited</c> at all (a replayed 62407 cannot be placed in time; see
+    /// <c>ShellCoreTrackerReplayScopeTests</c>), and it never was the production path: the replay
+    /// had no caller when this test was written.
     /// </para>
     /// </summary>
     public sealed class ShellCoreToEngineEspExitingTests
@@ -34,12 +42,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             "CommercialOOBE_ESPProgress_Page_Exiting"; // matches EspExitingPattern in ShellCoreTracker
 
         [Fact]
-        public void Tracker_backfill_record_raises_EspExited_with_source_timestamp()
+        public void Tracker_live_record_raises_EspExited_with_source_timestamp()
         {
-            // Tracker-level contract: HandleBackfillRecord raises EspExited carrying the source
-            // event time (not Clock.UtcNow). The EspExited→EspExiting signal mapping and SourceOrigin
-            // are covered by the coordinator tests below; here we isolate the backfill→event link
-            // that the production coordinator depends on.
+            // Tracker-level contract: the live 62407 path raises EspExited carrying the source
+            // event time (record.TimeCreated, not Clock.UtcNow). The EspExited→EspExiting signal
+            // mapping and SourceOrigin are covered by the coordinator tests below; here we isolate
+            // the event-log→event link that the production coordinator depends on.
             using var tmp = new TempDirectory();
             var logger = new AgentLogger(tmp.Path, AgentLogLevel.Info);
             var clock = new VirtualClock(ClockNow);
@@ -57,7 +65,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             // Source time IS in the past relative to the clock — verify the tracker carries the
             // historical timestamp on the event rather than collapsing to Clock.UtcNow.
             var sourceTime = ClockNow.AddMinutes(-2);
-            tracker.HandleBackfillRecord(ShellCoreTracker.EventId_ShellCore_WebAppEvent, EspExitingDescription, sourceTime);
+            tracker.ProcessEvent(
+                eventId: ShellCoreTracker.EventId_ShellCore_WebAppEvent,
+                description: EspExitingDescription,
+                timestamp: sourceTime,
+                providerName: "Microsoft-Windows-Shell-Core",
+                isBackfill: false);
 
             Assert.NotNull(captured);
             Assert.Equal(sourceTime, captured!.OccurredAtUtc);
