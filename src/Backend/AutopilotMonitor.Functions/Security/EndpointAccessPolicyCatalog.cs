@@ -456,6 +456,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/presence",            EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/tenants-with-deletion-manifests", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/metrics/platform",    EndpointPolicy.GlobalReadOrAdmin),
+        new("GET",    "global/metrics/agent-efficiency", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/app",         EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/time-attribution", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

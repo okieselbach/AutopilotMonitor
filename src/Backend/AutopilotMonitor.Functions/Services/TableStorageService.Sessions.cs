@@ -1099,7 +1099,8 @@ namespace AutopilotMonitor.Functions.Services
 
         public async Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
             string? tenantIdFilter, int? days, int pageSize, string? continuation,
-            IReadOnlyCollection<string>? allowedTenantIds = null)
+            IReadOnlyCollection<string>? allowedTenantIds = null,
+            IEnumerable<string>? select = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
@@ -1111,10 +1112,11 @@ namespace AutopilotMonitor.Functions.Services
             // the per-tenant SessionsIndex scan — natively-ordered, cheaper.
             if (!string.IsNullOrEmpty(tenantIdFilter))
             {
-                return await GetSessionsPageAsync(tenantIdFilter!, days, pageSize, continuation);
+                var tenantPage = await FetchSessionsPageInternalAsync(tenantIdFilter!, pageSize, continuation, days, select);
+                return new RawPage<SessionSummary>(tenantPage.Sessions, tenantPage.HasMore ? tenantPage.NextCursor : null);
             }
 
-            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days, allowedTenantIds: allowedTenantIds);
+            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days, allowedTenantIds: allowedTenantIds, select: select);
             return new RawPage<SessionSummary>(page.Sessions, page.HasMore ? page.NextCursor : null);
         }
 
@@ -1317,7 +1319,8 @@ namespace AutopilotMonitor.Functions.Services
         /// <see cref="GetAllSessionsPageAsync"/> (single page).
         /// </summary>
         private async Task<(List<SessionSummary> Sessions, bool HasMore, string? NextCursor)> FetchAllSessionsPageInternalAsync(
-            int maxResults, string? cursor, int? days, IReadOnlyCollection<string>? allowedTenantIds = null)
+            int maxResults, string? cursor, int? days, IReadOnlyCollection<string>? allowedTenantIds = null,
+            IEnumerable<string>? select = null)
         {
             try
             {
@@ -1393,7 +1396,7 @@ namespace AutopilotMonitor.Functions.Services
 
                     var tenantSessions = new List<SessionSummary>();
                     await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(
-                        filter: filter, maxPerPage: Math.Min(fetchPerTenant, 1000)))
+                        filter: filter, maxPerPage: Math.Min(fetchPerTenant, 1000), select: select))
                     {
                         tenantSessions.Add(MapIndexEntityToSessionSummary(entity));
                         if (tenantSessions.Count >= fetchPerTenant) break;
@@ -2608,6 +2611,70 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get events by type {EventType} for session {SessionId}", eventType, sessionId);
+                return new List<EnrollmentEvent>();
+            }
+        }
+
+        // Columns the metrics aggregation paths (PlatformMetricsService, AgentEfficiencyMetricsService)
+        // need from an event row: EventType routes the event to its aggregation, DataJson carries the
+        // snapshot payload, Sequence pins the authoritative sort, and the timestamp trio feeds
+        // ResolveEventTimestamp (OccurredUtc column → RowKey decode → system Timestamp) plus the
+        // ReceivedAt side of the delivery-latency delta. Severity/Phase/Message/Source are never read
+        // by the metrics math and map to defaults via MapToEnrollmentEvent's null-safe getters.
+        internal static readonly string[] AgentMetricsEventProjection =
+            { "PartitionKey", "RowKey", "EventType", "DataJson", "Sequence", "ReceivedAt", BusinessTimestamp.OccurredUtcColumn, "Timestamp" };
+
+        /// <summary>
+        /// Builds the OData filter for <see cref="GetSessionEventsByTypesAsync"/>: partition scope
+        /// plus an or-chain over the event types. Internal so the composition (escaping, grouping)
+        /// is unit-testable without a live table.
+        /// </summary>
+        internal static string BuildEventTypesFilter(string partitionKey, IReadOnlyCollection<string> eventTypes)
+        {
+            var typeClauses = string.Join(" or ", eventTypes.Select(t => $"EventType eq '{ODataSanitizer.EscapeValue(t)}'"));
+            return $"PartitionKey eq '{ODataSanitizer.EscapeValue(partitionKey)}' and ({typeClauses})";
+        }
+
+        /// <summary>
+        /// Multi-type sibling of <see cref="GetSessionEventsByTypeAsync"/>: one server-side query
+        /// matching ANY of <paramref name="eventTypes"/>, with an optional column projection.
+        /// <paramref name="maxResults"/> is a hard cap — the drain stops once reached (the
+        /// single-type variant only uses it as the storage page size and drains every page).
+        /// Fail-soft like the other event readers: storage errors log and return an empty list.
+        /// </summary>
+        public async Task<List<EnrollmentEvent>> GetSessionEventsByTypesAsync(
+            string tenantId, string sessionId, IReadOnlyCollection<string> eventTypes,
+            IEnumerable<string>? select = null, int maxResults = 2000)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+            if (eventTypes == null || eventTypes.Count == 0)
+                return new List<EnrollmentEvent>();
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
+                var events = new List<EnrollmentEvent>();
+
+                var filter = BuildEventTypesFilter($"{tenantId}_{sessionId}", eventTypes);
+
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: filter,
+                    maxPerPage: Math.Min(maxResults, 1000),
+                    select: select
+                );
+
+                await foreach (var entity in query)
+                {
+                    events.Add(MapToEnrollmentEvent(entity));
+                    if (events.Count >= maxResults) break;
+                }
+
+                return events.OrderBy(e => e.Sequence).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get events by types for session {SessionId}", sessionId);
                 return new List<EnrollmentEvent>();
             }
         }

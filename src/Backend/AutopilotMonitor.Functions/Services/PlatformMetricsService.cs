@@ -115,9 +115,9 @@ namespace AutopilotMonitor.Functions.Services
         private async Task<PlatformAgentMetricsResponse> ComputePlatformMetricsInternalAsync(int days, int limit)
         {
             // Fetch only the newest `limit` sessions in the window. Each session below
-            // triggers its own GetSessionEventsAsync call; the per-session work is
-            // bounded by PerSessionFetchConcurrency so even 1000-session limits
-            // don't fan out 1000 simultaneous storage requests.
+            // triggers its own event fetch; the per-session work is bounded by
+            // PerSessionFetchConcurrency so even 1000-session limits don't fan out
+            // 1000 simultaneous storage requests.
             var sessionPage = await _sessionRepo.GetAllSessionsPageAsync(
                 tenantIdFilter: null, days: days, pageSize: limit, continuation: null);
             var allSessions = sessionPage.Items;
@@ -135,7 +135,7 @@ namespace AutopilotMonitor.Functions.Services
                 .Select(s => s.SessionId)
                 .ToHashSet(StringComparer.Ordinal);
 
-            var perSessionResults = await RunWithBoundedConcurrencyAsync(
+            var perSessionResults = await AgentMetricsAggregation.RunWithBoundedConcurrencyAsync(
                 allSessions,
                 PerSessionFetchConcurrency,
                 session => ProcessSessionAsync(session, latencySampleSessionIds));
@@ -146,13 +146,18 @@ namespace AutopilotMonitor.Functions.Services
                 .ToList();
 
             var deliveryLatency = AggregateDeliveryLatency(perSessionResults);
-            var crashRate = AggregateCrashRate(perSessionResults);
+            var crashRate = AgentMetricsAggregation.AggregateCrashRate(
+                perSessionResults.SelectMany(r => r.AgentStartedEvents));
 
             return new PlatformAgentMetricsResponse
             {
                 Sessions = sessionMetrics,
                 DeliveryLatency = deliveryLatency,
-                CrashRate = crashRate
+                CrashRate = crashRate,
+                // Sessions actually scanned in the window — the honest basis for the
+                // caller's truncation check. Sessions.Count only counts sessions WITH
+                // snapshots, so comparing it against the limit understates truncation.
+                SessionsScanned = allSessions.Count
             };
         }
 
@@ -162,11 +167,20 @@ namespace AutopilotMonitor.Functions.Services
         {
             try
             {
-                var events = await _sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId);
+                // Latency-sample sessions need the FULL event stream: the delivery-latency
+                // deltas are computed over every event of those 20 sessions, not just the
+                // metrics types — filtering them would shrink the sample ~50x and change the
+                // published percentiles. Everyone else gets the three-type projected fetch.
+                var isLatencySample = latencySampleSessionIds.Contains(session.SessionId);
+                var events = isLatencySample
+                    ? await _sessionRepo.GetSessionEventsAsync(session.TenantId, session.SessionId)
+                    : await _sessionRepo.GetSessionEventsByTypesAsync(
+                        session.TenantId, session.SessionId, AgentMetricsAggregation.MetricsEventTypes,
+                        TableStorageService.AgentMetricsEventProjection);
 
                 // ── Latency deltas (only for sample-set sessions) ───────────
                 List<double> latencyDeltas = new();
-                if (latencySampleSessionIds.Contains(session.SessionId))
+                if (isLatencySample)
                 {
                     foreach (var e in events)
                     {
@@ -266,33 +280,6 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
-        // Bounded fan-out: equivalent to Task.WhenAll over `body(item)` but with
-        // at most `maxConcurrency` tasks in flight. Without this guard a 1000-
-        // session metric query would fire 1000 simultaneous storage requests
-        // and either throttle Azure Tables or run the worker out of file
-        // handles before responding.
-        private static async Task<List<TResult>> RunWithBoundedConcurrencyAsync<TInput, TResult>(
-            IReadOnlyList<TInput> items,
-            int maxConcurrency,
-            Func<TInput, Task<TResult>> body)
-        {
-            using var sem = new SemaphoreSlim(maxConcurrency);
-            var tasks = items.Select(async item =>
-            {
-                await sem.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    return await body(item).ConfigureAwait(false);
-                }
-                finally
-                {
-                    sem.Release();
-                }
-            });
-            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-            return results.ToList();
-        }
-
         // Aggregate over the latency deltas already extracted by the per-session
         // pass. No additional storage round-trips — the same events the metric
         // pass walked have been pre-binned into PerSessionData.LatencyDeltasMs
@@ -325,61 +312,6 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
-        // Aggregate crash classifications over the agent_started events the
-        // per-session pass already collected — same idea as the latency
-        // aggregator: zero extra storage calls.
-        private static CrashRateMetrics AggregateCrashRate(IReadOnlyList<PerSessionData> perSession)
-        {
-            var metrics = new CrashRateMetrics();
-            var exceptionCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var r in perSession)
-            {
-                foreach (var data in r.AgentStartedEvents)
-                {
-                    metrics.TotalStarts++;
-                    var exitType = GetString(data, "previousExitType");
-                    switch (exitType)
-                    {
-                        case "clean":
-                            metrics.CleanExits++;
-                            break;
-                        case "exception_crash":
-                            metrics.ExceptionCrashes++;
-                            var exType = GetString(data, "previousCrashException");
-                            if (!string.IsNullOrEmpty(exType))
-                            {
-                                exceptionCounts.TryGetValue(exType, out var count);
-                                exceptionCounts[exType] = count + 1;
-                            }
-                            break;
-                        case "hard_kill":
-                            metrics.HardKills++;
-                            break;
-                        case "reboot_kill":
-                            metrics.RebootKills++;
-                            break;
-                        default:
-                            metrics.FirstRuns++;
-                            break;
-                    }
-                }
-            }
-
-            var nonFirstRuns = metrics.TotalStarts - metrics.FirstRuns;
-            metrics.CrashRatePercent = nonFirstRuns > 0
-                ? Math.Round((double)metrics.ExceptionCrashes / nonFirstRuns * 100, 1)
-                : 0;
-
-            metrics.TopExceptions = exceptionCounts
-                .OrderByDescending(kv => kv.Value)
-                .Take(5)
-                .Select(kv => new CrashExceptionSummary { ExceptionType = kv.Key, Count = kv.Value })
-                .ToList();
-
-            return metrics;
-        }
-
         private static double Percentile(List<double> sortedValues, double percentile)
         {
             if (sortedValues.Count == 0) return 0;
@@ -387,38 +319,16 @@ namespace AutopilotMonitor.Functions.Services
             return sortedValues[Math.Max(0, Math.Min(index, sortedValues.Count - 1))];
         }
 
+        // Payload getters live in AgentMetricsAggregation (shared with the efficiency
+        // service); these thin wrappers keep the call sites above unchanged.
         private static double GetDouble(Dictionary<string, object> data, string key)
-        {
-            if (data.TryGetValue(key, out var value))
-            {
-                if (value is double d) return d;
-                if (value is int i) return i;
-                if (value is long l) return l;
-                if (value is float f) return f;
-                if (double.TryParse(value?.ToString(), out var parsed)) return parsed;
-            }
-            return 0;
-        }
+            => AgentMetricsAggregation.GetDouble(data, key);
 
-        // Returns the value of the first key that is present in `data`. Lets us read a V2 field
-        // name with a V1 fallback without conflating "key missing" with "key present but zero".
         private static double GetDoubleFirst(Dictionary<string, object> data, params string[] keys)
-        {
-            foreach (var key in keys)
-            {
-                if (data.ContainsKey(key)) return GetDouble(data, key);
-            }
-            return 0;
-        }
+            => AgentMetricsAggregation.GetDoubleFirst(data, keys);
 
         private static string GetString(Dictionary<string, object> data, string key)
-        {
-            if (data.TryGetValue(key, out var value))
-            {
-                return value?.ToString() ?? string.Empty;
-            }
-            return string.Empty;
-        }
+            => AgentMetricsAggregation.GetString(data, key);
     }
 
     // ── Response DTOs ────────────────────────────────────────────────────────────
@@ -433,6 +343,14 @@ namespace AutopilotMonitor.Functions.Services
         public bool FromCache { get; set; }
         public int WindowDays { get; set; }
         public int SessionLimit { get; set; }
+        /// <summary>
+        /// Sessions the scan actually covered in the window (before the has-snapshots filter
+        /// that shapes <see cref="Sessions"/>). Callers must compare THIS against
+        /// <see cref="SessionLimit"/> to decide whether the window was truncated —
+        /// <c>Sessions.Count</c> understates truncation on fleets where many sessions
+        /// emit no agent_metrics_snapshot.
+        /// </summary>
+        public int SessionsScanned { get; set; }
     }
 
     public class SessionAgentMetric

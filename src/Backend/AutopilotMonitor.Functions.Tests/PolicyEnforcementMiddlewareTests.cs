@@ -1023,6 +1023,7 @@ public class PolicyEnforcementMiddlewareTests
     // the GlobalReadOrDelegatedSubset tier — see GlobalSessions_IsBoundedSubsetTier below.)
     [InlineData("GET", "/api/global/audit/logs", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/app", TenantScoping.QueryParam)]
+    [InlineData("GET", "/api/global/metrics/agent-efficiency", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/fleet-health", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/metrics/summary", TenantScoping.QueryParam)]
     [InlineData("GET", "/api/global/search/sessions", TenantScoping.QueryParam)]

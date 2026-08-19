@@ -48,8 +48,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<RawPage<SessionSummary>> GetSessionsPageAsync(string tenantId, int? days, int pageSize, string? continuation)
             => _storage.GetSessionsPageAsync(tenantId, days, pageSize, continuation);
 
-        public Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(string? tenantIdFilter, int? days, int pageSize, string? continuation, IReadOnlyCollection<string>? allowedTenantIds = null)
-            => _storage.GetAllSessionsPageAsync(tenantIdFilter, days, pageSize, continuation, allowedTenantIds);
+        public Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(string? tenantIdFilter, int? days, int pageSize, string? continuation, IReadOnlyCollection<string>? allowedTenantIds = null, IEnumerable<string>? select = null)
+            => _storage.GetAllSessionsPageAsync(tenantIdFilter, days, pageSize, continuation, allowedTenantIds, select);
 
         public Task<SessionStats> GetSessionStatsAsync(string tenantId, int days)
             => _storage.GetSessionStatsAsync(tenantId, days);
@@ -200,6 +200,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<List<EnrollmentEvent>> GetSessionEventsByTypeAsync(string tenantId, string sessionId, string eventType, int maxResults = 200)
             => _storage.GetSessionEventsByTypeAsync(tenantId, sessionId, eventType, maxResults);
+
+        public Task<List<EnrollmentEvent>> GetSessionEventsByTypesAsync(string tenantId, string sessionId, IReadOnlyCollection<string> eventTypes, IEnumerable<string>? select = null, int maxResults = 2000)
+            => _storage.GetSessionEventsByTypesAsync(tenantId, sessionId, eventTypes, select, maxResults);
 
         public Task<RawPage<EnrollmentEvent>> GetSessionEventsPageAsync(string tenantId, string sessionId, int pageSize, string? continuation)
             => _storage.GetSessionEventsPageAsync(tenantId, sessionId, pageSize, continuation);

@@ -57,9 +57,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <paramref name="allowedTenantIds"/> (when non-null) bounds the cross-tenant fan-out to that
         /// subset — used by delegated ("MSP") callers so the aggregate covers only their managed tenants.
         /// </summary>
+        /// <param name="select">Optional column projection for the SessionsIndex scan. <c>null</c>
+        /// returns the full mirror row (every existing caller). Aggregation paths pass a narrow
+        /// set so a 2000-session window doesn't materialize the ~40-column row per session.</param>
         Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
             string? tenantIdFilter, int? days, int pageSize, string? continuation,
-            IReadOnlyCollection<string>? allowedTenantIds = null);
+            IReadOnlyCollection<string>? allowedTenantIds = null,
+            IEnumerable<string>? select = null);
 
         /// <summary>
         /// Server-side aggregation for the dashboard stats cards (per-tenant scope).
@@ -196,6 +200,17 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<List<EnrollmentEvent>> GetSessionEventsStrictAsync(string tenantId, string sessionId, int maxResults = 1000);
         Task<List<EnrollmentEvent>> GetSessionEventsByTypeAsync(string tenantId, string sessionId, string eventType, int maxResults = 200);
+        /// <summary>
+        /// Multi-type sibling of <see cref="GetSessionEventsByTypeAsync"/>: one server-side OData
+        /// query matching ANY of <paramref name="eventTypes"/>, with an optional column
+        /// <paramref name="select"/> projection. Built for the metrics aggregation paths that only
+        /// need a handful of periodic event types out of a session's full partition.
+        /// <paramref name="maxResults"/> is enforced as a hard cap (the query stops draining pages
+        /// once reached), unlike the single-type variant where it only sizes the storage page.
+        /// </summary>
+        Task<List<EnrollmentEvent>> GetSessionEventsByTypesAsync(
+            string tenantId, string sessionId, IReadOnlyCollection<string> eventTypes,
+            IEnumerable<string>? select = null, int maxResults = 2000);
 
         /// <summary>
         /// Reads a single page of session events. The returned <see cref="RawPage{T}"/>
