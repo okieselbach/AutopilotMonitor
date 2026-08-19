@@ -94,7 +94,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 agentVersion: agentVersion,
                 stateDirectory: stateSubdir,
                 startupEventGate: startupEventGate,
-                previousBootUtc: previousBootUtc);
+                previousBootUtc: previousBootUtc,
+                previousExitType: previousExit?.ExitType);
 
             var whiteGloveSealingPatternIds = (System.Collections.Generic.IReadOnlyCollection<string>)remoteConfig.WhiteGloveSealingPatternIds
                 ?? Array.Empty<string>();

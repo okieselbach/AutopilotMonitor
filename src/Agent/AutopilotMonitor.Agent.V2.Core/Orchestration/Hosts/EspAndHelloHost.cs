@@ -104,7 +104,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// Starts the tracker and then replays recent Shell-Core ESP-exit / Hello-wizard records.
+        /// Starts the tracker and then — only when this run FOLLOWS a previous one — replays
+        /// recent Shell-Core ESP-exit / Hello-wizard records.
         /// <para>
         /// The backfill has existed since session 772fe502 but was never wired to a caller, so
         /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
@@ -123,11 +124,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// reverse order could drop a record entirely, which costs the session its completion —
         /// a duplicate costs nothing.
         /// </para>
+        /// <para>
+        /// A lookback of zero disables the replay entirely. That is the FIRST run of an enrollment:
+        /// there is no gap to recover because no earlier agent process existed, and any 62407
+        /// already in the log belongs to a phase transition that happened before this agent was
+        /// ever meant to observe anything. Replaying it would push an <c>EspExiting</c> into the
+        /// reducer that the pre-fix agent never saw — a happy-path behaviour change for no gain.
+        /// The caller (<c>DefaultComponentFactory</c>) owns that policy.
+        /// </para>
         /// </summary>
         public void Start()
         {
             _tracker.Start();
-            _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
+
+            if (_espExitBackfillLookbackMinutes > 0)
+                _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
         }
 
         public void Stop() => _tracker.Stop();

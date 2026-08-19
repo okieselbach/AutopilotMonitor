@@ -75,10 +75,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly Persistence.StartupEventGate? _startupEventGate;
 
         /// <summary>
+        /// How the previous agent run in this enrollment ended (<c>Program.PreviousExitSummary.ExitType</c>:
+        /// <c>first_run</c> | <c>clean</c> | <c>exception_crash</c> | <c>hard_kill</c> |
+        /// <c>reboot_kill</c>). Decides whether the Shell-Core ESP-exit replay runs at all — see
+        /// <see cref="ResolveEspExitBackfillLookbackMinutes"/>.
+        /// </summary>
+        private readonly string? _previousExitType;
+
+        /// <summary>
         /// OS boot time when the previous agent run was killed by a reboot (<c>reboot_kill</c>),
-        /// otherwise null. Widens the Shell-Core ESP-exit backfill so a completion signal written
-        /// while the agent was down is still recovered — see the backfill block in
-        /// <see cref="CreateCollectorHosts"/>.
+        /// otherwise null. Sizes the Shell-Core ESP-exit backfill so a completion signal written
+        /// while the agent was down is still recovered.
         /// </summary>
         private readonly DateTime? _previousBootUtc;
 
@@ -89,7 +96,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string agentVersion,
             string stateDirectory,
             Persistence.StartupEventGate? startupEventGate = null,
-            DateTime? previousBootUtc = null)
+            DateTime? previousBootUtc = null,
+            string? previousExitType = null)
         {
             _agentConfig = agentConfig ?? throw new ArgumentNullException(nameof(agentConfig));
             _remoteConfig = remoteConfig ?? throw new ArgumentNullException(nameof(remoteConfig));
@@ -98,6 +106,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _stateDirectory = stateDirectory ?? throw new ArgumentNullException(nameof(stateDirectory));
             _startupEventGate = startupEventGate;
             _previousBootUtc = previousBootUtc;
+            _previousExitType = previousExitType;
+        }
+
+        /// <summary>
+        /// Lookback in minutes for the Shell-Core ESP-exit replay; <c>0</c> means "do not replay".
+        /// <para>
+        /// The replay is a RESTART-RECOVERY mechanism: it re-reads observations the agent could not
+        /// make because no agent process was running. That only ever applies when a previous run
+        /// existed. On <c>first_run</c> — the happy path — it stays off, so the agent behaves
+        /// exactly as it did before the recovery was added.
+        /// </para>
+        /// <para>
+        /// After a <c>reboot_kill</c> the gap spans the whole downtime (forced restart until the
+        /// post-reboot logon relaunches the agent), which the 5-minute default cannot cover; the
+        /// window becomes "everything since the boot that killed us". Every other restart
+        /// (clean / hard_kill / exception_crash) keeps that default, since the process comes back
+        /// within seconds.
+        /// </para>
+        /// </summary>
+        internal static int ResolveEspExitBackfillLookbackMinutes(
+            string? previousExitType, DateTime? previousBootUtc, DateTime utcNow)
+        {
+            if (string.IsNullOrEmpty(previousExitType)
+                || string.Equals(previousExitType, "first_run", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            if (string.Equals(previousExitType, "reboot_kill", StringComparison.OrdinalIgnoreCase)
+                && previousBootUtc.HasValue)
+            {
+                var sinceBoot = utcNow - previousBootUtc.Value;
+                if (sinceBoot > TimeSpan.Zero)
+                {
+                    var sinceBootMinutes = (int)Math.Ceiling(sinceBoot.TotalMinutes) + 1;
+                    if (sinceBootMinutes > ShellCoreTracker.BackfillLookbackMinutes)
+                        return sinceBootMinutes;
+                }
+            }
+
+            return ShellCoreTracker.BackfillLookbackMinutes;
         }
 
         public CollectorSurfaces CreateCollectorHosts(
@@ -160,27 +209,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // on esp_exiting events long after Start.
             ImeLogHost? imeLogHostRef = null;
 
-            // sits-d Cloud-PC fix (2026-08-19): after a mid-ESP reboot the agent is dead from the
-            // forced restart until the post-reboot logon re-launches it. The Shell-Core ESP exit
-            // that ends AccountSetup can land anywhere in that window, and the 5-minute default
-            // backfill is far too narrow to reach it. Widen to "everything since the boot that
-            // killed us" — the exit we care about is by definition after that boot. Clamped to
-            // ShellCoreTracker.BackfillLookbackMaxMinutes inside the tracker.
-            var espExitBackfillLookbackMinutes = ShellCoreTracker.BackfillLookbackMinutes;
-            if (_previousBootUtc.HasValue)
+            // sits-d Cloud-PC fix (2026-08-19), narrowed after review: the Shell-Core ESP-exit
+            // replay is restart recovery, so it stays OFF on a first run and the happy path keeps
+            // its pre-fix behaviour exactly. See ResolveEspExitBackfillLookbackMinutes.
+            var espExitBackfillLookbackMinutes = ResolveEspExitBackfillLookbackMinutes(
+                _previousExitType, _previousBootUtc, DateTime.UtcNow);
+            if (espExitBackfillLookbackMinutes > 0)
             {
-                var sinceBoot = DateTime.UtcNow - _previousBootUtc.Value;
-                if (sinceBoot > TimeSpan.Zero)
-                {
-                    var sinceBootMinutes = (int)Math.Ceiling(sinceBoot.TotalMinutes) + 1;
-                    if (sinceBootMinutes > espExitBackfillLookbackMinutes)
-                    {
-                        espExitBackfillLookbackMinutes = sinceBootMinutes;
-                        logger.Info(
-                            "DefaultComponentFactory: previous run died to a reboot — widening the Shell-Core " +
-                            $"ESP-exit backfill to {espExitBackfillLookbackMinutes} min (since boot {_previousBootUtc.Value:o})");
-                    }
-                }
+                logger.Info(
+                    $"DefaultComponentFactory: previous run ended as '{_previousExitType}' — Shell-Core " +
+                    $"ESP-exit replay enabled with a {espExitBackfillLookbackMinutes} min lookback");
             }
 
             var espAndHelloHost = new EspAndHelloHost(

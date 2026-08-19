@@ -50,11 +50,22 @@ between the two is observed twice, which the design already tolerates (Shell-Cor
 picks the genuine post-AccountSetup one). The reverse order could drop a record, which
 costs the session its completion.
 
-The fixed 5-minute lookback cannot span a reboot, so the window is now sized to the
-downtime: on `previousExit=reboot_kill` the factory passes `PreviousExitSummary.LastBootUtc`
-and the lookback becomes "everything since the boot that killed us", clamped to
-`ShellCoreTracker.BackfillLookbackMaxMinutes` (360 — the agent's max lifetime). Every other
-exit type keeps the 5-minute default.
+**Scope: restart recovery only.** The replay re-reads observations the agent could not make
+because no agent process was running, so it is keyed to `PreviousExitSummary.ExitType`
+(`DefaultComponentFactory.ResolveEspExitBackfillLookbackMinutes`):
+
+| Previous exit | Lookback | Why |
+|---|---|---|
+| `first_run` (or unknown) | **0 — replay off** | No earlier process, no gap. A 62407 already in the log belongs to a transition this agent was never meant to observe; replaying it would push an `EspExiting` into the reducer that the pre-fix agent never saw. The happy path is therefore untouched. |
+| `clean` / `hard_kill` / `exception_crash` | 5 min (default) | The process is back within seconds. |
+| `reboot_kill` | since `LastBootUtc` (+1 min slack) | The gap spans the forced restart until the post-reboot logon relaunches the agent — the 5-minute default cannot reach it. |
+
+The result is clamped to `ShellCoreTracker.BackfillLookbackMaxMinutes` (360 — the agent's max
+lifetime), so policy and backstop together can never build an unbounded event-log query.
+
+This is a *new* caller for existing code, not a change to any other backfill. The
+Hello/MDM-reboot/Windows-Update/ModernDeployment trackers each own a private backfill called
+from their own `Start()`; none of them is touched.
 
 **Newest exit wins.** Widening the window changes what the replay contains. The reader walks
 oldest-first and the exit branch is fire-once, so a naive record-by-record replay hands over
