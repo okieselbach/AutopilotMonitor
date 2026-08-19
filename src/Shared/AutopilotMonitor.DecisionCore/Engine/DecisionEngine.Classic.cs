@@ -720,6 +720,13 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <see cref="SessionStage.AwaitingHello"/> with the HelloSafety window armed at this
         /// signal's instant.
         /// </para>
+        /// <para>
+        /// sits-d Cloud PCs (2026-08-20): on SkipUser=true flows the observed skip stands in
+        /// for the final-exit evidence — Windows never renders the user ESP page, so no
+        /// Shell-Core 62407 and no AccountSetup provisioning category can ever exist, and this
+        /// handler is the only remaining site that can knock on the (open) arm-B gate. See the
+        /// inline <c>skipUserExitEquivalent</c> comment for the full derivation.
+        /// </para>
         /// </summary>
         private DecisionStep HandleImeUserSessionCompletedV1(DecisionState state, DecisionSignal signal)
         {
@@ -768,11 +775,33 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // session is still parked pre-Hello (same stage guard as the deferred-promote path
             // in HandleAccountSetupProvisioningCompleteV1) — AwaitingHello/AwaitingDesktop/
             // Finalizing/terminal stages keep their existing rails untouched.
+            //
+            // sits-d Cloud PCs (2026-08-20): on a SkipUser=true flow Windows never renders the
+            // user ESP page — Shell-Core 62407 does not fire and the AccountSetup provisioning
+            // categories are never written, so IsPostAccountSetupFinalExit is unsatisfiable by
+            // construction (there is no exit to record). Arm B of ShouldTransitionToAwaitingHello
+            // is open from the EspConfigDetected bootstrap onward, but every site that evaluates
+            // the gate hangs off a signal this flow cannot produce (EspExiting and
+            // EspPhaseChanged(FinalizingSetup) ride Shell-Core; the desktop fast-path requires
+            // the Hello policy to be disabled) — five sessions sat at "waiting on:
+            // hello_resolution" for six hours with the gate open and nothing left to knock.
+            // On such a flow the observed skip IS the exit evidence: no page exists whose exit
+            // could ever say more. The other three facts (AccountSetup anchor, genuine IME
+            // user-session completion at-or-after it, real-user desktop) stay mandatory, which
+            // keeps this STRICTER than the existing Shell-Core-carried arm-B promotion (pinned
+            // in ClassicAwaitingHelloGuardTests, which needs no IME/desktop evidence at all).
+            // This knock is also self-healing against Fix 10's AccountSetup bounce-back: the
+            // IME phase line always precedes the user-session-complete line in log order, so a
+            // bounced promotion is re-attempted by the very next user-session re-emission.
+            // Device Preparation keeps its own rails (arm D + DevicePrepCompletion backstop).
+            var skipUserExitEquivalent =
+                state.ScenarioObservations.SkipUserEsp?.Value == true
+                && state.ScenarioProfile.Mode != EnrollmentMode.DevicePreparation;
             var armCSatisfied =
                 builder.ImeUserSessionCompletedUtc != null
                 && state.AccountSetupEnteredUtc != null
                 && builder.ImeUserSessionCompletedUtc.Value >= state.AccountSetupEnteredUtc.Value
-                && IsPostAccountSetupFinalExit(state)
+                && (IsPostAccountSetupFinalExit(state) || skipUserExitEquivalent)
                 && state.DesktopArrivedUtc != null;
             var parkedPreHello = state.Stage == SessionStage.SessionStarted
                 || state.Stage == SessionStage.EspDeviceSetup

@@ -134,12 +134,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// <summary>
         /// Codex review P2 (2026-08-19) — <see cref="ImeLogTracker.Start"/> restores the persisted
         /// package states (LoadState) and does NOT raise <c>OnAppStateChanged</c> for them. This
-        /// host is started AFTER <c>EspAndHelloHost</c>, so on an agent restart the Shell-Core
-        /// ESP-exit replay runs against an empty app list and synthesises nothing — and without a
-        /// nudge here nothing would ever re-check, which is precisely the reboot case the
-        /// completion recovery exists for (apps already terminal before the reboot, only the final
-        /// exit lost to the downtime). <paramref name="onStateRestored"/> fires once, after the
-        /// restore, so the deferred synthesis gets its look at the restored level.
+        /// host is started AFTER <c>EspAndHelloHost</c>, so a LIVE ESP exit observed before this
+        /// restore completes would evaluate the user-apps-settled synthesis against an empty app
+        /// list — and without a nudge here nothing would ever re-check the restored level. The
+        /// <c>onStateRestored</c> callback fires once, after the restore, so the deferred
+        /// synthesis gets its look. (It deliberately covers ONLY live exits: a 62407 that fired
+        /// while no agent was running is never replayed — see
+        /// <c>ShellCoreTracker.ReplayBackfillRecords</c> for why it cannot be placed in time.)
         /// </summary>
         public void Start()
         {

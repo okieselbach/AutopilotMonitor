@@ -1,178 +1,200 @@
 ---
 type: Concept
-title: Post-Reboot Completion Recovery — surviving the forced mid-ESP restart
-description: Why an agent restarted by a mid-ESP reboot used to lose the AccountSetup completion for the rest of the session (orphaned Shell-Core backfill + edge-only user-apps-settled synthesis), and the two mechanisms that recover it — a downtime-sized ESP-exit replay and a level-triggered re-check of the settled user-ESP apps.
+title: ESP Completion Starvation — the sits-d Cloud-PC complex
+description: Why five Windows 365 Cloud PCs finished enrolling but never completed in the product — a SkipUser=true flow produces none of the signals every completion-gate evaluation site hangs off — plus the two adjacent defects fixed alongside (edge-only user-apps-settled synthesis, orphaned Hello-wizard restart replay) and what a Shell-Core replay deliberately does not do.
 resource: /src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/SystemSignals
 tags:
   - agent
   - esp
   - completion
+  - skip-user
   - reboot
   - recovery
-timestamp: 2026-08-19T00:00:00+02:00
+timestamp: 2026-08-20T00:00:00+02:00
 ---
 
-# Post-Reboot Completion Recovery
+# ESP Completion Starvation — the sits-d Cloud-PC complex
 
-A device-assigned policy that Windows flags as reboot-required (DeviceGuard/VBS,
-DmaGuard — see [MDM Reboot Coalescing](mdm-reboot-coalescing.md)) forces a restart in the
-middle of the ESP. The agent is killed (`previousExit=reboot_kill`), the user signs in a
-second time, and AccountSetup finishes. Until 2026-08-19 the session did **not** finish
-with it: the agent waited for signals whose window had already closed, emitted
-`session_stalled` after 60 minutes, and ran out at the max-lifetime watchdog — verdict
-`Incomplete`, "No Device Setup completion or explicit failure signal observed before
-timeout", on devices that were completely healthy.
+Seven Windows 365 Cloud PCs, same tenant, first sign-in the same morning. Two sessions
+succeeded within minutes; five sat at `Completion is waiting on: hello_resolution` from
+second five onward and ran into the six-hour max-lifetime watchdog — verdict `Incomplete`
+on devices whose users were working normally the whole time.
+
+The first diagnosis blamed the mid-ESP reboot (DeviceGuard/DmaGuard, see
+[MDM Reboot Coalescing](mdm-reboot-coalescing.md)): the agent is killed in
+`Stage=EspAccountSetup` and, so the theory went, loses the Shell-Core ESP exit to the
+downtime. The evidence disproved it. `8110e262` ran **six hours uninterrupted** after its
+last reboot with the Shell-Core watcher armed — and Windows never wrote a 62407 in all
+that time, because on these machines **the user ESP page never existed**.
 
 # Schema
 
-The AccountSetup gate opens on one of two evidence pairs:
+## The actual defect — a satisfied gate nobody evaluates
 
-| Path | Evidence |
-|---|---|
-| Registry | `AccountSetupCategory.Status.categorySucceeded` confirmed by Windows |
-| Synthesis | Shell-Core normal ESP exit (62407) **and** every required user-ESP app terminal with zero failures |
+The five stuck machines carried `SkipUserStatusPage=True` in the enrollment `FirstSync`
+key (read 10+ times across three agent processes, `True` on every read — not a stale
+single read). Windows honours it: no user ESP page, hence
 
-The synthesis exists because a policy-skipped user-ESP app leaves the registry's Apps
-subcategory permanently `inProgress`, starving the registry path (session `caa6cf50`).
+* no Shell-Core 62407 (`esp_exiting`) — the page that would exit does not exist,
+* no `AccountSetupCategory` provisioning registry — nothing writes categories for a page
+  that never renders,
+* desktop within seconds of sign-in.
 
-Two independent defects made the synthesis unreachable after a reboot.
+The reducer is *built* for this flow: **arm B** of `ShouldTransitionToAwaitingHello`
+(`SkipUserEsp == true`) declares the gate open, and the missing-prerequisites bookkeeping
+already exempts the AccountSetup gate — which is why the sessions reported only
+`hello_resolution` as missing. But the gate is a predicate, not a process. Something has
+to evaluate it, and every evaluation site hangs off a signal a skip-user flow structurally
+cannot produce:
 
-## Defect 1 — the restart replay was never wired up
+| Evaluation site | Carrier signal | On SkipUser=true |
+|---|---|---|
+| `HandleEspExitingV1` | Shell-Core 62407 | never fires |
+| `HandleEspPhaseChangedV1(FinalizingSetup)` | Shell-Core 62407 via coordinator | never fires |
+| `HandleDesktopArrivedV1` fast-path | requires Hello policy **disabled** | Hello was enabled |
+| `HandleImeUserSessionCompletedV1` arm-C attempt | requires the recorded final exit | unsatisfiable |
 
-`ShellCoreTracker.BackfillRecentEspExitEvents()` had existed since session `772fe502` but
-**no caller ever invoked it**. The Shell-Core `EventLogWatcher` only delivers records
-written after `Start()`, so every agent restart silently dropped a Hello-wizard start
-(62404) that occurred while the agent was down.
+No knock, no promotion, no `HelloSafety` — and the `AdvisoryCompletion` backstop is armed
+exclusively from an `EspExiting` signal, so it never armed either. The session idles to
+the watchdog with an open gate.
 
-`EspAndHelloHost.Start()` now calls it — as `BackfillRecentHelloWizardStart`, which is what
-it does.
+## The fix — the observed skip is the exit evidence
 
-### What the replay recovers, and what it deliberately does not
+`HandleImeUserSessionCompletedV1`'s completion attempt now accepts the observed skip in
+place of the final exit (`skipUserExitEquivalent`): on a flow where no page exists, no
+exit can ever say more than the `FirstSync` read already did. Everything else stays
+mandatory — AccountSetup anchor, genuine (at-or-after-anchor) IME user-session completion,
+DAD-validated real-user desktop — which makes this knock **stricter** than the existing
+Shell-Core-carried arm-B promotion (pinned in `ClassicAwaitingHelloGuardTests`, which
+requires no IME or desktop evidence at all). Hello semantics ride the existing rails:
+enabled-or-unknown promotes to `AwaitingHello` with `HelloSafety` armed (on Cloud PCs
+reached via RDP the Hello wizard never appears, so the synthetic timeout resolves the
+wait), disabled completes directly with the synthetic `Skipped` outcome.
 
-Wiring up dead code activated three rails at once. Only one of them is safe to replay, and
-the asymmetry is the whole design:
+The knock deliberately lives on the IME user-session edge, not on desktop arrival:
+
+* **Ordering-robust against Fix 10.** An `EspPhaseChanged(AccountSetup)` arriving on
+  `AwaitingHello` bounces the stage back and cancels `HelloSafety` (the premature-promotion
+  guard). The IME AccountSetup phase line lands *after* the desktop on this flow, so a
+  desktop-side knock would be undone two signals later. The IME phase line always precedes
+  the user-session-complete line in log order, so a bounced promotion is re-knocked by the
+  very next re-emission — including the restart re-parse.
+* **Right semantics.** The IME user session completes when the required-app processing is
+  done; a desktop-side knock would mark the session `Succeeded` mid-installation.
+* Device Preparation is excluded — WDP keeps its Hello+Desktop conjunction and the
+  `DevicePrepCompletion` backstop.
+
+`ClassicSkipUserEspUserSessionCompletionTests` replays the real `8110e262` signal ordering
+end to end (bootstrap `EspConfigDetected` → Hello enabled → desktop → AccountSetup anchor →
+IME completion → HelloSafety → `enrollment_complete`), including the Fix-10
+bounce-then-re-knock cycle, and pins the negative space (no skip observed / no desktop /
+ghost pre-anchor IME completion / WDP).
+
+Why five of seven identically administered Cloud PCs carried `SkipUserStatusPage=True` is
+a tenant-side question (ESP profile assignment state at each machine's provisioning
+moment); the value did not change during any observed session, and machine age does not
+cleanly explain the split. The agent's job is to complete the flow Windows actually ran —
+which it now does.
+
+## Adjacent defect — the synthesis was edge-triggered
+
+This one is real but belongs to the `SkipUser=false` flow (the two sessions that
+succeeded). The user-apps-settled synthesis
+(`MaybeSynthesizeAccountSetupCompleteFromSettledUserApps`, session `caa6cf50`) ran **only**
+from `OnEspExited`. On a tenant with ~138 required apps the ESP page exits while apps are
+still in flight: the single attempt misses and nothing ever re-checks, even when every
+tracked app reaches a terminal state minutes later.
+
+The ESP exit is an **edge** (happens once); settled user-ESP apps are a **level** (reached
+later). `EspAndHelloTracker` records the edge in `_espExitObserved` and exposes
+`ReevaluateUserAppsSettledSynthesis()`, chained into `ImeLogTracker.OnAppStateChanged` and
+into the post-restore `onStateRestored` callback (a live exit observed before the IME
+state restore completes would otherwise never get a second look). Gate conditions are
+unchanged — no new completion path, only a second opportunity for the existing one. Only a
+**live, confirmed post-AccountSetup** exit may be remembered
+(`IsConfirmedPostAccountSetupExit`, stricter than the `IsIntermediateDeviceEspExit`
+forward guard: unknown counts as not confirmed).
+
+## Adjacent defect — the restart replay was never wired up
+
+`ShellCoreTracker`'s backfill had existed since session `772fe502` with **no caller**; the
+Shell-Core `EventLogWatcher` only delivers records written after `Start()`.
+`EspAndHelloHost.Start()` now calls it as `BackfillRecentHelloWizardStart` — which is
+exactly what it does and all it does:
 
 | Record | Replayed | Why |
 |---|---|---|
-| 62404 Hello-wizard start | **yes** | A *conservative* fact: it vetoes a premature "Hello is disabled" skip and can never by itself complete a session. Replaying it can only make the agent wait longer, never finish early. This is the observation `772fe502` was about. |
+| 62404 Hello-wizard start | **yes** | Conservative: vetoes a premature "Hello is disabled" skip, can never complete a session by itself. The observation `772fe502` was about. |
 | 62407 ESP exit | **no** | Cannot be placed in time — see below. |
 | 62407 ESP failure | **no** | Re-injecting a historic failure as fresh can fail a session that recovered on retry (`ANALYZE-ESP-006`). |
 
-A replayed exit is unusable, and every candidate ordering mechanism fails for a different
-reason:
+A replayed exit is unusable, and every candidate ordering mechanism fails independently:
 
 1. Windows writes the **identical** description `CommercialOOBE_ESPProgress_Page_Exiting`
-   for the intermediate DeviceSetup→AccountSetup transition and for the final
-   post-AccountSetup exit. The record carries no evidence of its own position.
-2. Everything that could order it after the fact — the AccountSetup registry probe, the
-   settled-apps probe — reads state as it is **now**, not as it was at the event's time. An
-   agent that was down across the Device→AccountSetup transition would confirm the stale
-   intermediate exit.
-3. The reducer orders exits by **ingest ordinal**, not by timestamp
-   (`IsPostAccountSetupFinalExit`, deliberately — replayed CMTrace lines carry backdated
-   source times). A historic exit replayed today is assigned a fresher ordinal than reality,
-   so it reads as post-AccountSetup by construction.
-4. `HandleEspExitingV1` passes `espFinalExitInFlight: true` for every arriving exit — the
-   signal carries no provenance at all. With restored state (AccountSetup entered, a genuine
-   IME user session, desktop arrived) **arm C** of `ShouldTransitionToAwaitingHello` then
-   opens on a historic intermediate exit.
+   for the intermediate DeviceSetup→AccountSetup transition and the final exit.
+2. Every post-hoc ordering probe (AccountSetup registry, settled-apps) reads state as it
+   is **now**, not as it was at the event's time.
+3. The reducer orders exits by **ingest ordinal**, not timestamp
+   (`IsPostAccountSetupFinalExit`) — a historic exit replayed today gets a fresher ordinal
+   than reality and reads as post-AccountSetup by construction.
+4. `HandleEspExitingV1` passes `espFinalExitInFlight: true` for every arriving exit; with
+   restored state, arm C would open on a historic intermediate exit.
 
-Point 4 is why the fix cannot live in the reducer: the reducer is itself a completion gate
-and cannot tell the two apart. `ClassicEspExitingOnRestoredStateTests` pins that it *does*
-open on any arriving exit; `ShellCoreTrackerReplayScopeTests` pins that the replay never
-produces one. The pair is the contract.
+`ClassicEspExitingOnRestoredStateTests` pins that the reducer *does* open on any arriving
+exit; `ShellCoreTrackerReplayScopeTests` pins that the replay never produces one. Skipped
+62407 records are counted and reported once as an `agent_trace`
+(`reason: replayed_62407_not_orderable`) — silently dropping evidence is how this class of
+bug survives.
 
-Records that are read but not replayed are counted and reported once as an `agent_trace`
-(`skippedEspExits`, `skippedEspFailures`, oldest/newest). Silently dropping evidence is how
-this class of bug survives.
+**Residual gap, named honestly:** a `SkipUser=false` session whose final exit falls
+exactly into an agent downtime *and* whose AccountSetup category never resolves
+(`1ec8f4c6` shape) still has no completion carrier after the restart. The normal case is
+covered — `ProvisioningStatusTracker` reads the current registry at startup, so a
+category that resolved during the downtime fires arm A. The residual shape is rare,
+surfaced by `ANALYZE-ESP-005` via the `session_stalled` interim trigger, and deliberately
+not patched with a replay that cannot be ordered.
 
-### Sizing the window
+### Sizing the replay window
 
-A constant is provably wrong: the agent's scheduled task carries a `BootTrigger` **only**,
-with no restart-on-failure (`Program.InstallMode.BuildScheduledTaskXml`). After an
-`exception_crash` the agent does not come back until the next boot — possibly hours later.
-`ResolveEspExitBackfillLookbackMinutes` therefore reaches back to the last moment the
-previous run is known to have been alive, taking the wider of two independent inputs:
-
-| Input | Available for | Source |
-|---|---|---|
-| Snapshot mtime | every exit type | `snapshot.json` is rewritten on every decision step, so its last-write time is "when we last knew what was happening" |
-| `LastBootUtc` | `hard_kill` / `reboot_kill` | covers a missing or never-written snapshot |
-
-On `first_run` the replay stays **off** — no earlier process, no gap — so the happy path is
-untouched. The 5-minute default is the **floor**, `ShellCoreTracker.ClampLookbackMinutes`
-(360) the **ceiling**, and a timestamp in the future (clock skew across a reboot) is ignored
-rather than producing a negative window.
-
-This is a new caller for existing code, not a change to any other backfill. The
-Hello/MDM-reboot/Windows-Update/ModernDeployment trackers each own a private backfill called
-from their own `Start()`; none of them is touched.
-
-## Defect 2 — the synthesis was edge-triggered
-
-`MaybeSynthesizeAccountSetupCompleteFromSettledUserApps()` ran **only** from `OnEspExited`.
-On a tenant with a large required-app set the ESP page exits while apps are still in
-flight: the single attempt misses, emits `app_install_starved` for the apps that never
-started, and nothing ever re-checks — not even when every tracked app reaches a terminal
-state minutes later.
-
-The ESP exit is an **edge** (it happens once); settled user-ESP apps are a **level** (they
-can be reached later). `EspAndHelloTracker` now records the edge in `_espExitObserved` and
-exposes `ReevaluateUserAppsSettledSynthesis()`, chained into `ImeLogTracker.OnAppStateChanged`
-in `DefaultComponentFactory` (same preserve-previous pattern `DeliveryOptimizationHost`
-uses). Every terminal app transition gives the synthesis another look.
-
-This adds **no new completion path**. The gate conditions are unchanged — real ESP exit,
-every required user-ESP app terminal, zero failures. The re-check only grants the existing,
-deliberately conservative check a second opportunity. Three guards keep it cheap and safe:
-the fire-once claim is an `Interlocked.CompareExchange` (the re-check runs on the IME log
-thread, the edge on the Shell-Core watcher thread); the re-check path suppresses
-`app_install_starved` emission so the one-shot warning does not become a per-transition
-stream; and the edge itself is gated.
-
-**Only a confirmed post-AccountSetup exit may be remembered.** Every exit that reaches the
-coordinator is one the agent observed live — the replay never re-raises 62407 (above). That
-is what makes the AccountSetup read below a valid ordering fact: the agent was continuously
-observing up to that instant. On top of it, `IsConfirmedPostAccountSetupExit()` demands
-positive evidence and is deliberately stricter than the existing
-`IsIntermediateDeviceEspExit()` forward guard:
-
-**The re-check must also run after the IME state restore.** `ImeLogTracker.Start()` restores
-the persisted package states via `LoadState()` and raises no `OnAppStateChanged` for them, and
-`ImeLogHost` starts *after* `EspAndHelloHost` (pinned by
-`DefaultComponentFactoryOrderingTests`). A live exit observed before that restore completes
-would therefore never get a second look. `ImeLogHost` takes an `onStateRestored` callback,
-wired in the factory to `ReevaluateUserAppsSettledSynthesis()`.
-
-The replay itself stays in `EspAndHelloHost.Start()` and does not depend on this ordering —
-it feeds the reducer only, so there is nothing for it to read from the IME state. Keeping it
-there also keeps this host's startup independent of the IME host's.
+A constant is provably wrong: the scheduled task has a `BootTrigger` only
+(`Program.InstallMode.BuildScheduledTaskXml`) — after an `exception_crash` the agent does
+not return until the next boot. `ResolveEspExitBackfillLookbackMinutes` reaches back to
+the last moment the previous run is known to have been alive (max of `snapshot.json`
+mtime and `LastBootUtc` for kill-type exits), floored at 5 minutes, capped at 360, off on
+`first_run`, and immune to cross-reboot clock skew (a future timestamp is ignored).
 
 # Examples
 
-Tenant `sits-d.cloud`, 2026-08-19, seven Windows 365 Cloud PCs, identical configuration
-(~138 required apps at the user-ESP gate, DeviceGuard + DmaGuard device-assigned):
+Tenant `sits-d.cloud`, 2026-08-19, seven Windows 365 Cloud PCs, first sign-ins the same
+morning. The discriminator is a single registry value:
 
-* `08fc6bda`, `3b9291aa` — `RebootCount=0`. AccountSetup finished before the coalesced
-  reboot landed. Succeeded.
-* `cb4a485a`, `e7ba63c9`, `8110e262`, `a89aac2d`, `3d6278fb` — `RebootCount>=1`. The agent
-  was killed in `Stage=EspAccountSetup`, and no completion was ever derived again. All five
-  ended `Incomplete` on healthy devices.
+| Session | SkipUser | `esp_exiting` | AccountSetup registry | Reboots | Outcome |
+|---|---|---|---|---|---|
+| `08fc6bda` | False | yes | yes | 0 | Succeeded (10 min) |
+| `3b9291aa` | False | yes | yes | 0 | Succeeded (2.1 h) |
+| `8110e262` | True | — | — | 2 | Incomplete (6 h watchdog) |
+| `a89aac2d` | True | — | — | 1 | Incomplete |
+| `e7ba63c9` | True | — | — | 1 | Incomplete |
+| `cb4a485a` | True | — | — | 2 | Incomplete |
+| `3d6278fb` | True | — | — | 1 | Incomplete |
 
-`8110e262` and `a89aac2d` are the sharpest evidence for defect 2: both reached
-`App summary: 138/138 completed, 0 failed` and still never completed, because the settled
-level arrived after the exit edge had already been consumed.
+The reboot correlation was a red herring: `8110e262` ran six hours live after its final
+reboot and would have seen every signal. `8110e262` and `a89aac2d` both reached
+`138/138 completed, 0 failed` and a genuine IME user-session completion — with the fix,
+all five complete a few minutes after their IME user session settles.
 
-`3b9291aa` shows the independent starvation problem the same tenant has: 99
-`app_install_starved` events (required apps that never started installing) on a session
-that was nevertheless recorded as `Succeeded` — surfaced from now on by `ANALYZE-APP-016`.
+`08fc6bda` exercises the edge-level fix on the same day: ESP page exited normally while
+`categorySucceeded` never confirmed — completed via the user-apps-settled synthesis.
+`3b9291aa` shows the independent starvation visibility gap: 99 `app_install_starved`
+events on a session recorded as `Succeeded` — surfaced from now on by `ANALYZE-APP-016`.
 
 # Citations
 
-* `src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/SystemSignals/ShellCoreTracker.cs` — `BackfillRecentEspExitEvents(int)`, `ClampLookbackMinutes`
-* `src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/SystemSignals/EspAndHelloTracker.cs` — `_espExitObserved`, `ReevaluateUserAppsSettledSynthesis`, `MaybeSynthesizeAccountSetupCompleteFromSettledUserApps`
-* `src/Agent/AutopilotMonitor.Agent.V2.Core/Orchestration/Hosts/EspAndHelloHost.cs` — `Start()` ordering
+* `src/Shared/AutopilotMonitor.DecisionCore/Engine/DecisionEngine.Classic.cs` — `HandleImeUserSessionCompletedV1`, `skipUserExitEquivalent`
+* `src/Shared/AutopilotMonitor.DecisionCore/Engine/DecisionEngine.Shared.cs` — `ShouldTransitionToAwaitingHello` (arm B)
+* `src/Agent/AutopilotMonitor.DecisionCore.Tests/ClassicSkipUserEspUserSessionCompletionTests.cs` — end-to-end replay of the 8110e262 ordering
+* `src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/SystemSignals/ShellCoreTracker.cs` — `BackfillRecentHelloWizardStart`, `ReplayBackfillRecords`
+* `src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/SystemSignals/EspAndHelloTracker.cs` — `_espExitObserved`, `ReevaluateUserAppsSettledSynthesis`
 * `src/Agent/AutopilotMonitor.Agent.V2.Core/Orchestration/DefaultComponentFactory.cs` — lookback sizing, `OnAppStateChanged` chaining
-* `src/Agent/AutopilotMonitor.Agent.V2/Runtime/AgentRuntimeHost.cs` — `previousBootUtc` hand-off
-* [MDM Reboot Coalescing](mdm-reboot-coalescing.md) — the policy attribution for the reboot itself
+* [MDM Reboot Coalescing](mdm-reboot-coalescing.md) — the policy attribution for the reboots themselves
 * [Decision Engine](decision-engine.md) — the AccountSetup gate and completion arms

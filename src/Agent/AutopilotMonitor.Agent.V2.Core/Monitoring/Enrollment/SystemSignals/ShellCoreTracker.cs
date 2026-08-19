@@ -358,12 +358,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // Backfill (public — called by coordinator)
         // =====================================================================
 
-        /// <summary>
-        /// Backfills recent ESP exit, ESP failure and Hello-wizard-start events from the
-        /// Shell-Core log on startup. Secondary recovery mechanism when state persistence is
-        /// unavailable — an agent restart while the user sits inside the Hello wizard would
-        /// otherwise lose the wizard-start observation (session 772fe502).
-        /// </summary>
         /// <summary>Clamps a caller-supplied lookback into [1, <see cref="BackfillLookbackMaxMinutes"/>].</summary>
         internal static int ClampLookbackMinutes(int lookbackMinutes)
         {
