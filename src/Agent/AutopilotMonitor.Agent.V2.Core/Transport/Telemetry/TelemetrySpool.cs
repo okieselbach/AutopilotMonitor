@@ -258,6 +258,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                     _pendingBytes -= _pending.First.Value.ByteLength;
                     _pending.RemoveFirst();
                 }
+
+                // _pendingBytes drives the spool-pressure trigger: negative drift would
+                // silently disarm it, a stale positive on an empty list would pin it on.
+                // The list is authoritative — on drift, recompute from it and log loudly.
+                if (_pendingBytes < 0 || (_pending.Count == 0 && _pendingBytes != 0))
+                {
+                    long recomputed = 0;
+                    foreach (var entry in _pending) recomputed += entry.ByteLength;
+                    _logger?.Warning(
+                        $"TelemetrySpool: pending-bytes accounting drifted to {_pendingBytes} with {_pending.Count} pending items after MarkUploaded({upToItemIdInclusive}) — recomputed to {recomputed}.");
+                    _pendingBytes = recomputed;
+                }
             }
         }
 

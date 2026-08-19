@@ -193,6 +193,33 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void BackstopFired_WithoutDesktop_ParksInAwaitingDesktopUntilDesktopCompletes()
+        {
+            // The arming site (HandleDesktopArrivedV1) guarantees desktop-first, so this
+            // fires only on a stale/replayed timer — Dispatch routes DeadlineFired purely on
+            // the payload name, no armed-state check. The fallback must keep the handler
+            // total: synthetic Hello timeout recorded, session parks in AwaitingDesktop, and
+            // a later real desktop arrival still completes it.
+            var engine = new DecisionEngine();
+            var state = SeedWdpSession(engine);
+
+            var fired = engine.Reduce(state, DeadlineFired(20, T0.AddMinutes(39), DeadlineNames.DevicePrepCompletion));
+
+            Assert.Equal(SessionStage.AwaitingDesktop, fired.NewState.Stage);
+            Assert.NotNull(fired.NewState.HelloResolvedUtc);
+            Assert.Equal("Timeout", fired.NewState.HelloOutcome!.Value);
+            Assert.DoesNotContain(fired.NewState.Deadlines, d => d.Name == DeadlineNames.DevicePrepCompletion);
+
+            // Hello is satisfied (synthetically) — only the desktop is still missing.
+            var waiting = Assert.Single(CompletionWaitingEffects(fired));
+            Assert.Equal("desktop_arrival", waiting.Parameters!["missingPrerequisites"]);
+
+            var completed = engine.Reduce(fired.NewState,
+                MakeSignal(21, DecisionSignalKind.DesktopArrived, T0.AddMinutes(45)));
+            Assert.Equal(SessionStage.Finalizing, completed.NewState.Stage);
+        }
+
+        [Fact]
         public void HelloResolved_BeforeBackstopFires_CompletesNormally()
         {
             var engine = new DecisionEngine();
