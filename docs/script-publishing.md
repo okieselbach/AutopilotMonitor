@@ -55,8 +55,9 @@ interleave with a release writing the agent fields.
 2. **Dev render** — literal substitution of the two `$AgentDownloadUrl` / `$VersionJsonName`
    defaults. A missing anchor literal is a hard failure: a silently un-substituted dev script
    would point the dev fleet at the stable agent.
-3. **Version-bump guard** — if the published bootstrap differs from the source but carries the
-   same `$ScriptVersion`, the run aborts. See [Version oracles](#version-oracles).
+3. **Version-bump guard** — if the published bootstrap changed *behaviour* under an unchanged
+   `$ScriptVersion`, the run aborts. Comment and formatting changes publish with a warning.
+   See [Version oracles](#version-oracles).
 4. **Upload** every blob with `Cache-Control: no-cache` (they all rotate in place), mirrored
    fail-soft to the legacy storage account.
 5. **Reconcile the version oracles.**
@@ -92,8 +93,16 @@ Three places state the bootstrap script version, and all three are derived from
   script stdout by `utils/bootstrapVersion.ts`.
 
 The version-bump guard exists because those three would otherwise keep asserting a version
-that no longer matches what customers download: changed content under an unchanged version is
-invisible to every consumer.
+that no longer matches what customers download: a behaviour change under an unchanged version
+is invisible to every consumer, and customers decide from that version whether to re-upload
+their Intune copy.
+
+"Changed" means changed **behaviour**, matching what the source file's own comment on
+`$ScriptVersion` already asks for ("bump on meaningful changes"). The guard compares a code
+fingerprint — the PowerShell token stream with comments, newlines and line continuations
+removed — so comment fixes, typo corrections in comments and reflow publish with a
+`::warning::` instead of failing. Tokenising rather than regex-stripping keeps a `#` inside a
+string literal from being mistaken for a comment.
 
 # Gates
 

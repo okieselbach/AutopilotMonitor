@@ -125,6 +125,23 @@ function Get-BootstrapScriptVersion {
     throw "Could not parse ScriptVersion from $Origin"
 }
 
+# What the script actually DOES, with comments and layout removed: the PowerShell token
+# stream minus comments, newlines and line continuations. Lets the version-bump guard tell
+# a behaviour change (must be versioned -- consumers act on the version) apart from a
+# comment fix or reflow (nobody needs to know). Tokenising rather than regex-stripping
+# keeps '#' inside strings from being mistaken for a comment.
+function Get-CodeFingerprint {
+    param([string]$Text, [string]$Origin)
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseInput($Text, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors -and $errors.Count -gt 0) {
+        throw "Parse error in ${Origin}: $($errors[0])"
+    }
+    $ignored = @('Comment', 'NewLine', 'LineContinuation', 'EndOfInput')
+    return (($tokens | Where-Object { $ignored -notcontains $_.Kind.ToString() } | ForEach-Object { $_.Text }) -join "`n")
+}
+
 # ------------------------------------------------------------------ 1. source
 $sourceContent = Get-Content $BootstrapSource -Raw
 $sourceBytes   = Get-PublishBytes $sourceContent
@@ -150,14 +167,21 @@ if ($null -eq $publishedBytes) {
 } elseif ((Get-Sha256 $publishedBytes) -eq (Get-Sha256 $sourceBytes)) {
     Write-Host 'Published bootstrap is already byte-identical to the source'
 } else {
-    $publishedVersion = Get-BootstrapScriptVersion -Content ([System.Text.Encoding]::UTF8.GetString($publishedBytes)) -Origin "$AliasUrl/$BootstrapBlob"
-    if ($publishedVersion -eq $scriptVersion) {
-        throw ("Version-bump guard: $BootstrapBlob changed but ScriptVersion is still $scriptVersion. " +
+    $publishedText    = [System.Text.Encoding]::UTF8.GetString($publishedBytes)
+    $publishedVersion = Get-BootstrapScriptVersion -Content $publishedText -Origin "$AliasUrl/$BootstrapBlob"
+
+    if ($publishedVersion -ne $scriptVersion) {
+        Write-Host "Version bump: $publishedVersion -> $scriptVersion"
+    } elseif ((Get-CodeFingerprint -Text $publishedText -Origin "$AliasUrl/$BootstrapBlob") -eq
+              (Get-CodeFingerprint -Text $sourceContent -Origin $BootstrapSource)) {
+        # Comments, typos in comments, reflow -- nothing a consumer of the version can act on.
+        Write-Host "::warning::$BootstrapBlob changed in comments or formatting only; publishing under the unchanged version $scriptVersion."
+    } else {
+        throw ("Version-bump guard: $BootstrapBlob changed behaviour but ScriptVersion is still $scriptVersion. " +
                "Bump it in $BootstrapSource -- the docs badge, version.json.bootstrapVersion and the " +
-               'portal outdated-script hint all read that value and would keep reporting a version ' +
-               'that no longer matches what customers download.')
+               'portal outdated-script hint all read that value, and customers decide from it whether ' +
+               'to re-upload their Intune copy. Comment-only and formatting changes do not need a bump.')
     }
-    Write-Host "Version bump: $publishedVersion -> $scriptVersion"
 }
 
 # ------------------------------------------------------------------ 4. upload
