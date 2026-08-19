@@ -1,0 +1,56 @@
+name: Publish customer scripts
+
+# Keeps the scripts behind download.autopilotmonitor.com/agent/ current WITHOUT waiting
+# for an agent release. Before this workflow existed, the script blobs rotated only on a
+# publish_as_stable run of build-agent.yml, so a bootstrap fix sat unpublished until the
+# next agent cutover -- while the WDP bootstrap MSI downloads the published copy on every
+# enrolling device.
+#
+# Same publish code as the release path (.github/scripts/Publish-BootstrapScripts.ps1);
+# this workflow only supplies a second trigger for it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/Bootstrap/**'
+      - 'scripts/CustomerSetup/**'
+      - '.github/scripts/Publish-BootstrapScripts.ps1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run every check and report drift, upload nothing'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Shared with build-agent.yml: a script publish and an agent release both touch
+# version.json, and the bootstrapVersion read-modify-write must not interleave with the
+# release writing its agent fields. Never cancel -- a half-published set is worse than a queue.
+concurrency:
+  group: agent-blob-publish
+  cancel-in-progress: false
+
+jobs:
+  gates:
+    uses: ./.github/workflows/bootstrap-script-gates.yml
+
+  publish:
+    name: Publish to the download alias
+    needs: gates
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish bootstrap + customer scripts
+        shell: pwsh
+        run: |
+          $dryRun = '${{ inputs.dry_run }}' -eq 'true'
+          ./.github/scripts/Publish-BootstrapScripts.ps1 `
+            -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' `
+            -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
+            -TableSasToken '${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}' `
+            -DryRun:$dryRun

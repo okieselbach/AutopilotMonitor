@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-19
+
+* **New**: `script-publishing.md` — the customer script publishing chain. `.github/scripts/Publish-BootstrapScripts.ps1` becomes the single owner (dev render, version-bump guard, uploads, version oracles, alias verification), called both by the new `publish-scripts.yml` (push to `main` on `scripts/Bootstrap/**` and `scripts/CustomerSetup/**`) and by the `publish_as_stable` branch of `build-agent.yml`. Script publishing no longer waits for an agent release. Blobs are published in a deterministic CRLF/UTF-8-no-BOM form so byte comparisons do not depend on the checkout; the Pester + ASCII gates move into the reusable `bootstrap-script-gates.yml` and block the upload; `AdminConfiguration.LatestBootstrapV2ScriptVersion` now has exactly one writer.
+
 ## 2026-08-18
 
 * **New**: `agent/wdp-scenario-gates.md` — WDP scenario gates (afee7ae0 audit): deterministic ExecutionContext marker as the only gate key (fail-toward-Classic), suppressed Autopilot/ESP-only emissions and hosts (autopilot_profile*/ZTD probe, esp_config unknown null-gate, EspPolicyProviderStallHost, ProvisioningStatusTracker, ModernDeployment noise IDs 100/417/418/1005 + error-backfill skip, starved sweep), and the WDP completion model (High-confidence v2 seed via `enrollmentTypeDeterministic`, desktop-based arm D, 30-min `device_prep_completion` backstop, parked-tripwire WDP branch).

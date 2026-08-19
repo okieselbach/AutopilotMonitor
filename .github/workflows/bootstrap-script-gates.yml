@@ -1,0 +1,63 @@
+name: Bootstrap script gates
+
+# Quality gate for the customer-facing PowerShell scripts, factored out so it exists
+# once and both callers run the identical checks:
+#   * pester.yml           -- pull requests (reports, does not block the merge button)
+#   * publish-scripts.yml  -- pushes to main, where it BLOCKS the upload to the
+#                             download alias. Devices execute these scripts as SYSTEM
+#                             during enrollment, so a red suite must never ship.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Bootstrap guard tests (PS 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pester 5+
+        shell: powershell
+        run: |
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+
+      # Windows PowerShell 5.1 on purpose: that is the runtime IME uses to execute
+      # platform scripts, so guard/relax logic is verified without resetting a device.
+      - name: Run Pester
+        shell: powershell
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'scripts/Bootstrap'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+
+      - name: Guard scripts stay pure ASCII
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem 'scripts/Bootstrap' -Filter '*.ps1' | ForEach-Object {
+            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+            for ($i = 0; $i -lt $bytes.Length; $i++) {
+              if ($bytes[$i] -gt 127) {
+                Write-Host "::error file=scripts/Bootstrap/$($_.Name)::Non-ASCII byte 0x$('{0:X2}' -f $bytes[$i]) at offset $i. PS 5.1 (IME) reads BOM-less files as ANSI and corrupts multi-byte chars."
+                $failed = $true
+                break
+              }
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host 'All bootstrap scripts are pure ASCII.'
+
+      # The publish chain renders the -Dev variant by literal substitution and refuses to
+      # ship when an anchor moved. Running it dry here surfaces that (and any drift against
+      # the alias) on the PR instead of on the push that would have published.
+      - name: Publish dry run (dev-render anchors + version-bump guard + drift)
+        shell: pwsh
+        run: ./.github/scripts/Publish-BootstrapScripts.ps1 -DryRun

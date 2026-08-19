@@ -1,16 +1,20 @@
 name: Pester (Bootstrap scripts)
 
-# Runs the Pester suite for the Intune bootstrap scripts under Windows PowerShell 5.1
-# (the runtime IME uses to execute platform scripts) so guard/relax logic changes are
-# verified without resetting a device. Like ci.yml it reports rather than blocks.
+# Pull-request view of the bootstrap script gates. Like ci.yml it reports rather than
+# blocks the merge button.
+#
+# There is deliberately no push trigger: publish-scripts.yml runs the very same
+# reusable gate workflow on every push to main and blocks the upload to the download
+# alias on it. A push trigger here would only duplicate that run, with no consequence.
 
 on:
-  push:
-    branches: [main]
-    paths: ['scripts/Bootstrap/**']
   pull_request:
     branches: [main]
-    paths: ['scripts/Bootstrap/**']
+    paths:
+      - 'scripts/Bootstrap/**'
+      - 'scripts/CustomerSetup/**'
+      - '.github/scripts/Publish-BootstrapScripts.ps1'
+      - '.github/workflows/bootstrap-script-gates.yml'
   workflow_dispatch:
 
 permissions:
@@ -21,41 +25,5 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pester:
-    name: Bootstrap guard tests (PS 5.1)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Pester 5+
-        shell: powershell
-        run: |
-          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
-          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
-
-      - name: Run Pester
-        shell: powershell
-        run: |
-          Import-Module Pester -MinimumVersion 5.5.0
-          $c = New-PesterConfiguration
-          $c.Run.Path = 'scripts/Bootstrap'
-          $c.Run.Exit = $true
-          $c.Output.Verbosity = 'Detailed'
-          Invoke-Pester -Configuration $c
-
-      - name: Guard scripts stay pure ASCII
-        shell: powershell
-        run: |
-          $failed = $false
-          Get-ChildItem 'scripts/Bootstrap' -Filter '*.ps1' | ForEach-Object {
-            $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
-            for ($i = 0; $i -lt $bytes.Length; $i++) {
-              if ($bytes[$i] -gt 127) {
-                Write-Host "::error file=scripts/Bootstrap/$($_.Name)::Non-ASCII byte 0x$('{0:X2}' -f $bytes[$i]) at offset $i. PS 5.1 (IME) reads BOM-less files as ANSI and corrupts multi-byte chars."
-                $failed = $true
-                break
-              }
-            }
-          }
-          if ($failed) { exit 1 }
-          Write-Host 'All bootstrap scripts are pure ASCII.'
+  gates:
+    uses: ./.github/workflows/bootstrap-script-gates.yml

@@ -33,6 +33,13 @@ permissions:
   id-token: write      # keyless Sigstore signing (artifact attestation)
   attestations: write  # store the provenance attestation
 
+# Shared with publish-scripts.yml: both write version.json (this workflow the agent fields,
+# the script publisher bootstrapVersion under If-Match). Serialising them keeps a script push
+# from colliding with a release. Never cancel -- a half-published set is worse than a queue.
+concurrency:
+  group: agent-blob-publish
+  cancel-in-progress: false
+
 env:
   LINE_MAJOR: 2
   AGENT_PROJECT: src/Agent/AutopilotMonitor.Agent.V2/AutopilotMonitor.Agent.V2.csproj
@@ -46,8 +53,6 @@ env:
   VERSIONED_ZIP: AutopilotMonitor-Agent-v2.zip
   STABLE_ZIP: AutopilotMonitor-Agent.zip
   STABLE_MANIFEST: version.json
-  STABLE_BOOTSTRAP: Install-AutopilotMonitor.ps1
-  STABLE_BOOTSTRAP_DEV: Install-AutopilotMonitor-Dev.ps1
 
 jobs:
   build:
@@ -181,6 +186,8 @@ jobs:
           # commit/buildUtc are the same two fields the backend and MCP manifests carry —
           # additive, and the bootstrap reads this file by field name, so older installers
           # ignore them. sha256/bootstrapVersion stay: those are the customer contract.
+          # bootstrapVersion is seeded here so the published manifest is never briefly
+          # missing it; Publish-BootstrapScripts.ps1 owns and re-asserts the field afterwards.
           $manifest | Add-Member -NotePropertyName "sha256" -NotePropertyValue $sha256Hash -Force
           $manifest | Add-Member -NotePropertyName "commit" -NotePropertyValue '${{ github.sha }}'.Substring(0, 7) -Force
           $manifest | Add-Member -NotePropertyName "buildUtc" -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force
@@ -190,29 +197,12 @@ jobs:
           $manifest | ConvertTo-Json -Compress | Set-Content $env:MANIFEST_NAME -Encoding UTF8
           Write-Host "$env:MANIFEST_NAME content: $(Get-Content $env:MANIFEST_NAME)"
 
-          # Bootstrap = single generic source. Stable variant = source 1:1.
-          # Dev variant = literal-string substitution of the two URL/manifest defaults.
-          # Both are uploaded only on -PublishAsStable runs (versioned namespace doesn't carry bootstrap).
-          if ('${{ inputs.publish_as_stable }}' -eq 'true') {
-            $stableUrl = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip"'
-            $devUrl    = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent-dev.zip"'
-            $stableMan = '$VersionJsonName = "version.json"'
-            $devMan    = '$VersionJsonName = "version-dev.json"'
-
-            Copy-Item $env:BOOTSTRAP_SOURCE $env:STABLE_BOOTSTRAP -Force
-            $content = Get-Content $env:BOOTSTRAP_SOURCE -Raw
-            if ($content.IndexOf($stableUrl) -lt 0 -or $content.IndexOf($stableMan) -lt 0) {
-              Write-Error "Bootstrap dev-render: anchor literal missing in $env:BOOTSTRAP_SOURCE"
-              exit 1
-            }
-            $devContent = $content.Replace($stableUrl, $devUrl).Replace($stableMan, $devMan)
-            [System.IO.File]::WriteAllText("$env:STABLE_BOOTSTRAP_DEV", $devContent, (New-Object System.Text.UTF8Encoding $false))
-          }
+          # The customer-facing scripts (stable + dev render, test script, grant script) are
+          # published by .github/scripts/Publish-BootstrapScripts.ps1 -- see the upload step.
 
           "versioned_zip_release=$versionedZip" >> $env:GITHUB_OUTPUT
           "sha256=$sha256Hash" >> $env:GITHUB_OUTPUT
           "exe_sha256=$exeSha256Hash" >> $env:GITHUB_OUTPUT
-          "bootstrap_version=$bootstrapVersion" >> $env:GITHUB_OUTPUT
 
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
@@ -264,22 +254,21 @@ jobs:
             Write-Host "PUBLISH AS STABLE -- writing V2 into stable namespace (customer-facing)" -ForegroundColor Magenta
             Send-Blob -Local $env:VERSIONED_ZIP -BlobName $env:STABLE_ZIP -ContentType "application/zip"
             Send-Blob -Local $env:MANIFEST_NAME -BlobName $env:STABLE_MANIFEST -ContentType "application/json"
-            Send-Blob -Local $env:STABLE_BOOTSTRAP -BlobName $env:STABLE_BOOTSTRAP -ContentType "text/plain; charset=utf-8"
-            Send-Blob -Local $env:STABLE_BOOTSTRAP_DEV -BlobName $env:STABLE_BOOTSTRAP_DEV -ContentType "text/plain; charset=utf-8"
 
-            if (Test-Path "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1") {
-              Send-Blob -Local "scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1" -BlobName "Test-ShouldBootstrapAgent.ps1" -ContentType "text/plain; charset=utf-8"
-            }
-
-            # Customer-side Graph add-on grant script -- docs and admin UI link
-            # https://download.autopilotmonitor.com/agent/Grant-AutopilotMonitorAddOn.ps1
-            if (Test-Path "scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1") {
-              Send-Blob -Local "scripts/CustomerSetup/Grant-AutopilotMonitorAddOn.ps1" -BlobName "Grant-AutopilotMonitorAddOn.ps1" -ContentType "text/plain; charset=utf-8"
-            }
+            # Customer-facing scripts: same publisher publish-scripts.yml runs on every push
+            # to main, so a release lands a set that is consistent with what is already live
+            # (dev render, version-bump guard, bootstrapVersion oracles, alias verification).
+            # Runs AFTER version.json so its bootstrapVersion read sees this build's manifest.
+            ./.github/scripts/Publish-BootstrapScripts.ps1 `
+              -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' `
+              -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
+              -TableSasToken '${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}'
           }
 
           # Update AdminConfiguration LatestAgentV2* -- ONLY on stable cutover. The hash-oracle
           # must never point at a build that is not actually in the stable namespace.
+          # LatestBootstrapV2ScriptVersion is NOT set here: it belongs to the script publisher
+          # above, which also owns it on script-only pushes. One writer per field.
           $tableSasToken = "${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}".TrimStart('?')
           if ('${{ inputs.publish_as_stable }}' -ne 'true') {
             Write-Host "SKIPPED: AdminConfiguration update (versioned-only run -- stable namespace unchanged)"
@@ -289,22 +278,18 @@ jobs:
             $sha256 = "${{ steps.artifact.outputs.sha256 }}"
             $exeSha256 = "${{ steps.artifact.outputs.exe_sha256 }}"
             $agentVersion = "${{ steps.version.outputs.version }}"
-            $bootstrapVersion = "${{ steps.artifact.outputs.bootstrap_version }}"
             $tableUrl = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')?$tableSasToken"
             $tableBody = @{
               LatestAgentV2Version    = $agentVersion
               LatestAgentV2Sha256     = $sha256
               LatestAgentV2ExeSha256  = $exeSha256
             }
-            if ($bootstrapVersion) {
-              $tableBody["LatestBootstrapV2ScriptVersion"] = $bootstrapVersion
-            }
             Invoke-RestMethod -Uri $tableUrl -Method Merge -Headers @{
               "Content-Type" = "application/json"
               "Accept"       = "application/json;odata=nometadata"
               "If-Match"     = "*"
             } -Body ($tableBody | ConvertTo-Json)
-            Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256, bootstrapVersion=$bootstrapVersion"
+            Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256"
           }
 
       # Sigstore keyless provenance: binds the ZIP digest to this workflow run (repo, ref,
