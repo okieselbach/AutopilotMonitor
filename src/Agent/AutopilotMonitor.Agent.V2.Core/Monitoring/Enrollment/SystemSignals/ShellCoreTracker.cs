@@ -514,7 +514,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     {
                         try { FinalizingSetupPhaseTriggered?.Invoke(this, "esp_exiting"); }
                         catch (Exception ex) { _logger.Error("Backfill: FinalizingSetupPhaseTriggered handler failed", ex); }
-                        try { EspExited?.Invoke(this, new EspExitedEventArgs(occurredAtUtc)); }
+                        try { EspExited?.Invoke(this, new EspExitedEventArgs(occurredAtUtc, isBackfill: true)); }
                         catch (Exception ex) { _logger.Error("Backfill: EspExited handler failed", ex); }
                     }
                     finally { LastEventOccurredAtUtc = null; }

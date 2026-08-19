@@ -84,10 +84,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         /// <summary>
         /// OS boot time when the previous agent run was killed by a reboot (<c>reboot_kill</c>),
-        /// otherwise null. Sizes the Shell-Core ESP-exit backfill so a completion signal written
-        /// while the agent was down is still recovered.
+        /// otherwise null. One of the two inputs that size the Shell-Core ESP-exit backfill.
         /// </summary>
         private readonly DateTime? _previousBootUtc;
+
+        /// <summary>
+        /// Last moment the previous agent run is known to have been alive — the mtime of its
+        /// reducer snapshot, which is rewritten on every decision step. Independent of HOW that
+        /// run ended, which makes it the more broadly usable of the two window inputs.
+        /// </summary>
+        private readonly DateTime? _previousRunLastAliveUtc;
 
         public DefaultComponentFactory(
             AgentConfiguration agentConfig,
@@ -97,7 +103,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string stateDirectory,
             Persistence.StartupEventGate? startupEventGate = null,
             DateTime? previousBootUtc = null,
-            string? previousExitType = null)
+            string? previousExitType = null,
+            DateTime? previousRunLastAliveUtc = null)
         {
             _agentConfig = agentConfig ?? throw new ArgumentNullException(nameof(agentConfig));
             _remoteConfig = remoteConfig ?? throw new ArgumentNullException(nameof(remoteConfig));
@@ -107,6 +114,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             _startupEventGate = startupEventGate;
             _previousBootUtc = previousBootUtc;
             _previousExitType = previousExitType;
+            _previousRunLastAliveUtc = previousRunLastAliveUtc;
         }
 
         /// <summary>
@@ -118,15 +126,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// exactly as it did before the recovery was added.
         /// </para>
         /// <para>
-        /// After a <c>reboot_kill</c> the gap spans the whole downtime (forced restart until the
-        /// post-reboot logon relaunches the agent), which the 5-minute default cannot cover; the
-        /// window becomes "everything since the boot that killed us". Every other restart
-        /// (clean / hard_kill / exception_crash) keeps that default, since the process comes back
-        /// within seconds.
+        /// Otherwise the window is measured rather than guessed: it reaches back to the last moment
+        /// the previous run is known to have been alive. Two independent inputs feed it and the
+        /// wider one wins, because either can be missing:
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><b>Snapshot mtime</b> — the reducer snapshot is rewritten on every decision
+        ///     step, so its last-write time is "when we last knew what was happening", regardless
+        ///     of how that run ended. This is what makes <c>exception_crash</c> safe: the scheduled
+        ///     task carries a BootTrigger only, with no restart-on-failure, so a crashed agent does
+        ///     not come back until the next boot — possibly hours later, long after Windows wrote
+        ///     the final ESP exit. A fixed five minutes would lose it every time.</item>
+        ///   <item><b>Last boot</b> — populated for <c>hard_kill</c> / <c>reboot_kill</c>; covers
+        ///     the case where the snapshot is missing or was never written.</item>
+        /// </list>
+        /// <para>
+        /// The default stays the floor (a restart that returns in seconds still gets its five
+        /// minutes) and <c>ShellCoreTracker.ClampLookbackMinutes</c> is the ceiling, so policy and
+        /// backstop together can never build an unbounded event-log query.
         /// </para>
         /// </summary>
         internal static int ResolveEspExitBackfillLookbackMinutes(
-            string? previousExitType, DateTime? previousBootUtc, DateTime utcNow)
+            string? previousExitType,
+            DateTime? previousBootUtc,
+            DateTime? previousRunLastAliveUtc,
+            DateTime utcNow)
         {
             if (string.IsNullOrEmpty(previousExitType)
                 || string.Equals(previousExitType, "first_run", StringComparison.OrdinalIgnoreCase))
@@ -134,19 +158,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 return 0;
             }
 
-            if (string.Equals(previousExitType, "reboot_kill", StringComparison.OrdinalIgnoreCase)
-                && previousBootUtc.HasValue)
+            var lookback = ShellCoreTracker.BackfillLookbackMinutes;
+
+            foreach (var since in new[] { previousRunLastAliveUtc, previousBootUtc })
             {
-                var sinceBoot = utcNow - previousBootUtc.Value;
-                if (sinceBoot > TimeSpan.Zero)
-                {
-                    var sinceBootMinutes = (int)Math.Ceiling(sinceBoot.TotalMinutes) + 1;
-                    if (sinceBootMinutes > ShellCoreTracker.BackfillLookbackMinutes)
-                        return sinceBootMinutes;
-                }
+                if (!since.HasValue) continue;
+
+                var elapsed = utcNow - since.Value;
+                if (elapsed <= TimeSpan.Zero) continue;   // clock skew — never build a negative window
+
+                var minutes = (int)Math.Ceiling(elapsed.TotalMinutes) + 1;
+                if (minutes > lookback) lookback = minutes;
             }
 
-            return ShellCoreTracker.BackfillLookbackMinutes;
+            return lookback;
+        }
+
+        /// <summary>
+        /// Last-write time of the previous run's reducer snapshot, or null when it does not exist
+        /// (first run) or cannot be read. Best-effort by design — a missing timestamp only means
+        /// the replay window falls back to the other inputs.
+        /// </summary>
+        internal static DateTime? ReadPreviousRunLastAliveUtc(string stateDirectory)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(stateDirectory)) return null;
+                var snapshotPath = Path.Combine(
+                    stateDirectory, Persistence.DeathRattlePrelude.SnapshotFileName);
+                return File.Exists(snapshotPath)
+                    ? (DateTime?)File.GetLastWriteTimeUtc(snapshotPath)
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public CollectorSurfaces CreateCollectorHosts(
@@ -213,7 +260,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // replay is restart recovery, so it stays OFF on a first run and the happy path keeps
             // its pre-fix behaviour exactly. See ResolveEspExitBackfillLookbackMinutes.
             var espExitBackfillLookbackMinutes = ResolveEspExitBackfillLookbackMinutes(
-                _previousExitType, _previousBootUtc, DateTime.UtcNow);
+                _previousExitType, _previousBootUtc, _previousRunLastAliveUtc, DateTime.UtcNow);
             if (espExitBackfillLookbackMinutes > 0)
             {
                 logger.Info(
@@ -384,7 +431,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // an empty app list. Nudge the synthesis once the restored level is in place —
                 // otherwise the exact reboot case (apps terminal BEFORE the reboot, only the final
                 // exit lost to the downtime) still never completes.
-                onStateRestored: () => espAndHelloHost.ReevaluateUserAppsSettledSynthesis());
+                onStateRestored: () =>
+                {
+                    // Order matters: replay first, THEN re-check. The replayed exit's own
+                    // synthesis attempt now runs against restored app states; the re-check
+                    // afterwards covers the live-exit case where the apps settled during the
+                    // restore itself.
+                    espAndHelloHost.ReplayEspExitBackfill();
+                    espAndHelloHost.ReevaluateUserAppsSettledSynthesis();
+                });
             hosts.Add(imeLogHost);
             imeLogHostRef = imeLogHost;
 

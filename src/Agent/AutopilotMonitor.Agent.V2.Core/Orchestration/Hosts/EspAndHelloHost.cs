@@ -104,8 +104,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// Starts the tracker and then — only when this run FOLLOWS a previous one — replays
-        /// recent Shell-Core ESP-exit / Hello-wizard records.
+        /// Starts the tracker. The Shell-Core replay does NOT run here — see
+        /// <see cref="ReplayEspExitBackfill"/> for why it is deferred until the IME state is back.
         /// <para>
         /// The backfill has existed since session 772fe502 but was never wired to a caller, so
         /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
@@ -113,16 +113,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// happened while the agent was down — and after a mid-ESP reboot that is exactly the
         /// window the completion signal lands in (sits-d Cloud PCs, 2026-08-19: five sessions
         /// hung in AccountSetup until the server-side timeout while the devices were fine).
-        /// </para>
-        /// <para>
-        /// Ordering is deliberate: Start first, then backfill. A record written between the two
-        /// is observed twice, and that is by design tolerable — the tracker dedups the REPLAY
-        /// (single-shot per rail) but never the live stream, because Shell-Core emits 62407 at
-        /// every ESP phase transition anyway. Duplicates are absorbed downstream: the reducer
-        /// (<c>ShouldTransitionToAwaitingHello</c>) picks the genuine post-AccountSetup exit, and
-        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag. The
-        /// reverse order could drop a record entirely, which costs the session its completion —
-        /// a duplicate costs nothing.
         /// </para>
         /// <para>
         /// A lookback of zero disables the replay entirely. That is the FIRST run of an enrollment:
@@ -133,12 +123,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// The caller (<c>DefaultComponentFactory</c>) owns that policy.
         /// </para>
         /// </summary>
-        public void Start()
-        {
-            _tracker.Start();
+        public void Start() => _tracker.Start();
 
-            if (_espExitBackfillLookbackMinutes > 0)
-                _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
+        /// <summary>
+        /// Replays recent Shell-Core ESP-exit / Hello-wizard records — restart recovery for
+        /// observations no agent process was around to make.
+        /// <para>
+        /// Codex review P1/P2 (2026-08-19): this deliberately runs AFTER the IME log host has
+        /// restored its persisted app states, not inside <see cref="Start"/>. A replayed exit no
+        /// longer arms the deferred re-check (a replay carries no evidence of its own position
+        /// relative to AccountSetup), so its ONE synthesis attempt happens as the record is
+        /// replayed — and that attempt is worthless while the app-state list is still empty.
+        /// Running it post-restore is what makes the "agent came back long after the ESP finished"
+        /// case recoverable at all.
+        /// </para>
+        /// <para>
+        /// Ordering within the replay: the tracker is already started, so a record written between
+        /// the two is observed twice. That is by design tolerable — the tracker dedups the REPLAY
+        /// (single-shot per rail) but never the live stream, because Shell-Core emits 62407 at
+        /// every ESP phase transition anyway. Duplicates are absorbed downstream: the reducer
+        /// (<c>ShouldTransitionToAwaitingHello</c>) picks the genuine post-AccountSetup exit, and
+        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag.
+        /// </para>
+        /// </summary>
+        public void ReplayEspExitBackfill()
+        {
+            if (_espExitBackfillLookbackMinutes <= 0) return;
+            _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
         }
 
         public void Stop() => _tracker.Stop();

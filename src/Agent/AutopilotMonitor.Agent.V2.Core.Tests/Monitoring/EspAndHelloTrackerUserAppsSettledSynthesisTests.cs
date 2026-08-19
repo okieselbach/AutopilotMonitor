@@ -320,6 +320,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         [Fact]
+        public void A_replayed_exit_never_arms_the_deferred_recheck()
+        {
+            // Codex review P1 (2026-08-19): the AccountSetup probe reflects NOW, not the replayed
+            // event's time. An agent that was down across the DeviceSetup→AccountSetup transition
+            // would otherwise confirm that stale intermediate exit and, once the apps settle,
+            // synthesise a completion while the AccountSetup page is still up.
+            using var f = new Fixture();
+            var settled = false;
+            using var coordinator = f.BuildCoordinator(
+                () => settled, accountSetupActivityProbe: () => true, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed, isBackfill: true);
+
+            settled = true;
+            for (var i = 0; i < 10; i++) coordinator.ReevaluateUserAppsSettledSynthesis();
+
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+        }
+
+        [Fact]
+        public void A_replayed_exit_still_gets_its_immediate_synthesis_attempt()
+        {
+            // The replay is not neutered — it keeps the one attempt it always had. That attempt is
+            // what recovers "agent came back long after the ESP finished", which is why the replay
+            // now runs after the IME state restore (EspAndHelloHost.ReplayEspExitBackfill).
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(
+                () => true, accountSetupActivityProbe: () => true, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed, isBackfill: true);
+
+            Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
+            Assert.True(coordinator.UserAppsSettledSynthesisFiredForTest);
+        }
+
+        [Fact]
         public void Reevaluate_stays_silent_while_apps_are_still_unsettled()
         {
             using var f = new Fixture();

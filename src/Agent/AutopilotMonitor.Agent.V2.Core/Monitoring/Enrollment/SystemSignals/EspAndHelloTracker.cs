@@ -649,8 +649,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // ShellCoreTracker.EspExited event raises. Drives the full coordinator re-raise path so
         // tests can assert LastEventOccurredAtUtc mirroring + the public EspExited event fire
         // without needing a real ShellCoreTracker + Event-Log watcher.
-        internal void TriggerEspExitedForTest(DateTime occurredAtUtc) =>
-            OnEspExited(this, new EspExitedEventArgs(occurredAtUtc));
+        internal void TriggerEspExitedForTest(DateTime occurredAtUtc, bool isBackfill = false) =>
+            OnEspExited(this, new EspExitedEventArgs(occurredAtUtc, isBackfill));
 
         // Test seam for HelloWizardStarted — same contract as TriggerEspExitedForTest.
         internal void TriggerHelloWizardStartedForTest(DateTime occurredAtUtc) =>
@@ -760,9 +760,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                 // Record the edge BEFORE the synthesis attempt so a later app-state change can
                 // re-run it even when the apps are not settled yet at this instant — but ONLY for
-                // an exit we can positively place after AccountSetup. The immediate attempt below
-                // is deliberately left ungated: it keeps its pre-existing behaviour exactly.
-                if (IsConfirmedPostAccountSetupExit())
+                // a LIVE exit we can positively place after AccountSetup. A replayed exit is
+                // excluded: Shell-Core writes the same description for the intermediate
+                // DeviceSetup→AccountSetup transition and for the final one, and the AccountSetup
+                // read below reflects NOW, not the event's time, so it cannot order a replay
+                // (Codex review P1). A replayed exit still gets the immediate attempt below —
+                // which by then runs against restored IME state, see EspAndHelloHost.
+                // The immediate attempt is deliberately left ungated: pre-existing behaviour.
+                if (args?.IsBackfill != true && IsConfirmedPostAccountSetupExit())
                     _espExitObserved = true;
 
                 // Session caa6cf50 gate-starvation fix: a Shell-Core normal exit while IME's

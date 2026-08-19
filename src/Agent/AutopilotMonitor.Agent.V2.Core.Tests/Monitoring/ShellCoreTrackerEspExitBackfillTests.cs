@@ -24,9 +24,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
     {
         private static readonly DateTime ClockNow = new DateTime(2026, 8, 19, 8, 43, 16, DateTimeKind.Utc);
 
-        // Shell-Core 62407 wording for the normal ESP teardown (matches OOBE_ESP.*Exiting).
-        private const string EspExitDescription =
-            "BootstrapStatus: OOBE_ESP - Exiting page due to Account Setup completion.";
+        // The REAL Shell-Core 62407 wording. Note it is byte-identical for the intermediate
+        // DeviceSetup→AccountSetup transition and for the final post-AccountSetup exit — Windows
+        // offers no discriminator in the event itself, which is why ordering has to come from
+        // elsewhere (see EspExitedEventArgs.IsBackfill).
+        private const string EspExitDescription = "CommercialOOBE_ESPProgress_Page_Exiting";
 
         private static ShellCoreTracker MakeTracker(TempDirectory tmp, VirtualClock clock)
         {
@@ -248,6 +250,32 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             tracker.ReplayBackfillRecords(new List<(int, string, DateTime)>());
 
             Assert.Equal(0, exits);
+        }
+
+        [Fact]
+        public void Replayed_exits_are_flagged_as_backfill_live_ones_are_not()
+        {
+            // Codex review P1 (2026-08-19): downstream needs to tell the two apart, because a
+            // replayed record carries no evidence of its own position relative to AccountSetup.
+            using var tmp = new TempDirectory();
+            using var tracker = MakeTracker(tmp, new VirtualClock(ClockNow));
+
+            var flags = new List<bool>();
+            tracker.EspExited += (_, args) => flags.Add(args.IsBackfill);
+
+            tracker.HandleBackfillRecord(
+                eventId: ShellCoreTracker.EventId_ShellCore_WebAppEvent,
+                description: EspExitDescription,
+                occurredAtUtc: ClockNow.AddMinutes(-11));
+
+            tracker.ProcessEvent(
+                eventId: ShellCoreTracker.EventId_ShellCore_WebAppEvent,
+                description: EspExitDescription,
+                timestamp: ClockNow,
+                providerName: "Microsoft-Windows-Shell-Core",
+                isBackfill: false);
+
+            Assert.Equal(new[] { true, false }, flags);
         }
 
         [Theory]
