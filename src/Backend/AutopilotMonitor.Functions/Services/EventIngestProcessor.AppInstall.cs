@@ -184,50 +184,107 @@ namespace AutopilotMonitor.Functions.Services
                         : evt.Data?.ContainsKey("bytes_downloaded") == true ? "bytes_downloaded" : null;
                     if (bytesKey != null && long.TryParse(evt.Data![bytesKey]?.ToString(), out var bytes))
                         summary.DownloadBytes = Math.Max(summary.DownloadBytes, bytes);
+                    // DO fallback: IME >= 1.104 removed the [DO TEL] log line, and the agent's
+                    // DO collector only emits do_telemetry for downloads whose completion a poll
+                    // itself observed — fast, interrupted or between-poll-completed downloads
+                    // never get one. The progress events carry the full do* set on every poll,
+                    // so fold them in monotonically; a do_telemetry (below) stays authoritative.
+                    if (evt.Data != null)
+                        ApplyDoFields(summary, evt.Data, isAuthoritative: false);
                     break;
 
                 case "do_telemetry":
                     if (evt.Data != null)
-                    {
-                        if (evt.Data.ContainsKey("doFileSize") && long.TryParse(evt.Data["doFileSize"]?.ToString(), out var doFs))
-                        {
-                            summary.DownloadBytes = Math.Max(summary.DownloadBytes, doFs);
-                            summary.DoFileSize = doFs;
-                        }
-                        if (evt.Data.ContainsKey("doTotalBytesDownloaded") && long.TryParse(evt.Data["doTotalBytesDownloaded"]?.ToString(), out var doTotalDl))
-                            summary.DoTotalBytesDownloaded = doTotalDl;
-                        if (evt.Data.ContainsKey("doBytesFromPeers") && long.TryParse(evt.Data["doBytesFromPeers"]?.ToString(), out var doPeers))
-                            summary.DoBytesFromPeers = doPeers;
-                        if (evt.Data.ContainsKey("doBytesFromHttp") && long.TryParse(evt.Data["doBytesFromHttp"]?.ToString(), out var doHttp))
-                            summary.DoBytesFromHttp = doHttp;
-                        if (evt.Data.ContainsKey("doPercentPeerCaching") && int.TryParse(evt.Data["doPercentPeerCaching"]?.ToString(), out var doPct))
-                            summary.DoPercentPeerCaching = doPct;
-                        if (evt.Data.ContainsKey("doDownloadMode") && int.TryParse(evt.Data["doDownloadMode"]?.ToString(), out var doMode))
-                            summary.DoDownloadMode = doMode;
-                        if (evt.Data.ContainsKey("doDownloadDuration"))
-                        {
-                            var doDurStr = evt.Data["doDownloadDuration"]?.ToString() ?? string.Empty;
-                            summary.DoDownloadDuration = doDurStr;
-                            if (TimeSpan.TryParse(doDurStr, out var doDurTs) && doDurTs.TotalSeconds >= 1)
-                                summary.DownloadDurationSeconds = Math.Max(summary.DownloadDurationSeconds, (int)doDurTs.TotalSeconds);
-                        }
-                        if (evt.Data.ContainsKey("doBytesFromLanPeers") && long.TryParse(evt.Data["doBytesFromLanPeers"]?.ToString(), out var doLan))
-                            summary.DoBytesFromLanPeers = doLan;
-                        if (evt.Data.ContainsKey("doBytesFromGroupPeers") && long.TryParse(evt.Data["doBytesFromGroupPeers"]?.ToString(), out var doGroup))
-                            summary.DoBytesFromGroupPeers = doGroup;
-                        if (evt.Data.ContainsKey("doBytesFromInternetPeers") && long.TryParse(evt.Data["doBytesFromInternetPeers"]?.ToString(), out var doInet))
-                            summary.DoBytesFromInternetPeers = doInet;
-                        if (evt.Data.ContainsKey("doBytesFromLinkLocalPeers") && long.TryParse(evt.Data["doBytesFromLinkLocalPeers"]?.ToString(), out var doLinkLocal))
-                            summary.DoBytesFromLinkLocalPeers = doLinkLocal;
-                        if (evt.Data.ContainsKey("doBytesFromCacheServer") && long.TryParse(evt.Data["doBytesFromCacheServer"]?.ToString(), out var doCache))
-                            summary.DoBytesFromCacheServer = doCache;
-                        if (evt.Data.ContainsKey("doCacheHost"))
-                            summary.DoCacheHost = evt.Data["doCacheHost"]?.ToString() ?? string.Empty;
-                    }
+                        ApplyDoFields(summary, evt.Data, isAuthoritative: true);
                     break;
             }
 
             RecalculateAppDurations(state);
+        }
+
+        /// <summary>
+        /// Folds the <c>do*</c> Delivery Optimization fields of one event into the summary.
+        /// Two writers share this so they cannot drift:
+        /// <list type="bullet">
+        /// <item><c>do_telemetry</c> (<paramref name="isAuthoritative"/> = true) — the collector's
+        /// final per-app read: last-write-wins per present key (pre-existing semantics), except
+        /// <c>DoDownloadMode</c> never regresses to the -1 "unset" sentinel — that would re-hide
+        /// the row from <c>DoAggregator</c> after a progress event already established a mode.</item>
+        /// <item><c>download_progress</c> (false) — per-poll observations: byte counters and file
+        /// size fold via <c>Math.Max</c> (monotonic per download, so replays and out-of-order
+        /// batches stay idempotent); mode/percent/cacheHost are latest-observation writes.</item>
+        /// </list>
+        /// <c>DownloadBytes</c> prefers actually-transferred bytes (<c>doTotalBytesDownloaded</c>)
+        /// over <c>doFileSize</c> — the file size is only the fallback when no transfer total exists
+        /// (it used to unconditionally inflate the transfer measure).
+        /// </summary>
+        internal static void ApplyDoFields(AppInstallSummary summary, Dictionary<string, object> data, bool isAuthoritative)
+        {
+            static bool TryGetLong(Dictionary<string, object> d, string key, out long value)
+            {
+                value = 0;
+                return d.TryGetValue(key, out var raw) && long.TryParse(raw?.ToString(), out value);
+            }
+            static bool TryGetInt(Dictionary<string, object> d, string key, out int value)
+            {
+                value = 0;
+                return d.TryGetValue(key, out var raw) && int.TryParse(raw?.ToString(), out value);
+            }
+            static long Fold(bool authoritative, long current, long incoming)
+                => authoritative ? incoming : Math.Max(current, incoming);
+
+            var hasFileSize = TryGetLong(data, "doFileSize", out var doFs);
+            var hasTotalDl = TryGetLong(data, "doTotalBytesDownloaded", out var doTotalDl);
+
+            if (hasFileSize)
+                summary.DoFileSize = Fold(isAuthoritative, summary.DoFileSize, doFs);
+            if (hasTotalDl)
+                summary.DoTotalBytesDownloaded = Fold(isAuthoritative, summary.DoTotalBytesDownloaded, doTotalDl);
+
+            // Transfer measure: real transferred bytes when known, file size only as fallback.
+            // Progress events already fed DownloadBytes via their bytesDownloaded field, so only
+            // the authoritative telemetry contributes here.
+            if (isAuthoritative && (hasFileSize || hasTotalDl))
+                summary.DownloadBytes = Math.Max(summary.DownloadBytes, hasTotalDl && doTotalDl > 0 ? doTotalDl : doFs);
+
+            if (TryGetLong(data, "doBytesFromPeers", out var doPeers))
+                summary.DoBytesFromPeers = Fold(isAuthoritative, summary.DoBytesFromPeers, doPeers);
+            if (TryGetLong(data, "doBytesFromHttp", out var doHttp))
+                summary.DoBytesFromHttp = Fold(isAuthoritative, summary.DoBytesFromHttp, doHttp);
+            if (TryGetLong(data, "doBytesFromLanPeers", out var doLan))
+                summary.DoBytesFromLanPeers = Fold(isAuthoritative, summary.DoBytesFromLanPeers, doLan);
+            if (TryGetLong(data, "doBytesFromGroupPeers", out var doGroup))
+                summary.DoBytesFromGroupPeers = Fold(isAuthoritative, summary.DoBytesFromGroupPeers, doGroup);
+            if (TryGetLong(data, "doBytesFromInternetPeers", out var doInet))
+                summary.DoBytesFromInternetPeers = Fold(isAuthoritative, summary.DoBytesFromInternetPeers, doInet);
+            if (TryGetLong(data, "doBytesFromLinkLocalPeers", out var doLinkLocal))
+                summary.DoBytesFromLinkLocalPeers = Fold(isAuthoritative, summary.DoBytesFromLinkLocalPeers, doLinkLocal);
+            if (TryGetLong(data, "doBytesFromCacheServer", out var doCache))
+                summary.DoBytesFromCacheServer = Fold(isAuthoritative, summary.DoBytesFromCacheServer, doCache);
+
+            if (TryGetInt(data, "doPercentPeerCaching", out var doPct))
+                summary.DoPercentPeerCaching = doPct;
+
+            // -1 is the "unset" sentinel DoAggregator filters on — never let it clobber a
+            // known mode (a telemetry event without the DownloadMode property parses as -1).
+            if (TryGetInt(data, "doDownloadMode", out var doMode) && doMode >= 0)
+                summary.DoDownloadMode = doMode;
+
+            if (data.TryGetValue("doCacheHost", out var cacheHostRaw))
+            {
+                var cacheHost = cacheHostRaw?.ToString();
+                if (isAuthoritative || !string.IsNullOrEmpty(cacheHost))
+                    summary.DoCacheHost = cacheHost ?? string.Empty;
+            }
+
+            // Only do_telemetry carries a duration; progress events never have the key.
+            if (data.ContainsKey("doDownloadDuration"))
+            {
+                var doDurStr = data["doDownloadDuration"]?.ToString() ?? string.Empty;
+                summary.DoDownloadDuration = doDurStr;
+                if (TimeSpan.TryParse(doDurStr, out var doDurTs) && doDurTs.TotalSeconds >= 1)
+                    summary.DownloadDurationSeconds = Math.Max(summary.DownloadDurationSeconds, (int)doDurTs.TotalSeconds);
+            }
         }
 
         internal static void RecalculateAppDurations(AppInstallAggregationState state)
