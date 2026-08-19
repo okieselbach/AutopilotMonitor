@@ -342,17 +342,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         [Fact]
-        public void A_replayed_exit_still_gets_its_immediate_synthesis_attempt()
+        public void A_replayed_exit_never_opens_the_completion_gate()
         {
-            // The replay is not neutered — it keeps the one attempt it always had. That attempt is
-            // what recovers "agent came back long after the ESP finished", which is why the replay
-            // now runs after the IME state restore (EspAndHelloHost.ReplayEspExitBackfill).
+            // The immediate attempt is off-limits for a replay too, not just the deferred edge.
+            // Every input that could order a replayed exit — the AccountSetup probe, the settled-
+            // apps probe — reads state as it is NOW. If the newest 62407 in the window is only the
+            // intermediate DeviceSetup→AccountSetup exit while the restored app states are already
+            // terminal, synthesising here would open the strong gate before the final exit has
+            // even happened. Moving the replay behind the IME restore had made exactly that state
+            // reachable by design; this pins it shut.
             using var f = new Fixture();
             using var coordinator = f.BuildCoordinator(
                 () => true, accountSetupActivityProbe: () => true, skipUserEsp: false);
             using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
 
             coordinator.TriggerEspExitedForTest(Fixed, isBackfill: true);
+
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+            Assert.False(coordinator.UserAppsSettledSynthesisFiredForTest);
+            Assert.Empty(f.TrackerPostSink.Posted);
+        }
+
+        [Fact]
+        public void A_replayed_exit_still_forwards_EspExiting_to_the_reducer()
+        {
+            // The replay is not neutered — feeding the reducer for the window in which no agent
+            // process was observing is the job it was written for (session 772fe502). Only the
+            // completion gate is off-limits.
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(
+                () => true, accountSetupActivityProbe: () => true, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed, isBackfill: true);
+
+            var posted = Assert.Single(f.Ingress.Posted);
+            Assert.Equal(DecisionSignalKind.EspExiting, posted.Kind);
+        }
+
+        [Fact]
+        public void A_live_exit_after_a_replayed_one_still_completes_normally()
+        {
+            // The replay must not poison the live path that follows it: the real final exit
+            // arrives, the apps are settled, and the gate opens as it should.
+            using var f = new Fixture();
+            using var coordinator = f.BuildCoordinator(
+                () => true, accountSetupActivityProbe: () => true, skipUserEsp: false);
+            using var adapter = new EspAndHelloTrackerAdapter(coordinator, f.Ingress, f.Clock);
+
+            coordinator.TriggerEspExitedForTest(Fixed, isBackfill: true);
+            Assert.DoesNotContain(f.Ingress.Posted, p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete);
+
+            coordinator.TriggerEspExitedForTest(Fixed.AddMinutes(4));
 
             Assert.Equal(1, f.Ingress.Posted.Count(p => p.Kind == DecisionSignalKind.AccountSetupProvisioningComplete));
             Assert.True(coordinator.UserAppsSettledSynthesisFiredForTest);

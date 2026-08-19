@@ -758,16 +758,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 try { EspExited?.Invoke(this, args); }
                 catch (Exception ex) { _logger.Error("Error forwarding EspExited", ex); }
 
+                // A REPLAYED exit must not touch the completion gate at all — neither the
+                // deferred edge nor the immediate attempt below (Codex review, 2026-08-19).
+                //
+                // Shell-Core writes the identical description
+                // (CommercialOOBE_ESPProgress_Page_Exiting) for the intermediate
+                // DeviceSetup→AccountSetup transition and for the final post-AccountSetup one, so
+                // a replayed record carries no evidence of its own position. Everything that could
+                // order it — IsConfirmedPostAccountSetupExit, the settled-apps probe — reads state
+                // as it is NOW, not as it was at the event's time. If the newest 62407 in the
+                // window is only the intermediate exit while the restored app states are already
+                // terminal, synthesising here would open the strong AccountSetup gate before the
+                // final exit has even happened.
+                //
+                // The replay keeps the job it was written for (session 772fe502): feeding
+                // EspExiting / FinalizingSetup / Hello-wizard to the reducer for the window in
+                // which no agent process was observing. Completion stays the exclusive business of
+                // exits this agent watched live.
+                if (args?.IsBackfill == true) return;
+
                 // Record the edge BEFORE the synthesis attempt so a later app-state change can
-                // re-run it even when the apps are not settled yet at this instant — but ONLY for
-                // a LIVE exit we can positively place after AccountSetup. A replayed exit is
-                // excluded: Shell-Core writes the same description for the intermediate
-                // DeviceSetup→AccountSetup transition and for the final one, and the AccountSetup
-                // read below reflects NOW, not the event's time, so it cannot order a replay
-                // (Codex review P1). A replayed exit still gets the immediate attempt below —
-                // which by then runs against restored IME state, see EspAndHelloHost.
-                // The immediate attempt is deliberately left ungated: pre-existing behaviour.
-                if (args?.IsBackfill != true && IsConfirmedPostAccountSetupExit())
+                // re-run it even when the apps are not settled at this instant.
+                if (IsConfirmedPostAccountSetupExit())
                     _espExitObserved = true;
 
                 // Session caa6cf50 gate-starvation fix: a Shell-Core normal exit while IME's

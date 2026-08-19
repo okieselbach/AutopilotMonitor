@@ -431,15 +431,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // an empty app list. Nudge the synthesis once the restored level is in place —
                 // otherwise the exact reboot case (apps terminal BEFORE the reboot, only the final
                 // exit lost to the downtime) still never completes.
-                onStateRestored: () =>
-                {
-                    // Order matters: replay first, THEN re-check. The replayed exit's own
-                    // synthesis attempt now runs against restored app states; the re-check
-                    // afterwards covers the live-exit case where the apps settled during the
-                    // restore itself.
-                    espAndHelloHost.ReplayEspExitBackfill();
-                    espAndHelloHost.ReevaluateUserAppsSettledSynthesis();
-                });
+                onStateRestored: () => espAndHelloHost.ReevaluateUserAppsSettledSynthesis());
             hosts.Add(imeLogHost);
             imeLogHostRef = imeLogHost;
 

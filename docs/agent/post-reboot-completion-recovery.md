@@ -115,17 +115,22 @@ Remembering the wrong one would let the deferred re-check open the strong Accoun
 moment the last user app settles, while the AccountSetup page is still up and its other
 subcategories are still running: a premature success.
 
-Two filters therefore apply to the remembered edge:
+Two filters therefore apply:
 
-1. **Live only.** A replayed exit is never remembered (`EspExitedEventArgs.IsBackfill`). The
-   AccountSetup check below reads the registry *now*, not at the event's time; that read is a
-   valid ordering fact only for an exit the agent observed while continuously running. An agent
-   that was down across the DeviceSetup→AccountSetup transition would otherwise confirm the
-   stale intermediate exit. A replayed exit still gets the single immediate synthesis attempt it
-   always had.
-2. **Confirmed post-AccountSetup.** `IsConfirmedPostAccountSetupExit()` demands positive
-   evidence and is deliberately stricter than the existing `IsIntermediateDeviceEspExit()`
-   forward guard:
+1. **Live only — for the whole gate, not just the deferred edge.** A replayed exit
+   (`EspExitedEventArgs.IsBackfill`) returns before touching completion at all: it neither arms
+   the deferred re-check nor gets an immediate synthesis attempt. Everything that could order it
+   — the AccountSetup check, the settled-apps probe — reads state as it is *now*, not as it was
+   at the event's time. That read is a valid ordering fact only for an exit the agent observed
+   while continuously running; an agent that was down across the DeviceSetup→AccountSetup
+   transition would otherwise confirm the stale intermediate exit, and if the restored app states
+   happen to be terminal it would open the strong gate before the final exit has even happened.
+   The replay keeps the job it was written for (session 772fe502): feeding
+   `EspExiting` / `FinalizingSetup` / Hello-wizard to the reducer for the unobserved window.
+   Completion is the exclusive business of exits this agent watched live.
+2. **Confirmed post-AccountSetup.** For those live exits `IsConfirmedPostAccountSetupExit()`
+   demands positive evidence and is deliberately stricter than the existing
+   `IsIntermediateDeviceEspExit()` forward guard:
 
 | Evidence | Meaning |
 |---|---|
@@ -136,18 +141,16 @@ Anything else — including an unknown `SkipUser` — counts as *not confirmed*.
 intentional: erring strict costs at worst the pre-fix behaviour (the session stalls), while
 erring loose costs a premature `Succeeded`, which nothing downstream can take back.
 
-**The replay itself runs after the IME state restore.** `ImeLogTracker.Start()` restores the
-persisted package states via `LoadState()` and raises no `OnAppStateChanged` for them, and
+**The re-check must also run after the IME state restore.** `ImeLogTracker.Start()` restores
+the persisted package states via `LoadState()` and raises no `OnAppStateChanged` for them, and
 `ImeLogHost` starts *after* `EspAndHelloHost` (pinned by
-`DefaultComponentFactoryOrderingTests`). Running the replay inside `EspAndHelloHost.Start()`
-would therefore evaluate it against an empty app list — and since a replayed exit gets exactly
-one synthesis attempt, that attempt would be worthless.
+`DefaultComponentFactoryOrderingTests`). A live exit observed before that restore completes
+would therefore never get a second look. `ImeLogHost` takes an `onStateRestored` callback,
+wired in the factory to `ReevaluateUserAppsSettledSynthesis()`.
 
-`ImeLogHost` takes an `onStateRestored` callback, wired in the factory to
-`ReplayEspExitBackfill()` **then** `ReevaluateUserAppsSettledSynthesis()`. The replay's own
-attempt now sees restored app states, which is what makes "the agent came back long after the
-ESP finished" recoverable at all; the re-check afterwards covers the live-exit case where the
-apps settled during the restore itself.
+The replay itself stays in `EspAndHelloHost.Start()` and does not depend on this ordering —
+it feeds the reducer only, so there is nothing for it to read from the IME state. Keeping it
+there also keeps this host's startup independent of the IME host's.
 
 # Examples
 

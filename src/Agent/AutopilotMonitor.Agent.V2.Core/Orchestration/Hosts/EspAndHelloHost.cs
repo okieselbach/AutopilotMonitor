@@ -104,8 +104,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         }
 
         /// <summary>
-        /// Starts the tracker. The Shell-Core replay does NOT run here — see
-        /// <see cref="ReplayEspExitBackfill"/> for why it is deferred until the IME state is back.
+        /// Starts the tracker and replays recent Shell-Core ESP-exit / Hello-wizard records —
+        /// restart recovery for observations no agent process was around to make.
         /// <para>
         /// The backfill has existed since session 772fe502 but was never wired to a caller, so
         /// the Shell-Core watcher only ever saw events written AFTER <see cref="Start"/>. Any
@@ -123,33 +123,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// The caller (<c>DefaultComponentFactory</c>) owns that policy.
         /// </para>
         /// </summary>
-        public void Start() => _tracker.Start();
-
-        /// <summary>
-        /// Replays recent Shell-Core ESP-exit / Hello-wizard records — restart recovery for
-        /// observations no agent process was around to make.
         /// <para>
-        /// Codex review P1/P2 (2026-08-19): this deliberately runs AFTER the IME log host has
-        /// restored its persisted app states, not inside <see cref="Start"/>. A replayed exit no
-        /// longer arms the deferred re-check (a replay carries no evidence of its own position
-        /// relative to AccountSetup), so its ONE synthesis attempt happens as the record is
-        /// replayed — and that attempt is worthless while the app-state list is still empty.
-        /// Running it post-restore is what makes the "agent came back long after the ESP finished"
-        /// case recoverable at all.
-        /// </para>
-        /// <para>
-        /// Ordering within the replay: the tracker is already started, so a record written between
-        /// the two is observed twice. That is by design tolerable — the tracker dedups the REPLAY
+        /// Ordering is deliberate: Start first, then replay. A record written between the two is
+        /// observed twice, which the design already tolerates — the tracker dedups the REPLAY
         /// (single-shot per rail) but never the live stream, because Shell-Core emits 62407 at
         /// every ESP phase transition anyway. Duplicates are absorbed downstream: the reducer
         /// (<c>ShouldTransitionToAwaitingHello</c>) picks the genuine post-AccountSetup exit, and
-        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag.
+        /// the Hello rail has the HelloTracker once-guard plus the adapter's dedup flag. The
+        /// reverse order could drop a record entirely.
+        /// </para>
+        /// <para>
+        /// The replay feeds the reducer only. A replayed exit can never open the completion gate
+        /// (see <c>EspAndHelloTracker.OnEspExited</c>), so nothing here depends on the IME app
+        /// states being restored yet — which keeps this host's startup independent of the IME
+        /// host's.
         /// </para>
         /// </summary>
-        public void ReplayEspExitBackfill()
+        public void Start()
         {
-            if (_espExitBackfillLookbackMinutes <= 0) return;
-            _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
+            _tracker.Start();
+
+            if (_espExitBackfillLookbackMinutes > 0)
+                _tracker.BackfillRecentEspExitEvents(_espExitBackfillLookbackMinutes);
         }
 
         public void Stop() => _tracker.Stop();
