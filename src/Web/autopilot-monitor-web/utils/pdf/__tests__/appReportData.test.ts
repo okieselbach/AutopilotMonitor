@@ -146,6 +146,16 @@ describe("prepareReportModel", () => {
     expect(model.failureCodes.moreCount).toBe(2);
   });
 
+  it("keeps the full exit-code description untruncated", () => {
+    const model = prepareReportModel(
+      makeInput({
+        topFailureCodes: [{ code: "esp_apps_install_failure", exitCode: 1618, count: 1 }],
+      })
+    );
+    expect(model.failureCodes.rows[0][0]).toBe("esp_apps_install_failure");
+    expect(model.failureCodes.rows[0][2]).toBe("1618 (Another installation already in progress)");
+  });
+
   it("enriches known error codes and labels unknown ones", () => {
     const model = prepareReportModel(
       makeInput({

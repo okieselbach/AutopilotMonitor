@@ -62,8 +62,13 @@ export function ensureSpace(ctx: PdfContext, needed: number) {
   ctx.y = contentTop + 2;
 }
 
-export function sectionTitle(ctx: PdfContext, text: string) {
-  ensureSpace(ctx, 14);
+/**
+ * Section heading with keep-with-next: `keepWith` reserves room for the first
+ * mm of the following block, so a title never strands alone at a page bottom
+ * while its table/chart starts on the next page.
+ */
+export function sectionTitle(ctx: PdfContext, text: string, keepWith = 20) {
+  ensureSpace(ctx, 14 + keepWith);
   ctx.y += 3;
   ctx.doc.setFont("helvetica", "bold");
   ctx.doc.setFontSize(11);
@@ -142,6 +147,10 @@ export function calloutBox(ctx: PdfContext, text: string) {
 
 const TABLE_HEADER_H = 7;
 const TABLE_ROW_H = 6;
+const TABLE_CELL_LINE_H = 3.6;
+const TABLE_CELL_PAD_Y = 4.2;
+/** Sanity cap so one pathological cell can't produce a page-tall row. */
+const TABLE_MAX_CELL_LINES = 4;
 
 function drawTableHeader(ctx: PdfContext, columns: TableColumn[]) {
   ctx.doc.setFillColor(pdfColors.headerBand);
@@ -160,37 +169,66 @@ function drawTableHeader(ctx: PdfContext, columns: TableColumn[]) {
   ctx.y += TABLE_HEADER_H;
 }
 
-/** Fixed-column table with zebra striping and header repetition after page breaks. */
+/**
+ * Fixed-column table with zebra striping and header repetition after page
+ * breaks. Cells wrap onto multiple lines (up to TABLE_MAX_CELL_LINES, the last
+ * line ellipsized) so long descriptions stay fully readable.
+ */
 export function drawTable(ctx: PdfContext, spec: TableSpec) {
   const { columns, rows, moreCount = 0, zebra = true } = spec;
   ensureSpace(ctx, TABLE_HEADER_H + TABLE_ROW_H * 2);
   drawTableHeader(ctx, columns);
+  ctx.doc.setFont("helvetica", "normal");
+  ctx.doc.setFontSize(8);
   rows.forEach((row, rowIndex) => {
+    // Wrap every cell first so the row height is known before drawing.
+    const cellLines = row.map((cell, i) => {
+      const col = columns[i];
+      if (!col) return [] as string[];
+      const lines = ctx.doc.splitTextToSize(cell, col.width - 4) as string[];
+      if (lines.length > TABLE_MAX_CELL_LINES) {
+        const kept = lines.slice(0, TABLE_MAX_CELL_LINES);
+        kept[TABLE_MAX_CELL_LINES - 1] = truncateToWidth(
+          ctx.doc,
+          `${kept[TABLE_MAX_CELL_LINES - 1]}…`,
+          col.width - 4
+        );
+        return kept;
+      }
+      return lines;
+    });
+    const rowH = Math.max(
+      TABLE_ROW_H,
+      Math.max(...cellLines.map((l) => l.length), 1) * TABLE_CELL_LINE_H + 2.4
+    );
     // Re-draw the header when the row would spill past the footer.
-    if (ctx.y + TABLE_ROW_H > contentBottom) {
-      ensureSpace(ctx, TABLE_HEADER_H + TABLE_ROW_H);
+    if (ctx.y + rowH > contentBottom) {
+      ensureSpace(ctx, TABLE_HEADER_H + rowH);
       drawTableHeader(ctx, columns);
+      ctx.doc.setFont("helvetica", "normal");
+      ctx.doc.setFontSize(8);
     }
     if (zebra && rowIndex % 2 === 1) {
       ctx.doc.setFillColor(pdfColors.zebra);
-      ctx.doc.rect(pdfPage.margin, ctx.y, contentW, TABLE_ROW_H, "F");
+      ctx.doc.rect(pdfPage.margin, ctx.y, contentW, rowH, "F");
     }
-    ctx.doc.setFont("helvetica", "normal");
-    ctx.doc.setFontSize(8);
     ctx.doc.setTextColor(pdfColors.text);
     let x = pdfPage.margin;
-    row.forEach((cell, i) => {
+    cellLines.forEach((lines, i) => {
       const col = columns[i];
       if (!col) return;
-      const text = truncateToWidth(ctx.doc, cell, col.width - 4);
       const tx = col.align === "right" ? x + col.width - 2 : x + 2;
-      ctx.doc.text(text, tx, ctx.y + 4.2, { align: col.align === "right" ? "right" : "left" });
+      lines.forEach((line, li) => {
+        ctx.doc.text(line, tx, ctx.y + TABLE_CELL_PAD_Y + li * TABLE_CELL_LINE_H, {
+          align: col.align === "right" ? "right" : "left",
+        });
+      });
       x += col.width;
     });
     ctx.doc.setDrawColor(pdfColors.border);
     ctx.doc.setLineWidth(0.1);
-    ctx.doc.line(pdfPage.margin, ctx.y + TABLE_ROW_H, pdfPage.margin + contentW, ctx.y + TABLE_ROW_H);
-    ctx.y += TABLE_ROW_H;
+    ctx.doc.line(pdfPage.margin, ctx.y + rowH, pdfPage.margin + contentW, ctx.y + rowH);
+    ctx.y += rowH;
   });
   if (moreCount > 0) {
     ensureSpace(ctx, TABLE_ROW_H);

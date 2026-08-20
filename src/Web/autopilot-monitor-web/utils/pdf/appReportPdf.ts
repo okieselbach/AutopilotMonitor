@@ -95,13 +95,12 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
     calloutBox(ctx, line);
   }
 
-  sectionTitle(ctx, "Installs over time (success vs failure)");
-  ensureSpace(ctx, BAR_CHART_H + 2);
+  // keepWith = full chart height: a chart never separates from its title.
+  sectionTitle(ctx, "Installs over time (success vs failure)", BAR_CHART_H + 2);
   drawStackedBarChart(doc, { x: pdfPage.margin, y: ctx.y, w: contentW, h: BAR_CHART_H }, model.timeSeries);
   ctx.y += BAR_CHART_H + 2;
 
-  sectionTitle(ctx, "Avg Install Duration over time");
-  ensureSpace(ctx, LINE_CHART_H + 2);
+  sectionTitle(ctx, "Avg Install Duration over time", LINE_CHART_H + 2);
   drawLineChart(doc, { x: pdfPage.margin, y: ctx.y, w: contentW, h: LINE_CHART_H }, model.timeSeries);
   ctx.y += LINE_CHART_H + 2;
 
@@ -109,10 +108,10 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
   if (model.failureCodes.rows.length > 0) {
     drawTable(ctx, {
       columns: [
-        { header: "Code", width: 30 },
-        { header: "Description", width: 88 },
-        { header: "Exit code", width: 44 },
-        { header: "Count", width: 18, align: "right" },
+        { header: "Code", width: 42 },
+        { header: "Description", width: 62 },
+        { header: "Exit code", width: 60 },
+        { header: "Count", width: 16, align: "right" },
       ],
       rows: model.failureCodes.rows,
       moreCount: model.failureCodes.moreCount,

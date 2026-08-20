@@ -215,10 +215,12 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
   const failureCodeRows = analytics.topFailureCodes.slice(0, MAX_FAILURE_CODE_ROWS).map((row) => {
     const entry = getErrorCodeEntry(row.code);
     const exitEntry = row.exitCode != null ? getErrorCodeEntry(row.exitCode) : null;
+    // Full description on purpose — the PDF table wraps cells, and the exit-code
+    // text is exactly what the app owner needs to act on.
     const exitDisplay =
       row.exitCode != null
         ? exitEntry
-          ? `${row.exitCode} (${exitEntry.description.slice(0, 24)}${exitEntry.description.length > 24 ? "…" : ""})`
+          ? `${row.exitCode} (${exitEntry.description})`
           : String(row.exitCode)
         : "—";
     return [
