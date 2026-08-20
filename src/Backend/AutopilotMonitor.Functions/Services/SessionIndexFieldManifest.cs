@@ -78,6 +78,7 @@ namespace AutopilotMonitor.Functions.Services
             "DiagnosticsBlobName",
             "DiagnosticsBlobDestination",
             "LastEventAt",
+            "LastIngestAt",
             "ResumedAt",
             "StalledAt",
             "AvgApiLatencyMs",

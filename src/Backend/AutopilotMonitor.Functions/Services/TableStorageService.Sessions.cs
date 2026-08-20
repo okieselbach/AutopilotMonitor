@@ -225,6 +225,13 @@ namespace AutopilotMonitor.Functions.Services
             if (lastEventAt.HasValue)
                 indexEntity["LastEventAt"] = EnsureUtc(lastEventAt.Value);
 
+            // Server-frame ingest stamp (IncrementSessionEventCountAsync merges this on every
+            // batch, so the index already carries it) — must be in this superset or a
+            // StartedAt-shift full upsert drops it and index-served reads lose the field.
+            var lastIngestAt = sessionEntity.GetDateTimeOffset("LastIngestAt")?.UtcDateTime;
+            if (lastIngestAt.HasValue)
+                indexEntity["LastIngestAt"] = EnsureUtc(lastIngestAt.Value);
+
             var resumedAt = sessionEntity.GetDateTimeOffset("ResumedAt")?.UtcDateTime;
             if (resumedAt.HasValue)
                 indexEntity["ResumedAt"] = EnsureUtc(resumedAt.Value);

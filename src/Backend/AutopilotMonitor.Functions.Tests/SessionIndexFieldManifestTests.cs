@@ -90,6 +90,7 @@ public class SessionIndexFieldManifestTests
         ["DiagnosticsBlobName"] = "diag-0001.zip",
         ["DiagnosticsBlobDestination"] = "Hosted",
         ["LastEventAt"] = new DateTimeOffset(StartedAt.AddMinutes(44)),
+        ["LastIngestAt"] = new DateTimeOffset(StartedAt.AddMinutes(46)),
         ["ResumedAt"] = new DateTimeOffset(StartedAt.AddMinutes(10)),
         ["StalledAt"] = new DateTimeOffset(StartedAt.AddMinutes(20)),
         ["AvgApiLatencyMs"] = 513.5,
