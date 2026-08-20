@@ -1,0 +1,69 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-008",
+  "title": "Device Clock Wrong During Enrollment — Jump or Sustained Offset",
+  "description": "The device's clock changed by five or more minutes mid-session (clock jump) or ran five or more minutes off server time for the whole session (sustained offset), measured against the server receive frame of every uploaded event. Complements ANALYZE-DEV-007, which is a one-shot NTP check at agent startup and misses devices where NTP was unreachable or the clock changed later. IME-log-derived events are excluded from the measurement.",
+  "severity": "warning",
+  "category": "device",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed"
+  ],
+  "trigger": "single",
+  "baseConfidence": 60,
+  "confidenceThreshold": 50,
+  "conditions": [
+    {
+      "signal": "clock_jump",
+      "source": "clock_skew",
+      "skewMetric": "clock_jump",
+      "operator": "gte",
+      "value": "300",
+      "required": false
+    },
+    {
+      "signal": "sustained_offset",
+      "source": "clock_skew",
+      "skewMetric": "sustained_offset",
+      "operator": "gte",
+      "value": "300",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [],
+  "explanation": "This device's {{skewSummary}} (five-minute threshold). A clock that is off by five or more minutes breaks time-sensitive enrollment mechanisms: Kerberos tolerates at most 5 minutes of skew (Hybrid Join), Entra ID token validation allows about 5 minutes on token lifetimes, and freshly issued SCEP/PKCS certificates can be rejected as \"not yet valid\" when the clock is more than ~10 minutes behind the CA.\n\nUnlike ANALYZE-DEV-007 (a one-shot NTP comparison at agent startup), this finding is measured across the whole session against the server's receive time — it also catches devices where the NTP check could not run (UDP 123 blocked) or where the clock changed after startup (time sync correcting a wrong RTC, Windows auto-timezone, manual change).",
+  "remediation": [
+    {
+      "title": "Fix the device clock and time source",
+      "steps": [
+        "Check the BIOS/RTC clock and the CMOS battery if the wrong time recurs on the same hardware.",
+        "At OOBE, run 'w32tm /resync /force' (Shift+F10 command prompt) to sync with time.windows.com.",
+        "Ensure UDP port 123 to time.windows.com is open in the deployment network.",
+        "Review 'Set time automatically' and 'Set time zone automatically' behavior on the deployment image — automatic timezone changes mid-enrollment show up as clock jumps."
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: Windows Autopilot known issues — device provisioning can fail (clock skew)",
+      "url": "https://learn.microsoft.com/en-us/autopilot/known-issues"
+    },
+    {
+      "title": "Microsoft Learn: Windows Autopilot requirements — Networking (NTP)",
+      "url": "https://learn.microsoft.com/en-us/autopilot/requirements?tabs=networking"
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "clock-skew",
+    "clock-jump",
+    "time-sync",
+    "kerberos",
+    "certificates",
+    "known-issue"
+  ]
+}

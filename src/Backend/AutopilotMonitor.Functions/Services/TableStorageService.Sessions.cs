@@ -2418,17 +2418,20 @@ namespace AutopilotMonitor.Functions.Services
         /// are left untouched rather than being zeroed. Idempotent: no-ops when the row is
         /// already correct. PlatformScriptCount/RemediationScriptCount stay increment-only (their
         /// drift is bounded and they feed no enforcement heuristics; EventCount does).
+        /// Returns the skew-scan samples collected during the authoritative count's partition
+        /// scan (CmTraceSkewTripwire input), or null when the scan itself failed — the counter
+        /// reconcile outcome does not affect the returned scan.
         /// </summary>
-        public async Task ReconcileSessionCountersAsync(string tenantId, string sessionId)
+        public async Task<SessionSkewScan?> ReconcileSessionCountersAsync(string tenantId, string sessionId)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
 
             var authoritative = await CountSessionEventRowsAsync(tenantId, sessionId);
             if (!authoritative.HasValue)
-                return; // storage error — keep the incremental live values, do not zero them
+                return null; // storage error — keep the incremental live values, do not zero them
 
-            var (totalEvents, rebootEvents) = authoritative.Value;
+            var (totalEvents, rebootEvents, skewScan) = authoritative.Value;
 
             const int maxRetries = 5;
             int retryCount = 0;
@@ -2440,7 +2443,7 @@ namespace AutopilotMonitor.Functions.Services
                     var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
                     var entityResponse = await tableClient.GetEntityIfExistsAsync<TableEntity>(tenantId, sessionId);
                     if (!entityResponse.HasValue)
-                        return;
+                        return skewScan;
                     var entity = entityResponse.Value!;
 
                     // No-op when already correct — avoids a needless write + index sync on the
@@ -2459,7 +2462,7 @@ namespace AutopilotMonitor.Functions.Services
                         drifted = true;
                     }
                     if (!drifted)
-                        return;
+                        return skewScan;
 
                     var currentStartedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MaxValue;
 
@@ -2468,7 +2471,7 @@ namespace AutopilotMonitor.Functions.Services
                     // Dual-write: keep SessionsIndex in sync (merge — no StartedAt shift here).
                     await SyncSessionIndexAsync(tenantId, sessionId, entity, update, currentStartedAt, null);
 
-                    return;
+                    return skewScan;
                 }
                 catch (Azure.RequestFailedException ex) when (ex.Status == 412)
                 {
@@ -2476,7 +2479,7 @@ namespace AutopilotMonitor.Functions.Services
                     if (retryCount >= maxRetries)
                     {
                         _logger.LogWarning($"Failed to reconcile session counters for session {sessionId} after {maxRetries} retries due to ETag conflicts");
-                        return;
+                        return skewScan;
                     }
                     var baseDelay = 50 * (int)Math.Pow(2, retryCount - 1);
                     await Task.Delay(baseDelay + Random.Shared.Next(0, baseDelay));
@@ -2484,9 +2487,11 @@ namespace AutopilotMonitor.Functions.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Failed to reconcile session counters for session {sessionId}");
-                    return;
+                    return skewScan;
                 }
             }
+
+            return skewScan;
         }
 
         /// <summary>
@@ -3287,9 +3292,10 @@ namespace AutopilotMonitor.Functions.Services
         /// and a unique RowKey per event, so the number of stored rows equals the true distinct
         /// count — making this an idempotent, retry-immune authoritative count (used to reconcile
         /// EventCount + RebootCount at the terminal transition). Single partition scan with a
-        /// RowKey+EventType projection so both counts cost one query.
+        /// slim projection so both counts cost one query. The CmTraceSkewTripwire's per-source
+        /// timestamp-delta samples piggyback on the same enumeration (zero extra reads).
         /// </summary>
-        private async Task<(int Total, int Reboots)?> CountSessionEventRowsAsync(string tenantId, string sessionId)
+        private async Task<(int Total, int Reboots, SessionSkewScan Skew)?> CountSessionEventRowsAsync(string tenantId, string sessionId)
         {
             try
             {
@@ -3297,23 +3303,87 @@ namespace AutopilotMonitor.Functions.Services
                 var partitionKey = $"{tenantId}_{sessionId}";
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: $"PartitionKey eq '{partitionKey}'",
-                    select: new[] { "RowKey", "EventType" }
+                    select: new[] { "RowKey", "EventType", "Source", "ReceivedAt", BusinessTimestamp.OccurredUtcColumn, "TimestampClamped" }
                 );
 
                 int total = 0, reboots = 0;
+                var skew = new SessionSkewScan();
+                var imeBatches = new HashSet<DateTime>();
+                var otherBatches = new HashSet<DateTime>();
+                const int maxSkewSamplesPerSide = 20_000;
                 await foreach (var entity in query)
                 {
                     total++;
                     if (entity.GetString("EventType") == Constants.EventTypes.SystemRebootDetected)
                         reboots++;
+
+                    // Skew sample. Clamped events carry a server-substituted OccurredUtc
+                    // (Δ ≈ 0) and would dilute the medians; legacy rows without ReceivedAt
+                    // have no server frame at all — both are skipped, never zero-filled.
+                    if (entity.GetBoolean("TimestampClamped") == true)
+                        continue;
+                    var receivedAt = entity.GetDateTimeOffset("ReceivedAt")?.UtcDateTime;
+                    var occurredAt = ResolveEventTimestampOrNull(entity);
+                    if (!receivedAt.HasValue || !occurredAt.HasValue)
+                        continue;
+                    var isIme = string.Equals(entity.GetString("Source"), "ImeLogTracker", StringComparison.OrdinalIgnoreCase);
+                    var side = isIme ? skew.ImeDeltaMinutes : skew.OtherDeltaMinutes;
+                    if (side.Count < maxSkewSamplesPerSide)
+                        side.Add((receivedAt.Value - occurredAt.Value).TotalMinutes);
+                    (isIme ? imeBatches : otherBatches).Add(receivedAt.Value);
                 }
-                return (total, reboots);
+                skew.ImeDistinctBatchCount = imeBatches.Count;
+                skew.OtherDistinctBatchCount = otherBatches.Count;
+                return (total, reboots, skew);
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, $"Could not count event rows for session {sessionId}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Bounded histogram of the <c>sourceOffsetOrigin</c> provenance values ("bias",
+        /// "line-anchored", "reader-zone-fallback", retired "calibrated") over a session's
+        /// IME-derived events. Only read on the CmTraceSkewTripwire suspicion path (≈ never),
+        /// so the row cap bounds the worst case rather than tuning the common one. Fail-soft:
+        /// storage errors return an empty map, which the caller treats as "not bias-dominated"
+        /// — the tripwire fails open toward reporting.
+        /// </summary>
+        public async Task<Dictionary<string, int>> GetImeOffsetOriginHistogramAsync(string tenantId, string sessionId, int maxRows = 500)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+            var histogram = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
+                var partitionKey = $"{tenantId}_{sessionId}";
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: $"PartitionKey eq '{partitionKey}' and Source eq 'ImeLogTracker'",
+                    select: new[] { "RowKey", "DataJson" });
+
+                int rows = 0;
+                await foreach (var entity in query)
+                {
+                    if (++rows > maxRows)
+                        break;
+                    var data = DeserializeEventData(entity.GetString("DataJson"));
+                    if (data != null && data.TryGetValue("sourceOffsetOrigin", out var origin))
+                    {
+                        var key = origin?.ToString();
+                        if (!string.IsNullOrEmpty(key))
+                            histogram[key!] = histogram.TryGetValue(key!, out var count) ? count + 1 : 1;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, $"Could not read IME offset-origin histogram for session {sessionId}");
+            }
+            return histogram;
         }
 
         #region IME Version History

@@ -271,6 +271,59 @@ public class RuleEngineDryRunTests
     }
 
     [Fact]
+    public void Validate_ClockSkewMissingOrUnknownMetric_Error()
+    {
+        var rule = MakeRule();
+        rule.Conditions[0].Source = "clock_skew";
+        rule.Conditions[0].SkewMetric = null;
+        rule.Conditions[0].Operator = "gte";
+        rule.Conditions[0].Value = "300";
+        Assert.Contains(DryRunAnalyzeRuleFunction.ValidateDraftRule(rule), e => e.Contains("skewMetric"));
+
+        rule.Conditions[0].SkewMetric = "drift"; // not a known metric
+        Assert.Contains(DryRunAnalyzeRuleFunction.ValidateDraftRule(rule), e => e.Contains("skewMetric"));
+    }
+
+    [Theory]
+    [InlineData("lt")]
+    [InlineData("equals")]
+    public void Validate_ClockSkewUnsupportedOperator_Error(string op)
+    {
+        var rule = MakeRule();
+        rule.Conditions[0].Source = "clock_skew";
+        rule.Conditions[0].SkewMetric = "clock_jump";
+        rule.Conditions[0].Operator = op;
+        rule.Conditions[0].Value = "300";
+        Assert.Contains(DryRunAnalyzeRuleFunction.ValidateDraftRule(rule), e => e.Contains("only gt/gte"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("abc")]
+    [InlineData("-300")]
+    [InlineData("0")]
+    public void Validate_ClockSkewNonPositiveThreshold_Error(string value)
+    {
+        var rule = MakeRule();
+        rule.Conditions[0].Source = "clock_skew";
+        rule.Conditions[0].SkewMetric = "sustained_offset";
+        rule.Conditions[0].Operator = "gte";
+        rule.Conditions[0].Value = value;
+        Assert.Contains(DryRunAnalyzeRuleFunction.ValidateDraftRule(rule), e => e.Contains("positive numeric value"));
+    }
+
+    [Fact]
+    public void Validate_ClockSkewValidCondition_NoErrors()
+    {
+        var rule = MakeRule();
+        rule.Conditions[0].Source = "clock_skew";
+        rule.Conditions[0].SkewMetric = "clock_jump";
+        rule.Conditions[0].Operator = "gte";
+        rule.Conditions[0].Value = "300";
+        Assert.Empty(DryRunAnalyzeRuleFunction.ValidateDraftRule(rule));
+    }
+
+    [Fact]
     public void Validate_InvalidRegex_Error()
     {
         var rule = MakeRule();

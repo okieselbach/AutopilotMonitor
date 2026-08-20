@@ -238,6 +238,7 @@ interface DraftCondition {
   required?: boolean;
   correlateEventType?: string;
   joinField?: string;
+  skewMetric?: string;
 }
 
 function checkEventTypeKnown(eventType: string | undefined, where: string): ValidationFinding[] {
@@ -291,6 +292,24 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
       if (!c.correlateEventType) findings.push({ level: 'error', message: `${label}: event_correlation requires correlateEventType.` });
       if (!c.joinField) findings.push({ level: 'error', message: `${label}: event_correlation requires joinField.` });
       findings.push(...checkEventTypeKnown(c.correlateEventType, `${label}.correlateEventType`));
+    }
+
+    if (c.source === 'clock_skew') {
+      if (c.skewMetric !== 'clock_jump' && c.skewMetric !== 'sustained_offset') {
+        findings.push({ level: 'error', message: `${label}: clock_skew requires skewMetric ("clock_jump" or "sustained_offset").` });
+      }
+      if (c.operator !== 'gt' && c.operator !== 'gte') {
+        findings.push({ level: 'error', message: `${label}: clock_skew supports only gt/gte — the threshold is compared against the skew MAGNITUDE.` });
+      }
+      const threshold = Number(c.value);
+      if (!c.value || !Number.isFinite(threshold) || threshold <= 0) {
+        findings.push({ level: 'error', message: `${label}: clock_skew requires a positive numeric value (threshold in seconds).` });
+      } else if (threshold < 60) {
+        findings.push({ level: 'warning', message: `${label}: clock_skew threshold below 60 s sits inside normal upload-latency noise — expect false positives.` });
+      }
+      if (c.eventType || c.dataField) {
+        findings.push({ level: 'warning', message: `${label}: clock_skew ignores eventType/dataField — it measures Timestamp against ReceivedAt across the whole session.` });
+      }
     }
 
     findings.push(...checkEventTypeKnown(c.eventType, label));
@@ -364,6 +383,9 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
     // event_data_array evidence carries the matched element under field=itemField,
     // so {{itemField}} interpolates at runtime (see EvaluateEventDataArrayCondition).
     if (c.itemField) resolvable.add(c.itemField);
+    // clock_skew evidence carries a preformatted summary under field=skewSummary,
+    // so {{skewSummary}} interpolates at runtime (see EvaluateClockSkewCondition).
+    if (c.source === 'clock_skew') resolvable.add('skewSummary');
   }
   for (const token of extractTokens(rule)) {
     if (!resolvable.has(token)) {

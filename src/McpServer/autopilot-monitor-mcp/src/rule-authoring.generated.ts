@@ -439,7 +439,16 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
             "phase_duration",
             "event_count",
             "app_install_duration",
-            "event_correlation"
+            "event_correlation",
+            "clock_skew"
+          ]
+        },
+        "skewMetric": {
+          "type": "string",
+          "description": "For clock_skew only: which device-clock metric to evaluate. clock_jump = persistent step in the device's clock frame mid-session; sustained_offset = whole session ran on a clock off by at least the threshold. value is the threshold in seconds; operator is limited to gt/gte on the magnitude. IME-log-derived events are excluded from the measurement.",
+          "enum": [
+            "clock_jump",
+            "sustained_offset"
           ]
         },
         "eventType": {

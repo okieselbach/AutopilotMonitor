@@ -165,6 +165,11 @@ export const RULE_AUTHORING_GUIDE = {
         'Join two event types over a shared field: eventType + correlateEventType + joinField, ' +
         'optional timeWindowSeconds, optional eventAFilterField/-Operator/-Value to pre-filter the ' +
         'first event, optional dataField+operator+value tested on the correlated pair.',
+      clock_skew:
+        'Device-clock check against the server receive frame: skewMetric=clock_jump (persistent ' +
+        'mid-session step) or sustained_offset (whole session off by >= value). value = threshold ' +
+        'seconds, operator gt/gte on the magnitude. No eventType/dataField; IME-log-derived events ' +
+        'are excluded from the measurement.',
     },
     caseSensitivity:
       'source values are matched CASE-SENSITIVELY by the engine — write them exactly as listed ' +
@@ -270,7 +275,7 @@ export const RULE_AUTHORING_GUIDE = {
     gatherOutputSeverities: ['Info', 'Warning', 'Error', 'Critical'],
     gatherCollectorTypes: ['registry', 'eventlog', 'wmi', 'file', 'json', 'xml', 'command_allowlisted', 'logparser'],
     gatherTriggers: ['startup', 'phase_change', 'phase_exit', 'interval', 'on_event'],
-    analyzeConditionSources: ['event_type', 'event_data', 'event_data_array', 'phase_duration', 'event_count', 'app_install_duration', 'event_correlation'],
+    analyzeConditionSources: ['event_type', 'event_data', 'event_data_array', 'phase_duration', 'event_count', 'app_install_duration', 'event_correlation', 'clock_skew'],
     analyzeEvaluateOnTriggers: ['enrollment_end', 'whiteglove_sealed', 'on_event:<eventType>'],
   },
 

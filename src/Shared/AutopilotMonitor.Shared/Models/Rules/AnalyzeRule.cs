@@ -222,10 +222,18 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Source of the signal: "event_type", "event_data", "event_data_array", "phase_duration",
-        /// "event_count", "app_install_duration", "event_correlation".
+        /// "event_count", "app_install_duration", "event_correlation", "clock_skew".
         /// Must stay in sync with DryRunAnalyzeRuleFunction.KnownSources and the RuleEngine switch.
         /// </summary>
         public string Source { get; set; } = default!;
+
+        /// <summary>
+        /// For "clock_skew" only: which device-clock metric to evaluate — "clock_jump"
+        /// (persistent step in the device's clock frame mid-session) or "sustained_offset"
+        /// (whole session ran on a clock off by ≥ Value). Value is the threshold in seconds;
+        /// Operator is limited to gt/gte on the magnitude.
+        /// </summary>
+        public string? SkewMetric { get; set; }
 
         /// <summary>
         /// Event type to match on.

@@ -151,6 +151,12 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // build). Emitted by ReportAgentErrorFunction (RecordAgentBinaryIntegrityMismatchAsync).
     // Dual-register per memory feedback_ops_event_types_dual_register.
     "AgentBinaryIntegrityMismatch",
+    // CMTrace time-skew regression tripwire: a terminal session's IME-derived event
+    // timestamps diverged from its other events by a clean 15-minute-grid multiple — the
+    // per-line self-anchoring missed a case. Goal state: never fires. Emitted by
+    // EventIngestProcessor (RecordCmTraceTimeSkewRegressionAsync). Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "CmTraceTimeSkewRegression",
   ],
   Platform: [
     // Azure Monitor alerts relayed through POST ops/alert-webhook (Common Alert Schema →

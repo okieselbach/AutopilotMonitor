@@ -109,8 +109,17 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Reconciles the stored EventCount and RebootCount with the authoritative row counts
         /// from the Events table (rows dedupe on deterministic RowKeys; the read-modify-write
         /// increments do not). Call as the last counter write on terminal ingest batches.
+        /// Returns the per-source timestamp-delta samples collected during the same partition
+        /// scan (input to the CMTrace time-skew tripwire), or null when the scan failed.
         /// </summary>
-        Task ReconcileSessionCountersAsync(string tenantId, string sessionId);
+        Task<SessionSkewScan?> ReconcileSessionCountersAsync(string tenantId, string sessionId);
+
+        /// <summary>
+        /// Bounded histogram of the sourceOffsetOrigin provenance values over a session's
+        /// IME-derived events ("bias" / "line-anchored" / "reader-zone-fallback"). Read only
+        /// on the CMTrace skew tripwire's suspicion path; fail-soft (empty map on error).
+        /// </summary>
+        Task<Dictionary<string, int>> GetImeOffsetOriginHistogramAsync(string tenantId, string sessionId, int maxRows = 500);
         Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null);
         Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned,

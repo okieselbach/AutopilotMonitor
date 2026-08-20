@@ -361,6 +361,41 @@ describe('analyze semantic lint', () => {
     expect(errors(validateRuleDraft(corr).findings).some((m) => m.includes('joinField'))).toBe(true);
   });
 
+  it('clock_skew: missing/unknown skewMetric, bad operator, bad threshold are errors; {{skewSummary}} resolves', () => {
+    const missingMetric = validAnalyze();
+    (missingMetric.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'clock_jump', source: 'clock_skew', operator: 'gte', value: '300', required: true,
+    };
+    expect(errors(validateRuleDraft(missingMetric).findings).some((m) => m.includes('skewMetric'))).toBe(true);
+
+    const badOperator = validAnalyze();
+    (badOperator.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'clock_jump', source: 'clock_skew', skewMetric: 'clock_jump', operator: 'lt', value: '300', required: true,
+    };
+    expect(errors(validateRuleDraft(badOperator).findings).some((m) => m.includes('gt/gte'))).toBe(true);
+
+    const badThreshold = validAnalyze();
+    (badThreshold.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'clock_jump', source: 'clock_skew', skewMetric: 'clock_jump', operator: 'gte', value: '-5', required: true,
+    };
+    expect(errors(validateRuleDraft(badThreshold).findings).some((m) => m.includes('positive numeric'))).toBe(true);
+
+    const noisy = validAnalyze();
+    (noisy.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'clock_jump', source: 'clock_skew', skewMetric: 'clock_jump', operator: 'gte', value: '30', required: true,
+    };
+    expect(warnings(validateRuleDraft(noisy).findings).some((m) => m.includes('upload-latency noise'))).toBe(true);
+
+    const good = validAnalyze();
+    (good.conditions as Array<Record<string, unknown>>)[0] = {
+      signal: 'clock_jump', source: 'clock_skew', skewMetric: 'clock_jump', operator: 'gte', value: '300', required: true,
+    };
+    good.explanation = 'This device {{skewSummary}}.';
+    const r = validateRuleDraft(good);
+    expect(errors(r.findings)).toEqual([]);
+    expect(warnings(r.findings).filter((m) => m.includes('{{'))).toEqual([]);
+  });
+
   it('invalid regex is an error; unanchored not_regex warns', () => {
     const bad = validAnalyze();
     (bad.conditions as Array<Record<string, unknown>>)[0] = {

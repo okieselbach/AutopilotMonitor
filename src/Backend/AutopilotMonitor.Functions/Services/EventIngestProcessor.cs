@@ -6,6 +6,7 @@ using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -44,6 +45,10 @@ namespace AutopilotMonitor.Functions.Services
         private readonly AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry _interimTriggerRegistry;
         private readonly IVulnerabilityCorrelateProducer _vulnProducer;
         private readonly Ime.IImeMsiArchiveProducer _imeMsiArchiveProducer;
+        private readonly IConfiguration _configuration;
+
+        /// <summary>App setting kill switch: set to "true" to skip the CMTrace skew tripwire entirely. Fail-open — the tripwire only notifies, it never mutates data.</summary>
+        internal const string CmTraceSkewTripwireKillSwitchSetting = "CmTraceSkewTripwireDisabled";
 
         public EventIngestProcessor(
             ILogger<EventIngestProcessor> logger,
@@ -60,7 +65,8 @@ namespace AutopilotMonitor.Functions.Services
             AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer analyzeProducer,
             AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry interimTriggerRegistry,
             IVulnerabilityCorrelateProducer vulnProducer,
-            Ime.IImeMsiArchiveProducer imeMsiArchiveProducer)
+            Ime.IImeMsiArchiveProducer imeMsiArchiveProducer,
+            IConfiguration configuration)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -77,6 +83,7 @@ namespace AutopilotMonitor.Functions.Services
             _interimTriggerRegistry = interimTriggerRegistry;
             _vulnProducer = vulnProducer;
             _imeMsiArchiveProducer = imeMsiArchiveProducer;
+            _configuration = configuration;
         }
 
         /// <summary>
@@ -247,7 +254,17 @@ namespace AutopilotMonitor.Functions.Services
             // replays where UpdateSessionStatusAsync no-ops.
             // Idempotent (no-ops when already correct) and fail-soft.
             if (isTerminalBatch)
-                await _sessionRepo.ReconcileSessionCountersAsync(request.TenantId, request.SessionId);
+            {
+                var skewScan = await _sessionRepo.ReconcileSessionCountersAsync(request.TenantId, request.SessionId);
+
+                // CMTrace time-skew tripwire (goal state: never fires). Gated on the actual
+                // status transition so terminal-batch REPLAYS (statusTransitioned == false)
+                // cannot re-emit — the reconcile above runs on replays by design, the
+                // tripwire must not. Fail-soft: ingest stays a 200 no matter what.
+                if (skewScan != null && (statusTransitioned || whiteGloveStatusTransitioned))
+                    await TryFireCmTraceSkewTripwireAsync(request.TenantId, request.SessionId,
+                        updatedSession?.AgentVersion, skewScan);
+            }
 
             // Auto-analyze fan-out: enqueue a queue message instead of running fire-and-forget
             // Task.Run inside the function. The previous in-function approach could be killed
@@ -543,6 +560,67 @@ namespace AutopilotMonitor.Functions.Services
             return double.TryParse(raw?.ToString(),
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>
+        /// CMTrace time-skew regression tripwire. Evaluates the per-source timestamp-delta
+        /// samples the counter reconcile collected and emits a CmTraceTimeSkewRegression ops
+        /// event when the IME-derived events diverge from the other sources by a clean
+        /// 15-minute-grid multiple (see <see cref="CmTraceSkewTripwire"/>). One extra bounded
+        /// storage read happens ONLY on the suspicion path (≈ never): the sourceOffsetOrigin
+        /// histogram that rules out writer-declared ("bias") offsets, which come verbatim
+        /// from the log line and cannot be an anchoring regression.
+        /// </summary>
+        private async Task TryFireCmTraceSkewTripwireAsync(
+            string tenantId, string sessionId, string? agentVersion, SessionSkewScan skewScan)
+        {
+            try
+            {
+                if (string.Equals(_configuration[CmTraceSkewTripwireKillSwitchSetting], "true", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                var result = CmTraceSkewTripwire.Evaluate(skewScan);
+                if (result == null)
+                    return;
+
+                var histogram = await _sessionRepo.GetImeOffsetOriginHistogramAsync(tenantId, sessionId);
+                if (CmTraceSkewTripwire.IsBiasDominated(histogram))
+                {
+                    _logger.LogInformation(
+                        "CMTrace skew tripwire suppressed for session {SessionId}: grid divergence {DiffMinutes:+0.0;-0.0} min, but IME offsets are bias-dominated (writer-declared)",
+                        sessionId, result.DiffMinutes);
+                    return;
+                }
+
+                var origins = string.Join(", ",
+                    histogram.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"));
+                var message =
+                    $"IME-derived events skewed {result.DiffMinutes:+0.0;-0.0} min vs other sources " +
+                    $"({result.GridSteps}x15min grid, residual {result.ResidualMinutes:0.0} min; " +
+                    $"median dIME {result.MedianImeDeltaMinutes:0.0} / dOther {result.MedianOtherDeltaMinutes:0.0} min; " +
+                    $"{result.ImeSampleCount}/{result.OtherSampleCount} samples over {result.ImeBatchCount}/{result.OtherBatchCount} batches; " +
+                    $"origins: {(origins.Length > 0 ? origins : "none")})";
+
+                await _opsEventService.RecordCmTraceTimeSkewRegressionAsync(tenantId, sessionId, agentVersion, message, new
+                {
+                    sessionId,
+                    agentVersion,
+                    diffMinutes = Math.Round(result.DiffMinutes, 2),
+                    gridSteps = result.GridSteps,
+                    residualMinutes = Math.Round(result.ResidualMinutes, 2),
+                    medianImeDeltaMinutes = Math.Round(result.MedianImeDeltaMinutes, 2),
+                    medianOtherDeltaMinutes = Math.Round(result.MedianOtherDeltaMinutes, 2),
+                    imeSampleCount = result.ImeSampleCount,
+                    otherSampleCount = result.OtherSampleCount,
+                    imeBatchCount = result.ImeBatchCount,
+                    otherBatchCount = result.OtherBatchCount,
+                    sourceOffsetOrigins = histogram,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "CMTrace skew tripwire failed for session {SessionId}", sessionId);
+            }
         }
 
         /// <summary>

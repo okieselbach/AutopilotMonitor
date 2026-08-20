@@ -131,8 +131,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 earliestEventTimestamp, latestEventTimestamp, currentPhase,
                 platformScriptIncrement, remediationScriptIncrement, rebootIncrement);
 
-        public Task ReconcileSessionCountersAsync(string tenantId, string sessionId)
+        public Task<SessionSkewScan?> ReconcileSessionCountersAsync(string tenantId, string sessionId)
             => _storage.ReconcileSessionCountersAsync(tenantId, sessionId);
+
+        public Task<Dictionary<string, int>> GetImeOffsetOriginHistogramAsync(string tenantId, string sessionId, int maxRows = 500)
+            => _storage.GetImeOffsetOriginHistogramAsync(tenantId, sessionId, maxRows);
 
         public Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null)

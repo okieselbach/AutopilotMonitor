@@ -2,7 +2,7 @@
 
 import {
   RuleForm, RuleCondition, RulePrecondition,
-  CATEGORIES, SEVERITIES, TRIGGERS, OPERATORS, SOURCES, PRECONDITION_OPERATORS,
+  CATEGORIES, SEVERITIES, TRIGGERS, OPERATORS, SOURCES, PRECONDITION_OPERATORS, SKEW_METRICS,
   EMPTY_CONDITION, EMPTY_FACTOR, EMPTY_PRECONDITION,
   validateOnEventTypes,
 } from "../types";
@@ -184,6 +184,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
           {form.conditions.map((cond, idx) => {
             const isCorrelation = cond.source === "event_correlation";
             const isArray = cond.source === "event_data_array";
+            const isClockSkew = cond.source === "clock_skew";
             const updateCond = (patch: Partial<RuleCondition>) => {
               const c = [...form.conditions];
               c[idx] = { ...c[idx], ...patch };
@@ -196,6 +197,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                     Condition {idx + 1}
                     {isCorrelation && <span className="ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">event_correlation</span>}
                     {isArray && <span className="ml-2 px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded text-xs">event_data_array</span>}
+                    {isClockSkew && <span className="ml-2 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">clock_skew</span>}
                   </span>
                   {form.conditions.length > 1 && (
                     <button type="button" onClick={() => setForm({ ...form, conditions: form.conditions.filter((_, i) => i !== idx) })} className="text-xs text-red-500 hover:text-red-700">Remove</button>
@@ -205,7 +207,7 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                 {/* Row 1: Signal, Source, Event Type A */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input type="text" value={cond.signal} onChange={(e) => updateCond({ signal: e.target.value })} placeholder="Signal name" autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500" />
-                  <select value={cond.source} onChange={(e) => updateCond({ source: e.target.value })} className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
+                  <select value={cond.source} onChange={(e) => updateCond({ source: e.target.value, ...(e.target.value === "clock_skew" && !cond.skewMetric ? { skewMetric: "clock_jump" } : {}) })} className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
                     {SOURCES.map((s) => (<option key={s} value={s}>{s}</option>))}
                   </select>
                   <input type="text" value={cond.eventType} onChange={(e) => updateCond({ eventType: e.target.value })} placeholder={isCorrelation ? "Event A type (e.g. app_install_completed)" : "Event type"} autoComplete="off" className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500" />
@@ -256,6 +258,22 @@ export default function AnalyzeRuleFormFields({ form, setForm, showRuleId, exist
                         <input type="text" value={cond.eventAFilterValue ?? ""} onChange={(e) => updateCond({ eventAFilterValue: e.target.value })} placeholder="Filter value on Event A" autoComplete="off" className="px-3 py-1.5 border border-indigo-300 rounded text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-green-500" />
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* clock_skew extra fields */}
+                {isClockSkew && (
+                  <div className="pt-2 border-t border-amber-200 space-y-2">
+                    <p className="text-xs font-medium text-amber-700">Clock skew settings</p>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Skew metric <span className="text-red-500">*</span></label>
+                      <select value={cond.skewMetric ?? "clock_jump"} onChange={(e) => updateCond({ skewMetric: e.target.value })} className="w-full px-3 py-1.5 border border-amber-300 rounded text-sm text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-amber-500">
+                        {SKEW_METRICS.map((m) => (<option key={m} value={m}>{m}</option>))}
+                      </select>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      <strong>Value</strong> is the threshold in seconds; operator is limited to <code className="bg-gray-100 px-1 rounded">gt</code>/<code className="bg-gray-100 px-1 rounded">gte</code> on the skew magnitude. Event type and data field are ignored — the metric measures each event&apos;s timestamp against the server receive time across the whole session (IME-log-derived events excluded). <code className="bg-gray-100 px-1 rounded">clock_jump</code> = persistent mid-session step; <code className="bg-gray-100 px-1 rounded">sustained_offset</code> = whole session off by at least the threshold.
+                    </p>
                   </div>
                 )}
 

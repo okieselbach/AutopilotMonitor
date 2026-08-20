@@ -37,6 +37,9 @@ export interface RuleCondition {
   eventAFilterField?: string;
   eventAFilterOperator?: string;
   eventAFilterValue?: string;
+  // clock_skew: which device-clock metric to evaluate ("clock_jump" | "sustained_offset");
+  // value is the threshold in seconds, operator is limited to gt/gte on the magnitude
+  skewMetric?: string;
 }
 
 export interface RulePrecondition {
@@ -126,7 +129,8 @@ export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enro
 export const SEVERITIES = ["info", "warning", "high", "critical"] as const;
 export const TRIGGERS = ["single", "correlation"] as const;
 export const OPERATORS = ["equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "count_gte", "count_per_group_gte", "in", "not_in"] as const;
-export const SOURCES = ["event_type", "event_data", "event_data_array", "phase_duration", "app_install_duration", "event_count", "event_correlation"] as const;
+export const SOURCES = ["event_type", "event_data", "event_data_array", "phase_duration", "app_install_duration", "event_count", "event_correlation", "clock_skew"] as const;
+export const SKEW_METRICS = ["clock_jump", "sustained_offset"] as const;
 export const PRECONDITION_OPERATORS = ["equals", "not_equals", "contains", "not_contains", "regex", "not_regex", "gt", "lt", "gte", "lte", "exists", "not_exists", "in", "not_in"] as const;
 
 export const SEVERITY_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
@@ -168,6 +172,9 @@ export const EMPTY_CONDITION: RuleCondition = {
   eventAFilterField: "",
   eventAFilterOperator: "equals",
   eventAFilterValue: "",
+  // skewMetric deliberately absent: it is an enum field ("clock_jump" | "sustained_offset")
+  // and an empty string would violate the schema — the source select defaults it when
+  // switching a condition to clock_skew.
 };
 
 export const EMPTY_FACTOR: ConfidenceFactor = {

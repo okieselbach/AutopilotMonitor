@@ -98,6 +98,9 @@ namespace AutopilotMonitor.Functions.Services
                 case "event_correlation":
                     return EvaluateEventCorrelationCondition(condition, events);
 
+                case "clock_skew":
+                    return EvaluateClockSkewCondition(condition, events);
+
                 default:
                     return (false, "unknown source");
             }
@@ -807,6 +810,181 @@ namespace AutopilotMonitor.Functions.Services
 
             return (false, "no app install duration matched");
         }
+
+        // ===== clock_skew constants =====
+        // Named constants, deliberately NOT condition fields: promoting a constant to a field
+        // later is non-breaking, the reverse is not.
+        /// <summary>Frame windows (in upload batches) that must agree before/after a step for it to count as a clock jump.</summary>
+        internal const int ClockSkewConfirmBatches = 3;
+        /// <summary>Floor for the per-batch internal-spread cap, seconds.</summary>
+        internal const double ClockSkewSpoolSpreadFloorSeconds = 60;
+        /// <summary>Per-batch internal-spread cap as a fraction of the condition threshold.</summary>
+        internal const double ClockSkewSpoolSpreadCapFraction = 0.5;
+        /// <summary>Fraction of surviving batches that must sit near the overall median for a sustained-offset verdict.</summary>
+        internal const double ClockSkewStableBatchFraction = 0.75;
+
+        /// <summary>
+        /// Detects DEVICE clock problems from the per-event offset d = Timestamp − ReceivedAt
+        /// (device frame minus server frame, in seconds; healthy baseline ≈ −upload-latency,
+        /// i.e. a few seconds negative).
+        /// skewMetric "clock_jump": a persistent step in the device's clock frame mid-session
+        /// (time sync correcting a wrong RTC, Windows auto-timezone, manual change).
+        /// skewMetric "sustained_offset": the whole session ran on a clock off by ≥ threshold
+        /// — the during-enrollment complement of ANALYZE-DEV-007's one-shot NTP check.
+        ///
+        /// Ordering key is Sequence, never Timestamp (see EvaluateAppInstallDurationCondition).
+        /// This evaluator then inspects Timestamp AGAINST that Sequence order ON PURPOSE — a
+        /// device-clock problem is precisely a Timestamp anomaly relative to the clock-immune
+        /// Sequence/ReceivedAt frame. Timestamp is a MEASUREMENT here, never a sort key.
+        ///
+        /// CMTrace-derived events (Source == "ImeLogTracker") are excluded up front: their
+        /// Timestamp carries the log WRITER's timezone belief, so an anchoring regression must
+        /// fire the operator-side CmTraceSkewTripwire, never this customer-facing rule.
+        /// </summary>
+        private (bool matched, object evidence) EvaluateClockSkewCondition(RuleCondition condition, List<EnrollmentEvent> events)
+        {
+            var metric = condition.SkewMetric ?? string.Empty;
+            if (!double.TryParse(condition.Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var thresholdSeconds) || thresholdSeconds <= 0)
+                return (false, "clock_skew requires a positive numeric value (threshold in seconds)");
+
+            var usable = events
+                .Where(e => e.ReceivedAt.HasValue
+                         && !e.TimestampClamped
+                         && !string.Equals(e.Source, "ImeLogTracker", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.Sequence)
+                .ToList();
+            if (usable.Count == 0)
+                return (false, "no events with a server receive frame");
+
+            // Group into upload batches (ReceivedAt is stamped once per ingest request). A clock
+            // offset shifts a whole batch uniformly (internal spread ≈ upload debounce, seconds);
+            // a spool-backlog batch spans the offline period (spread = minutes–hours). Dropping
+            // wide-spread batches is what makes replayed backlogs inert.
+            var spreadCap = Math.Max(ClockSkewSpoolSpreadFloorSeconds, thresholdSeconds * ClockSkewSpoolSpreadCapFraction);
+            var batches = new List<(double MedianOffsetSeconds, EnrollmentEvent FirstEvent)>();
+            int usedSamples = 0;
+            foreach (var batch in usable.GroupBy(e => e.ReceivedAt!.Value))
+            {
+                var offsets = batch.Select(e => (e.Timestamp - e.ReceivedAt!.Value).TotalSeconds).OrderBy(v => v).ToList();
+                if (offsets[offsets.Count - 1] - offsets[0] > spreadCap)
+                    continue;
+                usedSamples += offsets.Count;
+                batches.Add((Helpers.PercentileMath.Percentile(offsets, 0.50), batch.First()));
+            }
+
+            switch (metric)
+            {
+                case "sustained_offset":
+                {
+                    if (batches.Count < 2)
+                        return (false, "insufficient upload batches for an offset measurement");
+
+                    var batchMedians = batches.Select(b => b.MedianOffsetSeconds).ToList();
+                    var overall = Helpers.PercentileMath.Median(batchMedians);
+
+                    // Constant offset, not drift chaos: most batches must individually sit near
+                    // the session median, otherwise no single "the clock was off by X" statement
+                    // is honest.
+                    var stable = batchMedians.Count(m => Math.Abs(m - overall) <= spreadCap);
+                    if (stable < Math.Max(2, (int)Math.Ceiling(batchMedians.Count * ClockSkewStableBatchFraction)))
+                        return (false, "batch offsets too unstable for a sustained-offset verdict");
+
+                    if (!CompareClockSkewThreshold(Math.Abs(overall), condition.Operator, thresholdSeconds))
+                        return (false, $"sustained offset {overall:0} s below threshold");
+
+                    var first = batches[0].FirstEvent;
+                    var offsetMinutes = Math.Round(overall / 60.0, 1);
+                    var direction = overall > 0 ? "ahead" : "behind";
+                    return (true, new Dictionary<string, object>
+                    {
+                        // field/value pair drives {{skewSummary}} template interpolation
+                        // (lib/interpolateRuleTemplate.ts resolves field→value first).
+                        ["field"] = "skewSummary",
+                        ["value"] = $"clock ran {Math.Abs(offsetMinutes)} min {direction} of server time throughout the session",
+                        ["offsetSeconds"] = Math.Round(overall, 0),
+                        ["offsetMinutes"] = offsetMinutes,
+                        ["direction"] = direction,
+                        ["eventId"] = first.EventId,
+                        ["sequence"] = first.Sequence,
+                        ["timestamp"] = first.Timestamp,
+                        ["sampleCount"] = usedSamples,
+                        ["batchCount"] = batches.Count,
+                    });
+                }
+
+                case "clock_jump":
+                {
+                    const int w = ClockSkewConfirmBatches;
+                    if (batches.Count < 2 * w)
+                        return (false, "insufficient upload batches for a frame comparison");
+
+                    var medians = batches.Select(b => b.MedianOffsetSeconds).ToList();
+                    (int Index, double Pre, double Post, double Jump)? best = null;
+                    for (int j = w - 1; j <= batches.Count - 1 - w; j++)
+                    {
+                        var preWindow = medians.Skip(j - w + 1).Take(w).ToList();
+                        var postWindow = medians.Skip(j + 1).Take(w).ToList();
+
+                        // Both comparison windows must be flat plateaus: a genuine clock change
+                        // is a step between two stable frames, while a gradually draining spool
+                        // backlog produces a RAMP of batch medians — sloping windows would let
+                        // any pre/post pair straddling the ramp fake a step.
+                        if (preWindow.Max() - preWindow.Min() > spreadCap || postWindow.Max() - postWindow.Min() > spreadCap)
+                            continue;
+
+                        var pre = Helpers.PercentileMath.Median(preWindow);
+                        var post = Helpers.PercentileMath.Median(postWindow);
+                        var jump = post - pre;
+                        if (CompareClockSkewThreshold(Math.Abs(jump), condition.Operator, thresholdSeconds)
+                            && (best == null || Math.Abs(jump) > Math.Abs(best.Value.Jump)))
+                            best = (j, pre, post, jump);
+                    }
+                    if (best == null)
+                        return (false, "no persistent clock step");
+
+                    // End-state persistence: a transient excursion that returns to the original
+                    // frame (spool backlog draining, historic replay) must stay silent; a genuine
+                    // clock change — including "wrong clock corrected by time sync mid-session" —
+                    // persists to session end, because the corrected frame IS the change.
+                    var tail = Helpers.PercentileMath.Median(medians.Skip(medians.Count - w).Take(w));
+                    var tailShift = tail - best.Value.Pre;
+                    if (Math.Abs(tailShift) < thresholdSeconds || Math.Sign(tailShift) != Math.Sign(best.Value.Jump))
+                        return (false, "transient timestamp excursion, not a sustained clock change");
+
+                    var boundary = batches[best.Value.Index + 1].FirstEvent;
+                    var jumpMinutes = Math.Round(best.Value.Jump / 60.0, 1);
+                    var direction = best.Value.Jump > 0 ? "forward" : "backward";
+                    return (true, new Dictionary<string, object>
+                    {
+                        // field/value pair drives {{skewSummary}} template interpolation
+                        // (lib/interpolateRuleTemplate.ts resolves field→value first).
+                        ["field"] = "skewSummary",
+                        ["value"] = $"clock jumped {Math.Abs(jumpMinutes)} min {direction} mid-session",
+                        ["jumpSeconds"] = Math.Round(best.Value.Jump, 0),
+                        ["jumpMinutes"] = jumpMinutes,
+                        ["direction"] = direction,
+                        ["beforeOffsetMinutes"] = Math.Round(best.Value.Pre / 60.0, 1),
+                        ["afterOffsetMinutes"] = Math.Round(best.Value.Post / 60.0, 1),
+                        ["eventId"] = boundary.EventId,
+                        ["sequence"] = boundary.Sequence,
+                        ["timestamp"] = boundary.Timestamp,
+                        ["eventType"] = boundary.EventType,
+                        ["sampleCount"] = usedSamples,
+                        ["batchCount"] = batches.Count,
+                    });
+                }
+
+                default:
+                    return (false, $"unknown skewMetric '{metric}' (expected clock_jump or sustained_offset)");
+            }
+        }
+
+        /// <summary>gt/gte magnitude comparison for clock_skew; unknown operators behave as gte (validation rejects them upstream).</summary>
+        private static bool CompareClockSkewThreshold(double magnitude, string? op, double thresholdSeconds)
+            => string.Equals(op, "gt", StringComparison.OrdinalIgnoreCase)
+                ? magnitude > thresholdSeconds
+                : magnitude >= thresholdSeconds;
 
         /// <summary>
         /// Generic event correlation: finds pairs of events (A before B) sharing

@@ -312,12 +312,9 @@ namespace AutopilotMonitor.Functions.Services
             };
         }
 
+        // Thin delegation onto the single shared nearest-rank implementation (PercentileMath).
         private static double Percentile(List<double> sortedValues, double percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-            var index = (int)Math.Ceiling(percentile * sortedValues.Count) - 1;
-            return sortedValues[Math.Max(0, Math.Min(index, sortedValues.Count - 1))];
-        }
+            => Helpers.PercentileMath.Percentile(sortedValues, percentile);
 
         // Payload getters live in AgentMetricsAggregation (shared with the efficiency
         // service); these thin wrappers keep the call sites above unchanged.

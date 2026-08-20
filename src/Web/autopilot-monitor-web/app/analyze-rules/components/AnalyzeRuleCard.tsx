@@ -382,6 +382,7 @@ export default function AnalyzeRuleCard({
                         <span className="text-gray-600 font-medium">Source:</span> {condition.source}
                         {condition.eventType && (<span> | <span className="text-gray-600 font-medium">Event Type:</span> {condition.eventType}</span>)}
                         {condition.dataField && (<span> | <span className="text-gray-600 font-medium">Field:</span> <code className="bg-gray-200 px-1 rounded text-xs">{condition.dataField}</code></span>)}
+                        {condition.skewMetric && (<span> | <span className="text-gray-600 font-medium">Skew Metric:</span> <code className="bg-gray-200 px-1 rounded text-xs">{condition.skewMetric}</code></span>)}
                       </p>
                       <p>
                         <span className="text-gray-600 font-medium">Operator:</span> <code className="bg-gray-200 px-1 rounded text-xs">{condition.operator}</code>{" "}

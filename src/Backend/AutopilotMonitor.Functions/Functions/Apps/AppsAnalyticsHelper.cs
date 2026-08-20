@@ -606,16 +606,14 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             return date.AddDays(-diff);
         }
 
-        // Internal so AppVersionRegressionRadar shares the same nearest-rank convention
-        // (a third percentile implementation would invite subtle median drift).
+        // Internal so AppVersionRegressionRadar shares the same nearest-rank convention.
+        // Thin delegation onto the single shared implementation (PercentileMath) — parallel
+        // implementations would invite subtle median drift.
         internal static int Percentile(List<int> values, double percentile)
         {
             if (values.Count == 0) return 0;
-            var sorted = values.OrderBy(v => v).ToList();
-            var rank = (int)Math.Ceiling(percentile * sorted.Count) - 1;
-            if (rank < 0) rank = 0;
-            if (rank >= sorted.Count) rank = sorted.Count - 1;
-            return sorted[rank];
+            var sorted = values.Select(v => (double)v).OrderBy(v => v).ToList();
+            return (int)Helpers.PercentileMath.Percentile(sorted, percentile);
         }
     }
 }

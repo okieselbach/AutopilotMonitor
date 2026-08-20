@@ -128,7 +128,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         internal static readonly HashSet<string> KnownSources = new(StringComparer.Ordinal)
         {
             "event_type", "event_data", "event_data_array", "event_count",
-            "phase_duration", "app_install_duration", "event_correlation",
+            "phase_duration", "app_install_duration", "event_correlation", "clock_skew",
+        };
+
+        internal static readonly HashSet<string> KnownSkewMetrics = new(StringComparer.Ordinal)
+        {
+            "clock_jump", "sustained_offset",
         };
 
         internal static readonly HashSet<string> KnownOperators = new(StringComparer.OrdinalIgnoreCase)
@@ -194,6 +199,18 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                         errors.Add($"{label}: event_correlation requires correlateEventType");
                     if (string.IsNullOrWhiteSpace(c.JoinField))
                         errors.Add($"{label}: event_correlation requires joinField");
+                }
+
+                if (string.Equals(c.Source, "clock_skew", StringComparison.Ordinal))
+                {
+                    if (string.IsNullOrWhiteSpace(c.SkewMetric) || !KnownSkewMetrics.Contains(c.SkewMetric))
+                        errors.Add($"{label}: clock_skew requires skewMetric (one of: {string.Join(", ", KnownSkewMetrics)})");
+                    if (!string.Equals(c.Operator, "gt", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(c.Operator, "gte", StringComparison.OrdinalIgnoreCase))
+                        errors.Add($"{label}: clock_skew supports only gt/gte (magnitude vs threshold)");
+                    if (!double.TryParse(c.Value, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var skewThreshold) || skewThreshold <= 0)
+                        errors.Add($"{label}: clock_skew requires a positive numeric value (threshold in seconds)");
                 }
 
                 if ((string.Equals(c.Operator, "regex", StringComparison.OrdinalIgnoreCase)

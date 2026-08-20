@@ -86,10 +86,33 @@ with the process zone).
 * Mixed pairs remain possible across a restart (start resolved from backlog fallback,
   completion line-anchored) and are recognizable via provenance.
 
+# Backend regression tripwire
+
+The backend watches for the failure mode this design eliminates. On every terminal ingest
+batch, the counter reconcile's existing event-partition scan additionally collects
+`Δ = ReceivedAt − OccurredUtc` per event, split by `Source == "ImeLogTracker"` versus the
+rest (`CmTraceSkewTripwire`, hooked in `EventIngestProcessor`). If
+`median(Δ_IME) − median(Δ_other)` is a clean 15-minute multiple (residual < 2 min — the
+same constants as the anchoring grid guard above) with ≥ 20 samples over ≥ 3 distinct
+upload batches per side, a `CmTraceTimeSkewRegression` ops event fires (category Agent,
+warning), carrying all numbers plus the session's `sourceOffsetOrigin` histogram.
+Bias-dominated sessions are suppressed (writer-declared offsets cannot be an anchoring
+regression); `measuredWriterOffsetMinutes` is never consulted (sticky after era
+flip-backs). Kill switch: app setting `CmTraceSkewTripwireDisabled`. Goal state: the event
+never fires — any hit is an anchoring case the per-line design misses, or a detector bug.
+
+Device-clock problems (the customer-actionable cousin) are covered separately by the
+`clock_skew` analyze condition behind `ANALYZE-DEV-008`, which excludes IME-derived events
+precisely so an anchoring regression can never surface as a customer finding.
+
 # Citations
 
 * `CmTraceOffsetCalibrator.TryMeasureOffset` — the pure grid measurement, shared by
   anchoring and the observational per-file path.
+* `CmTraceSkewTripwire` + `CmTraceSkewTripwireTests` — the backend tripwire above.
+* `RuleEngine.ConditionEvaluators.EvaluateClockSkewCondition` + `RuleEngineClockSkewTests`
+  — the customer-facing device-clock metrics (batch-median frames, spool-spread filter,
+  plateau step detection, end-state persistence).
 * `ImeLogTracker.LogProcessing.cs` `ResolveEntryUtc` — the resolution order above.
 * `ImeLogTrackerLineAnchoringTests` — resolves-to-T across writer beliefs, interleaved
   eras in one chunk, freshness boundaries (first sight, empty first sight, poll gap,

@@ -622,6 +622,22 @@ namespace AutopilotMonitor.Functions.Services
                 $"Agent binary integrity mismatch on session {sessionId ?? "?"} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
 
+        /// <summary>
+        /// The CMTrace time-skew tripwire fired: a terminal session's IME-derived event
+        /// timestamps diverge from its other events by a clean 15-minute-grid multiple —
+        /// the signature of a timezone mis-conversion the per-line self-anchoring
+        /// (docs/agent/cmtrace-time-resolution.md) failed to catch. Goal state: this event
+        /// NEVER fires; any occurrence is a real anchoring regression or a detector bug,
+        /// both actionable. Emitted by <see cref="EventIngestProcessor"/> once per session
+        /// (gated on the terminal status transition). The message carries the full numbers
+        /// so the event is verifiable without a portal round-trip.
+        /// Dual-register per memory feedback_ops_event_types_dual_register.
+        /// </summary>
+        public Task RecordCmTraceTimeSkewRegressionAsync(string tenantId, string sessionId, string? agentVersion, string message, object details)
+            => WriteAsync(OpsEventCategory.Agent, "CmTraceTimeSkewRegression", OpsEventSeverity.Warning,
+                $"CMTrace time-skew tripwire on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
+                tenantId, "System.Ingest", details);
+
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
             => WriteAsync(OpsEventCategory.Agent, "ExcessiveSessionEvents", OpsEventSeverity.Warning,
                 $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",

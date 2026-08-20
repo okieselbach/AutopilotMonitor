@@ -445,6 +445,7 @@ export const SHARED_MANIFEST = {
   ],
   "analyzeRuleSources": [
     "app_install_duration",
+    "clock_skew",
     "event_correlation",
     "event_count",
     "event_data",
