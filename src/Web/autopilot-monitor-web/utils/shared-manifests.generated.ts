@@ -265,6 +265,10 @@ export const SHARED_MANIFEST = {
         "optional": true
       },
       {
+        "name": "lastIngestAt",
+        "optional": true
+      },
+      {
         "name": "isPreProvisioned",
         "optional": false
       },

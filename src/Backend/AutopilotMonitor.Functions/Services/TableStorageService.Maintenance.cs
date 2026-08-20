@@ -698,9 +698,19 @@ namespace AutopilotMonitor.Functions.Services
 
                 var silenceCutoffStr = silenceCutoff.ToString("yyyy-MM-ddTHH:mm:ss");
                 var hardCutoffStr = hardCutoff.ToString("yyyy-MM-ddTHH:mm:ss");
+
+                // Candidate pre-filter across BOTH clock frames, deliberately permissive:
+                // LastIngestAt is the server frame (authoritative, but absent on rows written
+                // before it existed), LastEventAt the device frame (always present, but carries
+                // the device's clock error and any CMTrace timezone skew). An OR keeps a session
+                // in the candidate set when EITHER frame looks silent; the caller then makes the
+                // authoritative call on the server frame. Filtering on LastIngestAt alone would
+                // silently drop every pre-rollout row, since Table Storage does not match a
+                // filter against a missing property.
                 var filter = $"PartitionKey eq '{tenantId}' " +
                              $"and Status eq 'InProgress' " +
-                             $"and LastEventAt lt datetime'{silenceCutoffStr}Z' " +
+                             $"and (LastIngestAt lt datetime'{silenceCutoffStr}Z' " +
+                             $"or LastEventAt lt datetime'{silenceCutoffStr}Z') " +
                              $"and (StartedAt ge datetime'{hardCutoffStr}Z' or ResumedAt ge datetime'{hardCutoffStr}Z')";
 
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter);
@@ -772,7 +782,7 @@ namespace AutopilotMonitor.Functions.Services
                 var select = new[]
                 {
                     "PartitionKey", "RowKey", "Status", "StartedAt", "ResumedAt", "LastEventAt",
-                    "SerialNumber", "IsPreProvisioned"
+                    "LastIngestAt", "SerialNumber", "IsPreProvisioned"
                 };
 
                 var sessions = new List<SessionSummary>();

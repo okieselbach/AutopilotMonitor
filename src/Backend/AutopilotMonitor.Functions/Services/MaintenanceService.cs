@@ -351,8 +351,16 @@ namespace AutopilotMonitor.Functions.Services
                         int silentMarked = 0;
                         foreach (var silent in silentSessions)
                         {
-                            var lastEventAt = silent.LastEventAt ?? silent.StartedAt;
-                            var silentMinutes = (int)(now - lastEventAt).TotalMinutes;
+                            // The query is a permissive two-frame pre-filter; the decision is made
+                            // here on the SERVER frame. LastEventAt carries the device clock and,
+                            // for IME-derived events, a timezone skew (field-measured: -17 h to
+                            // +1 h). Trusting it marks a live agent Stalled — and puts a bogus
+                            // "silent for 1020min" in front of the customer.
+                            var lastContactAt = ServerFrameLastContact(silent);
+                            if (lastContactAt > silenceCutoff)
+                                continue; // provably alive on the server clock
+
+                            var silentMinutes = (int)(now - lastContactAt).TotalMinutes;
                             await _sessionRepo.UpdateSessionStatusAsync(
                                 silent.TenantId,
                                 silent.SessionId,
@@ -409,7 +417,7 @@ namespace AutopilotMonitor.Functions.Services
                             // legitimately exceed SessionTimeoutHours) and must never be terminalized here
                             // — without this, an actively-installing 6h enrollment could be classified
                             // Incomplete mid-run purely because it outlived the 5h window.
-                            if (session.LastEventAt.HasValue && session.LastEventAt.Value > silenceCutoff)
+                            if (ServerFrameLastContact(session) > silenceCutoff)
                                 continue;
 
                             // Fast path: an AwaitingUser session still inside the grace window needs no
@@ -774,5 +782,26 @@ namespace AutopilotMonitor.Functions.Services
         /// Aggregates metrics for any missed days in the last 7 days, plus yesterday.
         /// Checks the UsageMetrics table for existing snapshots to avoid re-aggregation.
         /// </summary>
+
+        /// <summary>
+        /// Last contact with the agent, expressed in the SERVER clock frame — the only value a
+        /// server-derived cutoff may legitimately be compared against.
+        /// <para>
+        /// Preference order:
+        /// <list type="number">
+        /// <item><c>LastIngestAt</c> — stamped from the server clock on every ingest. Authoritative.</item>
+        /// <item><c>LastEventAt</c> — device frame; used only for rows written before
+        /// <c>LastIngestAt</c> existed, so the rollout has no blind window. Carries the device's
+        /// clock error and any CMTrace timezone skew.</item>
+        /// <item><c>StartedAt</c> — last resort when a session has no event stamp at all.</item>
+        /// </list>
+        /// </para>
+        /// Mixing the two frames is what let a live agent be marked Stalled: a session whose
+        /// IME-derived events were skewed -17 h looked silent for 17 hours the moment it started.
+        /// </summary>
+        /// <remarks>internal (not private) purely as a unit-test seam — it is a pure function
+        /// over its argument, pinned by <c>MaintenanceServerFrameLastContactTests</c>.</remarks>
+        internal static DateTime ServerFrameLastContact(SessionSummary session)
+            => session.LastIngestAt ?? session.LastEventAt ?? session.StartedAt;
     }
 }

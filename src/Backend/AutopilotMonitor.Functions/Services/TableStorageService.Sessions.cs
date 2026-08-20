@@ -2338,6 +2338,14 @@ namespace AutopilotMonitor.Functions.Services
                             update["LastEventAt"] = EnsureUtc(latestEventTimestamp.Value);
                     }
 
+                    // Server-frame ingest stamp. Reaching this method means a batch was just
+                    // received, so "now" on the SERVER clock is the honest answer to "when did we
+                    // last hear from this agent". LastEventAt above cannot answer that — it carries
+                    // the device's clock frame and its timezone skew. Written unconditionally (not
+                    // guarded by latestEventTimestamp) because an empty-timestamp batch is still
+                    // contact from the agent.
+                    update["LastIngestAt"] = EnsureUtc(DateTime.UtcNow);
+
                     // Increment script execution counters
                     if (platformScriptIncrement > 0)
                     {
@@ -3147,6 +3155,7 @@ namespace AutopilotMonitor.Functions.Services
                 // null as "CustomerSas" for back-compat.
                 DiagnosticsBlobDestination = entity.GetString("DiagnosticsBlobDestination"),
                 LastEventAt = SafeGetDateTime(entity, "LastEventAt"),
+                LastIngestAt = SafeGetDateTime(entity, "LastIngestAt"),
                 IsPreProvisioned = entity.GetBoolean("IsPreProvisioned") ?? false,
                 IsHybridJoin = entity.GetBoolean("IsHybridJoin") ?? false,
                 IsSelfDeployingProfile = entity.GetBoolean("IsSelfDeployingProfile") ?? false,

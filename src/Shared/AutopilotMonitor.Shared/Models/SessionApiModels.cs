@@ -350,6 +350,21 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? LastEventAt { get; set; }
 
         /// <summary>
+        /// SERVER-side time of the most recent event ingest for this session.
+        /// <para>
+        /// <see cref="LastEventAt"/> lives in the DEVICE clock frame (it is the maximum
+        /// agent-supplied event timestamp). Comparing it against a server-derived cutoff mixes
+        /// two clock frames: a device whose clock runs slow — or one whose IME-derived events
+        /// carry a timezone skew — is judged silent far too early or not at all (measured in the
+        /// field: skews from -17 h to +1 h, see tasks/todo.md). This field is stamped from the
+        /// server clock on every ingest, so silence detection can compare like with like.
+        /// </para>
+        /// Null for sessions that predate this field — callers MUST fall back to
+        /// <see cref="LastEventAt"/> so rollout has no blind window.
+        /// </summary>
+        public DateTime? LastIngestAt { get; set; }
+
+        /// <summary>
         /// Whether this session used WhiteGlove (Pre-Provisioning).
         /// Set when a whiteglove_complete event is processed.
         /// </summary>

@@ -261,6 +261,10 @@
         "optional": true
       },
       {
+        "name": "lastIngestAt",
+        "optional": true
+      },
+      {
         "name": "isPreProvisioned",
         "optional": false
       },
