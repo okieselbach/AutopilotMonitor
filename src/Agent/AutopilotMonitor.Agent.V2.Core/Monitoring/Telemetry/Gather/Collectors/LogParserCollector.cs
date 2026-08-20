@@ -331,7 +331,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                         data[groupName] = group.Value;
                                 }
 
-                                data["logTimestamp"] = entry.Timestamp.ToString("o");
+                                // Gather-rule logs are arbitrary files this collector does not
+                                // tail, so no writer offset can be measured for them; the
+                                // reader-zone fallback carries its known defect (see
+                                // ResolveUtcAssumingReaderZone). Behaviour unchanged from before
+                                // the parser split.
+                                var entryUtc = entry.TimestampUtc
+                                    ?? (entry.HasTimestamp
+                                        ? CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp)
+                                        : DateTime.UtcNow);
+                                data["logTimestamp"] = entryUtc.ToString("o");
                                 data["logComponent"] = entry.Component;
                                 data["logType"] = entry.Type;
                                 data["logMessage"] = TruncateMessage(entry.Message, 500);
@@ -348,7 +357,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 {
                                     SessionId = context.SessionId,
                                     TenantId = context.TenantId,
-                                    Timestamp = entry.Timestamp,
+                                    Timestamp = entryUtc,
                                     EventType = eventType,
                                     Severity = severity,
                                     Source = "GatherRuleExecutor",

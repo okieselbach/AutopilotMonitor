@@ -580,10 +580,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var scanText = rawLine;
                 if (CmTraceLogParser.TryParseLine(rawLine, out var entry))
                 {
-                    // Provably stale → not progress. (TryParseLine falls back to now on an
-                    // unparseable timestamp, which keeps the line fresh — the safe default.)
-                    if (entry.Timestamp < cutoffUtc)
-                        continue;
+                    // Provably stale → not progress. A line without a parseable timestamp counts
+                    // as fresh — the safe default, since treating it as stale would hide progress.
+                    //
+                    // This collector reads a file snapshot rather than tailing it, so it cannot
+                    // measure the writer's UTC offset itself and falls back to this process's zone
+                    // (see ResolveUtcAssumingReaderZone). That fallback is wrong by exactly the
+                    // gap between the two processes' zone beliefs. It is the pre-existing
+                    // behaviour, kept deliberately unchanged here; the tracker-owned calibrator is
+                    // wired in separately so this commit shifts no behaviour.
+                    if (entry.HasTimestamp)
+                    {
+                        var entryUtc = entry.TimestampUtc
+                            ?? CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
+                        if (entryUtc < cutoffUtc)
+                            continue;
+                    }
                     scanText = entry.Message;
                 }
 

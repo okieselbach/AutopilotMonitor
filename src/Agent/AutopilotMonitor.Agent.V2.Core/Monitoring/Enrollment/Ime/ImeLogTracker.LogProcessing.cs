@@ -160,7 +160,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                 // Simulation mode delay
                                 if (SimulationMode && entry != null)
                                 {
-                                    await ApplySimulationDelay(entry.Timestamp, token);
+                                    await ApplySimulationDelay(ResolveEntryUtc(entry), token);
                                 }
 
                                 // Match against active patterns
@@ -222,7 +222,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void HandlePatternMatch(CompiledPattern pattern, Match match, string message, CmTraceLogEntry entry)
         {
             LastMatchedPatternId = pattern.PatternId;
-            LastMatchedLogTimestamp = entry?.Timestamp;
+            LastMatchedLogTimestamp = entry == null ? (DateTime?)null : ResolveEntryUtc(entry);
 
             // Generic pattern-match hook (M4.4.4). Invoked before action-specific callbacks so
             // subscribers (e.g. ImeLogTrackerAdapter emitting WhiteGloveSealingPatternDetected)
@@ -237,10 +237,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // state nor the phase-change ignore list. SimulationMode (--replay-log-dir dev tool)
             // replays historic logs on purpose and bypasses the guard.
             var isStaleReplayLine = !SimulationMode && entry != null
-                && (UtcNowProvider() - NormalizeUtc(entry.Timestamp)) > HistoricReplayThreshold;
+                && (UtcNowProvider() - NormalizeUtc(ResolveEntryUtc(entry))) > HistoricReplayThreshold;
             if (isStaleReplayLine && AppMutatingActions.Contains(pattern.Action?.ToLower() ?? string.Empty))
             {
-                _logger.Debug($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({entry.Timestamp:o})");
+                _logger.Debug($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({ResolveEntryUtc(entry):o})");
                 return;
             }
 
@@ -524,8 +524,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         internal void ProcessLogMessageForTest(string message, DateTime? sourceTimestampUtc = null)
         {
             if (string.IsNullOrEmpty(message)) return;
+            // The test seam hands in an already-resolved UTC instant, so it takes the same route a
+            // writer-declared bias does: TimestampUtc set, no zone left to guess.
             var entry = sourceTimestampUtc.HasValue
-                ? new CmTraceLogEntry { Timestamp = sourceTimestampUtc.Value, Message = message }
+                ? new CmTraceLogEntry
+                {
+                    TimestampUtc = sourceTimestampUtc.Value,
+                    LocalTimestamp = DateTime.SpecifyKind(sourceTimestampUtc.Value, DateTimeKind.Unspecified),
+                    HasTimestamp = true,
+                    Message = message,
+                }
                 : null;
             foreach (var pattern in _activePatterns)
             {
@@ -543,5 +551,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// Parses [DO TEL] JSON and links it to the correct app via FileId.
         /// The FileId contains the app GUID in the format: ...intunewin-bin_{appGuid}_{number}
         /// </summary>
+
+        /// <summary>
+        /// Resolve a parsed CMTrace entry to UTC.
+        ///
+        /// <para>
+        /// Order of preference: a writer-declared bias (authoritative) &gt; this process's own zone
+        /// (a fallback carrying a known defect, see
+        /// <see cref="CmTraceLogParser.ResolveUtcAssumingReaderZone"/>) &gt; the agent clock for a
+        /// line with no parseable timestamp.
+        /// </para>
+        ///
+        /// <para>
+        /// The reader-zone step is where the tracker is still wrong when IME's process holds a
+        /// different zone belief than ours. It is preserved verbatim here so that splitting the
+        /// parser changes no behaviour; the measured offset from <c>CmTraceOffsetCalibrator</c>
+        /// slots in at exactly this point in the follow-up change.
+        /// </para>
+        /// </summary>
+        private DateTime ResolveEntryUtc(CmTraceLogEntry entry)
+        {
+            if (entry == null) return UtcNowProvider();
+            if (entry.TimestampUtc.HasValue) return entry.TimestampUtc.Value;
+            if (!entry.HasTimestamp) return UtcNowProvider();
+            return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
+        }
+
     }
 }

@@ -6,11 +6,41 @@ using System.Text.RegularExpressions;
 namespace AutopilotMonitor.Shared.Logging
 {
     /// <summary>
-    /// Represents a single parsed line from a CMTrace-format log file
+    /// Represents a single parsed line from a CMTrace-format log file.
+    /// <para>
+    /// Timestamps are deliberately NOT resolved to UTC here unless the writer declared its own
+    /// offset. See <see cref="CmTraceLogParser"/> for why.
+    /// </para>
     /// </summary>
     public class CmTraceLogEntry
     {
-        public DateTime Timestamp { get; set; }
+        /// <summary>
+        /// The line's local time exactly as the writing process wrote it. Kind is
+        /// <see cref="DateTimeKind.Unspecified"/> on purpose — this value is meaningless without
+        /// knowing which zone the WRITER believed it was in, which the line itself does not say.
+        /// </summary>
+        public DateTime LocalTimestamp { get; set; }
+
+        /// <summary>
+        /// The writer-declared UTC bias in minutes, when the line carried one ("+480").
+        /// <c>null</c> for the far more common bias-less form.
+        /// </summary>
+        public int? BiasMinutes { get; set; }
+
+        /// <summary>
+        /// UTC — populated ONLY when <see cref="BiasMinutes"/> was present, because a
+        /// writer-declared offset is authoritative. <c>null</c> otherwise: the caller must resolve
+        /// <see cref="LocalTimestamp"/> itself, and is the only party able to do so correctly.
+        /// </summary>
+        public DateTime? TimestampUtc { get; set; }
+
+        /// <summary>
+        /// Whether the line carried a parseable timestamp at all. When <c>false</c>,
+        /// <see cref="LocalTimestamp"/> is <c>default</c> and callers must fall back to their own
+        /// clock rather than treat the value as a real time.
+        /// </summary>
+        public bool HasTimestamp { get; set; }
+
         public string Message { get; set; } = string.Empty;
         public string Component { get; set; } = string.Empty;
         public int Type { get; set; } // 1=Info, 2=Warning, 3=Error
@@ -21,12 +51,25 @@ namespace AutopilotMonitor.Shared.Logging
     /// Parses CMTrace/SCCM log format used by IME and other Microsoft components.
     /// Format: &lt;![LOG[{message}]LOG]!&gt;&lt;time="{time}" date="{date}" component="{comp}" context="" type="{type}" thread="{thread}" file=""&gt;
     ///
-    /// Lives in Shared because it is the SINGLE parsing implementation for both sides:
-    /// the agent's IME tracker / logparser gather collector (on-device) and the backend's
-    /// rules/gather/test-pattern endpoint, which must reproduce the agent's matching
-    /// semantics exactly so authors can test patterns without a device. Timestamp note:
-    /// bias-less lines parse with DateTimeStyles.AssumeLocal — on the backend that is the
-    /// SERVER's timezone, so the test endpoint reports match/parse results, not timestamps.
+    /// <para>
+    /// Lives in Shared because it is the SINGLE parsing implementation for both sides: the
+    /// agent's IME tracker / logparser gather collector (on-device) and the backend's
+    /// rules/gather/test-pattern endpoint, which must reproduce the agent's matching semantics
+    /// exactly so authors can test patterns without a device.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>The parser does not guess timezones.</b> A bias-less CMTrace line carries local time
+    /// and nothing else — IME 1.104 writes <c>DateTime.Now.TimeOfDay</c> in both of its trace
+    /// listeners. Resolving that with the READER's <c>TimeZoneInfo.Local</c> silently assumes the
+    /// writing and reading processes agree on the zone. They do not: each caches its zone at
+    /// process start and neither follows a later <c>tzutil</c> or a Windows auto-timezone change.
+    /// Field measurement over 11,068 sessions found 26 sessions where the two beliefs differed,
+    /// from +1 h to -17 h, silently shifting every IME-derived event by that amount. So this
+    /// parser hands back <see cref="CmTraceLogEntry.LocalTimestamp"/> plus
+    /// <see cref="CmTraceLogEntry.BiasMinutes"/> and lets the caller — which alone can measure
+    /// the writer's actual offset — do the conversion.
+    /// </para>
     /// </summary>
     public static class CmTraceLogParser
     {
@@ -63,11 +106,24 @@ namespace AutopilotMonitor.Shared.Logging
             var typeStr = match.Groups["type"].Value;
             var thread = match.Groups["thread"].Value;
 
-            // Parse timestamp: date is "M-d-yyyy", time is "HH:mm:ss.ticks"
-            DateTime timestamp;
-            if (!TryParseTimestamp(dateStr, timeStr, biasStr, out timestamp))
+            DateTime localTimestamp;
+            var hasTimestamp = TryParseLocalTimestamp(dateStr, timeStr, out localTimestamp);
+
+            int? biasMinutes = null;
+            if (!string.IsNullOrEmpty(biasStr)
+                && int.TryParse(biasStr, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var parsedBias))
             {
-                timestamp = DateTime.UtcNow;
+                biasMinutes = parsedBias;
+            }
+
+            // A writer-declared bias is authoritative — it is the writer telling us its own
+            // offset, which is exactly the fact we otherwise have to measure.
+            // GetTimeZoneInformation convention: UTC = local + bias.
+            DateTime? timestampUtc = null;
+            if (hasTimestamp && biasMinutes.HasValue)
+            {
+                timestampUtc = DateTime.SpecifyKind(
+                    localTimestamp.AddMinutes(biasMinutes.Value), DateTimeKind.Utc);
             }
 
             int type;
@@ -75,7 +131,10 @@ namespace AutopilotMonitor.Shared.Logging
 
             entry = new CmTraceLogEntry
             {
-                Timestamp = timestamp,
+                LocalTimestamp = localTimestamp,
+                BiasMinutes = biasMinutes,
+                TimestampUtc = timestampUtc,
+                HasTimestamp = hasTimestamp,
                 Message = message,
                 Component = component,
                 Type = type,
@@ -85,7 +144,26 @@ namespace AutopilotMonitor.Shared.Logging
             return true;
         }
 
-        private static bool TryParseTimestamp(string dateStr, string timeStr, string biasStr, out DateTime result)
+        /// <summary>
+        /// Resolves a bias-less CMTrace local timestamp using the READING process's own timezone.
+        ///
+        /// <para>
+        /// <b>This is a fallback with a known defect, not a correct conversion.</b> It is right
+        /// only when the writing process happens to hold the same zone belief as this one. Use it
+        /// solely where no better information exists — a log this process does not tail and
+        /// therefore cannot measure an offset against — and mark the resulting value as not
+        /// source-grounded so the inaccuracy stays visible.
+        /// </para>
+        ///
+        /// <para>
+        /// Callers that DO tail their log must instead measure the writer's offset from a freshly
+        /// appended line (see the agent's <c>CmTraceOffsetCalibrator</c>).
+        /// </para>
+        /// </summary>
+        public static DateTime ResolveUtcAssumingReaderZone(DateTime localTimestamp)
+            => DateTime.SpecifyKind(localTimestamp, DateTimeKind.Local).ToUniversalTime();
+
+        private static bool TryParseLocalTimestamp(string dateStr, string timeStr, out DateTime result)
         {
             result = DateTime.MinValue;
 
@@ -129,29 +207,15 @@ namespace AutopilotMonitor.Shared.Logging
                 "M-d-yyyy HH:mm:ss"
             };
 
-            // Bias-suffixed time ("+480"): the writer declared its own UTC offset in minutes
-            // (GetTimeZoneInformation convention: UTC = written time + bias). Honor it instead
-            // of assuming the agent's local timezone — writer and agent can disagree (mixed
-            // components, mid-enrollment timezone change; session df1fcf47).
-            if (!string.IsNullOrEmpty(biasStr)
-                && int.TryParse(biasStr, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var biasMinutes))
-            {
-                if (DateTime.TryParseExact(combined, formats, CultureInfo.InvariantCulture,
-                    DateTimeStyles.None, out result))
-                {
-                    result = DateTime.SpecifyKind(result.AddMinutes(biasMinutes), DateTimeKind.Utc);
-                    return true;
-                }
-                return false;
-            }
-
-            // No bias: CMTrace timestamps are in LOCAL time. Parse as local, then convert to UTC.
+            // DateTimeStyles.None: the value stays Unspecified. Attaching Local or Utc here would
+            // be the very guess this parser refuses to make.
             if (DateTime.TryParseExact(combined, formats, CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeLocal, out result))
+                DateTimeStyles.None, out result))
             {
-                result = result.ToUniversalTime();
                 return true;
             }
+
+            result = default(DateTime);
             return false;
         }
     }

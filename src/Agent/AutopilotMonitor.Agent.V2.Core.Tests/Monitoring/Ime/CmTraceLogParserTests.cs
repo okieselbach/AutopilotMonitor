@@ -67,29 +67,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal("EnforcementState: Installing app X", entry.Message);
             Assert.Equal("AppEnforce", entry.Component);
             Assert.Equal(1, entry.Type);
-            Assert.NotEqual(default, entry.Timestamp);
+            Assert.True(entry.HasTimestamp);
+            Assert.NotEqual(default, entry.LocalTimestamp);
+            // Bias-less line: the parser refuses to guess the writer's zone, so no UTC value.
+            Assert.Null(entry.BiasMinutes);
+            Assert.Null(entry.TimestampUtc);
+            Assert.Equal(DateTimeKind.Unspecified, entry.LocalTimestamp.Kind);
         }
 
-        // ── Structurally valid but unparseable timestamp → UtcNow fallback ────
+        // ── Structurally valid but unparseable timestamp → flagged, not invented ──
 
         [Fact]
-        public void TryParseLine_falls_back_to_utcnow_for_unparseable_timestamp()
+        public void TryParseLine_flags_unparseable_timestamp_instead_of_inventing_one()
         {
             // time/date satisfy the regex character classes ([\d:.]+ / [\d-]+) so the line MATCHES,
-            // but "13-45-2026" / "25:99:99" fail every DateTime format → the parser falls back to
-            // DateTime.UtcNow (CmTraceLogParser.cs:57) instead of throwing.
-            var before = DateTime.UtcNow;
+            // but "13-45-2026" / "25:99:99" fail every DateTime format. The parser used to stamp
+            // DateTime.UtcNow here, which made a fabricated value indistinguishable from a real
+            // one downstream. It now reports HasTimestamp=false and leaves the choice of fallback
+            // to the caller, which is the only party that knows what a safe default is in context.
             var line = CmTraceLine("some message", "25:99:99.0000000", "13-45-2026");
 
             var ok = CmTraceLogParser.TryParseLine(line, out var entry);
-            var after = DateTime.UtcNow;
 
             Assert.True(ok);
             Assert.NotNull(entry);
             Assert.Equal("some message", entry.Message);
-            // Don't assert an exact instant — only that the fallback stamped a fresh "now"
-            // (a successfully-parsed date would land in 2026, far outside this window).
-            Assert.InRange(entry.Timestamp, before.AddSeconds(-5), after.AddSeconds(5));
+            Assert.False(entry.HasTimestamp);
+            Assert.Equal(default, entry.LocalTimestamp);
+            Assert.Null(entry.TimestampUtc);
         }
 
         // ── UTC-bias suffix on the time field → honored, not dropped ──────────
@@ -108,10 +113,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
             Assert.True(ok);
             Assert.NotNull(entry);
+            // A writer-declared bias IS the fact we otherwise have to measure, so it is honored
+            // and resolved to UTC right here — unlike the bias-less form.
+            Assert.Equal(expectedOffsetMinutes, entry.BiasMinutes);
+            Assert.NotNull(entry.TimestampUtc);
             Assert.Equal(
                 new DateTime(2026, 7, 29, 11, 46, 19, DateTimeKind.Utc).AddTicks(226610).AddMinutes(expectedOffsetMinutes),
-                entry.Timestamp);
-            Assert.Equal(DateTimeKind.Utc, entry.Timestamp.Kind);
+                entry.TimestampUtc!.Value);
+            Assert.Equal(DateTimeKind.Utc, entry.TimestampUtc!.Value.Kind);
         }
 
         // ── Oversized line → parses, no throw, no truncation of the message ───
