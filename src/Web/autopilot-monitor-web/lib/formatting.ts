@@ -50,3 +50,17 @@ export function formatPercent(numerator: number, denominator: number, decimals =
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return zero;
   return `${((numerator / denominator) * 100).toFixed(decimals)}%`;
 }
+
+/**
+ * Signed HH:MM UTC offset from a minutes value: 120 -> "UTC+02:00", -345 -> "UTC−05:45",
+ * 0 -> "UTC+00:00". Quarter-hour zones (Nepal +05:45, Chatham +12:45) render exactly.
+ * Non-finite returns `zero`.
+ */
+export function formatUtcOffset(minutes: number, zero = "—"): string {
+  if (!Number.isFinite(minutes)) return zero;
+  const sign = minutes < 0 ? "−" : "+";
+  const abs = Math.abs(Math.round(minutes));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `UTC${sign}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}

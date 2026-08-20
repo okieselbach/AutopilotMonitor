@@ -11,6 +11,10 @@ export interface EnrollmentEvent {
   sequence: number;
   receivedAt?: string;
   data?: Record<string, unknown>;
+  /** True when ingest clamped an out-of-range device timestamp to server time. */
+  timestampClamped?: boolean;
+  /** The pre-clamp device timestamp; only set when timestampClamped is true. */
+  originalTimestamp?: string | null;
 }
 
 export interface RuleResult {

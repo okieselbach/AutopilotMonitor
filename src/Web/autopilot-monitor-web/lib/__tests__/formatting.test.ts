@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatBytes, formatThroughput, formatDuration, formatPercent } from "../formatting";
+import { formatBytes, formatThroughput, formatDuration, formatPercent, formatUtcOffset } from "../formatting";
 
 describe("formatBytes", () => {
   it("returns the zero sentinel for 0 / negative / non-finite", () => {
@@ -49,5 +49,19 @@ describe("formatPercent", () => {
 
   it("dashes on zero denominator", () => {
     expect(formatPercent(5, 0)).toBe("—");
+  });
+});
+
+describe("formatUtcOffset", () => {
+  it("renders signed HH:MM offsets, including quarter-hour zones", () => {
+    expect(formatUtcOffset(0)).toBe("UTC+00:00");
+    expect(formatUtcOffset(120)).toBe("UTC+02:00");
+    expect(formatUtcOffset(-540)).toBe("UTC−09:00");
+    expect(formatUtcOffset(345)).toBe("UTC+05:45"); // Nepal
+    expect(formatUtcOffset(-270)).toBe("UTC−04:30");
+  });
+
+  it("dashes on non-finite input", () => {
+    expect(formatUtcOffset(NaN)).toBe("—");
   });
 });

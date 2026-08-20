@@ -4,6 +4,8 @@ import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
 import { getEnrichedOrLookup, formatErrorCode, type ErrorCodeEntry } from "@/utils/errorCodeMap";
+import { readTimeProvenance, classifyTimeJump } from "@/lib/timeProvenance";
+import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -184,7 +186,7 @@ export default function EventTimeline({
               <RawEventRow
                 key={ev.eventId || `${ev.sessionId}-${ev.sequence}`}
                 event={ev}
-                prevDisplayTime={i > 0 ? getDisplayTime(sortedBySequence[i - 1]) : null}
+                prevEvent={i > 0 ? sortedBySequence[i - 1] : null}
               />
             ))}
           </div>
@@ -350,7 +352,7 @@ function PhaseSection({
               key={event.eventId || `${event.sessionId}-${event.sequence}`}
               event={event}
               showScriptOutput={showScriptOutput}
-              prevDisplayTime={i > 0 ? getDisplayTime(events[i - 1]) : null}
+              prevEvent={i > 0 ? events[i - 1] : null}
             />
           ))}
         </div>
@@ -402,7 +404,53 @@ function GapBadge({ prevTime, eventTime }: { prevTime: Date | null; eventTime: D
   );
 }
 
-function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: EnrollmentEvent; showScriptOutput?: boolean; prevDisplayTime?: Date | null }) {
+// A displayed time stepping BACKWARDS within the sequence order is information, not a
+// rendering bug (P13): rows are ordered by the clock-immune sequence counter, while the
+// displayed time is corrected UTC — a backdated log line or an era-mixed log makes it
+// step back. Shown on the row AFTER the jump (GapBadge convention) and only at ≥5 min
+// (BACKWARD_JUMP_THRESHOLD_MS), so normal interleaved-writer jitter (≤2 min by the
+// agent's grid tolerance) never renders a badge. Known causes get the informational sky
+// tier; an unexplained backwards step gets amber.
+const TIME_JUMP_ORDER_NOTE = "Events are shown in true write order (sequence).";
+
+function TimeJumpBadge({ prevEvent, event }: { prevEvent?: EnrollmentEvent | null; event: EnrollmentEvent }) {
+  if (!prevEvent) return null;
+  const jump = classifyTimeJump(
+    { displayTime: getDisplayTime(prevEvent), provenance: readTimeProvenance(prevEvent.data) },
+    { displayTime: getDisplayTime(event), provenance: readTimeProvenance(event.data) },
+  );
+  if (!jump) return null;
+
+  const label = jump.deltaMs >= 48 * 60 * 60 * 1000
+    ? `−${Math.round(jump.deltaMs / (24 * 60 * 60 * 1000))}d`
+    : jump.deltaMs >= 60 * 60 * 1000
+      ? `−${Math.round(jump.deltaMs / (60 * 60 * 1000))}h`
+      : `−${Math.round(jump.deltaMs / (60 * 1000))}m`;
+  const human = formatDuration(jump.deltaMs / 1000);
+  const times = `(${getDisplayTime(prevEvent).toLocaleTimeString()} → ${getDisplayTime(event).toLocaleTimeString()})`;
+
+  const title =
+    jump.cause === "era-offset"
+      ? `Time moved backwards by ${human} vs the previous event ${times}. The two log lines were corrected with different UTC offsets (era-mixed log) — the jump reflects the offset change, not reordering. ${TIME_JUMP_ORDER_NOTE}`
+      : jump.cause === "derived-timestamp"
+        ? `Backdated log line: written ${human} before the previous event's displayed time ${times}. Its own timestamp was unusable, so the agent's clock time is shown. ${TIME_JUMP_ORDER_NOTE}`
+        : jump.cause === "rejected-source"
+          ? `Time moved backwards by ${human} vs the previous event ${times}. The line's own timestamp was rejected by the staleness clamp; the agent's clock time is shown instead. ${TIME_JUMP_ORDER_NOTE}`
+          : `Time moved backwards by ${human} vs the previous event ${times}. ${TIME_JUMP_ORDER_NOTE} Displayed times are corrected UTC and can step backwards when the source log mixes clock eras.`;
+
+  const color = jump.cause ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-800";
+  return (
+    <span className={`px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap flex-shrink-0 ${color}`} title={title}>
+      ↩ {label}
+    </span>
+  );
+}
+
+const CLAMPED_TOOLTIP_PREFIX =
+  "The device-reported timestamp was outside the accepted range and was clamped to server receive time on ingest.";
+
+function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEvent; showScriptOutput?: boolean; prevEvent?: EnrollmentEvent | null }) {
+  const prevDisplayTime = prevEvent ? getDisplayTime(prevEvent) : null;
   const [showDetails, setShowDetails] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -489,6 +537,7 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
               )}
             </span>
             <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
+            <TimeJumpBadge prevEvent={prevEvent} event={event} />
             <SeverityBadge severity={event.severity} />
             {isBackfilled && (
               <span
@@ -496,6 +545,14 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
                 title={BACKFILL_TOOLTIP}
               >
                 ⟲ Backfilled
+              </span>
+            )}
+            {event.timestampClamped && (
+              <span
+                className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
+                title={`${CLAMPED_TOOLTIP_PREFIX}${event.originalTimestamp ? ` Original device timestamp: ${event.originalTimestamp}.` : ""}`}
+              >
+                ⧖ Clamped
               </span>
             )}
             <span className="text-sm font-medium text-gray-900">{event.eventType}</span>
@@ -666,12 +723,12 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
               )}
             </button>
             <div className="flex">
-              <span className="w-16 flex-shrink-0 text-gray-400">EventId</span>
+              <span className="w-24 flex-shrink-0 text-gray-400">EventId</span>
               <span className="font-mono">{event.eventId}</span>
             </div>
             {recordedAt && (
               <div className="flex mt-0.5">
-                <span className="w-16 flex-shrink-0 text-gray-400">Recorded</span>
+                <span className="w-24 flex-shrink-0 text-gray-400">Recorded</span>
                 <span className="font-mono">
                   {recordedAt.toISOString().replace('T', ' ').replace('Z', '')}
                   <span className="text-gray-400 ml-1" title={BACKFILL_TOOLTIP}>(event log, pre-agent)</span>
@@ -679,11 +736,11 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
               </div>
             )}
             <div className="flex mt-0.5">
-              <span className="w-16 flex-shrink-0 text-gray-400">Created</span>
+              <span className="w-24 flex-shrink-0 text-gray-400">Created</span>
               <span className="font-mono">{event.timestamp}</span>
             </div>
             <div className="flex mt-0.5">
-              <span className="w-16 flex-shrink-0 text-gray-400">Received</span>
+              <span className="w-24 flex-shrink-0 text-gray-400">Received</span>
               <span className="font-mono">
                 {event.receivedAt
                   ? new Date(event.receivedAt).toISOString().replace('T', ' ').replace('Z', '')
@@ -701,10 +758,11 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
             </div>
             {hasPhase && (
               <div className="flex mt-0.5">
-                <span className="w-16 flex-shrink-0 text-gray-400">Phase</span>
+                <span className="w-24 flex-shrink-0 text-gray-400">Phase</span>
                 <span>{event.phaseName}</span>
               </div>
             )}
+            <TimeProvenanceRows event={event} />
           </div>
         );
       })()}
@@ -817,11 +875,111 @@ function EventRow({ event, showScriptOutput, prevDisplayTime }: { event: Enrollm
   );
 }
 
-function RawEventRow({ event, prevDisplayTime }: { event: EnrollmentEvent; prevDisplayTime?: Date | null }) {
+// Origin chip styling/wording for the sourceOffsetOrigin provenance value. Unknown
+// values render verbatim in gray so a future agent origin never breaks the UI.
+const ORIGIN_CHIP: Record<string, { className: string; title: string }> = {
+  "line-anchored": {
+    className: "bg-sky-100 text-sky-800",
+    title: "Offset anchored to a UTC reference line near this log line — the most precise source.",
+  },
+  bias: {
+    className: "bg-slate-200 text-slate-600",
+    title: "Offset taken from the log line's own timezone bias — declared by the writer, authoritative.",
+  },
+  "reader-zone-fallback": {
+    className: "bg-amber-100 text-amber-800",
+    title: "No anchor available — the reader's timezone was assumed for the whole file. Times are internally consistent but the absolute frame may be wrong.",
+  },
+  calibrated: {
+    className: "bg-gray-100 text-gray-500",
+    title: "Legacy origin emitted by older agents (retired).",
+  },
+};
+
+// The raw CMTrace time-resolution values (P13): how this event's UTC timestamp was
+// produced. Rendered inside the expanded metadata block only — per-row badges are
+// reserved for the rare jump/clamp cases, everything else lives here on demand.
+function TimeProvenanceRows({ event }: { event: EnrollmentEvent }) {
+  const provenance = readTimeProvenance(event.data);
+  if (!provenance && !event.timestampClamped) return null;
+
+  const origin = provenance?.sourceOffsetOrigin;
+  const originChip = origin ? ORIGIN_CHIP[origin] ?? { className: "bg-gray-100 text-gray-500", title: origin } : null;
+
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Time provenance</div>
+      {provenance?.sourceLocalTs && (
+        <div className="flex mt-0.5">
+          <span className="w-24 flex-shrink-0 text-gray-400">Local time</span>
+          <span className="font-mono">
+            {provenance.sourceLocalTs}
+            <span className="text-gray-400 ml-1 font-sans">(as written in the log)</span>
+          </span>
+        </div>
+      )}
+      {provenance?.sourceOffsetMinutes !== null && provenance?.sourceOffsetMinutes !== undefined && (
+        <div className="flex mt-0.5 items-center">
+          <span className="w-24 flex-shrink-0 text-gray-400">UTC offset</span>
+          <span className="font-mono">{formatUtcOffset(provenance.sourceOffsetMinutes)}</span>
+          <span className="text-gray-400 ml-1">(applied)</span>
+          {originChip && origin && (
+            <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium ${originChip.className}`} title={originChip.title}>
+              {origin}
+              {origin === "calibrated" && <span className="ml-1 font-normal">(retired)</span>}
+            </span>
+          )}
+        </div>
+      )}
+      {provenance?.measuredWriterOffsetMinutes !== null && provenance?.measuredWriterOffsetMinutes !== undefined && (
+        <div className="flex mt-0.5">
+          <span className="w-24 flex-shrink-0 text-gray-400">Writer offset</span>
+          <span
+            className="font-mono"
+            title="Measured from the log writer's paired local/UTC lines. Sticky after era flip-backs, so it can lag reality. The applied correction is the UTC offset above."
+          >
+            {formatUtcOffset(provenance.measuredWriterOffsetMinutes)}
+            <span className="text-gray-400 ml-1 font-sans">(observed from the writer&apos;s own UTC lines — not the applied correction)</span>
+          </span>
+        </div>
+      )}
+      {provenance?.derivedTimestamp && (
+        <div className="flex mt-0.5">
+          <span className="w-24 flex-shrink-0 text-gray-400">Derived time</span>
+          <span className="font-mono">
+            {provenance.derivedTimestamp}
+            <span className="text-gray-400 ml-1 font-sans">(line timestamp unusable — agent clock substituted)</span>
+          </span>
+        </div>
+      )}
+      {provenance?.rejectedSourceTimestamp && (
+        <div className="flex mt-0.5">
+          <span className="w-24 flex-shrink-0 text-gray-400">Rejected time</span>
+          <span className="font-mono">
+            {provenance.rejectedSourceTimestamp}
+            <span className="text-gray-400 ml-1 font-sans">(rejected by the staleness clamp)</span>
+          </span>
+        </div>
+      )}
+      {event.timestampClamped && (
+        <div className="flex mt-0.5">
+          <span className="w-24 flex-shrink-0 text-gray-400">Original time</span>
+          <span className="font-mono">
+            {event.originalTimestamp ?? "—"}
+            <span className="text-gray-400 ml-1 font-sans">(before ingest clamp)</span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RawEventRow({ event, prevEvent }: { event: EnrollmentEvent; prevEvent?: EnrollmentEvent | null }) {
   const [expanded, setExpanded] = useState(false);
   const detailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
   const hasDetails = detailData && Object.keys(detailData).length > 0;
   const { isBackfilled, recordedAt } = getBackfillInfo(event);
+  const prevDisplayTime = prevEvent ? getDisplayTime(prevEvent) : null;
 
   const sevColor: Record<string, string> = {
     Trace: "text-purple-500",
@@ -838,9 +996,13 @@ function RawEventRow({ event, prevDisplayTime }: { event: EnrollmentEvent; prevD
         <span className="text-gray-400 w-8 text-right flex-shrink-0">{event.sequence}</span>
         <span className="text-gray-500 flex-shrink-0">{(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}</span>
         <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
+        <TimeJumpBadge prevEvent={prevEvent} event={event} />
         <span className={`flex-shrink-0 w-14 ${sevColor[event.severity] || "text-gray-500"}`}>{event.severity}</span>
         {isBackfilled && (
           <span className="text-slate-500 flex-shrink-0" title={BACKFILL_TOOLTIP}>⟲</span>
+        )}
+        {event.timestampClamped && (
+          <span className="text-amber-600 flex-shrink-0" title={`${CLAMPED_TOOLTIP_PREFIX}${event.originalTimestamp ? ` Original device timestamp: ${event.originalTimestamp}.` : ""}`}>⧖</span>
         )}
         <span className="text-gray-900 font-medium flex-shrink-0">{event.eventType}</span>
         <span className="text-gray-500 truncate flex-1 min-w-0" title={event.message || undefined}>{shortenBuildHashInMessage(event.message)}</span>
