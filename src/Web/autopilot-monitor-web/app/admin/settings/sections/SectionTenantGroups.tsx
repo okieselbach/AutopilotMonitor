@@ -315,10 +315,10 @@ export function SectionTenantGroups() {
               return (
                 <div key={t.groupId} className="border border-gray-200 rounded-lg">
                   {/* Group header */}
-                  <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex items-center justify-between gap-2">
+                  <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <span className="font-medium text-gray-900 truncate">{t.name}</span>
-                      <span className="ml-2 text-xs text-gray-500">
+                      <span className="font-medium text-gray-900 break-words">{t.name}</span>
+                      <span className="ml-2 text-xs text-gray-500 whitespace-nowrap">
                         {t.tenantIds.length} tenant{t.tenantIds.length === 1 ? "" : "s"} · {t.assigneeCount} assignee
                         {t.assigneeCount === 1 ? "" : "s"}
                       </span>
@@ -341,7 +341,7 @@ export function SectionTenantGroups() {
 
                   <div className="p-4 grid gap-4 md:grid-cols-2">
                     {/* Tenants column */}
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                       <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Tenants</p>
                       {t.tenantIds.length === 0 ? (
                         <p className="text-sm text-gray-400">No tenants yet.</p>
@@ -349,11 +349,11 @@ export function SectionTenantGroups() {
                         <ul className="space-y-1">
                           {t.tenantIds.map((id) => (
                             <li key={id} className="flex items-center justify-between gap-2 text-sm">
-                              <span className="truncate text-gray-900">{domainOf(id) || id}</span>
+                              <span className="min-w-0 truncate text-gray-900">{domainOf(id) || id}</span>
                               <button
                                 onClick={() => handleRemoveTenant(t, id)}
                                 disabled={busyKey === `rmtenant:${t.groupId}:${id}`}
-                                className="text-red-600 hover:text-red-800 disabled:opacity-50 text-xs"
+                                className="shrink-0 text-red-600 hover:text-red-800 disabled:opacity-50 text-xs"
                                 aria-label={`Remove ${domainOf(id) || id}`}
                               >
                                 Remove
@@ -378,7 +378,7 @@ export function SectionTenantGroups() {
                         <button
                           onClick={() => handleAddTenant(t)}
                           disabled={!tenantToAdd[t.groupId] || busyKey === `addtenant:${t.groupId}`}
-                          className="px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                          className="shrink-0 px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
                         >
                           Add
                         </button>
@@ -386,24 +386,27 @@ export function SectionTenantGroups() {
                     </div>
 
                     {/* Assignees column */}
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                       <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Assignees</p>
                       {t.assignees.length === 0 ? (
                         <p className="text-sm text-gray-400">No one assigned yet.</p>
                       ) : (
-                        <ul className="space-y-1">
+                        <ul className="space-y-2">
                           {t.assignees.map((a) => (
-                            <li key={a.upn} className="flex items-center justify-between gap-2 text-sm">
-                              <span className="min-w-0 truncate text-gray-900">
-                                {a.upn}
-                                <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800">
-                                  {ROLE_LABELS[a.role] ?? a.role}
-                                </span>
+                            <li
+                              key={a.upn}
+                              className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm"
+                            >
+                              {/* Full-width UPN on phones so it is not hyphen-broken; the badge and
+                                  Remove then share the wrapped line below it. */}
+                              <span className="w-full break-all text-gray-900 sm:w-auto sm:min-w-0">{a.upn}</span>
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800">
+                                {ROLE_LABELS[a.role] ?? a.role}
                               </span>
                               <button
                                 onClick={() => handleUnassign(t, a.upn)}
                                 disabled={busyKey === `unassign:${t.groupId}:${a.upn}`}
-                                className="text-red-600 hover:text-red-800 disabled:opacity-50 text-xs shrink-0"
+                                className="ml-auto shrink-0 text-red-600 hover:text-red-800 disabled:opacity-50 text-xs"
                                 aria-label={`Remove ${a.upn}`}
                               >
                                 Remove
@@ -412,7 +415,7 @@ export function SectionTenantGroups() {
                           ))}
                         </ul>
                       )}
-                      <div className="flex gap-2 pt-1">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         <input
                           type="email"
                           value={assignUpn[t.groupId] || ""}
@@ -425,12 +428,12 @@ export function SectionTenantGroups() {
                           }}
                           placeholder="user@domain.com"
                           autoComplete="off"
-                          className="flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                          className="w-full sm:w-auto sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         />
                         <select
                           value={assignRole[t.groupId] || "DelegatedReader"}
                           onChange={(e) => setAssignRole((p) => ({ ...p, [t.groupId]: e.target.value }))}
-                          className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                          className="flex-1 sm:flex-none min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
                         >
                           <option value="DelegatedReader">Reader</option>
                           <option value="DelegatedAdmin">Admin</option>
@@ -438,7 +441,7 @@ export function SectionTenantGroups() {
                         <button
                           onClick={() => handleAssign(t)}
                           disabled={!(assignUpn[t.groupId] || "").trim() || busyKey === `assign:${t.groupId}`}
-                          className="px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                          className="shrink-0 px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
                         >
                           Assign
                         </button>
