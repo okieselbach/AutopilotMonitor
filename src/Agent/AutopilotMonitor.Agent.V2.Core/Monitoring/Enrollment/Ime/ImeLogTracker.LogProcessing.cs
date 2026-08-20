@@ -222,7 +222,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         // growing pass, during which lines fall back to the reader zone and are
                         // flagged as such.
                         if (hadPreviousObservation && calibrationAnchor != null)
-                            CalibrateFrom(_currentSourceFileName, calibrationAnchor);
+                            CalibrateFrom(_currentSourceFileName, Path.GetFileName(filePath), calibrationAnchor);
                     }
                 }
                 catch (FileNotFoundException) { }
@@ -701,18 +701,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
         }
 
+        // Field-forensics (tripwire, 2026-08-20): sessions e9753578 and 067797d8 both logged a
+        // measurement whose LABEL and ANCHOR could not have come from the same file iteration —
+        // 067797d8's anchor value (19:51:26.948) does not even exist in ANY log file on the
+        // device, and IntuneManagementExtension.log never produced its expected first
+        // measurement at all. Mechanism unexplained; resolution is immune (per-line anchoring),
+        // but the observational layer must convict the culprit on the next occurrence. Hence:
+        // the stream's file name travels alongside the label (a mismatch is THE smoking gun),
+        // and the first rejected anchor per file becomes visible instead of silent.
+        private readonly HashSet<string> _calibrationRejectLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Feed the pass's newest bias-less line to the calibrator and report a measured offset
         /// that disagrees with this process's own zone — that disagreement is precisely the
         /// condition that used to corrupt every IME-derived timestamp silently.
         /// </summary>
-        private void CalibrateFrom(string sourceFileName, CmTraceLogEntry anchor)
+        /// <param name="sourceFileName">The calibration key (<c>_currentSourceFileName</c>).</param>
+        /// <param name="streamFileName">The file the enclosing iteration actually read. Must equal
+        /// <paramref name="sourceFileName"/> — logged loudly when it does not (see tripwire note).</param>
+        private void CalibrateFrom(string sourceFileName, string streamFileName, CmTraceLogEntry anchor)
         {
+            if (!string.Equals(sourceFileName, streamFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger?.Warning(
+                    $"ImeLogTracker: CALIBRATION LABEL MISMATCH — key='{sourceFileName}' but the iteration read '{streamFileName}' " +
+                    $"(anchor local={anchor.LocalTimestamp:yyyy-MM-ddTHH:mm:ss.fffffff}). Skipping this anchor; see tripwire note.");
+                return;
+            }
+
             TimeSpan previous;
             var hadOffset = OffsetCalibrator.TryGetOffset(sourceFileName, out previous);
 
             if (!OffsetCalibrator.TryCalibrate(sourceFileName, anchor.LocalTimestamp, UtcNowProvider()))
+            {
+                // Once per file: why a file that visibly grows never produces a measurement.
+                // 067797d8 ran 24 s of growing IME.log passes with no measurement at all — this
+                // silence is exactly what made the phenomenon undiagnosable from the log.
+                if (_calibrationRejectLogged.Add(sourceFileName))
+                {
+                    _logger?.Debug(
+                        $"ImeLogTracker: {sourceFileName} anchor rejected by calibrator " +
+                        $"(anchor local={anchor.LocalTimestamp:yyyy-MM-ddTHH:mm:ss.fffffff}, now={UtcNowProvider():HH:mm:ss.fff}Z) — first rejection for this file, further ones stay silent.");
+                }
                 return;
+            }
 
             TimeSpan measured;
             if (!OffsetCalibrator.TryGetOffset(sourceFileName, out measured)) return;
