@@ -124,6 +124,17 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         // in ImeLogTracker so the layers can never drift apart).
         private static readonly TimeSpan StaleSourceThreshold = ImeLogTracker.HistoricReplayThreshold;
 
+        /// <summary>
+        /// How far ahead of the agent clock a source timestamp may sit before it is rejected.
+        /// <para>
+        /// Writer and reader share one system clock, so a correctly converted line is always at
+        /// or behind "now"; this is pure jitter tolerance, not a skew allowance. Deliberately far
+        /// below one hour — the value that a timezone mistake produces — so that such a mistake
+        /// can actually trip it.
+        /// </para>
+        /// </summary>
+        private static readonly TimeSpan MaxFutureSourceSkew = TimeSpan.FromMinutes(2);
+
         // Matches the deterministic marker line the bootstrap script writes via Write-Log,
         // e.g. "Bootstrap script version: v2.0" — see scripts/Bootstrap/Install-AutopilotMonitor.ps1.
         // Same shape as the web-side regex in utils/bootstrapVersion.ts; kept in sync intentionally.
@@ -329,12 +340,28 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
                 var clockNow = _clock.UtcNow;
                 var ageHours = (clockNow - asUtc).TotalHours;
-                if (ageHours > StaleSourceThreshold.TotalHours || ageHours < -1.0)
+
+                // Future guard. A source timestamp can never legitimately be ahead of the agent
+                // clock: the writer stamps it from the SAME system clock, and the tracker only
+                // sees the line after it was written. Anything ahead means the local-to-UTC
+                // conversion was wrong.
+                //
+                // The previous threshold was ageHours < -1.0, which could not fire for the single
+                // most common timezone error: with a one-hour offset mistake the real value is
+                // parseLag - 3600 s, i.e. just ABOVE -1.0. It sat exactly on the boundary of the
+                // case it was meant to catch. It was also asymmetric — a past-shifted error had to
+                // exceed 24 h before anything noticed, while the measured field errors reached
+                // -17 h. The bound is now a small jitter tolerance in the direction that is
+                // physically impossible.
+                var isFutureSkewed = asUtc > clockNow + MaxFutureSourceSkew;
+
+                if (ageHours > StaleSourceThreshold.TotalHours || isFutureSkewed)
                 {
-                    // Pathologically stale (>24h old) or in the future (>1h skew) — log,
-                    // fall back, and let the caller flag the event.
+                    var reason = isFutureSkewed
+                        ? $"ahead of the agent clock by {(asUtc - clockNow).TotalMinutes:F1} min"
+                        : $"pathologically stale (ageHours={ageHours:F1})";
                     _logger?.Warning(
-                        $"ImeAdapter: source timestamp {asUtc:o} rejected (ageHours={ageHours:F1}); falling back to clock");
+                        $"ImeAdapter: source timestamp {asUtc:o} rejected — {reason}; falling back to clock");
                     derivedFromClock = true;
                     return clockNow;
                 }
@@ -347,12 +374,57 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             return _clock.UtcNow;
         }
 
-        private static void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock, DateTime? rawSourceTs)
+        /// <summary>
+        /// Attach the evidence for this event's timestamp: the raw local time as the writer wrote
+        /// it, the offset applied, and how that offset was obtained.
+        ///
+        /// <para>
+        /// Without this the only record of a conversion is the converted value itself, so a wrong
+        /// offset is indistinguishable from a correct one. Proving the field defect required the
+        /// diagnostics archive — and of the 5,386 sessions that went through a timezone change,
+        /// essentially none had one; the analysis had to fall back to median statistics across
+        /// thousands of sessions. These three fields make each session answer the question on its
+        /// own, and make a stored timestamp recomputable after the fact without an agent release.
+        /// </para>
+        ///
+        /// <para>
+        /// Only emitted for events whose time came from a CMTrace line. Agent-native events have
+        /// no second clock frame, so there is nothing to record.
+        /// </para>
+        /// </summary>
+        private void TagDerivedTimestamp(IDictionary<string, string> data, bool derivedFromClock, DateTime? rawSourceTs)
         {
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+
+            var sourceLocal = _tracker.LastMatchedSourceLocalTimestamp;
+            if (sourceLocal.HasValue)
+            {
+                // No zone suffix: the value genuinely carries none, and formatting one in would
+                // re-introduce the very assumption this whole change removes.
+                data["sourceLocalTs"] = sourceLocal.Value.ToString("yyyy-MM-ddTHH:mm:ss.fffffff", culture);
+                data["sourceOffsetOrigin"] = OriginTag(_tracker.LastMatchedSourceOffsetOrigin);
+
+                var offsetMinutes = _tracker.LastMatchedSourceOffsetMinutes;
+                if (offsetMinutes.HasValue)
+                    data["sourceOffsetMinutes"] = offsetMinutes.Value.ToString(culture);
+            }
+
             if (!derivedFromClock) return;
             data["derivedTimestamp"] = "true";
             if (rawSourceTs.HasValue)
-                data["rejectedSourceTimestamp"] = rawSourceTs.Value.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+                data["rejectedSourceTimestamp"] = rawSourceTs.Value.ToString("o", culture);
+        }
+
+        private static string OriginTag(CmTraceOffsetOrigin origin)
+        {
+            switch (origin)
+            {
+                case CmTraceOffsetOrigin.Bias: return "bias";
+                case CmTraceOffsetOrigin.Calibrated: return "calibrated";
+                // The writer's offset was never measured, so this process's own zone was assumed —
+                // correct only if the writer happens to share it.
+                default: return "reader-zone-fallback";
+            }
         }
 
         // CMTrace Kind normalization — shared implementation lives on the tracker (used by its
