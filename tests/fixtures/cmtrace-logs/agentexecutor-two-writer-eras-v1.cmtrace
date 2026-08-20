@@ -17,7 +17,7 @@
 <![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Getting Ordered Parameters]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Parsing Ordered Parameters.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
-<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_policy-anon-0001-0000-0000-0000-000000000000.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Powershell option gets invoked]LOG]!><time="14:13:36.8525204" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 
 ### --- additional PDT-era samples ---
@@ -27,7 +27,7 @@
 <![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="05:22:41.7839044" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Getting Ordered Parameters]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Parsing Ordered Parameters.]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
-<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\73d664e4-0886-4a73-b745-c694da45ddb4_3eafb027-7149-48e8-98a2-130756c03852.ps1 to the named argument list.]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\policy-anon-0003-0000-0000-0000-000000000000_policy-anon-0002-0000-0000-0000-000000000000.ps1 to the named argument list.]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Powershell option gets invoked]LOG]!><time="05:22:41.7899258" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 
 ### --- additional CEST-era samples ---
@@ -35,7 +35,7 @@
 <![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Getting Ordered Parameters]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Parsing Ordered Parameters.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
-<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_policy-anon-0001-0000-0000-0000-000000000000.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
 <![LOG[Powershell option gets invoked]LOG]!><time="14:13:36.8525204" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
-<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
-<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Results\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.output]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_policy-anon-0001-0000-0000-0000-000000000000.ps1]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Results\00000000-0000-0000-0000-000000000000_policy-anon-0001-0000-0000-0000-000000000000.output]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
