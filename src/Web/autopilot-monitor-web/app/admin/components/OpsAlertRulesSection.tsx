@@ -146,6 +146,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // ReportAgentErrorFunction (RecordAgentEmergencyBreakAsync). Dual-register per memory
     // feedback_ops_event_types_dual_register.
     "AgentEmergencyBreak",
+    // The running exe's SHA-256 differs from the backend-advertised hash for its version —
+    // the field binary is not the published build (tamper / stale blob / uncommitted-tree
+    // build). Emitted by ReportAgentErrorFunction (RecordAgentBinaryIntegrityMismatchAsync).
+    // Dual-register per memory feedback_ops_event_types_dual_register.
+    "AgentBinaryIntegrityMismatch",
   ],
   Platform: [
     // Azure Monitor alerts relayed through POST ops/alert-webhook (Common Alert Schema →

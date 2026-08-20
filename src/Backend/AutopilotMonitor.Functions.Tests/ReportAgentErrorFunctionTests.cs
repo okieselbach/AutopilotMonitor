@@ -200,4 +200,120 @@ public class ReportAgentErrorFunctionTests
 
         Assert.Empty(h.OpsEvents);
     }
+
+    // =========================================================================
+    // MaterializeIntegrityMismatchAsync — an IntegrityCheckFailed report becomes an
+    // AgentBinaryIntegrityMismatch ops event, UNLESS it is the known release race
+    // (agents comparing against hash snapshots that don't belong to their own binary;
+    // AdminConfig cache TTL 5 min). e9753578 proved the race: a genuine 1410 exe was
+    // compared against the cached 1409 hash and reported a "mismatch" that cost a day
+    // of mis-attributed root-causing while sitting invisible in App Insights.
+    // =========================================================================
+
+    private const string RunningExeSha = "5fca975e43fa5fca975e43fa5fca975e43fa5fca975e43fa5fca975e43fa0000";
+    private const string PublishedExeSha = "8ebaa060ad348ebaa060ad348ebaa060ad348ebaa060ad348ebaa060ad340000";
+
+    private static AgentErrorReport IntegrityReport(
+        string? sessionId = SessionId, string agentVersion = "2.0.1410", string? actualSha = null) => new()
+    {
+        SessionId = sessionId!,
+        TenantId = TenantId,
+        ErrorType = AgentErrorType.IntegrityCheckFailed,
+        Message = $"Running exe SHA-256 differs from backend-advertised hash. actual={actualSha ?? RunningExeSha}, expected={PublishedExeSha}",
+        AgentVersion = agentVersion,
+        Timestamp = Now,
+    };
+
+    private static Task RunIntegrityAsync(
+        Harness h, AgentErrorReport report,
+        string? latestVersion = "2.0.1410", string? latestExeSha = PublishedExeSha)
+        => ReportAgentErrorFunction.MaterializeIntegrityMismatchAsync(
+            report, TenantId, h.OpsService, latestVersion, latestExeSha,
+            NullLogger<ReportAgentErrorFunction>.Instance);
+
+    [Fact]
+    public async Task SameVersion_with_unknown_binary_records_ops_event()
+    {
+        // The real signal: an agent claiming the LATEST version whose running exe is NOT
+        // the published one — tamper, stale blob, or a build outside the release pipeline.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport());
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal("AgentBinaryIntegrityMismatch", ops.EventType);
+        Assert.Equal(TenantId, ops.TenantId);
+        Assert.Contains("actual=5fca", ops.Message);
+        Assert.Contains("2.0.1410", ops.Message);
+    }
+
+    [Fact]
+    public async Task RunningHash_equal_to_published_exe_is_suppressed_as_stale_expectation()
+    {
+        // e9753578's exact shape: the device RUNS the published binary; only its cached
+        // expectation was the previous release's hash. Self-heals — must not alert.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport(actualSha: PublishedExeSha));
+
+        Assert.Empty(h.OpsEvents);
+    }
+
+    [Fact]
+    public async Task Older_agent_version_than_latest_is_suppressed_as_update_race()
+    {
+        // The long-known direction: version N agent sees version N+1's hash right after a
+        // release; the forced self-update heals it.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport(agentVersion: "2.0.1409+d43cfe2b"), latestVersion: "2.0.1410");
+
+        Assert.Empty(h.OpsEvents);
+    }
+
+    [Fact]
+    public async Task Version_with_commit_suffix_matches_latest_without_suffix()
+    {
+        // Agent versions carry "+<commit>", AdminConfiguration does not — the comparison
+        // must normalize, otherwise every genuine mismatch would look like a version race.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport(agentVersion: "2.0.1410+3b59dab2df6c"));
+
+        Assert.Single(h.OpsEvents);
+    }
+
+    [Fact]
+    public async Task Missing_latest_config_fails_open_to_recording()
+    {
+        // No published-version info available → visibility wins over suppression.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport(), latestVersion: null, latestExeSha: null);
+
+        Assert.Single(h.OpsEvents);
+    }
+
+    [Fact]
+    public async Task Integrity_mismatch_without_session_id_still_records_ops_event()
+    {
+        // The report can arrive before session registration — the binary evidence must
+        // never be dropped for lack of a session.
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, IntegrityReport(sessionId: null));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal("AgentBinaryIntegrityMismatch", ops.EventType);
+    }
+
+    [Fact]
+    public async Task Other_error_types_do_not_record_integrity_ops_event()
+    {
+        var h = new Harness();
+
+        await RunIntegrityAsync(h, Report(Now));
+
+        Assert.Empty(h.OpsEvents);
+    }
 }

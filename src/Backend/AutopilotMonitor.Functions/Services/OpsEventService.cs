@@ -608,6 +608,20 @@ namespace AutopilotMonitor.Functions.Services
                 $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
 
+        /// <summary>
+        /// An agent reported that its RUNNING exe's SHA-256 differs from the hash the backend
+        /// advertises for its version — the binary in the field is not the published build
+        /// (tamper, stale blob, or a build that never came from a committed tree). Session
+        /// e9753578 (2026-08-20) carried exactly this report, but it landed only in App
+        /// Insights and was invisible to every product surface while the field damage was
+        /// mis-attributed to committed code for hours. Warning-tier so operators can wire a
+        /// Telegram rule; the message carries both hashes verbatim.
+        /// </summary>
+        public Task RecordAgentBinaryIntegrityMismatchAsync(string tenantId, string? sessionId, string? agentVersion, string message)
+            => WriteAsync(OpsEventCategory.Agent, "AgentBinaryIntegrityMismatch", OpsEventSeverity.Warning,
+                $"Agent binary integrity mismatch on session {sessionId ?? "?"} (agent {agentVersion ?? "?"}): {message}",
+                tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
+
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
             => WriteAsync(OpsEventCategory.Agent, "ExcessiveSessionEvents", OpsEventSeverity.Warning,
                 $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",

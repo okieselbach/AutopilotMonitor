@@ -178,7 +178,88 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
             await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
 
+            var adminConfig = await _adminConfigService.GetConfigurationAsync();
+            await MaterializeIntegrityMismatchAsync(
+                report, tenantId, _opsEventService,
+                adminConfig?.LatestAgentV2Version, adminConfig?.LatestAgentV2ExeSha256, _logger);
+
             return req.CreateResponse(HttpStatusCode.OK);
+        }
+
+        /// <summary>
+        /// Regex over OUR OWN report format (AgentRuntimeConfig.VerifyBinaryIntegrity):
+        /// "... actual=&lt;sha256&gt;, expected=&lt;sha256&gt;". Parsed leniently — an unparseable
+        /// message records rather than suppresses.
+        /// </summary>
+        private static readonly System.Text.RegularExpressions.Regex ActualHashRegex =
+            new(@"actual=([0-9a-fA-F]{64})", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Surfaces an <c>IntegrityCheckFailed</c> report as an <c>AgentBinaryIntegrityMismatch</c>
+        /// ops event. Before 2026-08-20 this report went to App Insights only — session e9753578's
+        /// agent reported a hash mismatch and no product surface showed it, which cost a day of
+        /// mis-attributed root-causing.
+        ///
+        /// <para>
+        /// KNOWN, ACCEPTED RACE (must not spam the ops feed): around every release, agents compare
+        /// against a hash snapshot that does not belong to their own binary — a freshly installed
+        /// latest agent can receive the PREVIOUS release's hashes from the 5-minute
+        /// AdminConfiguration cache (e9753578: genuine 1410 exe vs cached 1409 hash), and an
+        /// older agent's next config fetch sees the NEW release's hash. Both self-heal via the
+        /// forced self-update. Suppression, evaluated against the CURRENT config at receive time:
+        /// the reported RUNNING hash equals the published exe (stale expectation), or the
+        /// reporting agent's version is not the latest (update in flight). What remains — an agent
+        /// claiming the latest version whose binary is NOT the published one — is the real signal:
+        /// tamper, stale blob, or a build that never came from the release pipeline.
+        /// </para>
+        ///
+        /// <para>
+        /// Ops event only, no timeline event: the report is about the BINARY, not the enrollment,
+        /// and may arrive before the session is registered. No idempotency read: the agent-side
+        /// trigger is single-shot per process. Best-effort — a failure here must never turn the
+        /// always-200 channel into a retry loop.
+        /// </para>
+        /// </summary>
+        internal static async Task MaterializeIntegrityMismatchAsync(
+            AgentErrorReport report,
+            string tenantId,
+            OpsEventService opsEventService,
+            string? latestAgentVersion,
+            string? latestAgentExeSha256,
+            ILogger logger)
+        {
+            if (report.ErrorType != AgentErrorType.IntegrityCheckFailed)
+            {
+                return;
+            }
+
+            try
+            {
+                // "2.0.1410+3b59dab2..." → "2.0.1410" (the manifest/AdminConfig carry no +commit).
+                var reportedVersion = (report.AgentVersion ?? string.Empty).Split('+')[0];
+                if (!string.IsNullOrEmpty(latestAgentVersion)
+                    && !string.IsNullOrEmpty(reportedVersion)
+                    && !string.Equals(reportedVersion, latestAgentVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    return; // older agent vs newer release — the forced self-update heals this.
+                }
+
+                var actualMatch = ActualHashRegex.Match(report.Message ?? string.Empty);
+                if (actualMatch.Success
+                    && !string.IsNullOrEmpty(latestAgentExeSha256)
+                    && string.Equals(actualMatch.Groups[1].Value, latestAgentExeSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    return; // the running binary IS the published one — the agent's expectation was stale.
+                }
+
+                await opsEventService.RecordAgentBinaryIntegrityMismatchAsync(
+                    tenantId, report.SessionId, report.AgentVersion, report.Message ?? string.Empty);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "ReportAgentError: failed to record AgentBinaryIntegrityMismatch ops event for session {SessionId}", report.SessionId);
+            }
         }
 
         /// <summary>
