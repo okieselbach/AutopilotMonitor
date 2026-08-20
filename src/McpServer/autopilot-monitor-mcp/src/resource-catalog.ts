@@ -121,6 +121,7 @@ export const EVENT_TYPES_CATALOG = {
     'realmjoin_phase_changed',
     'realmjoin_resolved',
     'realmjoin_timeout',
+    'realmjoin_timeout_extended',
     'realmjoin_first_deployment_incomplete',
     'realmjoin_package_started',
     'realmjoin_package_completed',

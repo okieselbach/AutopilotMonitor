@@ -372,6 +372,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
             // Before RealmJoinPhaseChanged became a typed signal, LastDeploymentPhase was only
             // written at detection time — every realmjoin_timeout claimed "last phase: 0" no
             // matter how far RJ actually got, hiding this whole failure class from ops.
+            // Since the activity-based extension, the PhaseChanged at T0+6 counts as activity,
+            // so the first fire (59 min later) extends once; the timeout lands on the re-armed
+            // fire a full inactivity window after the last activity.
             var engine = new DecisionEngine();
             var state = PrimeClassicAwaitingDesktop(engine);
             state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
@@ -384,7 +387,13 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 })).NewState;
             state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.DesktopArrived, T0.AddMinutes(7))).NewState;
 
-            var step = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, T0.AddMinutes(65),
+            // First fire at the original due (T0+65): activity 59 min ago → extends to T0+66.
+            state = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, T0.AddMinutes(65),
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout })).NewState;
+            var rearmed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(T0.AddMinutes(66), rearmed.DueAtUtc);
+
+            var step = engine.Reduce(state, MakeSignal(9, DecisionSignalKind.DeadlineFired, rearmed.DueAtUtc,
                 new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
 
             var timeout = Assert.Single(step.Effects, e =>
@@ -393,6 +402,248 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
             Assert.Contains("last phase: 101", timeout.Parameters!["message"]);
             Assert.Equal("101", timeout.Parameters["lastSeenPhase"]);
+        }
+
+        // ============================================================== Activity-based extension (report 55e6afd61c9d)
+
+        [Fact]
+        public void Timeout_fire_with_recent_first_deployment_activity_extends_instead_of_timing_out()
+        {
+            // Report 55e6afd61c9d (Douglas): timer armed at detection (phase 0, RJ agent MSI
+            // install during DeviceSetup), first deployment only started 16 min later, Office
+            // completed 3 s before the deadline — the hard cut truncated an actively working
+            // deployment. The fire must now re-arm to lastActivity + 60 min instead.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "0" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(21),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "0",
+                })).NewState;
+            state = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.RealmJoinPackageCompleted, T0.AddMinutes(62),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.PackageId] = "generic-microsoft-office-2016-proplus",
+                    [DecisionEngine.RealmJoinPayloadKeys.Scope] = RealmJoinPackageFact.ScopeMachine,
+                    [DecisionEngine.RealmJoinPayloadKeys.Success] = "true",
+                    [DecisionEngine.RealmJoinPayloadKeys.LastExitCode] = "0",
+                })).NewState;
+
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            var step = engine.Reduce(state, MakeSignal(9, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            // No completion, no outcome — the gate stays closed and the window is re-armed.
+            Assert.NotEqual(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Null(step.NewState.RealmJoinFacts.Outcome);
+            Assert.Equal($"DeadlineFired:{DeadlineNames.RealmJoinTimeout}:Extended", step.Transition.Trigger);
+
+            var rearmed = Assert.Single(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(T0.AddMinutes(62 + 60), rearmed.DueAtUtc); // lastActivity + inactivity window
+
+            Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.ScheduleDeadline &&
+                e.Deadline != null &&
+                e.Deadline.Name == DeadlineNames.RealmJoinTimeout &&
+                e.Deadline.DueAtUtc == rearmed.DueAtUtc);
+
+            var extended = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout_extended");
+            Assert.Equal("Info", extended.Parameters!["severity"]);
+            Assert.Equal("101", extended.Parameters["deploymentPhase"]);
+            Assert.DoesNotContain(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
+        }
+
+        [Fact]
+        public void Resolved_after_extension_completes_via_classic_path()
+        {
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(40),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "100",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "101",
+                })).NewState;
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            state = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout })).NewState;
+            Assert.Null(state.RealmJoinFacts.Outcome); // extended, not timed out
+
+            var step = engine.Reduce(state, MakeSignal(9, DecisionSignalKind.RealmJoinResolved, T0.AddMinutes(80),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "110" }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Resolved", step.NewState.RealmJoinFacts.Outcome!.Value);
+            Assert.DoesNotContain(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+        }
+
+        [Fact]
+        public void Rearmed_fire_after_quiet_window_times_out_with_inactivity_reason()
+        {
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "0" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(30),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "0",
+                })).NewState;
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            state = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout })).NewState;
+            var rearmed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(T0.AddMinutes(90), rearmed.DueAtUtc); // lastActivity (T0+30) + 60 min
+
+            // No further activity — the re-armed fire must now time out for real.
+            var step = engine.Reduce(state, MakeSignal(9, DecisionSignalKind.DeadlineFired, rearmed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Timeout", step.NewState.RealmJoinFacts.Outcome!.Value);
+            var timeout = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
+            Assert.Equal("inactivity", timeout.Parameters!["reason"]);
+            Assert.Contains("no deployment activity", timeout.Parameters["message"]);
+        }
+
+        [Fact]
+        public void Extension_is_capped_at_absolute_ceiling_and_cap_fire_times_out_despite_activity()
+        {
+            // Late activity pushes the sliding window beyond detection + 4 h — the re-arm must
+            // clamp to the cap, and the cap fire must time out even though activity is recent.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            // Package completion whose sliding window (T0+230+60) would exceed the cap (T0+245).
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPackageCompleted, T0.AddMinutes(230),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.PackageId] = "generic-big-suite",
+                    [DecisionEngine.RealmJoinPayloadKeys.Scope] = RealmJoinPackageFact.ScopeMachine,
+                    [DecisionEngine.RealmJoinPayloadKeys.Success] = "true",
+                    [DecisionEngine.RealmJoinPayloadKeys.LastExitCode] = "0",
+                })).NewState;
+
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            state = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout })).NewState;
+
+            var rearmed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(T0.AddMinutes(5).AddHours(4), rearmed.DueAtUtc); // clamped to detection + cap
+
+            var step = engine.Reduce(state, MakeSignal(9, DecisionSignalKind.DeadlineFired, rearmed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Timeout", step.NewState.RealmJoinFacts.Outcome!.Value);
+            var timeout = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
+            Assert.Equal("absolute_cap", timeout.Parameters!["reason"]);
+        }
+
+        [Fact]
+        public void Stale_fire_of_old_incarnation_after_rearm_is_dead_end()
+        {
+            // Race: the OLD deadline incarnation's fire was already queued when the extension
+            // re-armed. The armed deadline is due LATER than the stale fire — dead-end, no
+            // second extension evaluation, no timeout.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "0" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(30),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "0",
+                })).NewState;
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout })).NewState;
+            Assert.Null(state.RealmJoinFacts.Outcome); // extended
+
+            var step = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            Assert.False(step.Transition.Taken);
+            Assert.Null(step.NewState.RealmJoinFacts.Outcome);
+            Assert.Empty(step.Effects);
+            var stillArmed = Assert.Single(step.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(T0.AddMinutes(90), stillArmed.DueAtUtc);
+        }
+
+        [Fact]
+        public void Detection_phase_alone_is_not_activity_idle_case_times_out_at_60_min_unchanged()
+        {
+            // The phase captured AT detection must not count as activity — RJ detected in a
+            // first-deployment phase that then never moves still times out after the original
+            // 60 min (the extension exists for demonstrable progress, not for standing still).
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "101" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            Assert.Null(state.RealmJoinFacts.LastActivityUtc);
+
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            var step = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Timeout", step.NewState.RealmJoinFacts.Outcome!.Value);
+            var timeout = Assert.Single(step.Effects, e =>
+                e.Kind == DecisionEffectKind.EmitEventTimelineEntry &&
+                e.Parameters != null &&
+                e.Parameters.TryGetValue("eventType", out var et) && et == "realmjoin_timeout");
+            Assert.Equal("hard_timeout", timeout.Parameters!["reason"]);
+        }
+
+        [Fact]
+        public void Regular_deployment_phase_with_activity_does_not_extend()
+        {
+            // Session 6f1959c0 shape: RJ stood at 210 when the agent booted and deploys
+            // regular (non-first) packages afterwards. Phase 200/210 is outside the
+            // first-deployment window — activity there must NOT hold the session hostage.
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            state = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string> { [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "210" })).NewState;
+            state = engine.Reduce(state, MakeSignal(6, DecisionSignalKind.DesktopArrived, T0.AddMinutes(6))).NewState;
+            state = engine.Reduce(state, MakeSignal(7, DecisionSignalKind.RealmJoinPhaseChanged, T0.AddMinutes(40),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "200",
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousPhase] = "210",
+                })).NewState;
+
+            var armed = Assert.Single(state.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            var step = engine.Reduce(state, MakeSignal(8, DecisionSignalKind.DeadlineFired, armed.DueAtUtc,
+                new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.RealmJoinTimeout }));
+
+            Assert.Equal(SessionStage.Finalizing, step.NewState.Stage);
+            Assert.Equal("Timeout", step.NewState.RealmJoinFacts.Outcome!.Value);
         }
 
         [Fact]

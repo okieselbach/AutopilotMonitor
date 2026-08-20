@@ -39,7 +39,8 @@ namespace AutopilotMonitor.DecisionCore.State
             selfDeployingDeferredCompletion: null,
             productVersion: null,
             releaseChannel: null,
-            packages: Array.Empty<RealmJoinPackageFact>());
+            packages: Array.Empty<RealmJoinPackageFact>(),
+            lastActivityUtc: null);
 
         public RealmJoinFacts(
             SignalFact<DateTime>? detectedUtc,
@@ -49,7 +50,8 @@ namespace AutopilotMonitor.DecisionCore.State
             SignalFact<bool>? selfDeployingDeferredCompletion,
             SignalFact<string>? productVersion,
             SignalFact<string>? releaseChannel,
-            IReadOnlyList<RealmJoinPackageFact> packages)
+            IReadOnlyList<RealmJoinPackageFact> packages,
+            SignalFact<DateTime>? lastActivityUtc = null)
         {
             DetectedUtc = detectedUtc;
             ResolvedUtc = resolvedUtc;
@@ -59,6 +61,7 @@ namespace AutopilotMonitor.DecisionCore.State
             ProductVersion = productVersion;
             ReleaseChannel = releaseChannel;
             Packages = packages ?? Array.Empty<RealmJoinPackageFact>();
+            LastActivityUtc = lastActivityUtc;
         }
 
         /// <summary>First-observation timestamp of the <c>HKLM\SYSTEM\...\realmjoin\Parameters</c> key.</summary>
@@ -98,6 +101,15 @@ namespace AutopilotMonitor.DecisionCore.State
         /// <summary>Tracked per-package install rows (machine + user scope combined).</summary>
         public IReadOnlyList<RealmJoinPackageFact> Packages { get; }
 
+        /// <summary>
+        /// Most recent observed RJ deployment activity: a <c>RealmJoinPhaseChanged</c> or a
+        /// per-package started/completed observation. Deliberately NOT set at detection time —
+        /// the RJ-detected-but-never-deploying idle case must still hit the 60-min hard
+        /// timeout unchanged. Drives the activity-based timeout extension (report 55e6afd61c9d:
+        /// the hard timeout cut off a demonstrably active first deployment mid-install).
+        /// </summary>
+        public SignalFact<DateTime>? LastActivityUtc { get; }
+
         public RealmJoinFacts WithDetected(DateTime utc, long sourceSignalOrdinal)
         {
             if (DetectedUtc != null) return this; // set-once
@@ -109,7 +121,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -129,7 +142,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: new SignalFact<string>(productVersion, sourceSignalOrdinal),
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -149,7 +163,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: new SignalFact<string>(releaseChannel, sourceSignalOrdinal),
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         public RealmJoinFacts WithResolved(DateTime utc, int phase, long sourceSignalOrdinal)
@@ -163,7 +178,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -184,7 +200,28 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
+        }
+
+        /// <summary>
+        /// Record an RJ deployment-activity observation (phase change or package event).
+        /// Monotonic — an earlier or equal timestamp (replayed signal) is a no-op, so the
+        /// activity fact can never move backwards.
+        /// </summary>
+        public RealmJoinFacts WithActivity(DateTime utc, long sourceSignalOrdinal)
+        {
+            if (LastActivityUtc != null && LastActivityUtc.Value >= utc) return this;
+            return new RealmJoinFacts(
+                detectedUtc: DetectedUtc,
+                resolvedUtc: ResolvedUtc,
+                lastDeploymentPhase: LastDeploymentPhase,
+                outcome: Outcome,
+                selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
+                productVersion: ProductVersion,
+                releaseChannel: ReleaseChannel,
+                packages: Packages,
+                lastActivityUtc: new SignalFact<DateTime>(utc, sourceSignalOrdinal));
         }
 
         public RealmJoinFacts WithLastPhase(int phase, long sourceSignalOrdinal)
@@ -198,7 +235,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         public RealmJoinFacts WithTimeoutOutcome(long sourceSignalOrdinal)
@@ -212,7 +250,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         public RealmJoinFacts WithSelfDeployingDeferred(long sourceSignalOrdinal)
@@ -226,7 +265,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: new SignalFact<bool>(true, sourceSignalOrdinal),
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -246,7 +286,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: null,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: Packages);
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -301,7 +342,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: copy);
+                packages: copy,
+                lastActivityUtc: LastActivityUtc);
         }
 
         /// <summary>
@@ -370,7 +412,8 @@ namespace AutopilotMonitor.DecisionCore.State
                 selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
                 productVersion: ProductVersion,
                 releaseChannel: ReleaseChannel,
-                packages: copy);
+                packages: copy,
+                lastActivityUtc: LastActivityUtc);
         }
     }
 }

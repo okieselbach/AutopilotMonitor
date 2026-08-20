@@ -11,15 +11,29 @@ namespace AutopilotMonitor.DecisionCore.Engine
     // RealmJoin (RJ) deployment-tracking handlers. Plan: tasks/zany-gathering-oasis plan.
     // The agent posts six DecisionSignalKinds when it observes the
     // HKLM\SYSTEM\CurrentControlSet\Services\realmjoin\Parameters key + HKLM\SOFTWARE\RealmJoin\Packages
-    // (and the HKU\<sid>\... user-scope counterpart). Detection arms a 60-min hard timeout
+    // (and the HKU\<sid>\... user-scope counterpart). Detection arms a 60-min timeout
     // and gates the enrollment-completion AND-gate. Resolution (phase 110), the
     // aborted-first-deployment release (phase left 100/101 for 200/210 without 110 —
     // session 224b2087) or the timeout releases the gate so the session can complete.
+    // When the timeout fires while the first deployment is demonstrably still active
+    // (phase 100/101 with deployment activity inside the last 60 min), the deadline is
+    // re-armed instead — up to an absolute 4-h cap from detection (report 55e6afd61c9d:
+    // a large package catalog outlived the 60-min window mid-install).
     public sealed partial class DecisionEngine
     {
-        // Hard 60-minute deadline from RJ-detected. Not configurable (per design choice —
-        // the trigger is intentionally aggressive, the timeout has to bound it).
+        // 60-minute deadline from RJ-detected. Not configurable (per design choice —
+        // the trigger is intentionally aggressive, the timeout has to bound it). Doubles
+        // as the inactivity window for the activity-based extension: RJ package writes are
+        // only observable at package COMPLETION (RJ creates the registry subkey when the
+        // install finishes), so a single long install is registry-silent for its whole
+        // duration and the window must not be tightened below the original 60 min.
         private static readonly TimeSpan s_realmJoinHardTimeout = TimeSpan.FromMinutes(60);
+
+        // Absolute ceiling for activity-based extensions, measured from RJ detection.
+        // Preserves the original design intent (the aggressive detection trigger stays
+        // bounded) and sits safely inside AgentMaxLifetimeMinutes (360) — the agent's own
+        // lifetime watchdog would otherwise be the only backstop.
+        private static readonly TimeSpan s_realmJoinAbsoluteTimeout = TimeSpan.FromHours(4);
 
         // Payload keys consumed by the new handlers (set by the agent's RealmJoinWatcherAdapter).
         // Public because the V2.Core agent adapter assembles signal payloads with these keys.
@@ -64,14 +78,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
             || facts.Outcome != null;
 
         /// <summary>
-        /// Build the 60-min RJ hard-timeout deadline. Floored at <see cref="DecisionState.AgentBootUtc"/>
-        /// via <see cref="EffectiveDeadlineBase"/> so a replayed RealmJoinDetected signal cannot
-        /// collapse the timer into immediate-fire at boot.
+        /// Build the RJ timeout deadline for an explicit due time. Initial arm: detection
+        /// (floored at <see cref="DecisionState.AgentBootUtc"/> via <see cref="EffectiveDeadlineBase"/>
+        /// so a replayed RealmJoinDetected signal cannot collapse the timer into immediate-fire
+        /// at boot) + 60 min. Re-arm (activity-based extension): last activity + 60 min,
+        /// capped at detection + 4 h.
         /// </summary>
-        private static ActiveDeadline BuildRealmJoinTimeoutDeadline(DateTime fromUtc) =>
+        private static ActiveDeadline BuildRealmJoinTimeoutDeadline(DateTime dueAtUtc) =>
             new ActiveDeadline(
                 name: DeadlineNames.RealmJoinTimeout,
-                dueAtUtc: fromUtc.Add(s_realmJoinHardTimeout),
+                dueAtUtc: dueAtUtc,
                 firesSignalKind: DecisionSignalKind.DeadlineFired,
                 firesPayload: new Dictionary<string, string>
                 {
@@ -134,7 +150,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var effects = Array.Empty<DecisionEffect>();
             if (!alreadyDetected)
             {
-                var deadline = BuildRealmJoinTimeoutDeadline(EffectiveDeadlineBase(state, signal));
+                var deadline = BuildRealmJoinTimeoutDeadline(
+                    EffectiveDeadlineBase(state, signal).Add(s_realmJoinHardTimeout));
                 builder.AddDeadline(deadline);
                 effects = new[]
                 {
@@ -224,13 +241,20 @@ namespace AutopilotMonitor.DecisionCore.Engine
         private DecisionStep HandleRealmJoinTimeoutDeadlineFired(DecisionState state, DecisionSignal signal)
         {
             var alreadyResolvedOrTimedOut = state.RealmJoinFacts.Outcome != null;
-            var deadlineStillArmed = false;
+            ActiveDeadline? armedDeadline = null;
             foreach (var d in state.Deadlines)
             {
-                if (d.Name == DeadlineNames.RealmJoinTimeout) { deadlineStillArmed = true; break; }
+                if (d.Name == DeadlineNames.RealmJoinTimeout) { armedDeadline = d; break; }
             }
 
-            if (alreadyResolvedOrTimedOut || !deadlineStillArmed)
+            // Third staleness shape (introduced with the activity-based extension): the fire
+            // belongs to an OLDER deadline incarnation that a re-arm has since replaced —
+            // recognizable because the armed deadline is due LATER than this fire
+            // (OccurredAtUtc = DueAtUtc per the scheduler contract). Without this guard the
+            // stale fire would evaluate the timeout/extension decision ahead of schedule.
+            var supersededByRearm = armedDeadline != null && armedDeadline.DueAtUtc > signal.OccurredAtUtc;
+
+            if (alreadyResolvedOrTimedOut || armedDeadline == null || supersededByRearm)
             {
                 var bookkept = BumpStepBookkeeping(state, signal);
                 var staleTransition = BuildDeadEndTransition(
@@ -240,11 +264,59 @@ namespace AutopilotMonitor.DecisionCore.Engine
                     trigger: $"DeadlineFired:{DeadlineNames.RealmJoinTimeout}",
                     deadEndReason: alreadyResolvedOrTimedOut
                         ? "realmjoin_timeout_stale_outcome_already_set"
-                        : "realmjoin_timeout_stale_deadline_not_armed");
+                        : armedDeadline == null
+                            ? "realmjoin_timeout_stale_deadline_not_armed"
+                            : "realmjoin_timeout_stale_superseded_by_rearm");
                 return new DecisionStep(bookkept, staleTransition, Array.Empty<DecisionEffect>());
             }
 
             var nextStep = state.StepIndex + 1;
+
+            // Activity-based extension (report 55e6afd61c9d): when the first deployment is
+            // demonstrably still active — phase 100/101 with deployment activity (phase change
+            // or package observation) inside the last 60 min — re-arm instead of cutting off
+            // mid-install. Bounded by an absolute 4-h cap from detection so the original
+            // "aggressive trigger stays bounded" design intent survives. The idle case
+            // (detected, but the first deployment never produced any activity) is unchanged:
+            // LastActivityUtc stays null and the 60-min timeout fires exactly as before.
+            var facts = state.RealmJoinFacts;
+            var now = signal.OccurredAtUtc;
+            var lastActivity = facts.LastActivityUtc?.Value;
+            var detectedUtc = facts.DetectedUtc?.Value;
+            var inFirstDeployment = facts.LastDeploymentPhase != null
+                && IsRealmJoinFirstDeploymentPhase(facts.LastDeploymentPhase.Value);
+            var recentActivity = lastActivity != null && now - lastActivity.Value < s_realmJoinHardTimeout;
+            var withinCap = detectedUtc != null && now - detectedUtc.Value < s_realmJoinAbsoluteTimeout;
+
+            if (inFirstDeployment && recentActivity && withinCap)
+            {
+                var windowDue = lastActivity!.Value.Add(s_realmJoinHardTimeout);
+                var capDue = detectedUtc!.Value.Add(s_realmJoinAbsoluteTimeout);
+                var newDue = windowDue < capDue ? windowDue : capDue;
+
+                var rearm = BuildRealmJoinTimeoutDeadline(newDue);
+                var rearmBuilder = state.ToBuilder()
+                    .WithStepIndex(nextStep)
+                    .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
+                    .CancelDeadline(DeadlineNames.RealmJoinTimeout)
+                    .AddDeadline(rearm);
+
+                var rearmState = rearmBuilder.Build();
+                var rearmTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: state.Stage,
+                    nextStepIndex: nextStep,
+                    trigger: $"DeadlineFired:{DeadlineNames.RealmJoinTimeout}:Extended");
+
+                var rearmEffects = new[]
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: rearm),
+                    BuildRealmJoinTimeoutExtendedEvent(facts, lastActivity.Value, newDue),
+                };
+
+                return new DecisionStep(rearmState, rearmTransition, rearmEffects);
+            }
 
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
@@ -253,7 +325,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             builder.RealmJoinFacts = state.RealmJoinFacts.WithTimeoutOutcome(signal.SessionSignalOrdinal);
 
-            var timeoutEffect = BuildRealmJoinTimeoutEvent(state);
+            // Message differentiates WHY the gate gave up: absolute cap exhausted while still
+            // active, activity went quiet, or the original hard timeout (no activity ever seen).
+            var reason = inFirstDeployment && recentActivity && !withinCap
+                ? RealmJoinTimeoutReasonAbsoluteCap
+                : inFirstDeployment && lastActivity != null
+                    ? RealmJoinTimeoutReasonInactivity
+                    : RealmJoinTimeoutReasonHardTimeout;
+
+            var timeoutEffect = BuildRealmJoinTimeoutEvent(state, reason);
 
             return CompleteIfDeferredOrBookkeep(
                 state: state,
@@ -331,7 +411,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
-            builder.RealmJoinFacts = state.RealmJoinFacts.WithLastPhase(currentPhase.Value, signal.SessionSignalOrdinal);
+            builder.RealmJoinFacts = state.RealmJoinFacts
+                .WithLastPhase(currentPhase.Value, signal.SessionSignalOrdinal)
+                .WithActivity(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
 
             if (!IsFirstDeploymentAbortTransition(state.RealmJoinFacts, previousPhase, currentPhase.Value))
             {
@@ -442,12 +524,14 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
-            builder.RealmJoinFacts = state.RealmJoinFacts.WithPackageStarted(
-                packageId: packageId!,
-                displayName: displayName,
-                version: version,
-                scope: scope,
-                startedUtc: signal.OccurredAtUtc);
+            builder.RealmJoinFacts = state.RealmJoinFacts
+                .WithPackageStarted(
+                    packageId: packageId!,
+                    displayName: displayName,
+                    version: version,
+                    scope: scope,
+                    startedUtc: signal.OccurredAtUtc)
+                .WithActivity(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(
@@ -490,14 +574,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var builder = state.ToBuilder()
                 .WithStepIndex(nextStep)
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
-            builder.RealmJoinFacts = state.RealmJoinFacts.WithPackageCompleted(
-                packageId: packageId!,
-                displayName: displayName,
-                version: version,
-                scope: scope,
-                completedUtc: signal.OccurredAtUtc,
-                success: success,
-                lastExitCode: lastExitCode);
+            builder.RealmJoinFacts = state.RealmJoinFacts
+                .WithPackageCompleted(
+                    packageId: packageId!,
+                    displayName: displayName,
+                    version: version,
+                    scope: scope,
+                    completedUtc: signal.OccurredAtUtc,
+                    success: success,
+                    lastExitCode: lastExitCode)
+                .WithActivity(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
 
             var newState = builder.Build();
             var transition = BuildTakenTransition(
@@ -654,6 +740,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
             return null;
         }
 
+        // Reason strings carried in the realmjoin_timeout event payload ("reason") and
+        // reflected in its message. HardTimeout = original semantics (no deployment activity
+        // ever observed, 60 min from detection); Inactivity = the first deployment produced
+        // activity at some point but went quiet for a full 60-min window; AbsoluteCap = still
+        // active but the 4-h extension ceiling from detection is exhausted.
+        internal const string RealmJoinTimeoutReasonHardTimeout = "hard_timeout";
+        internal const string RealmJoinTimeoutReasonInactivity = "inactivity";
+        internal const string RealmJoinTimeoutReasonAbsoluteCap = "absolute_cap";
+
         /// <summary>
         /// Build the <c>realmjoin_timeout</c> timeline-entry effect emitted by the deadline-
         /// fired handler. Unlike <see cref="DecisionSignalKind.RealmJoinDetected"/> /
@@ -661,9 +756,49 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// InformationalEvent), the timeout is a synthetic deadline so the reducer owns its
         /// timeline visibility.
         /// </summary>
-        private static DecisionEffect BuildRealmJoinTimeoutEvent(DecisionState state)
+        private static DecisionEffect BuildRealmJoinTimeoutEvent(DecisionState state, string reason)
         {
             var facts = state.RealmJoinFacts;
+            var lastPhase = facts.LastDeploymentPhase?.Value ?? 0;
+            var tracked = facts.Packages.Count;
+            var completed = 0;
+            for (var i = 0; i < facts.Packages.Count; i++)
+            {
+                if (facts.Packages[i].CompletedUtc != null) completed++;
+            }
+
+            var message = reason == RealmJoinTimeoutReasonAbsoluteCap
+                ? $"RealmJoin did not reach phase 110 within {(int)s_realmJoinAbsoluteTimeout.TotalHours} h of detection (last phase: {lastPhase}) — monitoring window exhausted despite recent deployment activity."
+                : reason == RealmJoinTimeoutReasonInactivity
+                    ? $"RealmJoin did not reach phase 110 — no deployment activity for {(int)s_realmJoinHardTimeout.TotalMinutes} min (last phase: {lastPhase})."
+                    : $"RealmJoin did not reach phase 110 within {(int)s_realmJoinHardTimeout.TotalMinutes} min (last phase: {lastPhase}).";
+
+            return new DecisionEffect(
+                kind: DecisionEffectKind.EmitEventTimelineEntry,
+                parameters: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [SignalPayloadKeys.EventType] = SharedConstants.EventTypes.RealmJoinTimeout,
+                    [SignalPayloadKeys.Source] = "DecisionEngine",
+                    [SignalPayloadKeys.Severity] = "Warning",
+                    [SignalPayloadKeys.Message] = message,
+                    ["lastSeenPhase"] = lastPhase.ToString(CultureInfo.InvariantCulture),
+                    ["packagesTracked"] = tracked.ToString(CultureInfo.InvariantCulture),
+                    ["packagesCompleted"] = completed.ToString(CultureInfo.InvariantCulture),
+                    ["reason"] = reason,
+                });
+        }
+
+        /// <summary>
+        /// Build the <c>realmjoin_timeout_extended</c> timeline-entry effect emitted when the
+        /// timeout deadline fires but the first deployment is demonstrably still active and
+        /// the monitoring window is re-armed instead. Reducer-owned like
+        /// <see cref="BuildRealmJoinTimeoutEvent"/> (synthetic deadline, no agent dual-emit).
+        /// </summary>
+        private static DecisionEffect BuildRealmJoinTimeoutExtendedEvent(
+            RealmJoinFacts facts,
+            DateTime lastActivityUtc,
+            DateTime newDueUtc)
+        {
             var lastPhase = facts.LastDeploymentPhase?.Value ?? 0;
             var tracked = facts.Packages.Count;
             var completed = 0;
@@ -676,13 +811,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 kind: DecisionEffectKind.EmitEventTimelineEntry,
                 parameters: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    [SignalPayloadKeys.EventType] = SharedConstants.EventTypes.RealmJoinTimeout,
+                    [SignalPayloadKeys.EventType] = SharedConstants.EventTypes.RealmJoinTimeoutExtended,
                     [SignalPayloadKeys.Source] = "DecisionEngine",
-                    [SignalPayloadKeys.Severity] = "Warning",
-                    [SignalPayloadKeys.Message] = $"RealmJoin did not reach phase 110 within 60 min (last phase: {lastPhase}).",
-                    ["lastSeenPhase"] = lastPhase.ToString(CultureInfo.InvariantCulture),
+                    [SignalPayloadKeys.Severity] = "Info",
+                    [SignalPayloadKeys.Message] =
+                        $"RealmJoin first deployment still active (phase {lastPhase}, {completed}/{tracked} packages completed, last activity {lastActivityUtc:HH:mm:ss} UTC) — extending monitoring window to {newDueUtc:HH:mm:ss} UTC (cap {(int)s_realmJoinAbsoluteTimeout.TotalHours} h after detection).",
+                    ["deploymentPhase"] = lastPhase.ToString(CultureInfo.InvariantCulture),
                     ["packagesTracked"] = tracked.ToString(CultureInfo.InvariantCulture),
                     ["packagesCompleted"] = completed.ToString(CultureInfo.InvariantCulture),
+                    ["lastActivityUtc"] = lastActivityUtc.ToString("O", CultureInfo.InvariantCulture),
+                    ["extendedUntilUtc"] = newDueUtc.ToString("O", CultureInfo.InvariantCulture),
                 });
         }
 

@@ -512,12 +512,17 @@ namespace AutopilotMonitor.Shared
             // RealmJoin (RJ) deployment tracking — driven by HKLM\SYSTEM\...\realmjoin\Parameters
             // + HKLM/HKU \SOFTWARE\RealmJoin\Packages\<id>. Detection extends the V2 enrollment
             // session lifetime until DeploymentPhase reaches CompletedFirstDeployment (110) or
-            // the 60-min hard timeout fires. Per-package events surface install lifecycle in
+            // the 60-min timeout fires. Per-package events surface install lifecycle in
             // the same shape as IME app_install_started / app_install_completed.
             public const string RealmJoinDetected         = "realmjoin_detected";
             public const string RealmJoinPhaseChanged    = "realmjoin_phase_changed";
             public const string RealmJoinResolved        = "realmjoin_resolved";
             public const string RealmJoinTimeout         = "realmjoin_timeout";
+            // Info: the timeout deadline fired while the first deployment was demonstrably
+            // still active (phase 100/101, deployment activity inside the last 60 min) —
+            // the monitoring window was re-armed instead of timing out (capped at 4 h from
+            // detection). Report 55e6afd61c9d.
+            public const string RealmJoinTimeoutExtended = "realmjoin_timeout_extended";
             // Warning: DeploymentPhase left the first-deployment window (100/101) for 200/210
             // without CompletedFirstDeployment (110) — the RJ ESP was aborted (typically an
             // interactive logon during the first deployment reclassified the run as

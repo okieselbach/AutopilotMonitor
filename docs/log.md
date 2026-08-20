@@ -2,6 +2,8 @@
 
 ## 2026-08-21
 
+* **Update**: `agent/decision-engine.md` — activity-based RealmJoin timeout extension (report 55e6afd61c9d: a large RJ package catalog outlived the 60-min window mid-install — the timer arms at RJ-agent-MSI detection, so the first deployment had effectively ~44 min). When the `RealmJoinTimeout` deadline fires with `LastDeploymentPhase` 100/101 and deployment activity (phase change or package observation, persisted in `RealmJoinFacts.LastActivityUtc`; the detection-time phase capture deliberately excluded) inside the last 60 min, the deadline re-arms to `lastActivity + 60 min` (Info event `realmjoin_timeout_extended`), clamped at detection + 4 h. `realmjoin_timeout` now carries `reason` = `hard_timeout` / `inactivity` / `absolute_cap`; a fire of a superseded deadline incarnation dead-ends. Idle detection and phase-200/210 sessions keep the original 60-min behavior.
+
 * **New**: `backend/send-time-frame-separation.md` — P14: the agent stamps one device-clock send timestamp per upload attempt (`X-Send-Time-Utc`), the ingest function server-stamps it as `SentAt` on every event of the request. `SentAt − OccurredUtc` is pure spool delay, `ReceivedAt − SentAt` is network + device-vs-server clock offset — the two were indistinguishable before and had to be separated statistically. The `clock_skew` condition measures SentAt-carrying batches directly (spool-immune, no spread cap, IME-only sessions become measurable; evidence carries `sentAtBatchCount`), legacy batches keep the median path; the CMTrace tripwire deliberately stays on its differential math (common-mode clock offset cancels there).
 
 ## 2026-08-20

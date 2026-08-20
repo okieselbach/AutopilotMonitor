@@ -151,6 +151,10 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 {
                     data["realmjoinReleaseChannel"] = postState.RealmJoinFacts.ReleaseChannel.Value;
                 }
+                if (postState.RealmJoinFacts.LastActivityUtc != null)
+                {
+                    data["realmjoinLastActivityUtc"] = FormatUtc(postState.RealmJoinFacts.LastActivityUtc.Value);
+                }
                 data["realmjoinPackages"] = BuildRealmJoinPackageSummary(postState.RealmJoinFacts.Packages);
             }
 

@@ -608,6 +608,7 @@ export const SHARED_MANIFEST = {
     "realmjoin_phase_changed",
     "realmjoin_resolved",
     "realmjoin_timeout",
+    "realmjoin_timeout_extended",
     "reboot_triggered",
     "registry_app_baseline",
     "registry_app_state",

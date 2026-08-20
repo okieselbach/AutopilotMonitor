@@ -143,11 +143,29 @@ advisory backstop. All routes converge on `CompleteThroughFinalizingOrDefer`:
    first-deployment window 100/101 for 200/210 without 110 — the RJ ESP was aborted,
    typically by an interactive logon reclassifying the run as secondary-user; emits
    the `realmjoin_first_deployment_incomplete` Warning, session 224b2087), and
-   `Timeout` (hard 60-min deadline). The abort rule reads the *persisted*
+   `Timeout` (60-min deadline from detection). The abort rule reads the *persisted*
    `RealmJoinFacts.LastDeploymentPhase` (updated by the typed `RealmJoinPhaseChanged`
    signal), so it survives agent restarts — the `RealmJoinDetected` replay path
    evaluates it too. A first observation of 210 does **not** release (RJ may have
    completed before agent boot and deploy afterwards).
+
+   **Activity-based timeout extension** (report 55e6afd61c9d — a large RJ package
+   catalog outlived the 60-min window mid-install): when the timeout deadline fires
+   while the first deployment is demonstrably active — `LastDeploymentPhase` 100/101
+   *and* deployment activity (`RealmJoinPhaseChanged` or a package observation, tracked
+   in `RealmJoinFacts.LastActivityUtc`; the phase captured at detection deliberately
+   does not count) within the last 60 min — the handler re-arms the deadline to
+   `lastActivity + 60 min` instead of timing out, emitting an Info
+   `realmjoin_timeout_extended` event. Re-arms clamp to an absolute cap of
+   **detection + 4 h**. Package activity is only observable at package *completion*
+   (RJ writes the registry subkey when the install finishes), so a single install
+   that is registry-silent for over 60 min still times out — the eventual
+   `realmjoin_timeout` carries a `reason` payload (`hard_timeout` / `inactivity` /
+   `absolute_cap`) telling the three shapes apart. A stale fire of an older deadline
+   incarnation (armed due later than the fire time; `OccurredAtUtc = DueAtUtc` per
+   scheduler contract) dead-ends as `realmjoin_timeout_stale_superseded_by_rearm`.
+   The idle case (detected, no deployment activity ever) times out at 60 min
+   unchanged, and phase 200/210 activity never extends.
 2. `Finalizing` stage + ~5 s `FinalizingGrace` deadline.
 3. Grace fires → `Completed`, `EnrollmentComplete` outcome, `enrollment_complete`
    timeline event with full audit payload.
