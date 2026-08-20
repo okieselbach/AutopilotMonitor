@@ -1,0 +1,104 @@
+---
+type: concept
+title: CMTrace Time Resolution — Per-Line Self-Anchoring
+description: How the agent converts bias-less CMTrace local times to UTC without trusting any process's timezone belief — each provably fresh line anchors its own offset against the agent clock on the 15-minute grid; everything not provably fresh falls back uniformly and says so.
+resource: src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/Ime
+tags: [agent, ime, cmtrace, timestamps, timezone, calibration, provenance]
+timestamp: 2026-08-20
+---
+
+# Problem
+
+A CMTrace line carries local time and no offset — IME 1.104 writes `DateTime.Now.TimeOfDay`
+in both of its trace listeners. Converting such a line with the reader's own
+`TimeZoneInfo.Local` silently assumes the writing and reading processes agree on the zone.
+They do not: each caches its zone at process start and follows neither a later `tzutil` nor
+a Windows auto-timezone change. The error is `Offset_writer − Offset_reader` — zero only
+when both believe the same thing, right or wrong. Field measurement over 11,068 sessions
+found 26 sessions with a real error, from +1 h to −17 h.
+
+Two designs failed before this one:
+
+* **Fix the reader's belief** (`TimeZoneInfo.ClearCachedData`, live OS offset): makes the
+  agent isolated-correct and thereby breaks the majority of sessions, where two equally
+  stale beliefs cancel.
+* **One measured offset per file** (agent 2.0.1410, reverted in `04b1a7c6`): a single log
+  file holds lines from multiple writer *eras*. `AgentExecutor.log` is written by
+  short-lived child processes whose zone belief flips per process — interleaved in one
+  file, and flipping *back* (fixture:
+  `tests/fixtures/cmtrace-logs/agentexecutor-two-writer-eras-v1.cmtrace`). Any cross-line
+  anchor — per file, or nearest-in-write-order — applies one era's offset to the other
+  era's lines. In the field this shifted `script_started` events by −9 h against their
+  correct completions.
+
+# Schema
+
+The resolution rule, in order:
+
+1. **Writer-declared bias** (`+480` suffix): authoritative, used as-is. Never a calibration
+   anchor — it needs no measurement and must not overwrite one.
+2. **Per-line self-anchoring** — only for lines read in a *provably fresh* pass:
+
+   ```
+   offset_line = round((local − agentUtcNow) / 15 min) · 15 min
+   lineUtc     = local − offset_line
+   ```
+
+   Every real UTC offset is a whole multiple of 15 minutes, so the rounding absorbs poll
+   and flush latency. No cross-line state exists, so interleaved eras resolve line by
+   line — the property the fixture test pins. The line's own timestamp still contributes
+   sub-poll precision and ordering (two lines 6 ms apart stay 6 ms apart; a plain
+   `occurredAt = now` could not do that). Guards: grid residual ≤ 2 min, offset within
+   UTC−12 … UTC+14.
+3. **Uniform reader-zone fallback** for everything else: wrong in absolute terms whenever
+   the writer held a different belief, but *self-consistent* — both ends of a duration are
+   wrong by the same amount, so derived durations stay right. The revert's core lesson:
+   partially corrected is strictly worse than uniformly wrong.
+
+**Freshness** is what makes rule 2 sound, and it is strict:
+
+* Every poll look at a file stamps `LastCheckedUtc` (`LogFilePositionTracker.MarkChecked`),
+  including "no new data" and an empty first sight — so a file first seen empty
+  (`AgentExecutor.log` appearing mid-enrollment) anchors from its very first content.
+* A pass's lines are fresh only if the file was previously observed *in this process* and
+  the gap since the last look is ≤ `FreshLineMaxAge` (30 s — far above the 100 ms poll,
+  far below the 13-minute zone where a line's *age* could round onto the offset grid).
+* A restart-restored position bookmark deliberately carries **no** freshness: the first
+  pass after a restart reads downtime backlog and must never anchor.
+
+**Provenance** (`sourceOffsetOrigin` in event DataJson): `bias` | `line-anchored` |
+`reader-zone-fallback` (plus retired `calibrated` from 2.0.1410 events). The applied
+offset is always recorded (`sourceOffsetMinutes`), the raw local time too
+(`sourceLocalTs`), so any event can be re-derived later. The per-*file* measurement still
+runs, purely observationally (`measuredWriterOffsetMinutes`, Info log when it disagrees
+with the process zone).
+
+# Constraints
+
+* An anchored line resolves to `now ± 2 min` *by construction*. The accepted edge: a
+  freshly written line carrying a **replayed** old timestamp whose age is exactly
+  N×15 min ± 2 min anchors to ≈now instead of its replayed past — bounded error, and
+  sub-24 h replays are treated as current by the historic-replay guard anyway.
+* Snapshot readers (`StallProbeCollector`, `LogParserCollector`) cannot tail and therefore
+  cannot prove freshness — they stay on the marked fallback. This is a documented limit,
+  not an omission; sharing the per-file measurement with them would re-apply exactly what
+  the revert removed.
+* Mixed pairs remain possible across a restart (start resolved from backlog fallback,
+  completion line-anchored) and are recognizable via provenance.
+
+# Citations
+
+* `CmTraceOffsetCalibrator.TryMeasureOffset` — the pure grid measurement, shared by
+  anchoring and the observational per-file path.
+* `ImeLogTracker.LogProcessing.cs` `ResolveEntryUtc` — the resolution order above.
+* `ImeLogTrackerLineAnchoringTests` — resolves-to-T across writer beliefs, interleaved
+  eras in one chunk, freshness boundaries (first sight, empty first sight, poll gap,
+  restart restore), the grid-replay edge, and the field fixture replayed at production
+  poll cadence.
+* `CmTraceCalibratorFileIsolationTests` — pins per-file isolation of the observational
+  measurement (session e9753578 logged a cross-file pairing the committed code could not
+  be shown to produce; the mechanism remains open, the resolution path is immune by
+  design, and `CalibrateFrom` logs the anchor timestamp as a tripwire).
+* `tasks/todo.md` (2026-08-20) — full evidence trail: field measurements, the revert,
+  the two-writer-era fixture, and the disproven foreign-binary hypothesis (the SHA
+  mismatch was the known release race against the 5-minute AdminConfiguration cache).
