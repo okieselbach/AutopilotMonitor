@@ -407,6 +407,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 var offsetMinutes = _tracker.LastMatchedSourceOffsetMinutes;
                 if (offsetMinutes.HasValue)
                     data["sourceOffsetMinutes"] = offsetMinutes.Value.ToString(culture);
+
+                // Observational only — what the calibrator measured, which since the 2026-08-20
+                // revert is deliberately NOT what was applied. Kept separate so the two can never
+                // be read as the same thing.
+                var measured = _tracker.LastMatchedMeasuredWriterOffsetMinutes;
+                if (measured.HasValue)
+                    data["measuredWriterOffsetMinutes"] = measured.Value.ToString(culture);
             }
 
             if (!derivedFromClock) return;
@@ -421,6 +428,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 case CmTraceOffsetOrigin.Bias: return "bias";
                 case CmTraceOffsetOrigin.Calibrated: return "calibrated";
+                // Unreachable since the 2026-08-20 revert; kept so the vocabulary survives the
+                // era-aware fix rather than being reinvented.
                 // The writer's offset was never measured, so this process's own zone was assumed —
                 // correct only if the writer happens to share it.
                 default: return "reader-zone-fallback";

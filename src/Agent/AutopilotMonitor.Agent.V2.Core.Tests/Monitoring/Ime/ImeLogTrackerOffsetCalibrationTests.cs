@@ -80,36 +80,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         [Theory]
-        // The writer's belief. Whatever it is, a line written at T must come back as T.
-        [InlineData(2)]     // CEST — the bfff9b1c writer, while the agent still believed BST
-        [InlineData(1)]     // BST — writer and a UK-defaulted agent agreeing
-        [InlineData(-7)]    // PDT — the OOBE default behind the -17 h sessions
+        // The writer's belief. The MEASUREMENT must recover it exactly, whatever it is.
+        [InlineData(2)]     // CEST
+        [InlineData(1)]     // BST
+        [InlineData(-7)]    // PDT — the OOBE default behind the -17 h and -9 h field cases
         [InlineData(10)]    // E. Australia
         [InlineData(0)]     // UTC
-        public async Task ResolvesLineToTheInstantItWasWritten_ForAnyWriterBelief(int writerOffsetHours)
+        public async Task MeasuresTheWritersOffsetExactly_ForAnyBelief(int writerOffsetHours)
         {
+            // NOTE: this used to assert that a line written at T RESOLVES to T. That application
+            // was reverted on 2026-08-20 after session e9753578: one offset per file is wrong when
+            // a file holds two writer eras (IME restarting across a timezone change), which shifted
+            // 5 script_started events by -9 h while their completions stayed correct and inflated
+            // every script duration to ~32,400 s. Until the calibrator is era-aware, the measured
+            // offset is observational and the reader-zone fallback is applied uniformly — wrong in
+            // absolute terms but self-consistent, so derived durations stay right.
             var writerOffset = TimeSpan.FromHours(writerOffsetHours);
             using var h = new Harness();
 
-            // Pass 1 — first sight of the file. Its content may be arbitrarily old, so nothing is
-            // calibrated from it.
             h.Append(Line("marker 1", h.Now, writerOffset));
             await h.Pass();
 
-            // Pass 2 — the file has grown against a size we already observed, so this line was
-            // written within a poll interval and is a valid anchor.
             h.Now = T0.AddSeconds(10);
             h.Append(Line("marker 2", h.Now, writerOffset));
             await h.Pass();
 
-            // Pass 3 — resolved with the measured offset.
-            h.Now = T0.AddSeconds(20);
-            var writtenAt = h.Now;
-            h.Append(Line("marker 3", writtenAt, writerOffset));
-            await h.Pass();
-
-            Assert.True(h.Tracker.LastMatchedLogTimestamp.HasValue);
-            Assert.Equal(writtenAt, h.Tracker.LastMatchedLogTimestamp.Value);
+            TimeSpan measured;
+            Assert.True(h.Tracker.OffsetCalibrator.TryGetOffset(LogFileName, out measured));
+            Assert.Equal(writerOffset, measured);
         }
 
         [Fact]
@@ -175,8 +173,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             TimeSpan after;
             Assert.True(h.Tracker.OffsetCalibrator.TryGetOffset(LogFileName, out after));
             Assert.Equal(TimeSpan.FromHours(2), after);
-            Assert.True(h.Tracker.LastMatchedLogTimestamp.HasValue);
-            Assert.Equal(writtenAt, h.Tracker.LastMatchedLogTimestamp.Value);
+            // The measurement follows the restart. Applying it is what the 2026-08-20 revert
+            // removed — that is exactly the case a file with two writer eras breaks.
+            Assert.Equal(120, h.Tracker.LastMatchedMeasuredWriterOffsetMinutes);
         }
 
         [Fact]
@@ -204,12 +203,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         [Fact]
-        public async Task RecordsProvenance_ForACalibratedLine()
+        public async Task RecordsMeasuredOffsetSeparatelyFromTheAppliedOne()
         {
-            // P8: what the writer wrote, what we subtracted, and how we knew — the evidence that
-            // makes a stored timestamp recomputable without the diagnostics archive.
+            // The regression that forced the revert shipped an event tagged "calibrated" while
+            // carrying an offset that did not hold for that line. Measured and applied are now
+            // separate fields so a future reader cannot mistake one for the other.
             using var h = new Harness();
-            var writerOffset = TimeSpan.FromHours(-7);   // PST/PDT, the OOBE default
+            var writerOffset = TimeSpan.FromHours(-7);   // PDT, the OOBE default
 
             h.Append(Line("marker 1", h.Now, writerOffset));
             await h.Pass();
@@ -219,18 +219,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             await h.Pass();
 
             h.Now = T0.AddSeconds(20);
-            var writtenAt = h.Now;
-            h.Append(Line("marker 3", writtenAt, writerOffset));
+            h.Append(Line("marker 3", h.Now, writerOffset));
             await h.Pass();
 
-            Assert.Equal(CmTraceOffsetOrigin.Calibrated, h.Tracker.LastMatchedSourceOffsetOrigin);
-            Assert.Equal(-420, h.Tracker.LastMatchedSourceOffsetMinutes);
-            Assert.True(h.Tracker.LastMatchedSourceLocalTimestamp.HasValue);
+            // Measured: the writer's actual belief.
+            Assert.Equal(-420, h.Tracker.LastMatchedMeasuredWriterOffsetMinutes);
 
-            // The raw local value is kept verbatim, with no zone attached — attaching one would
-            // re-introduce exactly the assumption this change removes.
-            Assert.Equal(writtenAt + writerOffset, h.Tracker.LastMatchedSourceLocalTimestamp.Value);
-            Assert.Equal(DateTimeKind.Unspecified, h.Tracker.LastMatchedSourceLocalTimestamp.Value.Kind);
+            // Applied: still the reader zone, and reported as such — never as "calibrated".
+            Assert.NotEqual(CmTraceOffsetOrigin.Calibrated, h.Tracker.LastMatchedSourceOffsetOrigin);
         }
 
         [Fact]
@@ -244,8 +240,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             await h.Pass();
 
             Assert.Equal(CmTraceOffsetOrigin.None, h.Tracker.LastMatchedSourceOffsetOrigin);
-            Assert.Null(h.Tracker.LastMatchedSourceOffsetMinutes);
             Assert.True(h.Tracker.LastMatchedSourceLocalTimestamp.HasValue);
+
+            // The APPLIED offset is reported even on the fallback path — an event that states no
+            // offset at all cannot be recomputed later, which defeats the purpose of recording
+            // provenance. Asserted against the running machine's zone so this stays portable.
+            var readerZone = (int)TimeZoneInfo.Local
+                .GetUtcOffset(h.Tracker.LastMatchedSourceLocalTimestamp!.Value).TotalMinutes;
+            Assert.Equal(readerZone, h.Tracker.LastMatchedSourceOffsetMinutes);
         }
 
         [Fact]

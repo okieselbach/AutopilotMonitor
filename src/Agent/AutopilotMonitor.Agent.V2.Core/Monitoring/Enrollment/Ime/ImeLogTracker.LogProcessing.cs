@@ -254,6 +254,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 LastMatchedSourceLocalTimestamp = null;
                 LastMatchedSourceOffsetMinutes = null;
                 LastMatchedSourceOffsetOrigin = CmTraceOffsetOrigin.None;
+                LastMatchedMeasuredWriterOffsetMinutes = null;
             }
             else
             {
@@ -263,6 +264,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 LastMatchedSourceLocalTimestamp = entry.HasTimestamp ? entry.LocalTimestamp : (DateTime?)null;
                 LastMatchedSourceOffsetMinutes = offsetMinutes;
                 LastMatchedSourceOffsetOrigin = origin;
+
+                // Observational: what the calibrator measured for this file, distinct from what
+                // was applied above.
+                TimeSpan measuredWriterOffset;
+                LastMatchedMeasuredWriterOffsetMinutes =
+                    _currentSourceFileName != null
+                    && OffsetCalibrator.TryGetOffset(_currentSourceFileName, out measuredWriterOffset)
+                        ? (int)measuredWriterOffset.TotalMinutes
+                        : (int?)null;
             }
 
             // Generic pattern-match hook (M4.4.4). Invoked before action-specific callbacks so
@@ -640,21 +650,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (!entry.HasTimestamp) return UtcNowProvider();
 
-            // Measured offset of the process that wrote this file.
-            TimeSpan measured;
-            DateTime calibrated;
-            if (_currentSourceFileName != null
-                && OffsetCalibrator.TryGetOffset(_currentSourceFileName, out measured)
-                && OffsetCalibrator.TryResolveUtc(_currentSourceFileName, entry.LocalTimestamp, out calibrated))
-            {
-                origin = CmTraceOffsetOrigin.Calibrated;
-                offsetMinutes = (int)measured.TotalMinutes;
-                return calibrated;
-            }
-
-            // Not calibrated yet (first growing pass, or a file that never grows while we watch).
-            // Falls back to this process's zone, which is right only if the writer happens to
-            // share our belief. Origin stays None so the emitted event says so.
+            // REVERTED 2026-08-20 (session e9753578): the measured offset is NOT applied.
+            //
+            // Calibration keeps one offset per FILE, but a single log file can hold lines from
+            // two writer eras — IME restarting across a timezone change leaves older lines in the
+            // old zone and newer ones in the new zone, in the same file. The anchor is the newest
+            // line, so its offset was also applied to the older lines, for which it is wrong. In
+            // the field that shifted 5 script_started events by -9 h while their script_completed
+            // counterparts were resolved correctly, inflating every script duration to ~32,400 s.
+            //
+            // The deeper lesson: applying the reader zone uniformly is wrong for ABSOLUTE times
+            // but self-consistent for DERIVED ones — both ends of a duration are wrong by the same
+            // amount, so the duration is right. Correcting only some timestamps produced a mixed
+            // frame INSIDE one session, which is strictly worse. Until the calibrator is era-aware
+            // (see tasks/todo.md), uniform beats partially-correct.
+            //
+            // The measurement itself still runs: it costs nothing, feeds the Info log and the
+            // event provenance, and is the field data the era-aware fix will be built on.
+            var readerZoneOffset = TimeZoneInfo.Local.GetUtcOffset(entry.LocalTimestamp);
+            offsetMinutes = (int)readerZoneOffset.TotalMinutes;
             return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
         }
 

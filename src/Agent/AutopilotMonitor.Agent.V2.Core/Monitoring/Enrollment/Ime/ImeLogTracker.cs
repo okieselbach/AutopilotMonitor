@@ -228,6 +228,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>How that offset was arrived at — declared, measured, or neither.</summary>
         public CmTraceOffsetOrigin LastMatchedSourceOffsetOrigin { get; internal set; }
 
+        /// <summary>
+        /// The offset the calibrator MEASURED for the source file, which is not necessarily the
+        /// one applied.
+        /// <para>
+        /// Since the 2026-08-20 revert the measurement is observational only: it is recorded so the
+        /// field tells us what an era-aware calibrator would have to work with, without acting on
+        /// it. Reported separately from <see cref="LastMatchedSourceOffsetMinutes"/> precisely so
+        /// the two can never be confused — that event said "calibrated" while carrying a wrong
+        /// value, and an honest record has to distinguish measured from applied.
+        /// </para>
+        /// </summary>
+        public int? LastMatchedMeasuredWriterOffsetMinutes { get; internal set; }
+
         // Callbacks to EnrollmentTracker
         public Action<string> OnEspPhaseChanged { get; set; }
         public Action<string> OnImeAgentVersion { get; set; }
