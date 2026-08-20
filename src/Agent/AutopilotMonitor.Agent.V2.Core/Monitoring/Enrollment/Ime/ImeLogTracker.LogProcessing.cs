@@ -42,7 +42,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return false;
         }
 
-        private async Task CheckLogFilesAsync(CancellationToken token)
+        /// <remarks>internal (not private) as a test seam: the offset calibration depends on the
+        /// pass structure — first observation versus a later pass over a grown file — which only
+        /// a real read cycle exercises. Production still reaches it solely from the poll loop.</remarks>
+        internal async Task CheckLogFilesAsync(CancellationToken token)
         {
             if (!Directory.Exists(_logFolder))
                 return;
@@ -74,6 +77,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     var fileInfo = new FileInfo(filePath);
                     if (!fileInfo.Exists) continue;
 
+                    // Captured BEFORE GetSafePosition, which creates the entry as a side effect.
+                    // Growth measured against a previously observed size is what makes the last
+                    // line of this pass a valid "written now" calibration anchor.
+                    var hadPreviousObservation = _positionTracker.HasSeen(filePath);
+
                     var startPos = _positionTracker.GetSafePosition(filePath, fileInfo.Length);
                     if (startPos >= fileInfo.Length)
                     {
@@ -85,6 +93,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     }
                     if (_logger.LogLevel >= AgentLogLevel.Trace)
                         _logger.Trace($"ImeLogTracker: reading {Path.GetFileName(filePath)} from pos {startPos} (size={fileInfo.Length}, delta={fileInfo.Length - startPos})");
+
+                    _currentSourceFileName = Path.GetFileName(filePath);
+
+                    // Newest bias-less line of this pass — the calibration anchor. Bias-carrying
+                    // lines are skipped: they already state the writer's offset, so they need no
+                    // measurement and must not overwrite one.
+                    CmTraceLogEntry calibrationAnchor = null;
 
                     using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
@@ -147,6 +162,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                 if (CmTraceLogParser.TryParseLine(line, out entry))
                                 {
                                     messageToMatch = entry.Message;
+                                    if (entry.HasTimestamp && !entry.BiasMinutes.HasValue)
+                                        calibrationAnchor = entry;
                                 }
                                 else
                                 {
@@ -185,6 +202,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                         _positionTracker.SetPosition(filePath, stream.Position);
                         _stateDirty = true;
+
+                        // Calibrate AFTER the pass: this pass's lines were resolved with the
+                        // offset established previously, at most one poll (100 ms) old. Buffering
+                        // the pass to calibrate first is not an option — the first pass of
+                        // AppWorkload.log can be hundreds of MB. The cost is a warm-up of one
+                        // growing pass, during which lines fall back to the reader zone and are
+                        // flagged as such.
+                        if (hadPreviousObservation && calibrationAnchor != null)
+                            CalibrateFrom(_currentSourceFileName, calibrationAnchor);
                     }
                 }
                 catch (FileNotFoundException) { }
@@ -572,9 +598,54 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private DateTime ResolveEntryUtc(CmTraceLogEntry entry)
         {
             if (entry == null) return UtcNowProvider();
+
+            // Writer declared its own offset — nothing left to measure.
             if (entry.TimestampUtc.HasValue) return entry.TimestampUtc.Value;
+
             if (!entry.HasTimestamp) return UtcNowProvider();
+
+            // Measured offset of the process that wrote this file.
+            DateTime calibrated;
+            if (_currentSourceFileName != null
+                && OffsetCalibrator.TryResolveUtc(_currentSourceFileName, entry.LocalTimestamp, out calibrated))
+            {
+                return calibrated;
+            }
+
+            // Not calibrated yet (first growing pass, or a file that never grows while we watch).
+            // Falls back to this process's zone, which is right only if the writer happens to
+            // share our belief. Emissions built on this are flagged as not source-grounded.
             return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
+        }
+
+        /// <summary>
+        /// Feed the pass's newest bias-less line to the calibrator and report a measured offset
+        /// that disagrees with this process's own zone — that disagreement is precisely the
+        /// condition that used to corrupt every IME-derived timestamp silently.
+        /// </summary>
+        private void CalibrateFrom(string sourceFileName, CmTraceLogEntry anchor)
+        {
+            TimeSpan previous;
+            var hadOffset = OffsetCalibrator.TryGetOffset(sourceFileName, out previous);
+
+            if (!OffsetCalibrator.TryCalibrate(sourceFileName, anchor.LocalTimestamp, UtcNowProvider()))
+                return;
+
+            TimeSpan measured;
+            if (!OffsetCalibrator.TryGetOffset(sourceFileName, out measured)) return;
+            if (hadOffset && measured == previous) return;
+
+            var readerZoneOffset = TimeZoneInfo.Local.GetUtcOffset(UtcNowProvider());
+            if (measured == readerZoneOffset)
+            {
+                _logger?.Debug(
+                    $"ImeLogTracker: {sourceFileName} writer offset measured {measured} (matches this process).");
+                return;
+            }
+
+            _logger?.Info(
+                $"ImeLogTracker: {sourceFileName} writer offset measured {measured}, this process believes {readerZoneOffset} " +
+                $"— timestamps from this file are corrected by {(measured - readerZoneOffset).Negate()}.");
         }
 
     }

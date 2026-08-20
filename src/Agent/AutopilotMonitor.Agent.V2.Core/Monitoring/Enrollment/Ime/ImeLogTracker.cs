@@ -85,6 +85,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// Unspecified depending on the parser path. Normalize via SpecifyKind=Utc rather than
         /// ToUniversalTime() to avoid double-conversion when Kind is already UTC.
         /// </summary>
+        /// <summary>
+        /// Measures the UTC offset the IME process believes it is in, per log file.
+        /// <para>
+        /// Only this tracker may WRITE to it: calibration requires tailing with growth detection
+        /// so the freshness rule can be honoured, and no other collector tails. Exposed so the
+        /// snapshot-reading collectors can eventually READ from a shared instance
+        /// (tasks/todo.md, P3b).
+        /// </para>
+        /// </summary>
+        internal CmTraceOffsetCalibrator OffsetCalibrator { get; } = new CmTraceOffsetCalibrator();
+
+        /// <summary>
+        /// File whose lines are currently being processed. The polling loop walks files strictly
+        /// sequentially on a single task, so a field is sufficient to give <c>ResolveEntryUtc</c>
+        /// and the handlers the calibration key without threading it through every signature.
+        /// </summary>
+        private string _currentSourceFileName;
+
         internal static DateTime NormalizeUtc(DateTime value) =>
             value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 

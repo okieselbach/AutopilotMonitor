@@ -19,6 +19,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// has been rotated - resets to 0 to read from beginning.
         /// Returns 0 if no position has been recorded yet.
         /// </summary>
+        /// <summary>
+        /// Whether this file was already observed in an earlier pass.
+        /// <para>
+        /// The offset calibration depends on this: growth measured against a size we saw before
+        /// means the new bytes were written within one poll interval, so the last line of that
+        /// pass is a valid "written now" anchor. On the FIRST sight of a file we read it from
+        /// position 0 and its last line may be arbitrarily old — anchoring on that would measure
+        /// the line's age instead of the writer's timezone offset.
+        /// </para>
+        /// </summary>
+        public bool HasSeen(string filePath) => _positions.ContainsKey(filePath);
+
         public long GetSafePosition(string filePath, long currentFileSize)
         {
             FilePositionState state;
