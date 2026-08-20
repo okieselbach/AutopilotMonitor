@@ -455,6 +455,10 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedDetail, setCopiedDetail] = useState(false);
+  // Collapsed by default: the same values sit in the raw JSON dump — this labeled view is
+  // an opt-in dive, it must not inflate the metadata block (user decision 2026-08-20).
+  const [showProvenance, setShowProvenance] = useState(false);
+  const timeProvenance = useMemo(() => readTimeProvenance(event.data), [event.data]);
   const rawDetailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
 
   // Filter stdout from script events when showScriptOutput is false.
@@ -723,12 +727,12 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
               )}
             </button>
             <div className="flex">
-              <span className="w-24 flex-shrink-0 text-gray-400">EventId</span>
+              <span className="w-16 flex-shrink-0 text-gray-400">EventId</span>
               <span className="font-mono">{event.eventId}</span>
             </div>
             {recordedAt && (
               <div className="flex mt-0.5">
-                <span className="w-24 flex-shrink-0 text-gray-400">Recorded</span>
+                <span className="w-16 flex-shrink-0 text-gray-400">Recorded</span>
                 <span className="font-mono">
                   {recordedAt.toISOString().replace('T', ' ').replace('Z', '')}
                   <span className="text-gray-400 ml-1" title={BACKFILL_TOOLTIP}>(event log, pre-agent)</span>
@@ -736,11 +740,26 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
               </div>
             )}
             <div className="flex mt-0.5">
-              <span className="w-24 flex-shrink-0 text-gray-400">Created</span>
-              <span className="font-mono">{event.timestamp}</span>
+              <span className="w-16 flex-shrink-0 text-gray-400">Created</span>
+              <span className="font-mono">
+                {event.timestamp}
+                {(timeProvenance || event.timestampClamped) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowProvenance(!showProvenance)}
+                    className="ml-2 font-sans text-gray-400 hover:text-green-600"
+                    title="How this timestamp was produced (offset, origin, raw log time)"
+                  >
+                    {showProvenance ? "▾ time provenance" : "▸ time provenance"}
+                  </button>
+                )}
+              </span>
             </div>
+            {showProvenance && (timeProvenance || event.timestampClamped) && (
+              <TimeProvenanceRows event={event} provenance={timeProvenance} />
+            )}
             <div className="flex mt-0.5">
-              <span className="w-24 flex-shrink-0 text-gray-400">Received</span>
+              <span className="w-16 flex-shrink-0 text-gray-400">Received</span>
               <span className="font-mono">
                 {event.receivedAt
                   ? new Date(event.receivedAt).toISOString().replace('T', ' ').replace('Z', '')
@@ -758,11 +777,10 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
             </div>
             {hasPhase && (
               <div className="flex mt-0.5">
-                <span className="w-24 flex-shrink-0 text-gray-400">Phase</span>
+                <span className="w-16 flex-shrink-0 text-gray-400">Phase</span>
                 <span>{event.phaseName}</span>
               </div>
             )}
-            <TimeProvenanceRows event={event} />
           </div>
         );
       })()}
@@ -897,18 +915,15 @@ const ORIGIN_CHIP: Record<string, { className: string; title: string }> = {
 };
 
 // The raw CMTrace time-resolution values (P13): how this event's UTC timestamp was
-// produced. Rendered inside the expanded metadata block only — per-row badges are
-// reserved for the rare jump/clamp cases, everything else lives here on demand.
-function TimeProvenanceRows({ event }: { event: EnrollmentEvent }) {
-  const provenance = readTimeProvenance(event.data);
-  if (!provenance && !event.timestampClamped) return null;
-
+// produced. Collapsed behind the "time provenance" toggle on the Created row — the same
+// values sit in the raw JSON dump, so this labeled view is an opt-in dive that must not
+// inflate the default metadata block. Per-row badges stay reserved for jump/clamp cases.
+function TimeProvenanceRows({ event, provenance }: { event: EnrollmentEvent; provenance: ReturnType<typeof readTimeProvenance> }) {
   const origin = provenance?.sourceOffsetOrigin;
   const originChip = origin ? ORIGIN_CHIP[origin] ?? { className: "bg-gray-100 text-gray-500", title: origin } : null;
 
   return (
-    <div className="mt-1.5 pt-1.5 border-t border-gray-200">
-      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Time provenance</div>
+    <div className="ml-2 pl-2 border-l-2 border-gray-200">
       {provenance?.sourceLocalTs && (
         <div className="flex mt-0.5">
           <span className="w-24 flex-shrink-0 text-gray-400">Local time</span>
