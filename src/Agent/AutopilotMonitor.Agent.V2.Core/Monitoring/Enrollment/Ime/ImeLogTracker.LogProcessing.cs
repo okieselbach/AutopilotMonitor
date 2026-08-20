@@ -248,7 +248,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void HandlePatternMatch(CompiledPattern pattern, Match match, string message, CmTraceLogEntry entry)
         {
             LastMatchedPatternId = pattern.PatternId;
-            LastMatchedLogTimestamp = entry == null ? (DateTime?)null : ResolveEntryUtc(entry);
+            if (entry == null)
+            {
+                LastMatchedLogTimestamp = null;
+                LastMatchedSourceLocalTimestamp = null;
+                LastMatchedSourceOffsetMinutes = null;
+                LastMatchedSourceOffsetOrigin = CmTraceOffsetOrigin.None;
+            }
+            else
+            {
+                CmTraceOffsetOrigin origin;
+                int? offsetMinutes;
+                LastMatchedLogTimestamp = ResolveEntryUtc(entry, out origin, out offsetMinutes);
+                LastMatchedSourceLocalTimestamp = entry.HasTimestamp ? entry.LocalTimestamp : (DateTime?)null;
+                LastMatchedSourceOffsetMinutes = offsetMinutes;
+                LastMatchedSourceOffsetOrigin = origin;
+            }
 
             // Generic pattern-match hook (M4.4.4). Invoked before action-specific callbacks so
             // subscribers (e.g. ImeLogTrackerAdapter emitting WhiteGloveSealingPatternDetected)
@@ -597,24 +612,49 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         private DateTime ResolveEntryUtc(CmTraceLogEntry entry)
         {
+            CmTraceOffsetOrigin origin;
+            int? offsetMinutes;
+            return ResolveEntryUtc(entry, out origin, out offsetMinutes);
+        }
+
+        /// <summary>
+        /// Resolve a parsed entry to UTC and report HOW the offset was obtained, so the emitting
+        /// side can attach the evidence (P8). See <see cref="CmTraceOffsetOrigin"/>.
+        /// </summary>
+        private DateTime ResolveEntryUtc(CmTraceLogEntry entry, out CmTraceOffsetOrigin origin, out int? offsetMinutes)
+        {
+            origin = CmTraceOffsetOrigin.None;
+            offsetMinutes = null;
+
             if (entry == null) return UtcNowProvider();
 
             // Writer declared its own offset — nothing left to measure.
-            if (entry.TimestampUtc.HasValue) return entry.TimestampUtc.Value;
+            if (entry.TimestampUtc.HasValue)
+            {
+                origin = CmTraceOffsetOrigin.Bias;
+                // Bias uses the GetTimeZoneInformation convention (UTC = local + bias); report the
+                // value in the same sense as a measured offset (local = UTC + offset).
+                offsetMinutes = entry.BiasMinutes.HasValue ? -entry.BiasMinutes.Value : (int?)null;
+                return entry.TimestampUtc.Value;
+            }
 
             if (!entry.HasTimestamp) return UtcNowProvider();
 
             // Measured offset of the process that wrote this file.
+            TimeSpan measured;
             DateTime calibrated;
             if (_currentSourceFileName != null
+                && OffsetCalibrator.TryGetOffset(_currentSourceFileName, out measured)
                 && OffsetCalibrator.TryResolveUtc(_currentSourceFileName, entry.LocalTimestamp, out calibrated))
             {
+                origin = CmTraceOffsetOrigin.Calibrated;
+                offsetMinutes = (int)measured.TotalMinutes;
                 return calibrated;
             }
 
             // Not calibrated yet (first growing pass, or a file that never grows while we watch).
             // Falls back to this process's zone, which is right only if the writer happens to
-            // share our belief. Emissions built on this are flagged as not source-grounded.
+            // share our belief. Origin stays None so the emitted event says so.
             return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
         }
 

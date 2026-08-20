@@ -202,5 +202,71 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             TimeSpan ignored;
             Assert.False(h.Tracker.OffsetCalibrator.TryGetOffset(LogFileName, out ignored));
         }
+
+        [Fact]
+        public async Task RecordsProvenance_ForACalibratedLine()
+        {
+            // P8: what the writer wrote, what we subtracted, and how we knew — the evidence that
+            // makes a stored timestamp recomputable without the diagnostics archive.
+            using var h = new Harness();
+            var writerOffset = TimeSpan.FromHours(-7);   // PST/PDT, the OOBE default
+
+            h.Append(Line("marker 1", h.Now, writerOffset));
+            await h.Pass();
+
+            h.Now = T0.AddSeconds(10);
+            h.Append(Line("marker 2", h.Now, writerOffset));
+            await h.Pass();
+
+            h.Now = T0.AddSeconds(20);
+            var writtenAt = h.Now;
+            h.Append(Line("marker 3", writtenAt, writerOffset));
+            await h.Pass();
+
+            Assert.Equal(CmTraceOffsetOrigin.Calibrated, h.Tracker.LastMatchedSourceOffsetOrigin);
+            Assert.Equal(-420, h.Tracker.LastMatchedSourceOffsetMinutes);
+            Assert.True(h.Tracker.LastMatchedSourceLocalTimestamp.HasValue);
+
+            // The raw local value is kept verbatim, with no zone attached — attaching one would
+            // re-introduce exactly the assumption this change removes.
+            Assert.Equal(writtenAt + writerOffset, h.Tracker.LastMatchedSourceLocalTimestamp.Value);
+            Assert.Equal(DateTimeKind.Unspecified, h.Tracker.LastMatchedSourceLocalTimestamp.Value.Kind);
+        }
+
+        [Fact]
+        public async Task RecordsProvenance_AsFallback_BeforeAnyCalibration()
+        {
+            // The warm-up pass: the offset is not measured yet, so the reader zone is assumed and
+            // the event has to say so rather than look source-grounded.
+            using var h = new Harness();
+
+            h.Append(Line("marker 1", h.Now, TimeSpan.FromHours(2)));
+            await h.Pass();
+
+            Assert.Equal(CmTraceOffsetOrigin.None, h.Tracker.LastMatchedSourceOffsetOrigin);
+            Assert.Null(h.Tracker.LastMatchedSourceOffsetMinutes);
+            Assert.True(h.Tracker.LastMatchedSourceLocalTimestamp.HasValue);
+        }
+
+        [Fact]
+        public async Task RecordsProvenance_ForADeclaredBias()
+        {
+            using var h = new Harness();
+
+            h.Append(Line("marker 1", h.Now, TimeSpan.FromHours(2)));
+            await h.Pass();
+
+            h.Now = T0.AddSeconds(10);
+            var local = h.Now + TimeSpan.FromHours(-8);
+            h.Append($"<![LOG[marker 2]LOG]!><time=\"{local:HH:mm:ss.fffffff}+480\" date=\"{local:M-d-yyyy}\" " +
+                     "component=\"IntuneManagementExtension\" context=\"\" type=\"1\" thread=\"1\" file=\"\">");
+            await h.Pass();
+
+            Assert.Equal(CmTraceOffsetOrigin.Bias, h.Tracker.LastMatchedSourceOffsetOrigin);
+            // Reported in the same sense as a measured offset (local = UTC + offset), so the two
+            // origins are directly comparable; the wire bias uses the opposite convention.
+            Assert.Equal(-480, h.Tracker.LastMatchedSourceOffsetMinutes);
+        }
+
     }
 }

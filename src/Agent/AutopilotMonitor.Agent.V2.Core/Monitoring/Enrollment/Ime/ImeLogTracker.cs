@@ -209,6 +209,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public string LastMatchedPatternId { get; internal set; }
         public DateTime? LastMatchedLogTimestamp { get; internal set; }
 
+        /// <summary>
+        /// Raw local time of the last matched line, exactly as the writer wrote it — no zone
+        /// attached, because the line carries none.
+        /// <para>
+        /// Recorded so an emitted event can carry the evidence for its own timestamp. Without it
+        /// a conversion error is only provable from the diagnostics archive, and of the 5,386
+        /// sessions that went through a timezone change essentially none had one — the field
+        /// analysis had to fall back to median statistics over thousands of sessions to show
+        /// what one stored value would have made obvious per session.
+        /// </para>
+        /// </summary>
+        public DateTime? LastMatchedSourceLocalTimestamp { get; internal set; }
+
+        /// <summary>Offset applied to <see cref="LastMatchedSourceLocalTimestamp"/>, in minutes.</summary>
+        public int? LastMatchedSourceOffsetMinutes { get; internal set; }
+
+        /// <summary>How that offset was arrived at — declared, measured, or neither.</summary>
+        public CmTraceOffsetOrigin LastMatchedSourceOffsetOrigin { get; internal set; }
+
         // Callbacks to EnrollmentTracker
         public Action<string> OnEspPhaseChanged { get; set; }
         public Action<string> OnImeAgentVersion { get; set; }
