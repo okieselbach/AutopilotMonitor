@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-21
+
+* **New**: `backend/send-time-frame-separation.md` — P14: the agent stamps one device-clock send timestamp per upload attempt (`X-Send-Time-Utc`), the ingest function server-stamps it as `SentAt` on every event of the request. `SentAt − OccurredUtc` is pure spool delay, `ReceivedAt − SentAt` is network + device-vs-server clock offset — the two were indistinguishable before and had to be separated statistically. The `clock_skew` condition measures SentAt-carrying batches directly (spool-immune, no spread cap, IME-only sessions become measurable; evidence carries `sentAtBatchCount`), legacy batches keep the median path; the CMTrace tripwire deliberately stays on its differential math (common-mode clock offset cancels there).
+
 ## 2026-08-20
 
 * **Update**: `agent/cmtrace-time-resolution.md` — new "Backend regression tripwire" section: the P6 split. Operator side: `CmTraceSkewTripwire` piggybacks on the terminal counter reconcile's partition scan (`Δ = ReceivedAt − OccurredUtc` per source, 15-min grid + 2-min residual, ≥20 samples / ≥3 distinct batches per side, bias-dominated sessions suppressed, `measuredWriterOffsetMinutes` never consulted) and emits the `CmTraceTimeSkewRegression` ops event — goal state: never fires; kill switch `CmTraceSkewTripwireDisabled`. Customer side: new `clock_skew` analyze condition source (`skewMetric: clock_jump | sustained_offset`, threshold in seconds, batch-median frames with spool-spread filter, plateau step detection, end-state persistence, IME-derived events excluded) behind the new built-in `ANALYZE-DEV-008` (300 s = the Kerberos/Entra 5-minute skew boundary) — the during-enrollment complement of ANALYZE-DEV-007's one-shot NTP check. P5 (agent-side observability event) is subsumed by the tripwire.

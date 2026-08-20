@@ -119,6 +119,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
                 AddSecurityHeaders(request);
                 request.Headers.Add("X-Correlation-ID", correlationId);
 
+                // P14: device-clock send time, one value per request. Lets the backend separate
+                // spool delay (SentAt − OccurredUtc, both device frame) from device-vs-server
+                // clock offset (ReceivedAt − SentAt) — indistinguishable without this header.
+                // Stamped per attempt on purpose: a retry after backoff is a NEW send moment.
+                request.Headers.Add("X-Send-Time-Utc", DateTime.UtcNow.ToString("O"));
+
                 HttpResponseMessage response;
                 try
                 {

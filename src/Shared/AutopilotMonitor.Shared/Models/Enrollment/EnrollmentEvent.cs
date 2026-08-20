@@ -39,6 +39,16 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? ReceivedAt { get; set; }
 
         /// <summary>
+        /// Device-clock UTC timestamp of the moment the agent SENT the upload batch carrying
+        /// this event (X-Send-Time-Utc request header, one value per ingest request — never
+        /// set by the agent per event). Same clock frame as <see cref="Timestamp"/>, so
+        /// SentAt − Timestamp is pure spool delay and ReceivedAt − SentAt is network latency
+        /// plus device-vs-server clock offset — the two are indistinguishable without this
+        /// field. Null for events from agents that pre-date the header.
+        /// </summary>
+        public DateTime? SentAt { get; set; }
+
+        /// <summary>
         /// Type of event (e.g., "phase_transition", "app_install_start", "error")
         /// </summary>
         public string EventType { get; set; } = default!;

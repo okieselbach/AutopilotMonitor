@@ -221,10 +221,17 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // EventIngestProcessor, saving one Sessions point-read per batch.
                 var preFetchedStatus = TryReadSessionStatus(guardSessionRow);
 
+                // P14: device-clock send time of this upload (one value per request). Separates
+                // spool delay from device-vs-server clock offset downstream; absent/garbage → null.
+                var sentAtHeader = req.Headers.Contains("X-Send-Time-Utc")
+                    ? req.Headers.GetValues("X-Send-Time-Utc").FirstOrDefault()
+                    : null;
+                var sentAt = ParseSendTimeHeader(sentAtHeader);
+
                 // Partition + persist. Events are routed through EventIngestProcessor which runs the
                 // full pipeline (rule engine / app-install aggregation / SignalR / webhooks / ...);
                 // Signal + Transition go straight to their repositories.
-                var outcome = await PersistItemsAsync(items, bodyTenantId, sessionId, validation, preFetchedStatus);
+                var outcome = await PersistItemsAsync(items, bodyTenantId, sessionId, validation, preFetchedStatus, sentAt);
 
                 _logger.LogInformation(
                     "IngestTelemetry: tenant={Tenant} session={Session} events={E} signals={S} transitions={T} unknown={U}",
@@ -349,7 +356,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             string tenantId,
             string sessionId,
             SecurityValidationResult validation,
-            SessionStatus? preFetchedStatus)
+            SessionStatus? preFetchedStatus,
+            DateTime? sentAt)
         {
             var events      = new List<EnrollmentEvent>();
             var signals     = new List<SignalRecord>();
@@ -435,6 +443,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     SessionId = sessionId,
                     TenantId  = tenantId,
                     Events    = events,
+                    SentAt    = sentAt,
                 };
                 var processed = await _eventProcessor.ProcessEventsAsync(eventRequest, validation, preFetchedStatus);
 
@@ -568,6 +577,29 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Parses the <c>X-Send-Time-Utc</c> header (agent device-clock send time, ISO-8601
+        /// round-trip). Returns null for absent/unparseable values and for anything before
+        /// year 2000 — Table Storage rejects pre-1601 DateTimes outright, and a sub-2000
+        /// value can only be garbage, never a measurable clock offset. Deliberately NO upper
+        /// clamp: a future-dated send time IS the device-clock-error measurement this field
+        /// exists to capture.
+        /// </summary>
+        internal static DateTime? ParseSendTimeHeader(string? headerValue)
+        {
+            if (string.IsNullOrWhiteSpace(headerValue)) return null;
+
+            if (!DateTimeOffset.TryParse(
+                    headerValue,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var parsed))
+                return null;
+
+            var utc = parsed.UtcDateTime;
+            return utc.Year >= 2000 ? utc : (DateTime?)null;
         }
 
         /// <summary>

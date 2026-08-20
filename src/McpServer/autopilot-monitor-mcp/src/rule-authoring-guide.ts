@@ -169,7 +169,9 @@ export const RULE_AUTHORING_GUIDE = {
         'Device-clock check against the server receive frame: skewMetric=clock_jump (persistent ' +
         'mid-session step) or sustained_offset (whole session off by >= value). value = threshold ' +
         'seconds, operator gt/gte on the magnitude. No eventType/dataField; IME-log-derived events ' +
-        'are excluded from the measurement.',
+        'are excluded from the measurement. Batches from agents that send X-Send-Time-Utc are ' +
+        'measured directly from the send time (spool-immune; evidence sentAtBatchCount counts them), ' +
+        'older agents fall back to per-event timestamp medians.',
     },
     caseSensitivity:
       'source values are matched CASE-SENSITIVELY by the engine — write them exactly as listed ' +

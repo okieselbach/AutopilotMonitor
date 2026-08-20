@@ -34,6 +34,31 @@ public class IngestCriticalPathTests
     }
 
     [Fact]
+    public void StampServerFields_SetsSentAtOnAllEvents_AndOverridesAgentValues()
+    {
+        // P14: SentAt is request-level and server-stamped — a per-event value coming off the
+        // wire (agent bug, forged payload) must never survive.
+        var sentAt = DateTime.UtcNow.AddSeconds(-4);
+        var events = MakeEvents(3);
+        events[1].SentAt = DateTime.UtcNow.AddYears(1);
+
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow, sentAt);
+
+        Assert.All(events, evt => Assert.Equal(sentAt, evt.SentAt));
+    }
+
+    [Fact]
+    public void StampServerFields_WithoutSendTimeHeader_LeavesSentAtNull()
+    {
+        var events = MakeEvents(2);
+        events[0].SentAt = DateTime.UtcNow; // forged per-event value must be cleared, not kept
+
+        EventIngestProcessor.StampServerFields(events, ValidTenantId, ValidSessionId, DateTime.UtcNow);
+
+        Assert.All(events, evt => Assert.Null(evt.SentAt));
+    }
+
+    [Fact]
     public void StampServerFields_SetsTenantIdOnAllEvents()
     {
         var events = MakeEvents(3);

@@ -815,6 +815,11 @@ namespace AutopilotMonitor.Functions.Services
                     ["TimestampClamped"] = evt.TimestampClamped
                 };
 
+                // P14: request-level device-clock send time; column stays unset for
+                // events from agents that pre-date the X-Send-Time-Utc header.
+                if (evt.SentAt.HasValue)
+                    entity["SentAt"] = EnsureUtc(evt.SentAt.Value);
+
                 if (evt.OriginalTimestamp.HasValue)
                     entity["OriginalTimestamp"] = EnsureUtc(evt.OriginalTimestamp.Value);
 
@@ -911,6 +916,10 @@ namespace AutopilotMonitor.Functions.Services
                                 ["ReceivedAt"] = evt.ReceivedAt,
                                 ["TimestampClamped"] = evt.TimestampClamped
                             };
+
+                            // P14: see StoreEventAsync.
+                            if (evt.SentAt.HasValue)
+                                entity["SentAt"] = EnsureUtc(evt.SentAt.Value);
 
                             if (evt.OriginalTimestamp.HasValue)
                                 entity["OriginalTimestamp"] = EnsureUtc(evt.OriginalTimestamp.Value);
@@ -3088,6 +3097,7 @@ namespace AutopilotMonitor.Functions.Services
                 Data = DeserializeEventData(entity.GetString("DataJson")),
                 RowKey = entity.RowKey,
                 ReceivedAt = entity.GetDateTimeOffset("ReceivedAt")?.UtcDateTime,
+                SentAt = entity.GetDateTimeOffset("SentAt")?.UtcDateTime,
                 OriginalTimestamp = entity.GetDateTimeOffset("OriginalTimestamp")?.UtcDateTime,
                 TimestampClamped = entity.GetBoolean("TimestampClamped") ?? false,
                 // Codex follow-up #3 — forward-link columns (nullable for legacy rows).

@@ -107,6 +107,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
             Assert.False(req.Headers.ContainsKey("X-Bootstrap-Token"));
         }
 
+        [Fact]
+        public async Task UploadBatchAsync_stamps_send_time_header_per_attempt()
+        {
+            // P14: X-Send-Time-Utc carries the device clock at the SEND moment, round-trip
+            // ISO-8601, one value per request. A retry is a new send moment — the header is
+            // stamped inside UploadBatchAsync, so each attempt gets a fresh value.
+            using var rig = new Rig();
+            rig.Handler.QueueStatus(HttpStatusCode.ServiceUnavailable);
+            rig.Handler.QueueStatus(HttpStatusCode.OK);
+
+            var before = DateTime.UtcNow;
+            await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            await rig.Sut.UploadBatchAsync(new[] { NewEventItem(1) }, CancellationToken.None);
+            var after = DateTime.UtcNow;
+
+            Assert.Equal(2, rig.Handler.Captured.Count);
+            foreach (var req in rig.Handler.Captured)
+            {
+                Assert.True(req.TryGetHeader("X-Send-Time-Utc", out var raw));
+                var parsed = DateTime.Parse(raw, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                Assert.Equal(DateTimeKind.Utc, parsed.Kind);
+                Assert.InRange(parsed, before.AddSeconds(-1), after.AddSeconds(1));
+            }
+        }
+
         // ============================================================ Compression (bandwidth)
 
         [Fact]

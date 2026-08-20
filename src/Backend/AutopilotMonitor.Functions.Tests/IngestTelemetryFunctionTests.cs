@@ -43,6 +43,45 @@ public class IngestTelemetryFunctionTests
         Assert.Equal(string.Empty, session);
     }
 
+    // ============================================================ X-Send-Time-Utc parsing (P14)
+
+    [Fact]
+    public void ParseSendTimeHeader_RoundTripUtc_ParsesToUtc()
+    {
+        var parsed = IngestTelemetryFunction.ParseSendTimeHeader("2026-08-21T10:15:30.1234567Z");
+
+        Assert.Equal(new DateTime(2026, 8, 21, 10, 15, 30, DateTimeKind.Utc).AddTicks(1234567), parsed);
+        Assert.Equal(DateTimeKind.Utc, parsed!.Value.Kind);
+    }
+
+    [Fact]
+    public void ParseSendTimeHeader_OffsetValue_NormalizedToUtc()
+    {
+        var parsed = IngestTelemetryFunction.ParseSendTimeHeader("2026-08-21T12:15:30+02:00");
+
+        Assert.Equal(new DateTime(2026, 8, 21, 10, 15, 30, DateTimeKind.Utc), parsed);
+    }
+
+    [Fact]
+    public void ParseSendTimeHeader_FutureDatedValue_KeptVerbatim()
+    {
+        // A future send time IS the device-clock-error measurement — no upper clamp.
+        var parsed = IngestTelemetryFunction.ParseSendTimeHeader("2027-01-01T00:00:00Z");
+
+        Assert.Equal(new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc), parsed);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not-a-date")]
+    [InlineData("1999-12-31T23:59:59Z")] // pre-2000 can only be garbage (Table Storage floor guard)
+    public void ParseSendTimeHeader_AbsentOrGarbage_ReturnsNull(string? headerValue)
+    {
+        Assert.Null(IngestTelemetryFunction.ParseSendTimeHeader(headerValue));
+    }
+
     // ============================================================ Payload size-cap guard
 
     [Fact]

@@ -113,7 +113,7 @@ namespace AutopilotMonitor.Functions.Services
                 validation.RateLimitResult?.MaxRequests);
 
             var receivedAt = DateTime.UtcNow;
-            StampServerFields(request.Events, request.TenantId, request.SessionId, receivedAt);
+            StampServerFields(request.Events, request.TenantId, request.SessionId, receivedAt, request.SentAt);
             SanitizeEventTimestamps(request.Events, receivedAt, _logger);
 
             var storedEvents = await _sessionRepo.StoreEventsBatchAsync(request.Events);
@@ -626,15 +626,19 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Stamps authoritative server-side fields onto all events before storage.
         /// TenantId and SessionId always come from the validated request metadata,
-        /// overriding any values the agent may have sent per-event.
+        /// overriding any values the agent may have sent per-event. SentAt is the
+        /// request-level device-clock send time (P14) — one value for every event of
+        /// the batch, null for agents that pre-date the X-Send-Time-Utc header.
         /// Exposed as internal for unit testing.
         /// </summary>
         internal static void StampServerFields(
-            List<EnrollmentEvent> events, string tenantId, string sessionId, DateTime receivedAt)
+            List<EnrollmentEvent> events, string tenantId, string sessionId, DateTime receivedAt,
+            DateTime? sentAt = null)
         {
             foreach (var evt in events)
             {
                 evt.ReceivedAt = receivedAt;
+                evt.SentAt = sentAt;
                 evt.TenantId = tenantId;
                 evt.SessionId = sessionId;
             }

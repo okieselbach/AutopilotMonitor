@@ -411,7 +411,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
-          .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),
+          .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). The endpoint returns this many events per call; follow nextLink to fetch more.'),
         continuation: z.string().optional()

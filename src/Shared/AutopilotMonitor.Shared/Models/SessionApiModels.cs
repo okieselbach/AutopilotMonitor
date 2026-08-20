@@ -61,6 +61,14 @@ namespace AutopilotMonitor.Shared.Models
         public List<EnrollmentEvent> Events { get; set; }
         public bool IsCompressed { get; set; }
 
+        /// <summary>
+        /// Device-clock send time of the carrying upload request (X-Send-Time-Utc header),
+        /// parsed by the ingest function. One value per request; stamped onto every event
+        /// in <c>EventIngestProcessor.StampServerFields</c>. Null when the agent pre-dates
+        /// the header or sent an unparseable value.
+        /// </summary>
+        public DateTime? SentAt { get; set; }
+
         public IngestEventsRequest()
         {
             Events = new List<EnrollmentEvent>();

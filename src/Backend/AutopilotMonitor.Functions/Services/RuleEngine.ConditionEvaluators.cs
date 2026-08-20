@@ -824,22 +824,29 @@ namespace AutopilotMonitor.Functions.Services
         internal const double ClockSkewStableBatchFraction = 0.75;
 
         /// <summary>
-        /// Detects DEVICE clock problems from the per-event offset d = Timestamp − ReceivedAt
-        /// (device frame minus server frame, in seconds; healthy baseline ≈ −upload-latency,
-        /// i.e. a few seconds negative).
+        /// Detects DEVICE clock problems from a per-upload-batch offset between the device's
+        /// clock frame and the server's receive frame (seconds; healthy baseline ≈
+        /// −upload-latency, i.e. a few seconds negative).
         /// skewMetric "clock_jump": a persistent step in the device's clock frame mid-session
         /// (time sync correcting a wrong RTC, Windows auto-timezone, manual change).
         /// skewMetric "sustained_offset": the whole session ran on a clock off by ≥ threshold
         /// — the during-enrollment complement of ANALYZE-DEV-007's one-shot NTP check.
         ///
+        /// Batch offset, two measurement paths (P14):
+        /// - Events carrying SentAt (X-Send-Time-Utc header, one device-clock value per ingest
+        ///   request): offset = SentAt − ReceivedAt, a DIRECT frame-crossing measurement. No
+        ///   event timestamps involved → immune to spool backlog, CMTrace writer beliefs and
+        ///   clamping by construction, so no spread filter is needed and every batch counts.
+        /// - Legacy batches (agents without the header): median of per-event Timestamp −
+        ///   ReceivedAt with a spread cap that drops replayed spool backlogs, excluding
+        ///   CMTrace-derived events (Source == "ImeLogTracker") — their Timestamp carries the
+        ///   log WRITER's timezone belief, so an anchoring regression must fire the
+        ///   operator-side CmTraceSkewTripwire, never this customer-facing rule.
+        ///
         /// Ordering key is Sequence, never Timestamp (see EvaluateAppInstallDurationCondition).
-        /// This evaluator then inspects Timestamp AGAINST that Sequence order ON PURPOSE — a
+        /// The legacy path then inspects Timestamp AGAINST that Sequence order ON PURPOSE — a
         /// device-clock problem is precisely a Timestamp anomaly relative to the clock-immune
         /// Sequence/ReceivedAt frame. Timestamp is a MEASUREMENT here, never a sort key.
-        ///
-        /// CMTrace-derived events (Source == "ImeLogTracker") are excluded up front: their
-        /// Timestamp carries the log WRITER's timezone belief, so an anchoring regression must
-        /// fire the operator-side CmTraceSkewTripwire, never this customer-facing rule.
         /// </summary>
         private (bool matched, object evidence) EvaluateClockSkewCondition(RuleCondition condition, List<EnrollmentEvent> events)
         {
@@ -849,28 +856,47 @@ namespace AutopilotMonitor.Functions.Services
                 return (false, "clock_skew requires a positive numeric value (threshold in seconds)");
 
             var usable = events
-                .Where(e => e.ReceivedAt.HasValue
-                         && !e.TimestampClamped
-                         && !string.Equals(e.Source, "ImeLogTracker", StringComparison.OrdinalIgnoreCase))
+                .Where(e => e.ReceivedAt.HasValue)
                 .OrderBy(e => e.Sequence)
                 .ToList();
             if (usable.Count == 0)
                 return (false, "no events with a server receive frame");
 
-            // Group into upload batches (ReceivedAt is stamped once per ingest request). A clock
-            // offset shifts a whole batch uniformly (internal spread ≈ upload debounce, seconds);
-            // a spool-backlog batch spans the offline period (spread = minutes–hours). Dropping
-            // wide-spread batches is what makes replayed backlogs inert.
+            // Group into upload batches (ReceivedAt is stamped once per ingest request). Legacy
+            // rationale for the spread cap: a clock offset shifts a whole batch uniformly
+            // (internal spread ≈ upload debounce, seconds); a spool-backlog batch spans the
+            // offline period (spread = minutes–hours). Dropping wide-spread batches is what
+            // makes replayed backlogs inert on the legacy path.
             var spreadCap = Math.Max(ClockSkewSpoolSpreadFloorSeconds, thresholdSeconds * ClockSkewSpoolSpreadCapFraction);
             var batches = new List<(double MedianOffsetSeconds, EnrollmentEvent FirstEvent)>();
             int usedSamples = 0;
+            int sentAtBatchCount = 0;
             foreach (var batch in usable.GroupBy(e => e.ReceivedAt!.Value))
             {
-                var offsets = batch.Select(e => (e.Timestamp - e.ReceivedAt!.Value).TotalSeconds).OrderBy(v => v).ToList();
+                // P14 direct path — SentAt is request-level, so any event's value speaks for
+                // the whole batch.
+                var sentAt = batch.Select(e => e.SentAt).FirstOrDefault(s => s.HasValue);
+                if (sentAt.HasValue)
+                {
+                    sentAtBatchCount++;
+                    usedSamples += batch.Count();
+                    batches.Add(((sentAt.Value - batch.Key).TotalSeconds, batch.First()));
+                    continue;
+                }
+
+                // Legacy path — see the method doc for the IME/clamped exclusions.
+                var measurable = batch
+                    .Where(e => !e.TimestampClamped
+                             && !string.Equals(e.Source, "ImeLogTracker", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (measurable.Count == 0)
+                    continue;
+
+                var offsets = measurable.Select(e => (e.Timestamp - batch.Key).TotalSeconds).OrderBy(v => v).ToList();
                 if (offsets[offsets.Count - 1] - offsets[0] > spreadCap)
                     continue;
                 usedSamples += offsets.Count;
-                batches.Add((Helpers.PercentileMath.Percentile(offsets, 0.50), batch.First()));
+                batches.Add((Helpers.PercentileMath.Percentile(offsets, 0.50), measurable[0]));
             }
 
             switch (metric)
@@ -910,6 +936,7 @@ namespace AutopilotMonitor.Functions.Services
                         ["timestamp"] = first.Timestamp,
                         ["sampleCount"] = usedSamples,
                         ["batchCount"] = batches.Count,
+                        ["sentAtBatchCount"] = sentAtBatchCount,
                     });
                 }
 
@@ -972,6 +999,7 @@ namespace AutopilotMonitor.Functions.Services
                         ["eventType"] = boundary.EventType,
                         ["sampleCount"] = usedSamples,
                         ["batchCount"] = batches.Count,
+                        ["sentAtBatchCount"] = sentAtBatchCount,
                     });
                 }
 

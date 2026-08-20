@@ -63,7 +63,7 @@ namespace AutopilotMonitor.Functions.Helpers
         private static readonly HashSet<string> KnownFieldKeys = new(StringComparer.OrdinalIgnoreCase)
         {
             "eventId", "sessionId", "tenantId", "eventType", "severity", "source", "phase",
-            "phaseName", "timestamp", "receivedAt", "message", "sequence", "rowKey",
+            "phaseName", "timestamp", "receivedAt", "sentAt", "message", "sequence", "rowKey",
             "originalTimestamp", "timestampClamped", "causedByTransitionStepIndex",
             "causedBySignalOrdinal", "data",
         };
@@ -86,6 +86,7 @@ namespace AutopilotMonitor.Functions.Helpers
             if (fields.Contains("phaseName")) dict["phaseName"] = e.PhaseName;
             if (fields.Contains("timestamp")) dict["timestamp"] = e.Timestamp;
             if (fields.Contains("receivedAt")) dict["receivedAt"] = e.ReceivedAt;
+            if (fields.Contains("sentAt")) dict["sentAt"] = e.SentAt;
             if (fields.Contains("message")) dict["message"] = e.Message;
             if (fields.Contains("sequence")) dict["sequence"] = e.Sequence;
             if (fields.Contains("rowKey")) dict["rowKey"] = e.RowKey;

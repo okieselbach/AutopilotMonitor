@@ -215,6 +215,110 @@ public class RuleEngineClockSkewTests
         Assert.Empty(outcome.Results);
     }
 
+    // ── P14: SentAt direct measurement (X-Send-Time-Utc batches) ───────────
+
+    [Fact]
+    public async Task SentAt_SpoolFlushWithWideEventSpread_JumpStillMeasured_Fires()
+    {
+        // Every batch is a spool flush spanning 30 min of emission time — the legacy path
+        // drops ALL of them via the spread cap and stays blind. SentAt measures the frame
+        // crossing directly, so the +30 min step must fire regardless of event-timestamp
+        // spread, and every batch counts as a SentAt batch.
+        static double[] Wide(int _) => new double[] { -1800, -1350, -900, -450, 0 };
+        var events = SentAtBatches(new double[] { 0, 0, 0, 0, 1800, 1800, 1800, 1800 }, Wide);
+
+        var outcome = await RunAsync(MakeRule("clock_jump", "300"), events);
+
+        var result = Assert.Single(outcome.Results);
+        var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["clock_jump"]);
+        Assert.Equal("forward", evidence["direction"]);
+        Assert.Equal(8, Convert.ToInt32(evidence["sentAtBatchCount"]));
+    }
+
+    [Fact]
+    public async Task SentAt_UniformBacklogBatches_ReadAsHealthy_Silent()
+    {
+        // EXACTLY the event shape of SustainedOffset_ClockBehindWholeSession_Fires (tight
+        // −30 min Timestamp−ReceivedAt deltas), but the batches carry SentAt ≈ ReceivedAt:
+        // the device clock is fine, the events are merely OLD (uniform spool backlog).
+        // The legacy median cannot tell those apart — SentAt can, and must stay silent.
+        static double[] Backlog(int b) => new double[] { -1800, -1795, -1805, -1800, -1798 };
+        var events = SentAtBatches(new double[] { -3, -5, -2, -4, -6 }, Backlog);
+
+        var outcome = await RunAsync(MakeRule("sustained_offset", "300"), events);
+
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task SentAt_SustainedOffset_MeasuredFromSendTime_Fires()
+    {
+        var events = SentAtBatches(new double[] { -1800, -1795, -1805, -1800, -1798 });
+
+        var outcome = await RunAsync(MakeRule("sustained_offset", "300"), events);
+
+        var result = Assert.Single(outcome.Results);
+        var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        Assert.Equal("behind", evidence["direction"]);
+        Assert.Equal(-30.0, Convert.ToDouble(evidence["offsetMinutes"]), 1);
+        Assert.Equal(5, Convert.ToInt32(evidence["sentAtBatchCount"]));
+    }
+
+    [Fact]
+    public async Task SentAt_ImeOnlyBatches_MeasurableViaSendTime_Fires()
+    {
+        // IME-source events are excluded from the LEGACY measurement (writer timezone
+        // belief), but a SentAt batch never reads event timestamps — the device clock is
+        // measured from the send moment, so IME-only sessions become measurable.
+        var events = SentAtBatches(
+            new double[] { -1800, -1800, -1800, -1800, -1800 }, source: "ImeLogTracker");
+
+        var outcome = await RunAsync(MakeRule("sustained_offset", "300"), events);
+
+        var result = Assert.Single(outcome.Results);
+        var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        Assert.Equal("behind", evidence["direction"]);
+    }
+
+    [Fact]
+    public async Task SentAt_HealthyUploadLatencyBaseline_Silent()
+    {
+        var events = SentAtBatches(new double[] { -3, -5, -2, -4, -6 });
+
+        var outcome = await RunAsync(MakeRule("sustained_offset", "300"), events);
+
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task SentAt_MixedWithLegacyBatches_ConsistentFrame_Fires()
+    {
+        // Mid-session agent update: first half legacy (event-median), second half SentAt.
+        // Both measure the same physical quantity, so a consistent −30 min frame across the
+        // mix must still produce a sustained-offset verdict.
+        var events = Batches(new double[] { -1800, -1795, -1805 });
+        long seq = 1000;
+        for (int b = 0; b < 3; b++)
+        {
+            var receivedAt = T0.AddMinutes(60 + b * 5);
+            var sentAt = receivedAt.AddSeconds(-1800);
+            for (int i = 0; i < 5; i++)
+            {
+                var evt = MakeEvent(seq++, receivedAt, -1800 + (i - 2));
+                evt.SentAt = sentAt;
+                events.Add(evt);
+            }
+        }
+
+        var outcome = await RunAsync(MakeRule("sustained_offset", "300"), events);
+
+        var result = Assert.Single(outcome.Results);
+        var evidence = Assert.IsAssignableFrom<IDictionary<string, object>>(result.MatchedConditions["sustained_offset"]);
+        Assert.Equal(-30.0, Convert.ToDouble(evidence["offsetMinutes"]), 1);
+        Assert.Equal(3, Convert.ToInt32(evidence["sentAtBatchCount"]));
+        Assert.Equal(6, Convert.ToInt32(evidence["batchCount"]));
+    }
+
     // ── ANALYZE-DEV-008 shape: two optional conditions ─────────────────────
 
     [Fact]
@@ -282,6 +386,33 @@ public class RuleEngineClockSkewTests
             var receivedAt = T0.AddMinutes(b * 5);
             for (int i = 0; i < 5; i++)
                 events.Add(MakeEvent(seq++, receivedAt, offsetsSeconds[b] + (i - 2)));
+        }
+        return events;
+    }
+
+    /// <summary>
+    /// One SentAt-carrying upload batch per frame offset: SentAt = ReceivedAt + frameOffset
+    /// (the P14 direct measurement), event timestamps default to healthy in-batch jitter but
+    /// can be overridden per batch to simulate spool spreads or backlogs.
+    /// </summary>
+    private static List<EnrollmentEvent> SentAtBatches(
+        double[] frameOffsetsSeconds,
+        Func<int, double[]>? eventOffsetsForBatch = null,
+        string source = "DecisionEngine")
+    {
+        var events = new List<EnrollmentEvent>();
+        long seq = 1;
+        for (int b = 0; b < frameOffsetsSeconds.Length; b++)
+        {
+            var receivedAt = T0.AddMinutes(b * 5);
+            var sentAt = receivedAt.AddSeconds(frameOffsetsSeconds[b]);
+            var offsets = eventOffsetsForBatch?.Invoke(b) ?? new double[] { -2, -1, 0, 1, 2 };
+            foreach (var offset in offsets)
+            {
+                var evt = MakeEvent(seq++, receivedAt, offset, source);
+                evt.SentAt = sentAt;
+                events.Add(evt);
+            }
         }
         return events;
     }
