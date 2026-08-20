@@ -1,0 +1,41 @@
+# Real CMTrace lines from session e9753578-b1d8-4188-9151-7545be7e1761 (agent 2.0.1410).
+# ImeLogs/AgentExecutor.log - ONE file, TWO writer eras.
+#
+# The device booted on the Pacific OOBE default; the agent set W. Europe at 12:13:22Z.
+# Lines at local hour 05 were rendered by a writer still on PDT (UTC-7), lines at hour 14
+# by one already on CEST (UTC+2) - 9 hours apart, interleaved in the same log. No line
+# carries a bias suffix, so nothing in the file itself says which is which.
+#
+# This is the case that broke the per-file calibration: the anchor is the newest line, so
+# its offset was applied to the older era too. Any era-aware calibrator must resolve BOTH
+# halves of this file correctly.
+#
+# era PDT (local 05:xx): 371 lines in the original, era CEST (local 14:xx): 195
+
+### --- transition window, verbatim ---
+﻿<![LOG[ExecutorLog AgentExecutor gets invoked]LOG]!><time="14:13:36.8420339" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Getting Ordered Parameters]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Parsing Ordered Parameters.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Powershell option gets invoked]LOG]!><time="14:13:36.8525204" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+
+### --- additional PDT-era samples ---
+<![LOG[[Proxy Poller using ExectorLog] AgentExecutor log path : C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\AgentExecutor.log]LOG]!><time="05:17:50.5238897" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="8" file="">
+<![LOG[[Proxy Poller using ExectorLog] AgentExecutor log path : C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\AgentExecutor.log]LOG]!><time="05:17:50.5258992" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="8" file="">
+<![LOG[ExecutorLog AgentExecutor gets invoked]LOG]!><time="05:22:41.7798901" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="05:22:41.7839044" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Getting Ordered Parameters]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Parsing Ordered Parameters.]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\73d664e4-0886-4a73-b745-c694da45ddb4_3eafb027-7149-48e8-98a2-130756c03852.ps1 to the named argument list.]LOG]!><time="05:22:41.7859130" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Powershell option gets invoked]LOG]!><time="05:22:41.7899258" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+
+### --- additional CEST-era samples ---
+﻿<![LOG[ExecutorLog AgentExecutor gets invoked]LOG]!><time="14:13:36.8420339" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Creating command line parser, name delimiter is - and value separator is  .]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Getting Ordered Parameters]LOG]!><time="14:13:36.8460498" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Parsing Ordered Parameters.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Adding argument powershell with value C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1 to the named argument list.]LOG]!><time="14:13:36.8484892" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[Powershell option gets invoked]LOG]!><time="14:13:36.8525204" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.ps1]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
+<![LOG[C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Results\00000000-0000-0000-0000-000000000000_338d9434-23b1-49f0-b58d-9a274ee9c85b.output]LOG]!><time="14:13:36.8545313" date="8-20-2026" component="AgentExecutor" context="" type="1" thread="1" file="">
