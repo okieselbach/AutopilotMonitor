@@ -66,6 +66,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// Records that the file was looked at in a poll pass — whether or not it had new data.
+        /// Creates the entry on first sight (position 0), so a file first seen EMPTY counts as
+        /// observed and its first content is provably fresh.
+        /// <para>
+        /// This timestamp is the freshness reference for per-line offset anchoring: bytes found
+        /// in the NEXT pass were written after this instant, so
+        /// <c>now - LastCheckedUtc</c> bounds the age of every line in that pass's chunk.
+        /// The caller supplies the clock (the tracker's <c>UtcNowProvider</c>) so replay/test
+        /// clocks stay consistent with the freshness comparison.
+        /// </para>
+        /// </summary>
+        public void MarkChecked(string filePath, DateTime nowUtc)
+        {
+            FilePositionState state;
+            if (!_positions.TryGetValue(filePath, out state))
+            {
+                state = new FilePositionState();
+                _positions[filePath] = state;
+            }
+
+            state.LastCheckedUtc = nowUtc;
+        }
+
+        /// <summary>
+        /// When the file was last looked at, or <see cref="DateTime.MinValue"/> when it never
+        /// was in THIS process — including entries restored from persisted state, whose
+        /// bookmark survives an agent restart but whose freshness deliberately does not
+        /// (the restart gap can hold arbitrarily old backlog).
+        /// </summary>
+        public DateTime GetLastCheckedUtc(string filePath)
+        {
+            FilePositionState state;
+            return _positions.TryGetValue(filePath, out state) ? state.LastCheckedUtc : DateTime.MinValue;
+        }
+
+        /// <summary>
         /// Gets the stored position for a file, or 0 if not tracked.
         /// Does not perform rollover detection.
         /// </summary>
@@ -89,6 +125,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>
         /// Restores a previously persisted position for a file.
         /// Used on agent restart to continue reading from the last known position.
+        /// <para>
+        /// <see cref="FilePositionState.LastCheckedUtc"/> is deliberately NOT restored: the
+        /// bookmark survives the restart, the freshness guarantee does not — the first pass
+        /// after a restart reads the whole downtime backlog and must never anchor per-line
+        /// offsets on it.
+        /// </para>
         /// </summary>
         public void RestorePosition(string filePath, long position, long lastKnownSize)
         {
@@ -96,7 +138,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 Position = position,
                 LastKnownSize = lastKnownSize,
-                LastReadTime = DateTime.UtcNow
+                LastReadTime = DateTime.UtcNow,
+                LastCheckedUtc = DateTime.MinValue
             };
         }
     }
@@ -106,5 +149,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public long Position { get; set; }
         public long LastKnownSize { get; set; }
         public DateTime LastReadTime { get; set; }
+
+        /// <summary>
+        /// When this file was last looked at by a poll pass IN THIS PROCESS. In-memory only —
+        /// never persisted, so a restart resets it (see <see cref="LogFilePositionTracker.RestorePosition"/>).
+        /// </summary>
+        public DateTime LastCheckedUtc { get; set; }
     }
 }

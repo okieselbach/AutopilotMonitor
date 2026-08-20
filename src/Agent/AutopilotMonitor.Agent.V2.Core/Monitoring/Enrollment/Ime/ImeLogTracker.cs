@@ -103,6 +103,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         private string _currentSourceFileName;
 
+        /// <summary>
+        /// Whether every line of the file iteration currently in flight is provably FRESH —
+        /// written after the previous look at this file, which happened at most
+        /// <see cref="FreshLineMaxAge"/> ago in THIS process. Only then may a line anchor its
+        /// own UTC offset (<see cref="CmTraceOffsetCalibrator.TryMeasureOffset"/>): the grid
+        /// rounding is safe when the line's age is bounded by seconds, and becomes a trap on
+        /// backlog whose age can hit an exact grid multiple. Same single-task justification as
+        /// <see cref="_currentSourceFileName"/>.
+        /// </summary>
+        private bool _currentPassLinesAreFresh;
+
+        /// <summary>
+        /// Maximum gap between two looks at a file for its new bytes to count as fresh. Far
+        /// above the 100 ms poll (rides out GC pauses and ESP CPU starvation), far below the
+        /// 13-minute danger zone where a line's AGE could round onto the 15-minute offset grid.
+        /// </summary>
+        internal static readonly TimeSpan FreshLineMaxAge = TimeSpan.FromSeconds(30);
+
         internal static DateTime NormalizeUtc(DateTime value) =>
             value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 

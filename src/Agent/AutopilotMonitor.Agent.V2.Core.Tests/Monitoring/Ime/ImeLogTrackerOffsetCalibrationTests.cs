@@ -88,13 +88,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         [InlineData(0)]     // UTC
         public async Task MeasuresTheWritersOffsetExactly_ForAnyBelief(int writerOffsetHours)
         {
-            // NOTE: this used to assert that a line written at T RESOLVES to T. That application
-            // was reverted on 2026-08-20 after session e9753578: one offset per file is wrong when
-            // a file holds two writer eras (IME restarting across a timezone change), which shifted
-            // 5 script_started events by -9 h while their completions stayed correct and inflated
-            // every script duration to ~32,400 s. Until the calibrator is era-aware, the measured
-            // offset is observational and the reader-zone fallback is applied uniformly — wrong in
-            // absolute terms but self-consistent, so derived durations stay right.
+            // NOTE: the per-FILE measurement asserted here is OBSERVATIONAL — its application was
+            // reverted on 2026-08-20 (04b1a7c6) because one offset per file is wrong when a file
+            // holds interleaved writer eras. Resolution now anchors per LINE instead (see
+            // ImeLogTrackerLineAnchoringTests, which restores the "a line written at T resolves
+            // to T" property era-safely). The per-file measurement stays for the Info log and
+            // measuredWriterOffsetMinutes provenance.
             var writerOffset = TimeSpan.FromHours(writerOffsetHours);
             using var h = new Harness();
 
@@ -222,10 +221,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             h.Append(Line("marker 3", h.Now, writerOffset));
             await h.Pass();
 
-            // Measured: the writer's actual belief.
+            // Measured: the writer's actual belief, per file.
             Assert.Equal(-420, h.Tracker.LastMatchedMeasuredWriterOffsetMinutes);
 
-            // Applied: still the reader zone, and reported as such — never as "calibrated".
+            // Applied: the line's OWN anchor (fresh pass), never the per-file "calibrated" value —
+            // the two must stay distinguishable even when they agree numerically.
+            Assert.Equal(CmTraceOffsetOrigin.LineAnchored, h.Tracker.LastMatchedSourceOffsetOrigin);
             Assert.NotEqual(CmTraceOffsetOrigin.Calibrated, h.Tracker.LastMatchedSourceOffsetOrigin);
         }
 

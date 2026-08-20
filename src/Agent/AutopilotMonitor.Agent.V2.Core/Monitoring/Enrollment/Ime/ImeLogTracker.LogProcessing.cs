@@ -77,12 +77,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     var fileInfo = new FileInfo(filePath);
                     if (!fileInfo.Exists) continue;
 
-                    // Captured BEFORE GetSafePosition, which creates the entry as a side effect.
-                    // Growth measured against a previously observed size is what makes the last
-                    // line of this pass a valid "written now" calibration anchor.
+                    // Captured BEFORE MarkChecked below stamps this pass. Growth measured
+                    // against a previously observed state is what makes this pass's lines valid
+                    // "written now" anchors — for the per-file measurement AND per-line anchoring.
                     var hadPreviousObservation = _positionTracker.HasSeen(filePath);
+                    var lastCheckedUtc = _positionTracker.GetLastCheckedUtc(filePath);
+                    var passNowUtc = UtcNowProvider();
 
                     var startPos = _positionTracker.GetSafePosition(filePath, fileInfo.Length);
+
+                    // Every look counts, including "no new data" and an empty first sight: the
+                    // NEXT pass's freshness window is measured from here. Restored bookmarks
+                    // deliberately carry no LastCheckedUtc — the first pass after a restart reads
+                    // downtime backlog and must never count as fresh.
+                    _positionTracker.MarkChecked(filePath, passNowUtc);
+
                     if (startPos >= fileInfo.Length)
                     {
                         // M2: guard the interpolated string so it isn't built every 100 ms tick
@@ -95,6 +104,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         _logger.Trace($"ImeLogTracker: reading {Path.GetFileName(filePath)} from pos {startPos} (size={fileInfo.Length}, delta={fileInfo.Length - startPos})");
 
                     _currentSourceFileName = Path.GetFileName(filePath);
+                    _currentPassLinesAreFresh = hadPreviousObservation
+                        && lastCheckedUtc > DateTime.MinValue
+                        && (passNowUtc - lastCheckedUtc) <= FreshLineMaxAge;
 
                     // Newest bias-less line of this pass — the calibration anchor. Bias-carrying
                     // lines are skipped: they already state the writer's offset, so they need no
@@ -650,23 +662,40 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             if (!entry.HasTimestamp) return UtcNowProvider();
 
-            // REVERTED 2026-08-20 (session e9753578): the measured offset is NOT applied.
+            // ERA-AWARE RESOLUTION (2026-08-20, second attempt): a FRESH line anchors ITSELF.
             //
-            // Calibration keeps one offset per FILE, but a single log file can hold lines from
-            // two writer eras — IME restarting across a timezone change leaves older lines in the
-            // old zone and newer ones in the new zone, in the same file. The anchor is the newest
-            // line, so its offset was also applied to the older lines, for which it is wrong. In
-            // the field that shifted 5 script_started events by -9 h while their script_completed
-            // counterparts were resolved correctly, inflating every script duration to ~32,400 s.
+            // The first attempt (e9dba11b, reverted in 04b1a7c6) applied one measured offset per
+            // FILE — wrong, because a single log file holds lines from multiple writer eras:
+            // AgentExecutor.log is written by short-lived child processes whose zone belief
+            // flips per process, interleaved in one file (fixture
+            // tests/fixtures/cmtrace-logs/agentexecutor-two-writer-eras-v1.cmtrace). Any
+            // cross-line anchor — per file, or nearest-in-write-order — inherits that trap.
             //
-            // The deeper lesson: applying the reader zone uniformly is wrong for ABSOLUTE times
-            // but self-consistent for DERIVED ones — both ends of a duration are wrong by the same
-            // amount, so the duration is right. Correcting only some timestamps produced a mixed
-            // frame INSIDE one session, which is strictly worse. Until the calibrator is era-aware
-            // (see tasks/todo.md), uniform beats partially-correct.
-            //
-            // The measurement itself still runs: it costs nothing, feeds the Info log and the
-            // event provenance, and is the field data the era-aware fix will be built on.
+            // Per-line self-anchoring does not: at a 100 ms poll every line of a growing pass
+            // was written essentially "now", so its own distance to the agent clock IS its
+            // writer's offset, era by era. The line's timestamp still contributes the sub-poll
+            // precision and ordering (two lines 6 ms apart stay 6 ms apart — a plain
+            // occurredAt=now could not do that), while the offset grid absorbs poll latency.
+            // Freshness is load-bearing (see FreshLineMaxAge) — backlog passes, restart
+            // catch-up and replay logs must never anchor, because an old line's AGE can round
+            // onto the grid.
+            if (_currentPassLinesAreFresh)
+            {
+                TimeSpan lineOffset;
+                if (CmTraceOffsetCalibrator.TryMeasureOffset(entry.LocalTimestamp, UtcNowProvider(), out lineOffset))
+                {
+                    origin = CmTraceOffsetOrigin.LineAnchored;
+                    offsetMinutes = (int)lineOffset.TotalMinutes;
+                    return DateTime.SpecifyKind(entry.LocalTimestamp - lineOffset, DateTimeKind.Utc);
+                }
+            }
+
+            // Fallback for everything not provably fresh: assume the reader's zone, UNIFORMLY.
+            // Wrong in absolute terms whenever the writer held a different belief, but
+            // self-consistent — both ends of a duration are wrong by the same amount, so derived
+            // durations stay right. That asymmetry is the lesson of the 04b1a7c6 revert:
+            // partially corrected is strictly worse than uniformly wrong. Origin stays None so
+            // the emitted event says so.
             var readerZoneOffset = TimeZoneInfo.Local.GetUtcOffset(entry.LocalTimestamp);
             offsetMinutes = (int)readerZoneOffset.TotalMinutes;
             return CmTraceLogParser.ResolveUtcAssumingReaderZone(entry.LocalTimestamp);
@@ -689,17 +718,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (!OffsetCalibrator.TryGetOffset(sourceFileName, out measured)) return;
             if (hadOffset && measured == previous) return;
 
+            // The anchor's local timestamp is part of the record ON PURPOSE (tripwire, 2026-08-20):
+            // session e9753578 logged "+02:00 measured for IntuneManagementExtension.log" although
+            // that file provably held no +2-era line — an anchor/label pairing the committed code
+            // could not be shown to produce. Should it ever happen again, the logged anchor value
+            // itself will prove (or refute) the crossing without needing the device's log files.
             var readerZoneOffset = TimeZoneInfo.Local.GetUtcOffset(UtcNowProvider());
             if (measured == readerZoneOffset)
             {
                 _logger?.Debug(
-                    $"ImeLogTracker: {sourceFileName} writer offset measured {measured} (matches this process).");
+                    $"ImeLogTracker: {sourceFileName} writer offset measured {measured} (matches this process, anchor local={anchor.LocalTimestamp:yyyy-MM-ddTHH:mm:ss.fff}).");
                 return;
             }
 
             _logger?.Info(
                 $"ImeLogTracker: {sourceFileName} writer offset measured {measured}, this process believes {readerZoneOffset} " +
-                $"— timestamps from this file are corrected by {(measured - readerZoneOffset).Negate()}.");
+                $"(anchor local={anchor.LocalTimestamp:yyyy-MM-ddTHH:mm:ss.fff}). Measurement is observational — resolution anchors per line.");
         }
 
     }

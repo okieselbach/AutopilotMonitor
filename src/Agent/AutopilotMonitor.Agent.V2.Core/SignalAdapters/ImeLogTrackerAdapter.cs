@@ -427,11 +427,14 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             switch (origin)
             {
                 case CmTraceOffsetOrigin.Bias: return "bias";
+                // Per-FILE offset application, retired by the 2026-08-20 revert (04b1a7c6).
+                // Kept so stored 2.0.1410 events remain interpretable; no current path emits it.
                 case CmTraceOffsetOrigin.Calibrated: return "calibrated";
-                // Unreachable since the 2026-08-20 revert; kept so the vocabulary survives the
-                // era-aware fix rather than being reinvented.
-                // The writer's offset was never measured, so this process's own zone was assumed —
-                // correct only if the writer happens to share it.
+                // The line anchored itself: read provably fresh, its own distance to the agent
+                // clock (grid-rounded) was applied as the writer's offset. Era-safe per line.
+                case CmTraceOffsetOrigin.LineAnchored: return "line-anchored";
+                // The line was not provably fresh (backlog, restart catch-up, replay), so this
+                // process's own zone was assumed — correct only if the writer happens to share it.
                 default: return "reader-zone-fallback";
             }
         }

@@ -12,8 +12,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>The writer declared its offset in the line ("+480"). Authoritative.</summary>
         Bias = 1,
 
-        /// <summary>Offset measured from a freshly appended line. See <see cref="CmTraceOffsetCalibrator"/>.</summary>
+        /// <summary>
+        /// A per-FILE measured offset was applied. Retired by the 2026-08-20 revert (04b1a7c6):
+        /// one offset per file is wrong when a file holds lines from two writer eras. Kept so
+        /// stored events from agent 2.0.1410 remain interpretable.
+        /// </summary>
         Calibrated = 2,
+
+        /// <summary>
+        /// The line anchored ITSELF: it was read in a pass whose lines are provably fresh
+        /// (written since the previous poll), so its own distance to the agent clock, rounded
+        /// to the 15-minute offset grid, IS the writer's offset — no cross-line state involved.
+        /// Immune to interleaved writer eras by construction. See
+        /// <see cref="CmTraceOffsetCalibrator.TryMeasureOffset"/>.
+        /// </summary>
+        LineAnchored = 3,
     }
 
     /// <summary>
@@ -98,23 +111,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <param name="localTimestamp">The line's local time exactly as written (Kind is ignored).</param>
         /// <param name="agentUtcNow">The agent's UTC clock at parse time.</param>
         /// <returns><c>true</c> when the anchor was accepted and the offset updated.</returns>
-        public bool TryCalibrate(string sourceKey, DateTime localTimestamp, DateTime agentUtcNow)
+        /// <summary>
+        /// The pure measurement: the distance between a FRESH line's local time and the agent's
+        /// UTC clock, rounded to the 15-minute offset grid, is the writer's UTC offset.
+        /// <para>
+        /// Freshness is the caller's obligation and is what makes this correct — for a line
+        /// written within the last poll interval, <c>local - now</c> differs from the writer's
+        /// true offset only by seconds, which the grid rounding absorbs. Returns <c>false</c>
+        /// when the residual exceeds <see cref="MaxGridResidual"/> (the line is not fresh, or
+        /// the writer's clock is broken) or the rounded value is not a real timezone offset.
+        /// </para>
+        /// <para>
+        /// Known, accepted edge: a freshly WRITTEN line carrying an old REPLAYED timestamp whose
+        /// age happens to sit within the residual of an exact grid multiple measures that age as
+        /// an "offset" — the line then resolves to roughly the read time instead of its replayed
+        /// past. The error is bounded by construction (an anchored line always resolves to
+        /// now ± <see cref="MaxGridResidual"/>), the case needs an age of exactly N×15 min ± 2 min,
+        /// and sub-24h replays are treated as current by the historic-replay guard anyway.
+        /// </para>
+        /// </summary>
+        public static bool TryMeasureOffset(DateTime localTimestamp, DateTime agentUtcNow, out TimeSpan offset)
         {
-            if (string.IsNullOrEmpty(sourceKey)) return false;
-
             var candidate = DateTime.SpecifyKind(localTimestamp, DateTimeKind.Unspecified)
                           - DateTime.SpecifyKind(agentUtcNow, DateTimeKind.Unspecified);
 
             var gridUnits = Math.Round(candidate.TotalMinutes / OffsetGrid.TotalMinutes,
                                        MidpointRounding.AwayFromZero);
-            var offset = TimeSpan.FromMinutes(gridUnits * OffsetGrid.TotalMinutes);
+            offset = TimeSpan.FromMinutes(gridUnits * OffsetGrid.TotalMinutes);
 
-            // Off-grid by more than the tolerance: the anchor was not fresh, or the writer's own
-            // clock is broken. Either way it must not become the offset.
+            // Off-grid by more than the tolerance: the line was not fresh, or the writer's own
+            // clock is broken. Either way it must not become an offset.
             if ((candidate - offset).Duration() > MaxGridResidual) return false;
 
             // Not a value any real timezone can produce.
             if (offset < MinOffset || offset > MaxOffset) return false;
+
+            return true;
+        }
+
+        public bool TryCalibrate(string sourceKey, DateTime localTimestamp, DateTime agentUtcNow)
+        {
+            if (string.IsNullOrEmpty(sourceKey)) return false;
+
+            TimeSpan offset;
+            if (!TryMeasureOffset(localTimestamp, agentUtcNow, out offset)) return false;
 
             lock (_lock)
             {
