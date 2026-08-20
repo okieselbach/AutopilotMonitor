@@ -752,7 +752,12 @@ namespace AutopilotMonitor.Functions.Services
 
         private (bool matched, object evidence) EvaluateAppInstallDurationCondition(RuleCondition condition, List<EnrollmentEvent> events)
         {
-            var sortedEvents = events.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
+            // Ordering key is Sequence, never Timestamp: Sequence is a persisted, strictly
+            // monotonic per-session counter assigned at emit time and is immune to every clock
+            // problem, whereas Timestamp carries the device clock frame plus — for CMTrace-derived
+            // events — the writer process's timezone belief. Timestamp stays in use below only
+            // where an actual ELAPSED DURATION is meant, which is what it is for.
+            var sortedEvents = events.OrderBy(e => e.Sequence).ToList();
 
             var completionEventTypes = string.IsNullOrWhiteSpace(condition.EventType)
                 ? new HashSet<string>(new[] { "app_install_completed", "app_install_failed" }, StringComparer.OrdinalIgnoreCase)
@@ -774,7 +779,7 @@ namespace AutopilotMonitor.Functions.Services
                 var startEvent = sortedEvents.LastOrDefault(e =>
                     (string.Equals(e.EventType, "app_install_started", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(e.EventType, "app_install_start", StringComparison.OrdinalIgnoreCase)) &&
-                    e.Timestamp <= completionEvent.Timestamp &&
+                    e.Sequence <= completionEvent.Sequence &&
                     string.Equals(GetDataFieldValue(e, "appId") ?? GetDataFieldValue(e, "appName"), appKey, StringComparison.OrdinalIgnoreCase));
 
                 if (startEvent == null)
@@ -826,7 +831,12 @@ namespace AutopilotMonitor.Functions.Services
                 return (false, "event_correlation requires EventType, CorrelateEventType, and JoinField");
             }
 
-            var sortedEvents = events.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).ToList();
+            // Ordering key is Sequence, never Timestamp: Sequence is a persisted, strictly
+            // monotonic per-session counter assigned at emit time and is immune to every clock
+            // problem, whereas Timestamp carries the device clock frame plus — for CMTrace-derived
+            // events — the writer process's timezone belief. Timestamp stays in use below only
+            // where an actual ELAPSED DURATION is meant, which is what it is for.
+            var sortedEvents = events.OrderBy(e => e.Sequence).ToList();
 
             // Collect Event A candidates with optional filter
             var eventAList = sortedEvents
@@ -874,16 +884,14 @@ namespace AutopilotMonitor.Functions.Services
 
                 // Find the latest Event A that occurred before Event B
                 var matchingA = eventAByJoinKey[bKey]
-                    .Where(a => a.Timestamp < eventB.Timestamp ||
-                                (a.Timestamp == eventB.Timestamp && a.Sequence < eventB.Sequence))
+                    .Where(a => a.Sequence < eventB.Sequence)
                     .Where(a =>
                     {
                         if (condition.TimeWindowSeconds == null || condition.TimeWindowSeconds <= 0)
                             return true;
                         return (eventB.Timestamp - a.Timestamp).TotalSeconds <= condition.TimeWindowSeconds.Value;
                     })
-                    .OrderByDescending(a => a.Timestamp)
-                    .ThenByDescending(a => a.Sequence)
+                    .OrderByDescending(a => a.Sequence)
                     .FirstOrDefault();
 
                 if (matchingA == null)
