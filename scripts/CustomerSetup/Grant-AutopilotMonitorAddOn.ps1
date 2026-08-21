@@ -65,6 +65,12 @@
     Requires:
       - Microsoft.Graph.Authentication PowerShell module (auto-installs if missing).
       - Sign-in as Global Administrator OR Privileged Role Administrator OR Cloud Application Administrator.
+
+    Sign-in behaviour:
+      In Azure Cloud Shell the script signs in via the ambient identity endpoint (a delegated
+      token for the already-signed-in user) - no device-code prompt, which Conditional Access
+      policies commonly block. Outside Cloud Shell it falls back to a normal interactive
+      Microsoft Graph sign-in. -TenantId only applies to the interactive fallback.
       - The Autopilot Monitor app must be admin-consented in your tenant first
         (its service principal must exist before grants can be added).
 
@@ -133,7 +139,25 @@ if ($TenantId) { $connectParams['TenantId'] = $TenantId }
 
 Write-Host ""
 Write-Host "[Auth] Connecting to Microsoft Graph..." -ForegroundColor Cyan
-Connect-MgGraph @connectParams | Out-Null
+
+# Preferred path: ambient identity. In Azure Cloud Shell the local identity endpoint issues a
+# delegated Graph token for the signed-in user, which avoids the device-code flow that
+# Conditional Access policies commonly block. Outside Azure this throws and we fall back to
+# an interactive sign-in with explicit scopes.
+$identityConnected = $false
+try {
+    Connect-MgGraph -Identity -NoWelcome -ErrorAction Stop | Out-Null
+    # An ambient identity can exist yet hold no Graph permissions (e.g. a plain VM managed
+    # identity) - probe with a read before committing to this session.
+    Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=id&`$top=1" -ErrorAction Stop | Out-Null
+    $identityConnected = $true
+    Write-Host "[Auth] Connected via ambient identity (Azure Cloud Shell / managed identity)." -ForegroundColor Green
+}
+catch {
+    if (Get-MgContext) { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null }
+    Write-Host "[Auth] No usable ambient identity - falling back to interactive sign-in..." -ForegroundColor Yellow
+    Connect-MgGraph @connectParams | Out-Null
+}
 
 $ctx = Get-MgContext
 if (-not $ctx) {
@@ -144,7 +168,10 @@ Write-Host "[Auth] Signed in as : $($ctx.Account)"
 Write-Host "[Auth] Tenant       : $($ctx.TenantId)"
 Write-Host "[Auth] Granted scopes: $($ctx.Scopes -join ', ')"
 
-if (-not ($ctx.Scopes -contains 'AppRoleAssignment.ReadWrite.All')) {
+# Scope check only applies to the interactive path: an ambient-identity (Cloud Shell) token
+# carries a fixed scope set (incl. Directory.AccessAsUser.All) instead of the requested scopes,
+# and its effective rights follow the signed-in user's directory role.
+if (-not $identityConnected -and -not ($ctx.Scopes -contains 'AppRoleAssignment.ReadWrite.All')) {
     Write-Warning "Scope 'AppRoleAssignment.ReadWrite.All' was NOT granted. The signed-in user likely lacks the required role (Global Admin / Privileged Role Admin / Cloud App Admin)."
     if (-not $VerifyOnly) { return }
 }
