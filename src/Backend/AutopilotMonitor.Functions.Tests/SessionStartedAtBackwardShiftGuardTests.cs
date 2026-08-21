@@ -101,6 +101,52 @@ public class SessionStartedAtBackwardShiftGuardTests
         Assert.Equal((int)(lastEvent - earliest).TotalSeconds, harness.Written!.GetInt32("DurationSeconds"));
     }
 
+    // =========================== system-timeline rows are not session anchors ====
+
+    [Fact]
+    public void IsSessionAnchorEligible_excludes_system_timeline_watcher_rows()
+    {
+        Assert.False(TableStorageService.IsSessionAnchorEligible(
+            new TableEntity("p", "r") { ["Source"] = "SystemTimelineWatcher" }));
+        Assert.True(TableStorageService.IsSessionAnchorEligible(
+            new TableEntity("p", "r") { ["Source"] = "ImeLogTracker" }));
+        Assert.True(TableStorageService.IsSessionAnchorEligible(
+            new TableEntity("p", "r"))); // legacy row without Source projection
+    }
+
+    [Fact]
+    public async Task Pending_duration_skips_backfilled_system_timeline_row_and_anchors_on_activity()
+    {
+        // Field case d0c5b672: a pre-agent system_clock_changed event (backfilled from the
+        // Windows event log, original timestamp ~14min before the first real activity) was
+        // the partition's earliest row and re-anchored StartedAt. The probe must skip
+        // SystemTimelineWatcher rows and anchor on the first activity event instead —
+        // even when the watcher row sits well inside the 2h plausibility window.
+        var clockEventAt = StartedAt.AddMinutes(-90);
+        var firstActivity = StartedAt.AddMinutes(-5);
+        var lastEvent = StartedAt.AddMinutes(70);
+        var harness = new Harness(SessionRow(), eventRows: new[]
+        {
+            EventRow(clockEventAt, sequence: 18, source: "SystemTimelineWatcher"),
+            EventRow(firstActivity, sequence: 2, source: "ImeLogTracker"),
+        });
+
+        var ok = await harness.Sut.UpdateSessionStatusAsync(
+            TenantId, SessionId, SessionStatus.Pending,
+            latestEventTimestamp: lastEvent);
+
+        Assert.True(ok);
+        Assert.NotNull(harness.Written);
+        Assert.Equal((int)(lastEvent - firstActivity).TotalSeconds, harness.Written!.GetInt32("DurationSeconds"));
+    }
+
+    private static TableEntity EventRow(DateTime occurredUtc, int sequence, string source) =>
+        new($"{TenantId}_{SessionId}", $"{occurredUtc:yyyyMMddHHmmssfff}_{sequence:D10}")
+        {
+            ["OccurredUtc"] = new DateTimeOffset(occurredUtc),
+            ["Source"] = source,
+        };
+
     // ============================================================ Harness ====
 
     private static TableEntity SessionRow()
@@ -126,7 +172,7 @@ public class SessionStartedAtBackwardShiftGuardTests
         public TableStorageService Sut { get; }
         public TableEntity? Written { get; private set; }
 
-        public Harness(TableEntity existing, DateTime? earliestStoredEvent = null)
+        public Harness(TableEntity existing, DateTime? earliestStoredEvent = null, TableEntity[]? eventRows = null)
         {
             var sessions = new Mock<TableClient>();
 
@@ -150,7 +196,7 @@ public class SessionStartedAtBackwardShiftGuardTests
                 });
 
             var events = new Mock<TableClient>();
-            var eventRows = earliestStoredEvent.HasValue
+            var servedRows = eventRows ?? (earliestStoredEvent.HasValue
                 ? new[]
                 {
                     new TableEntity($"{TenantId}_{SessionId}", $"{earliestStoredEvent.Value:yyyyMMddHHmmssfff}_0000000001")
@@ -158,12 +204,12 @@ public class SessionStartedAtBackwardShiftGuardTests
                         ["OccurredUtc"] = new DateTimeOffset(earliestStoredEvent.Value),
                     },
                 }
-                : Array.Empty<TableEntity>();
+                : Array.Empty<TableEntity>());
             events.Setup(t => t.QueryAsync<TableEntity>(
                     It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
                 .Returns(AsyncPageable<TableEntity>.FromPages(new[]
                 {
-                    Page<TableEntity>.FromValues(eventRows, null, new Mock<Response>().Object),
+                    Page<TableEntity>.FromValues(servedRows, null, new Mock<Response>().Object),
                 }));
 
             var serviceClient = new Mock<TableServiceClient>();

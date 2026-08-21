@@ -3250,12 +3250,27 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Returns the earliest event timestamp persisted for a session, if any.
-        /// Events are written with RowKey "{Timestamp}_{Sequence}", so querying the partition
-        /// and taking the first row yields the earliest event. Resolution must NOT rely on
-        /// the system Timestamp: it is reset by storage migrations, and this value feeds the
-        /// StartedAt/Duration reconciliation — a migration-reset read would rewrite those
-        /// session fields with the migration date.
+        /// Event sources whose rows never anchor the session. The system timeline watcher
+        /// backfills environment observations (clock steps, sleep episodes) from the Windows
+        /// event log with their ORIGINAL timestamps — up to 24h before the agent started.
+        /// They belong on the timeline, but they are not enrollment activity: anchoring on
+        /// them silently stretches StartedAt/DurationSeconds toward pre-enrollment OOBE idle
+        /// time (field case d0c5b672: a pre-agent clock correction pulled StartedAt ~14min
+        /// before the first real activity; the 2h backward-shift guard only caps, not
+        /// prevents, this). User decision 2026-08-21: the session anchor stays on real
+        /// enrollment activity.
+        /// </summary>
+        internal static bool IsSessionAnchorEligible(TableEntity eventRow)
+            => eventRow.GetString("Source") != "SystemTimelineWatcher";
+
+        /// <summary>
+        /// Returns the earliest ANCHOR-ELIGIBLE event timestamp persisted for a session, if
+        /// any. Events are written with RowKey "{Timestamp}_{Sequence}", so scanning the
+        /// partition in order and taking the first eligible row (see
+        /// <see cref="IsSessionAnchorEligible"/>) yields the earliest activity event.
+        /// Resolution must NOT rely on the system Timestamp: it is reset by storage
+        /// migrations, and this value feeds the StartedAt/Duration reconciliation — a
+        /// migration-reset read would rewrite those session fields with the migration date.
         /// </summary>
         private async Task<DateTime?> GetEarliestSessionEventTimestampAsync(string tenantId, string sessionId)
         {
@@ -3265,12 +3280,15 @@ namespace AutopilotMonitor.Functions.Services
                 var partitionKey = $"{tenantId}_{sessionId}";
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: $"PartitionKey eq '{partitionKey}'",
-                    maxPerPage: 1,
-                    select: new[] { "RowKey", BusinessTimestamp.OccurredUtcColumn, "Timestamp" }
+                    maxPerPage: 25,
+                    select: new[] { "RowKey", BusinessTimestamp.OccurredUtcColumn, "Timestamp", "Source" }
                 );
 
                 await foreach (var entity in query)
                 {
+                    if (!IsSessionAnchorEligible(entity))
+                        continue; // environment observation, not enrollment activity — keep scanning
+
                     return ResolveEventTimestampOrNull(entity);
                 }
             }

@@ -124,12 +124,18 @@ export function useSessionDerivedData(
   const displayStatus = gatherRulesSucceeded ? "Succeeded" : (session?.status ?? "");
 
   // Calculate enrollment duration from events (first event → enrollment_complete or last event)
-  // More accurate than session.durationSeconds which is based on registration StartedAt
+  // More accurate than session.durationSeconds which is based on registration StartedAt.
+  // System-timeline-watcher rows (clock steps, sleep episodes) are excluded: they are
+  // backfilled from the Windows event log with original timestamps up to 24h before the
+  // agent started — environment observation, not enrollment activity — and would drag the
+  // start toward pre-enrollment OOBE idle time (mirrors the backend anchor eligibility;
+  // field case d0c5b672).
   const enrollmentDurationFromEvents = useMemo(() => {
-    if (events.length === 0) return null;
-    const timestamps = events.map(e => new Date(e.timestamp).getTime());
+    const activityEvents = events.filter(e => e.source !== "SystemTimelineWatcher");
+    if (activityEvents.length === 0) return null;
+    const timestamps = activityEvents.map(e => new Date(e.timestamp).getTime());
     const firstEventTime = Math.min(...timestamps);
-    const completeEvent = events.find(e => e.eventType === "enrollment_complete");
+    const completeEvent = activityEvents.find(e => e.eventType === "enrollment_complete");
     const endTime = completeEvent
       ? new Date(completeEvent.timestamp).getTime()
       : Math.max(...timestamps);

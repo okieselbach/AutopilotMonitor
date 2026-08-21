@@ -14,7 +14,15 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var evt in storedEvents)
             {
-                if (!classification.EarliestEventTimestamp.HasValue || evt.Timestamp < classification.EarliestEventTimestamp.Value)
+                // System-timeline-watcher rows (clock steps, sleep episodes) are backfilled
+                // from the Windows event log with original timestamps up to 24h before the
+                // agent started — environment observation, not enrollment activity. They must
+                // not pull the session anchor toward pre-enrollment OOBE idle time (mirrors
+                // TableStorageService.IsSessionAnchorEligible on the Events-table probe;
+                // field case d0c5b672).
+                var anchorEligible = evt.Source != "SystemTimelineWatcher";
+                if (anchorEligible &&
+                    (!classification.EarliestEventTimestamp.HasValue || evt.Timestamp < classification.EarliestEventTimestamp.Value))
                     classification.EarliestEventTimestamp = evt.Timestamp;
                 if (!classification.LatestEventTimestamp.HasValue || evt.Timestamp > classification.LatestEventTimestamp.Value)
                     classification.LatestEventTimestamp = evt.Timestamp;
