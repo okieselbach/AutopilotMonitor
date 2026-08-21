@@ -208,6 +208,13 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
                   </div>
                 )}
                 {seg.adapterDescription && <div>{seg.adapterDescription}</div>}
+                {seg.kind === 'asleep' && (
+                  <div>
+                    {`${seg.sleepKind === 'modern_standby' ? 'Modern Standby' : (seg.sleepKind ?? 'Sleep')}${
+                      seg.wakeSourceText ? ` · wake: ${seg.wakeSourceText}` : ''
+                    }${seg.onAcPower === undefined ? '' : seg.onAcPower ? ' · on AC power' : ' · on battery'}`}
+                  </div>
+                )}
                 {seg.hotspot && (
                   <div className="text-amber-300">
                     {`${seg.hotspot.confident ? 'Smartphone hotspot' : 'Probable smartphone hotspot'} (${seg.hotspot.vendor}) — ${seg.hotspot.reason}`}
@@ -270,13 +277,15 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
           {lifeMarkers.map((m, i) => {
               const x = markerXs[i];
               const showLabel = markerLabelVisible[i];
-              const nearRightEdge = x > W - 90;
-              const lx = nearRightEdge ? x - 7 : x + 7;
+              // Content stops at CONTENT_W, so every label can slant up-right
+              // uniformly — no flipping at the right edge.
+              const lx = x + 7;
               const ly = PHASE_Y - 10;
               const tip = (
                 <div>
                   <div className="font-semibold">{m.label}</div>
                   <div>{fmtTime(m.t)}</div>
+                  {m.detail && <div className="opacity-80">{m.detail}</div>}
                 </div>
               );
               return (
@@ -303,7 +312,7 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
                     <text
                       x={lx}
                       y={ly}
-                      textAnchor={nearRightEdge ? 'end' : 'start'}
+                      textAnchor="start"
                       fontSize="10"
                       transform={`rotate(-30 ${lx} ${ly})`}
                       className="fill-gray-500"

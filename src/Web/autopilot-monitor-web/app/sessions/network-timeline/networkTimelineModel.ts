@@ -6,11 +6,14 @@
 // piecewise time→x scale and classifies probable smartphone hotspots from
 // well-known vendor subnets.
 //
-// Planned enrichment once the agent emits the corresponding events:
-//  - clock-change events → split the axis into clock eras and rebase each era
-//    by the cumulative delta (true elapsed-time axis, change point marked)
-//  - standby/Modern-Standby events → render sleep periods as their own
-//    segment kind instead of attributing them to the active network
+// Clock correction: system_clock_changed events (timeDeltaMs is authoritative)
+// split the stream into clock eras; every event timestamp after a live-observed
+// step is rebased by the cumulative delta, so the axis shows true elapsed time.
+// Backfilled steps (replayed from the event log at agent start — they happened
+// before the session's event stream) only get a marker, never a rebase.
+// Sleep: system_sleep_episode events (emitted retroactively at wake) overlay
+// the affected time range as their own 'asleep' segment kind instead of
+// attributing the quiet period to the active network.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { V1_PHASE_NAMES, V2_PHASE_NAMES } from '@/app/sessions/utils/phaseConstants';
@@ -18,7 +21,7 @@ import type { EnrollmentEvent, Session } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type SegmentKind = 'ethernet' | 'wifi' | 'offline' | 'unknown';
+export type SegmentKind = 'ethernet' | 'wifi' | 'offline' | 'asleep' | 'unknown';
 
 export interface HotspotHint {
   vendor: 'Apple' | 'Windows' | 'Android';
@@ -44,6 +47,10 @@ export interface NetSegment {
   signalPercent?: number;
   radioType?: string;
   hotspot?: HotspotHint;
+  /** 'asleep' segments only: sleep/hibernate/modern_standby + wake details. */
+  sleepKind?: string;
+  wakeSourceText?: string;
+  onAcPower?: boolean;
   identity: string;
 }
 
@@ -64,6 +71,8 @@ export interface CheckMarker {
 export interface LifeMarker {
   t: number;
   label: string;
+  /** Optional extra tooltip line (clock markers: old→new time, reason). */
+  detail?: string;
 }
 
 export interface NetworkModel {
@@ -77,6 +86,8 @@ export interface NetworkModel {
   lifeMarkers: LifeMarker[];
   networkEvents: EnrollmentEvent[];
   offlineMs: number;
+  asleepMs: number;
+  clockChangeCount: number;
   distinctNetworks: Set<string>;
   switchCount: number;
   hotspotDetected: boolean;
@@ -90,6 +101,7 @@ export const ETHERNET_COLOR = '#3b82f6';
 export const WIFI_COLORS = ['#16a34a', '#8b5cf6', '#d97706', '#0891b2'];
 export const WIFI_OVERFLOW_COLOR = '#64748b';
 export const OFFLINE_COLOR = '#dc2626';
+export const ASLEEP_COLOR = '#64748b';
 export const UNKNOWN_COLOR = '#9ca3af';
 
 export const NETWORK_EVENT_TYPES = new Set([
@@ -102,6 +114,8 @@ export const NETWORK_EVENT_TYPES = new Set([
   'dns_configuration',
   'proxy_configuration',
   'outbound_ip',
+  'system_clock_changed',
+  'system_sleep_episode',
 ]);
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
@@ -121,6 +135,7 @@ export function fmtDuration(ms: number): string {
 
 export function segmentTitle(seg: NetSegment): string {
   if (seg.kind === 'offline') return 'Offline';
+  if (seg.kind === 'asleep') return 'Asleep';
   if (seg.kind === 'unknown') return 'Unknown';
   if (seg.kind === 'ethernet') return 'Ethernet';
   return seg.ssid ? `WiFi "${seg.ssid}"${seg.ssidInferred ? ' *' : ''}` : 'WiFi';
@@ -269,6 +284,7 @@ export function buildColorMap(segs: NetSegment[]): Map<string, string> {
       map.set(seg.identity, wifiIdx < WIFI_COLORS.length ? WIFI_COLORS[wifiIdx] : WIFI_OVERFLOW_COLOR);
       wifiIdx++;
     } else if (seg.kind === 'offline') map.set(seg.identity, OFFLINE_COLOR);
+    else if (seg.kind === 'asleep') map.set(seg.identity, ASLEEP_COLOR);
     else map.set(seg.identity, UNKNOWN_COLOR);
   }
   return map;
@@ -280,14 +296,17 @@ export function buildColorMap(segs: NetSegment[]): Map<string, string> {
 // the axis stays honest despite the local stretch.
 
 export const W = 1200;
+// Drawing content stops short of the right viewBox edge so the slanted
+// lifecycle-marker labels can always run up-right without leaving the SVG.
+export const CONTENT_W = W - 64;
 const MIN_SEG_W = 28;
 
 export function buildScale(segs: NetSegment[]): NetworkModel['scale'] {
   const widths = segs.map((s) => s.end - s.start);
   const total = widths.reduce((a, b) => a + b, 0) || 1;
-  let px = widths.map((w) => Math.max((w / total) * W, MIN_SEG_W));
+  let px = widths.map((w) => Math.max((w / total) * CONTENT_W, MIN_SEG_W));
   const sum = px.reduce((a, b) => a + b, 0);
-  px = px.map((w) => (w / sum) * W);
+  px = px.map((w) => (w / sum) * CONTENT_W);
 
   const tB: number[] = [segs[0]?.start ?? 0];
   const xB: number[] = [0];
@@ -304,23 +323,157 @@ export function buildScale(segs: NetSegment[]): NetworkModel['scale'] {
         return xB[i - 1] + f * (xB[i] - xB[i - 1]);
       }
     }
-    return W;
+    return CONTENT_W;
   };
   return { tB, xB, x };
 }
 
+// ── Clock-era correction ─────────────────────────────────────────────────────
+// system_clock_changed: data.timeDeltaMs is authoritative (the event's own
+// Timestamp may be clamped server-side). Steps below 30s (NTP nudges) are
+// ignored. Only live-observed steps rebase the axis — backfilled ones happened
+// before the agent's event stream and would shift events that never saw the
+// old clock; they get a marker only.
+
+const MIN_CLOCK_STEP_MS = 30_000;
+
+interface ClockChange {
+  sequence: number;
+  deltaMs: number;
+  oldTime?: string;
+  newTime?: string;
+  reason?: string;
+  backfilled: boolean;
+  rawT: number;
+  timeCreated?: string;
+}
+
+function extractClockChanges(events: EnrollmentEvent[]): ClockChange[] {
+  return events
+    .filter((e) => e.eventType === 'system_clock_changed')
+    .map((e) => {
+      const d = (e.data ?? {}) as Record<string, unknown>;
+      return {
+        sequence: e.sequence,
+        deltaMs: typeof d.timeDeltaMs === 'number' ? d.timeDeltaMs : NaN,
+        oldTime: typeof d.oldTime === 'string' ? d.oldTime : undefined,
+        newTime: typeof d.newTime === 'string' ? d.newTime : undefined,
+        reason: typeof d.reasonText === 'string' && d.reasonText ? d.reasonText : undefined,
+        backfilled: d.backfilled === true || d.backfilled === 'true' || d.backfilled === 'True',
+        rawT: Date.parse(e.timestamp),
+        timeCreated: typeof d.timeCreated === 'string' ? d.timeCreated : undefined,
+      };
+    })
+    .filter((c) => isFinite(c.deltaMs) && Math.abs(c.deltaMs) >= MIN_CLOCK_STEP_MS && !isNaN(c.rawT))
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
+/** Cumulative live-step delta that applies to an event at this sequence. */
+function cumDeltaAt(sequence: number, liveChanges: ClockChange[]): number {
+  let cum = 0;
+  for (const c of liveChanges) if (c.sequence <= sequence) cum += c.deltaMs;
+  return cum;
+}
+
+function correctTimestamps(events: EnrollmentEvent[], liveChanges: ClockChange[]): EnrollmentEvent[] {
+  if (liveChanges.length === 0) return events;
+  return events.map((e) => {
+    const t = Date.parse(e.timestamp);
+    if (isNaN(t)) return e;
+    const cum = cumDeltaAt(e.sequence, liveChanges);
+    return cum === 0 ? e : { ...e, timestamp: new Date(t - cum).toISOString() };
+  });
+}
+
+// ── Sleep episodes ───────────────────────────────────────────────────────────
+// system_sleep_episode is emitted retroactively at wake; enteredAt/exitedAt are
+// wall-clock payload fields, so they get the same era correction as the event
+// that carried them (a clock step DURING the sleep is thereby approximated to
+// the post-wake era — acceptable, both boundaries stay consistent).
+
+interface SleepEpisode {
+  start: number;
+  end: number;
+  kind?: string;
+  wakeSourceText?: string;
+  onAcPower?: boolean;
+}
+
+function extractSleepEpisodes(events: EnrollmentEvent[], liveChanges: ClockChange[]): SleepEpisode[] {
+  const episodes: SleepEpisode[] = [];
+  for (const e of events.filter((x) => x.eventType === 'system_sleep_episode')) {
+    const d = (e.data ?? {}) as Record<string, unknown>;
+    const cum = cumDeltaAt(e.sequence, liveChanges);
+    const start = typeof d.enteredAt === 'string' ? Date.parse(d.enteredAt) - cum : NaN;
+    const end = typeof d.exitedAt === 'string' ? Date.parse(d.exitedAt) - cum : NaN;
+    if (isNaN(start) || isNaN(end) || !(end > start)) continue;
+    episodes.push({
+      start,
+      end,
+      kind: typeof d.kind === 'string' ? d.kind : undefined,
+      wakeSourceText:
+        typeof d.wakeSourceText === 'string'
+          ? d.wakeSourceText
+          : typeof d.wakeSourceType === 'string'
+            ? d.wakeSourceType
+            : undefined,
+      onAcPower: typeof d.onAcPower === 'boolean' ? d.onAcPower : undefined,
+    });
+  }
+  return episodes.sort((a, b) => a.start - b.start);
+}
+
+/** Carve sleep episodes out of the network segments as 'asleep' segments. */
+function overlaySleep(segs: NetSegment[], episodes: SleepEpisode[], t0: number, t1: number): NetSegment[] {
+  let out = segs;
+  for (const ep of episodes) {
+    const s = Math.max(ep.start, t0);
+    const e = Math.min(ep.end, t1);
+    if (!(e > s)) continue;
+    const next: NetSegment[] = [];
+    for (const seg of out) {
+      if (e <= seg.start || s >= seg.end) {
+        next.push(seg);
+        continue;
+      }
+      if (s > seg.start) next.push({ ...seg, end: s });
+      if (e < seg.end) next.push({ ...seg, start: e });
+    }
+    next.push({
+      start: s,
+      end: e,
+      kind: 'asleep',
+      identity: 'asleep',
+      sleepKind: ep.kind,
+      wakeSourceText: ep.wakeSourceText,
+      onAcPower: ep.onAcPower,
+    });
+    next.sort((a, b) => a.start - b.start);
+    out = next;
+  }
+  return out.filter((x) => x.end > x.start);
+}
+
 // ── Full model ───────────────────────────────────────────────────────────────
 
-export function buildNetworkModel(session: Session, events: EnrollmentEvent[]): NetworkModel | null {
-  if (events.length === 0) return null;
+export function buildNetworkModel(session: Session, rawEvents: EnrollmentEvent[]): NetworkModel | null {
+  if (rawEvents.length === 0) return null;
+
+  const clockChanges = extractClockChanges(rawEvents);
+  const liveChanges = clockChanges.filter((c) => !c.backfilled);
+  const events = correctTimestamps(rawEvents, liveChanges);
 
   const evTimes = events.map((e) => Date.parse(e.timestamp)).filter((t) => !isNaN(t));
   if (evTimes.length === 0) return null;
   const t0 = Math.min(Date.parse(session.startedAt), ...evTimes);
-  const t1 = Math.max(session.completedAt ? Date.parse(session.completedAt) : 0, ...evTimes);
+  // completedAt is server wall clock — only usable as the right edge when the
+  // axis was not rebased (after a rebase it lives in a different clock era).
+  const completedT = session.completedAt && liveChanges.length === 0 ? Date.parse(session.completedAt) : NaN;
+  const t1 = Math.max(isNaN(completedT) ? 0 : completedT, ...evTimes);
   if (!(t1 > t0)) return null;
 
-  const segments = buildSegments(events, t0, t1);
+  const sleepEpisodes = extractSleepEpisodes(rawEvents, liveChanges);
+  const segments = overlaySleep(buildSegments(events, t0, t1), sleepEpisodes, t0, t1);
   if (segments.length === 0) return null;
   const colors = buildColorMap(segments);
   const scale = buildScale(segments);
@@ -371,9 +524,31 @@ export function buildNetworkModel(session: Session, events: EnrollmentEvent[]): 
     }))
     .filter((m) => !isNaN(m.t));
 
+  // Clock-step markers: live steps sit at their corrected changepoint;
+  // backfilled steps (pre-agent) use their original event-log time when known.
+  for (const c of clockChanges) {
+    const t = c.backfilled
+      ? (c.timeCreated ? Date.parse(c.timeCreated) : NaN)
+      : c.rawT - cumDeltaAt(c.sequence, liveChanges);
+    if (isNaN(t) || t < t0 || t > t1) continue;
+    const sign = c.deltaMs >= 0 ? '+' : '−';
+    const oldT = c.oldTime ? Date.parse(c.oldTime) : NaN;
+    const newT = c.newTime ? Date.parse(c.newTime) : NaN;
+    const range = !isNaN(oldT) && !isNaN(newT) ? `${fmtTime(oldT)} → ${fmtTime(newT)}` : '';
+    lifeMarkers.push({
+      t,
+      label: `Clock ${sign}${fmtDuration(Math.abs(c.deltaMs))}`,
+      detail: [range, c.reason, c.backfilled ? 'before agent start (not rebased)' : 'axis rebased']
+        .filter(Boolean)
+        .join(' · '),
+    });
+  }
+  lifeMarkers.sort((a, b) => a.t - b.t);
+
   const networkEvents = events.filter((e) => NETWORK_EVENT_TYPES.has(e.eventType));
 
   const offlineMs = segments.filter((s) => s.kind === 'offline').reduce((a, s) => a + (s.end - s.start), 0);
+  const asleepMs = segments.filter((s) => s.kind === 'asleep').reduce((a, s) => a + (s.end - s.start), 0);
   const distinctNetworks = new Set(
     segments.filter((s) => s.kind === 'wifi' || s.kind === 'ethernet').map((s) => s.identity),
   );
@@ -391,6 +566,8 @@ export function buildNetworkModel(session: Session, events: EnrollmentEvent[]): 
     lifeMarkers,
     networkEvents,
     offlineMs,
+    asleepMs,
+    clockChangeCount: clockChanges.length,
     distinctNetworks,
     switchCount,
     hotspotDetected,

@@ -166,6 +166,8 @@ function StatsRow({ model }: { model: NetworkModel }) {
       tone: model.offlineMs > 0 ? 'bad' : undefined,
     },
   ];
+  if (model.asleepMs > 0) items.push({ label: 'Asleep total', value: fmtDuration(model.asleepMs) });
+  if (model.clockChangeCount > 0) items.push({ label: 'Clock changes', value: String(model.clockChangeCount) });
   if (avgSignal != null) items.push({ label: 'Avg WiFi signal', value: `${avgSignal}%` });
   if (lastCheck)
     items.push({
@@ -205,12 +207,12 @@ const CHANGE_TYPE_BADGES: Record<string, string> = {
 
 function EventList({ events }: { events: EnrollmentEvent[] }) {
   if (events.length === 0) {
-    return <div className="text-gray-500 py-6">No network events in this session.</div>;
+    return <div className="text-gray-500 py-6">No network or system events in this session.</div>;
   }
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-200 font-semibold text-gray-900">
-        Network events ({events.length})
+        Network &amp; system events ({events.length})
       </div>
       <ul className="divide-y divide-gray-100">
         {events.map((e) => {
