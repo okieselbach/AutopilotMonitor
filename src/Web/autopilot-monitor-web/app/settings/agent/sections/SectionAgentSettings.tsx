@@ -16,6 +16,7 @@ export function SectionAgentSettings() {
     rebootDelaySeconds, setRebootDelaySeconds,
     enableGeoLocation, setEnableGeoLocation,
     enableTimezoneAutoSet, setEnableTimezoneAutoSet,
+    enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet,
     enableImeMatchLog, setEnableImeMatchLog,
     enableGatherRuleDebugLog, setEnableGatherRuleDebugLog,
     logLevel, setLogLevel,
@@ -50,6 +51,8 @@ export function SectionAgentSettings() {
         setEnableGeoLocation={setEnableGeoLocation}
         enableTimezoneAutoSet={enableTimezoneAutoSet}
         setEnableTimezoneAutoSet={setEnableTimezoneAutoSet}
+        enableDoGroupIdAutoSet={enableDoGroupIdAutoSet}
+        setEnableDoGroupIdAutoSet={setEnableDoGroupIdAutoSet}
         enableImeMatchLog={enableImeMatchLog}
         setEnableImeMatchLog={setEnableImeMatchLog}
         enableGatherRuleDebugLog={enableGatherRuleDebugLog}

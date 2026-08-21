@@ -339,6 +339,114 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Runtime
             Assert.False(StartupEnvironmentProbes.IsNtpWithinTolerance(null!));
         }
 
+        // ================================================================= DO GroupId auto-set
+        // Builder/fingerprint tests only — TrySetGroupId itself does live registry + ARP I/O and
+        // must never run in a unit test (it would write HKLM on the build machine).
+
+        [Fact]
+        public void BuildDoGroupIdEvent_written_success_is_info_with_full_data()
+        {
+            var result = new DoGroupIdSetResult
+            {
+                Success = true,
+                Written = true,
+                GroupId = "00063065-0000-00a8-b201-001122334455",
+                PreviousValue = null,
+                GatewayIp = "192.168.178.1",
+                GatewayMac = "00-11-22-33-44-55",
+            };
+
+            var evt = StartupEnvironmentProbes.BuildDoGroupIdEvent(Config(), result);
+
+            Assert.Equal("do_group_id_auto_set", evt.EventType);
+            Assert.Equal(EventSeverity.Info, evt.Severity);
+            Assert.Equal("StartupEnvironmentProbes", evt.Source);
+            Assert.Equal("S1", evt.SessionId);
+            Assert.Equal("T1", evt.TenantId);
+            Assert.Contains("00063065-0000-00a8-b201-001122334455", evt.Message);
+            Assert.Equal("192.168.178.1", evt.Data["gatewayIp"]);
+            Assert.Equal("00-11-22-33-44-55", evt.Data["gatewayMac"]);
+            Assert.Equal(true, evt.Data["written"]);
+            Assert.Equal(true, evt.Data["success"]);
+            Assert.Equal(false, evt.Data["skipped"]);
+        }
+
+        [Fact]
+        public void BuildDoGroupIdEvent_noop_success_says_already_set()
+        {
+            var result = new DoGroupIdSetResult
+            {
+                Success = true,
+                Written = false,
+                GroupId = "00063065-0000-00a8-b201-001122334455",
+            };
+
+            var evt = StartupEnvironmentProbes.BuildDoGroupIdEvent(Config(), result);
+
+            Assert.Equal(EventSeverity.Info, evt.Severity);
+            Assert.Contains("already set", evt.Message);
+            Assert.Equal(false, evt.Data["written"]);
+        }
+
+        [Fact]
+        public void BuildDoGroupIdEvent_skip_is_info_with_reason()
+        {
+            var result = new DoGroupIdSetResult
+            {
+                Skipped = true,
+                SkipReason = "foreign_value_present",
+                PreviousValue = "11111111-2222-3333-4444-555555555555",
+            };
+
+            var evt = StartupEnvironmentProbes.BuildDoGroupIdEvent(Config(), result);
+
+            Assert.Equal(EventSeverity.Info, evt.Severity);
+            Assert.Contains("foreign_value_present", evt.Message);
+            Assert.Equal("foreign_value_present", evt.Data["skipReason"]);
+            Assert.Equal("11111111-2222-3333-4444-555555555555", evt.Data["previousValue"]);
+        }
+
+        [Fact]
+        public void BuildDoGroupIdEvent_error_is_warning()
+        {
+            var result = new DoGroupIdSetResult { Error = "readback mismatch" };
+
+            var evt = StartupEnvironmentProbes.BuildDoGroupIdEvent(Config(), result);
+
+            Assert.Equal(EventSeverity.Warning, evt.Severity);
+            Assert.Contains("readback mismatch", evt.Message);
+            Assert.Equal("readback mismatch", evt.Data["error"]);
+        }
+
+        [Fact]
+        public void DoGroupIdFingerprint_roundtrips_ownership_marker_for_success()
+        {
+            var fp = StartupEnvironmentProbes.ComputeDoGroupIdFingerprint(new DoGroupIdSetResult
+            {
+                Success = true,
+                GroupId = "00063065-0000-00a8-b201-001122334455",
+            });
+
+            Assert.Equal("written:00063065-0000-00a8-b201-001122334455", fp);
+            Assert.Equal("00063065-0000-00a8-b201-001122334455", StartupEnvironmentProbes.ExtractLastWrittenGroupId(fp));
+        }
+
+        [Fact]
+        public void DoGroupIdFingerprint_skip_carries_no_ownership_and_errors_never_dedupe()
+        {
+            var skipFp = StartupEnvironmentProbes.ComputeDoGroupIdFingerprint(new DoGroupIdSetResult
+            {
+                Skipped = true,
+                SkipReason = "mdm_policy_present",
+            });
+            Assert.Equal("skipped:mdm_policy_present", skipFp);
+            Assert.Null(StartupEnvironmentProbes.ExtractLastWrittenGroupId(skipFp));
+
+            // Errors: no fingerprint → the probe re-runs AND re-emits each failing start.
+            Assert.Null(StartupEnvironmentProbes.ComputeDoGroupIdFingerprint(new DoGroupIdSetResult { Error = "boom" }));
+            Assert.Null(StartupEnvironmentProbes.ExtractLastWrittenGroupId(null));
+        }
+
         [Fact]
         public async Task RunAsync_skips_geo_timezone_and_ntp_once_all_succeeded_only_power_state_emits()
         {

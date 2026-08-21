@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             nameof(AgentConfigResponse.EnrollmentSummaryLaunchRetrySeconds),
             nameof(AgentConfigResponse.NtpServer),
             nameof(AgentConfigResponse.EnableTimezoneAutoSet),
+            nameof(AgentConfigResponse.EnableDoGroupIdAutoSet),
             nameof(AgentConfigResponse.DiagnosticsUploadEnabled),
             nameof(AgentConfigResponse.DiagnosticsUploadMode),
             nameof(AgentConfigResponse.DiagnosticsLogPaths),

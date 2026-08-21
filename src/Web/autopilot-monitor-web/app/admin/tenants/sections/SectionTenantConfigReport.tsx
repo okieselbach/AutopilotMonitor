@@ -57,6 +57,7 @@ interface TenantConfig {
   rebootDelaySeconds?: number | null;
   enableGeoLocation?: boolean | null;
   enableTimezoneAutoSet?: boolean | null;
+  enableDoGroupIdAutoSet?: boolean | null;
   ntpServer?: string | null;
   enableImeMatchLog?: boolean | null;
   enableGatherRuleDebugLog?: boolean | null;
@@ -131,6 +132,7 @@ const DEFAULTS: Record<string, unknown> = {
   rebootDelaySeconds: null,
   enableGeoLocation: null,
   enableTimezoneAutoSet: null,
+  enableDoGroupIdAutoSet: null,
   ntpServer: 'time.windows.com',
   enableImeMatchLog: null,
   enableGatherRuleDebugLog: null,
@@ -171,6 +173,7 @@ const RUNTIME_DEFAULTS: Record<string, unknown> = {
   keepLogFile: false,
   enableGeoLocation: true,
   enableTimezoneAutoSet: false,
+  enableDoGroupIdAutoSet: false,
   ntpServer: 'time.windows.com',
   enableImeMatchLog: false,
   enableGatherRuleDebugLog: false,
@@ -301,6 +304,7 @@ function computeRuntime(c: TenantConfig): Record<string, unknown> {
     keepLogFile: c.keepLogFile ?? false,
     enableGeoLocation: c.enableGeoLocation ?? true,
     enableTimezoneAutoSet: c.enableTimezoneAutoSet ?? false,
+    enableDoGroupIdAutoSet: c.enableDoGroupIdAutoSet ?? false,
     ntpServer: c.ntpServer ?? 'time.windows.com',
     enableImeMatchLog: c.enableImeMatchLog ?? false,
     enableGatherRuleDebugLog: c.enableGatherRuleDebugLog ?? false,
@@ -587,6 +591,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Reboot Delay (sec)" value={config.rebootDelaySeconds} configKey="rebootDelaySeconds" defaults={DEFAULTS} />
                 <ConfigRow label="Geo-Location" value={config.enableGeoLocation} configKey="enableGeoLocation" defaults={DEFAULTS} />
                 <ConfigRow label="Timezone Auto-Set" value={config.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={DEFAULTS} />
+                <ConfigRow label="DO GroupId Auto-Set" value={config.enableDoGroupIdAutoSet} configKey="enableDoGroupIdAutoSet" defaults={DEFAULTS} />
                 <ConfigRow label="NTP Server" value={config.ntpServer} configKey="ntpServer" defaults={DEFAULTS} />
                 <ConfigRow label="IME Match Log" value={config.enableImeMatchLog} configKey="enableImeMatchLog" defaults={DEFAULTS} />
                 <ConfigRow label="Gather Rule Debug Log" value={config.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={DEFAULTS} />
@@ -661,6 +666,7 @@ export function SectionTenantConfigReport() {
                     <ConfigRow label="Reboot Delay (sec)" value={runtime.rebootDelaySeconds} configKey="rebootDelaySeconds" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Geo-Location" value={runtime.enableGeoLocation} configKey="enableGeoLocation" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Timezone Auto-Set" value={runtime.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={RUNTIME_DEFAULTS} />
+                    <ConfigRow label="DO GroupId Auto-Set" value={runtime.enableDoGroupIdAutoSet} configKey="enableDoGroupIdAutoSet" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="NTP Server" value={runtime.ntpServer} configKey="ntpServer" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="IME Match Log" value={runtime.enableImeMatchLog} configKey="enableImeMatchLog" defaults={RUNTIME_DEFAULTS} />
                     <ConfigRow label="Gather Rule Debug Log" value={runtime.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={RUNTIME_DEFAULTS} />

@@ -560,6 +560,7 @@ namespace AutopilotMonitor.Shared
             public const string DeviceLocation            = "device_location";
             public const string OutboundIp                = "outbound_ip";
             public const string TimezoneAutoSet           = "timezone_auto_set";
+            public const string DoGroupIdAutoSet          = "do_group_id_auto_set";
             public const string NtpTimeCheck              = "ntp_time_check";
             public const string PowerStateCheck           = "power_state_check";
             public const string PowerStateChange          = "power_state_change";

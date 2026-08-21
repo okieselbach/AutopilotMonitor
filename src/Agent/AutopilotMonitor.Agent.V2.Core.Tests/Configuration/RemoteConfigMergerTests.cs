@@ -43,6 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             EnrollmentSummaryLaunchRetrySeconds = 300,
             NtpServer = "pool.ntp.org",
             EnableTimezoneAutoSet = true,
+            EnableDoGroupIdAutoSet = true,
             DiagnosticsUploadEnabled = true,
             DiagnosticsUploadMode = "OnFailure",
             DiagnosticsLogPaths = new List<DiagnosticsLogPath>
@@ -83,6 +84,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(300, agent.EnrollmentSummaryLaunchRetrySeconds);
             Assert.Equal("pool.ntp.org", agent.NtpServer);
             Assert.True(agent.EnableTimezoneAutoSet);
+            Assert.True(agent.EnableDoGroupIdAutoSet);
             Assert.True(agent.DiagnosticsUploadEnabled);
             Assert.Equal("OnFailure", agent.DiagnosticsUploadMode);
             Assert.Single(agent.DiagnosticsLogPaths);

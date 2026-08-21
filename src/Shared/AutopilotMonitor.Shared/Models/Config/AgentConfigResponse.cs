@@ -226,6 +226,14 @@ namespace AutopilotMonitor.Shared.Models
         public bool EnableTimezoneAutoSet { get; set; } = false;
 
         /// <summary>
+        /// Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a
+        /// deterministic network fingerprint (default gateway IP + MAC, RealmJoin-compatible
+        /// byte layout). Existing DOGroupId/DOGroupIdSource policies are never overwritten.
+        /// Default: false
+        /// </summary>
+        public bool EnableDoGroupIdAutoSet { get; set; } = false;
+
+        /// <summary>
         /// Control-channel mirror of the telemetry-response block signal: the calling device
         /// (serial) or agent version matched an active admin Block/Kill rule. Delivered on the
         /// config channel because config is fetched at every agent start (boot via Scheduled

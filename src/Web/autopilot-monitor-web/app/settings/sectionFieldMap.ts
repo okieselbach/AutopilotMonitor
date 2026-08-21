@@ -76,6 +76,7 @@ export const SECTION_FIELD_MAP = {
       "rebootDelaySeconds",
       "enableGeoLocation",
       "enableTimezoneAutoSet",
+      "enableDoGroupIdAutoSet",
       "enableImeMatchLog",
       "enableGatherRuleDebugLog",
       "logLevel",

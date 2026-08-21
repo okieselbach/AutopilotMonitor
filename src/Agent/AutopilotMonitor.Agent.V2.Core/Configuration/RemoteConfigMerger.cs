@@ -94,6 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             //                  a tenant admin can clear a previously-applied custom NTP server.
             agentConfig.NtpServer = remoteConfig.NtpServer;
             agentConfig.EnableTimezoneAutoSet = remoteConfig.EnableTimezoneAutoSet;
+            agentConfig.EnableDoGroupIdAutoSet = remoteConfig.EnableDoGroupIdAutoSet;
 
             // ---------------- Diagnostics — remote wins (including DiagnosticsUploadMode="Off"
             //                  which must clear any CLI-initial default).

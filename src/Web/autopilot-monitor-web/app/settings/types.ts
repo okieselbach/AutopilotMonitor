@@ -72,6 +72,7 @@ export interface TenantConfiguration {
   contactEmail?: string;
   enableGeoLocation?: boolean;
   enableTimezoneAutoSet?: boolean;
+  enableDoGroupIdAutoSet?: boolean;
   enableImeMatchLog?: boolean;
   enableGatherRuleDebugLog?: boolean;
   logLevel?: string;

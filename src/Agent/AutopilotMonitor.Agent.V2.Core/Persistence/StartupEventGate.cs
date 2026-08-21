@@ -124,6 +124,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Persistence
             }
         }
 
+        /// <summary>
+        /// Read-only peek of the key's current fingerprint (possibly restored from a previous
+        /// agent run), or null when none is recorded. Like <see cref="HasFingerprint"/> this makes
+        /// NO claim — use it when the fingerprint carries state the caller needs to read back
+        /// (e.g. the DO GroupId ownership marker).
+        /// </summary>
+        public string? GetFingerprint(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            lock (_lock)
+            {
+                return _entries.TryGetValue(key, out var entry) ? entry.Fingerprint : null;
+            }
+        }
+
         /// <summary>Retry-until-success: true when <see cref="MarkSucceeded"/> latched this key in any run.</summary>
         public bool AlreadySucceeded(string key)
         {

@@ -420,36 +420,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         // Helpers
         // -------------------------------------------------------------------
 
-        /// <summary>
-        /// Finds the active network interface: Up, not Loopback/Tunnel, has a non-0.0.0.0 gateway.
-        /// </summary>
-        private static NetworkInterface FindActiveNetworkInterface()
-        {
-            try
-            {
-                var interfaces = NetworkInterface.GetAllNetworkInterfaces();
-                foreach (var nic in interfaces)
-                {
-                    if (nic.OperationalStatus != OperationalStatus.Up)
-                        continue;
-                    if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
-                        nic.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
-                        continue;
-
-                    var ipProps = nic.GetIPProperties();
-                    foreach (var gw in ipProps.GatewayAddresses)
-                    {
-                        if (gw.Address.ToString() != "0.0.0.0")
-                            return nic;
-                    }
-                }
-            }
-            catch
-            {
-                // Caller handles null
-            }
-            return null;
-        }
+        private static NetworkInterface FindActiveNetworkInterface() =>
+            NetworkInterfaceLocator.FindActiveNetworkInterface();
 
         private static string BuildChangeMessage(NetworkStateSnapshot before, NetworkStateSnapshot after)
         {

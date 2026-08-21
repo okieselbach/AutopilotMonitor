@@ -367,6 +367,16 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableTimezoneAutoSet { get; set; }
 
         /// <summary>
+        /// Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a
+        /// network fingerprint: a deterministic GUID derived from the default gateway's IP and
+        /// MAC address, so devices on the same local network peer with each other (byte layout
+        /// is RealmJoin-compatible). Only takes effect with DO Download Mode = Group (2);
+        /// existing DOGroupId/DOGroupIdSource policies (Intune/GPO) are never overwritten.
+        /// null = use agent default (false).
+        /// </summary>
+        public bool? EnableDoGroupIdAutoSet { get; set; }
+
+        /// <summary>
         /// Whether to write a match log for every IME log line matched by a pattern.
         /// When true, the agent writes to the default path Constants.ImeMatchLogPath.
         /// null = use agent default (false).

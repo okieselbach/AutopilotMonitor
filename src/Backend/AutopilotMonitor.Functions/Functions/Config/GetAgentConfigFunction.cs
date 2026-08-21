@@ -274,7 +274,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 39, // Collectors.EnableSystemTimelineWatcher + SystemEventBackfillLookbackMinutes (clock changes + sleep episodes)
+                ConfigVersion = 40, // EnableDoGroupIdAutoSet (Delivery Optimization group ID from network fingerprint)
                 UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,
@@ -312,6 +312,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 AllowAgentDowngrade = adminConfig.AllowAgentDowngrade,
                 NtpServer = string.IsNullOrEmpty(tenantConfig.NtpServer) ? "time.windows.com" : tenantConfig.NtpServer,
                 EnableTimezoneAutoSet = tenantConfig.EnableTimezoneAutoSet ?? false,
+                EnableDoGroupIdAutoSet = tenantConfig.EnableDoGroupIdAutoSet ?? false,
                 SendTraceEvents = tenantConfig.SendTraceEvents,
                 UnrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(tenantConfig, DateTime.UtcNow),
                 GatherRules = gatherRules,

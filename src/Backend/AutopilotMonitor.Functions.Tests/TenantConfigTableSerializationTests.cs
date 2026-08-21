@@ -121,6 +121,31 @@ public class TenantConfigTableSerializationTests
     }
 
     [Fact]
+    public void Roundtrip_EnableDoGroupIdAutoSet_SurvivesStoreAndMap()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            DomainName = "contoso.com",
+            UpdatedBy = "admin@contoso.com",
+            EnableDoGroupIdAutoSet = true
+        };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(
+            TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.True(mapped.EnableDoGroupIdAutoSet);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutDoGroupIdColumn_ReadsNull()
+    {
+        // null = "not set" → GetAgentConfigFunction serves the agent default (false).
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+        Assert.Null(TableConfigRepository.ConvertFromTenantTableEntity(entity).EnableDoGroupIdAutoSet);
+    }
+
+    [Fact]
     public void Roundtrip_NotificationChannelsJson_SurvivesStoreAndMap()
     {
         var channelsJson = "[{\"id\":\"ch-1\",\"name\":\"Service Desk\",\"providerType\":20,\"url\":\"https://desk.example/hook\",\"enabled\":true,\"notifyOnFailure\":true}]";

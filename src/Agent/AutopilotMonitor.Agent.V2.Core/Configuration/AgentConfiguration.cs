@@ -110,6 +110,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public bool EnableTimezoneAutoSet { get; set; } = false;
 
         /// <summary>
+        /// Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a
+        /// deterministic network fingerprint (default gateway IP + MAC, RealmJoin-compatible).
+        /// Existing DOGroupId/DOGroupIdSource policies are never overwritten.
+        /// Default: false
+        /// </summary>
+        public bool EnableDoGroupIdAutoSet { get; set; } = false;
+
+        /// <summary>
         /// Continue-Anyway observation mode (operator-set tenant opt-in, delivered via
         /// remote config): stamped into the esp_config_detected decision-signal payload so
         /// the DecisionEngine defangs a Device-phase ESP terminal failure into a bounded

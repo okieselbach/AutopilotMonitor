@@ -25,6 +25,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
     ///     Always emitted — offset &gt;60s is Warning, smaller is Info, failure is Warning.</item>
     ///   <item><b>power_state_check</b> — AC vs. battery snapshot via Win32 <c>GetSystemPowerStatus</c>.
     ///     On battery with &lt;80% charge is Warning, otherwise Info, probe failure is Warning.</item>
+    ///   <item><b>do_group_id_auto_set</b> — only when <c>EnableDoGroupIdAutoSet=true</c>. Sets the
+    ///     Delivery Optimization <c>DOGroupId</c> policy value from a network fingerprint via
+    ///     <see cref="DoGroupIdService"/>; skips (Info) rather than fight foreign policy values.</item>
     /// </list>
     /// <para>
     /// Each probe runs best-effort: failures are logged + optionally emitted as a Warning event,
@@ -77,6 +80,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
             {
                 await RunNtpCheck(configuration, logger, post, gate).ConfigureAwait(false);
             }
+
+            if (configuration.EnableDoGroupIdAutoSet)
+                RunDoGroupIdAutoSet(configuration, logger, post, gate);
 
             RunPowerStateCheck(configuration, logger, post);
         }
@@ -327,6 +333,99 @@ namespace AutopilotMonitor.Agent.V2.Core.Runtime
                 {
                     { "ntpServer", ntpServer },
                     { "error", result.Error ?? "unknown" },
+                },
+            };
+        }
+
+        /// <summary>
+        /// One-shot DO GroupId apply with change-based restart dedup: the gate fingerprint doubles
+        /// as the ownership marker ("written:&lt;guid&gt;" records the GUID we last wrote, so a later
+        /// run can distinguish our own stale value from a foreign one after a gateway change).
+        /// Unchanged outcomes (same GUID, same skip reason) re-run silently without a duplicate
+        /// event; errors never claim a fingerprint so each failing start keeps its retry trail.
+        /// </summary>
+        private static void RunDoGroupIdAutoSet(
+            AgentConfiguration configuration,
+            AgentLogger logger,
+            Orchestration.InformationalEventPost post,
+            Persistence.StartupEventGate? gate)
+        {
+            try
+            {
+                var lastWritten = ExtractLastWrittenGroupId(gate?.GetFingerprint(Constants.EventTypes.DoGroupIdAutoSet));
+                var result = DoGroupIdService.TrySetGroupId(lastWritten, logger);
+
+                var fingerprint = ComputeDoGroupIdFingerprint(result);
+                if (fingerprint != null && gate != null
+                    && !gate.ShouldEmit(Constants.EventTypes.DoGroupIdAutoSet, fingerprint))
+                {
+                    logger.Debug("StartupEnvironmentProbes: DO GroupId outcome unchanged — skipping duplicate event (restart dedup).");
+                    return;
+                }
+
+                SafeEmit(post, logger, BuildDoGroupIdEvent(configuration, result));
+
+                if (fingerprint != null)
+                    gate?.MarkEmitted(Constants.EventTypes.DoGroupIdAutoSet);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"StartupEnvironmentProbes: DO GroupId auto-set threw: {ex.Message}");
+            }
+        }
+
+        internal const string DoGroupIdWrittenFingerprintPrefix = "written:";
+
+        /// <summary>
+        /// Success (written or already correct) fingerprints as "written:&lt;guid&gt;", a skip as
+        /// "skipped:&lt;reason&gt;"; errors return null so they are never deduped.
+        /// </summary>
+        internal static string? ComputeDoGroupIdFingerprint(DoGroupIdSetResult result)
+        {
+            if (result.Success) return DoGroupIdWrittenFingerprintPrefix + result.GroupId;
+            if (result.Skipped) return "skipped:" + result.SkipReason;
+            return null;
+        }
+
+        /// <summary>Ownership marker readback: the GUID from a "written:" fingerprint, else null.</summary>
+        internal static string? ExtractLastWrittenGroupId(string? fingerprint) =>
+            fingerprint != null && fingerprint.StartsWith(DoGroupIdWrittenFingerprintPrefix, StringComparison.Ordinal)
+                ? fingerprint.Substring(DoGroupIdWrittenFingerprintPrefix.Length)
+                : null;
+
+        internal static EnrollmentEvent BuildDoGroupIdEvent(AgentConfiguration configuration, DoGroupIdSetResult result)
+        {
+            string message;
+            if (result.Success && result.Written)
+                message = $"Delivery Optimization GroupId set to {result.GroupId} (gateway {result.GatewayIp})";
+            else if (result.Success)
+                message = $"Delivery Optimization GroupId already set to {result.GroupId}";
+            else if (result.Skipped)
+                message = $"Delivery Optimization GroupId not set: {result.SkipReason}";
+            else
+                message = $"Delivery Optimization GroupId auto-set failed: {result.Error}";
+
+            return new EnrollmentEvent
+            {
+                SessionId = configuration.SessionId,
+                TenantId = configuration.TenantId,
+                EventType = Constants.EventTypes.DoGroupIdAutoSet,
+                Severity = result.Success || result.Skipped ? EventSeverity.Info : EventSeverity.Warning,
+                Source = "StartupEnvironmentProbes",
+                Phase = EnrollmentPhase.Unknown,
+                Timestamp = DateTime.UtcNow,
+                Message = message,
+                Data = new Dictionary<string, object>
+                {
+                    { "groupId", result.GroupId ?? "" },
+                    { "previousValue", result.PreviousValue ?? "" },
+                    { "gatewayIp", result.GatewayIp ?? "" },
+                    { "gatewayMac", result.GatewayMac ?? "" },
+                    { "written", result.Written },
+                    { "skipped", result.Skipped },
+                    { "skipReason", result.SkipReason ?? "" },
+                    { "success", result.Success },
+                    { "error", result.Error ?? "" },
                 },
             };
         }

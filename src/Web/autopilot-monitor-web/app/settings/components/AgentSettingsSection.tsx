@@ -22,6 +22,8 @@ interface AgentSettingsSectionProps {
   setEnableGeoLocation: (value: boolean) => void;
   enableTimezoneAutoSet: boolean;
   setEnableTimezoneAutoSet: (value: boolean) => void;
+  enableDoGroupIdAutoSet: boolean;
+  setEnableDoGroupIdAutoSet: (value: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (value: boolean) => void;
   enableGatherRuleDebugLog: boolean;
@@ -64,6 +66,8 @@ export default function AgentSettingsSection({
   setEnableGeoLocation,
   enableTimezoneAutoSet,
   setEnableTimezoneAutoSet,
+  enableDoGroupIdAutoSet,
+  setEnableDoGroupIdAutoSet,
   enableImeMatchLog,
   setEnableImeMatchLog,
   enableGatherRuleDebugLog,
@@ -187,6 +191,20 @@ export default function AgentSettingsSection({
               </button>
             </div>
           )}
+
+          {/* Delivery Optimization Group ID */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Set Delivery Optimization Group ID</p>
+              <p className="text-sm text-gray-500">
+                Set the DOGroupId policy from a network fingerprint — a deterministic GUID derived from the default gateway&apos;s IP and MAC address, so devices on the same local network peer with each other. Takes effect with DO Download Mode &quot;Group (2)&quot;; an existing DOGroupId or DOGroupIdSource policy (Intune/GPO) is never overwritten.
+              </p>
+            </div>
+            <button onClick={() => setEnableDoGroupIdAutoSet(!enableDoGroupIdAutoSet)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableDoGroupIdAutoSet ? 'bg-violet-500' : 'bg-gray-300'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableDoGroupIdAutoSet ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
 
           {/* IME Match Log */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">

@@ -34,7 +34,7 @@ const EXPECTED_OWNED_FIELDS = [
   // agentSettings
   "enablePerformanceCollector", "performanceCollectorIntervalSeconds", "helloWaitTimeoutSeconds",
   "selfDestructOnComplete", "keepLogFile", "rebootOnComplete", "rebootDelaySeconds",
-  "enableGeoLocation", "enableTimezoneAutoSet", "enableImeMatchLog", "enableGatherRuleDebugLog",
+  "enableGeoLocation", "enableTimezoneAutoSet", "enableDoGroupIdAutoSet", "enableImeMatchLog", "enableGatherRuleDebugLog",
   "logLevel", "showScriptOutput", "showEnrollmentSummary", "enrollmentSummaryTimeoutSeconds",
   "enrollmentSummaryBrandingImageUrl", "enrollmentSummaryLaunchRetrySeconds",
   // agentAnalyzers

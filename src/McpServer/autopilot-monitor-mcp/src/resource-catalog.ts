@@ -108,6 +108,7 @@ export const EVENT_TYPES_CATALOG = {
     'device_location',
     'outbound_ip',
     'timezone_auto_set',
+    'do_group_id_auto_set',
     'ntp_time_check',
     'power_state_check',
     'power_state_change',

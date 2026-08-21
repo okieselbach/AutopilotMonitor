@@ -189,6 +189,8 @@ interface TenantConfigContextValue {
   setEnableGeoLocation: (v: boolean) => void;
   enableTimezoneAutoSet: boolean;
   setEnableTimezoneAutoSet: (v: boolean) => void;
+  enableDoGroupIdAutoSet: boolean;
+  setEnableDoGroupIdAutoSet: (v: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (v: boolean) => void;
   enableGatherRuleDebugLog: boolean;
@@ -410,6 +412,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [contactEmail, setContactEmail] = useState("");
   const [enableGeoLocation, setEnableGeoLocation] = useState(true);
   const [enableTimezoneAutoSet, setEnableTimezoneAutoSet] = useState(false);
+  const [enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet] = useState(false);
   const [enableImeMatchLog, setEnableImeMatchLog] = useState(false);
   const [enableGatherRuleDebugLog, setEnableGatherRuleDebugLog] = useState(false);
   const [logLevel, setLogLevel] = useState("Info");
@@ -546,6 +549,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setContactEmail(data.contactEmail ?? "");
         setEnableGeoLocation(data.enableGeoLocation ?? true);
         setEnableTimezoneAutoSet(data.enableTimezoneAutoSet ?? false);
+        setEnableDoGroupIdAutoSet(data.enableDoGroupIdAutoSet ?? false);
         setEnableImeMatchLog(data.enableImeMatchLog ?? false);
         setEnableGatherRuleDebugLog(data.enableGatherRuleDebugLog ?? false);
         setLogLevel(data.logLevel ?? "Info");
@@ -755,6 +759,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         contactEmail: contactEmail.trim(),
         enableGeoLocation,
         enableTimezoneAutoSet,
+        enableDoGroupIdAutoSet,
         enableImeMatchLog,
         enableGatherRuleDebugLog,
         logLevel,
@@ -858,7 +863,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
+    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
@@ -1246,6 +1251,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     // (resetting it from the Agent Settings card silently discarded unsaved Contact edits).
     setEnableGeoLocation(config.enableGeoLocation ?? true);
     setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
+    setEnableDoGroupIdAutoSet(config.enableDoGroupIdAutoSet ?? false);
     setEnableImeMatchLog(config.enableImeMatchLog ?? false);
     setEnableGatherRuleDebugLog(config.enableGatherRuleDebugLog ?? false);
     setLogLevel(config.logLevel ?? "Info");
@@ -1696,6 +1702,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       handleSaveContact, handleResetContact,
       enableGeoLocation, setEnableGeoLocation,
       enableTimezoneAutoSet, setEnableTimezoneAutoSet,
+      enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet,
       enableImeMatchLog, setEnableImeMatchLog,
       enableGatherRuleDebugLog, setEnableGatherRuleDebugLog,
       logLevel, setLogLevel,
@@ -1786,7 +1793,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     enablePerformanceCollector, performanceCollectorInterval, helloWaitTimeoutSeconds,
     selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, handleSaveContact, handleResetContact,
-    enableGeoLocation, enableTimezoneAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
+    enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     handleSaveAgentSettings, handleResetAgentSettings,
