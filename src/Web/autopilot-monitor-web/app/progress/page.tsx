@@ -10,6 +10,7 @@ import { useProgressSearch } from "./hooks/useProgressSearch";
 import { useProgressEvents } from "./hooks/useProgressEvents";
 import { useProgressSignalR } from "./hooks/useProgressSignalR";
 import { useProgressDerivedData } from "./hooks/useProgressDerivedData";
+import { DeviceStatusChips } from "./components/DeviceStatusChips";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -71,7 +72,7 @@ export default function ProgressPortalPage() {
     addNotification,
   });
 
-  const { appSummary, currentDownload, currentInstall, installElapsedMs, overallProgress } =
+  const { appSummary, currentDownload, currentInstall, installElapsedMs, overallProgress, deviceStatus } =
     useProgressDerivedData(events, session);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -253,6 +254,9 @@ export default function ProgressPortalPage() {
                     {session.deviceName || session.serialNumber} |{" "}
                     {session.manufacturer} {session.model}
                   </p>
+                  {/* Live chips only while in progress — on finished sessions the
+                      last-known values would masquerade as current state. */}
+                  {session.status === "InProgress" && <DeviceStatusChips status={deviceStatus} />}
                 </div>
               </div>
 

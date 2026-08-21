@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EnrollmentEvent, Session } from "@/types";
+import { computeDeviceStatus, DeviceStatus } from "./deviceStatus";
 
 // Minimal structural view of the event payloads this hook reads — only fields used in a
 // typed position are declared (the agent serializes them as strings); everything else
@@ -116,6 +117,7 @@ export interface UseProgressDerivedDataReturn {
   currentInstall: CurrentInstall | null;
   installElapsedMs: number | null;
   overallProgress: number;
+  deviceStatus: DeviceStatus;
 }
 
 /**
@@ -170,6 +172,8 @@ export function useProgressDerivedData(
     () => computeCurrentDownload(events),
     [events]
   );
+
+  const deviceStatus = useMemo<DeviceStatus>(() => computeDeviceStatus(events), [events]);
 
   const currentInstall = useMemo<CurrentInstall | null>(() => {
     const installTypes = new Set([
@@ -278,5 +282,6 @@ export function useProgressDerivedData(
     currentInstall,
     installElapsedMs,
     overallProgress,
+    deviceStatus,
   };
 }
