@@ -349,6 +349,7 @@ namespace AutopilotMonitor.Functions.Services
                             tenantId, silenceCutoff, hardCutoff: cutoffTime);
 
                         int silentMarked = 0;
+                        int silentAwaitingUser = 0;
                         foreach (var silent in silentSessions)
                         {
                             // The query is a permissive two-frame pre-filter; the decision is made
@@ -360,6 +361,19 @@ namespace AutopilotMonitor.Functions.Services
                             if (lastContactAt > silenceCutoff)
                                 continue; // provably alive on the server clock
 
+                            // WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis
+                            // 2026-08-21): after the reseal-reboot the technician routinely powers
+                            // the device off at the logon screen to box it — that silence is the
+                            // expected parking state between technician and end user, not a stall.
+                            // Only pre-provisioned sessions with a ResumedAt pay the event read;
+                            // any user evidence since the resume falls through to Stalled.
+                            if (silent.IsPreProvisioned && silent.ResumedAt.HasValue
+                                && await TryMarkWhiteGloveAwaitingUserAsync(silent))
+                            {
+                                silentAwaitingUser++;
+                                continue;
+                            }
+
                             var silentMinutes = (int)(now - lastContactAt).TotalMinutes;
                             await _sessionRepo.UpdateSessionStatusAsync(
                                 silent.TenantId,
@@ -370,19 +384,20 @@ namespace AutopilotMonitor.Functions.Services
                             silentMarked++;
                         }
 
-                        if (silentMarked > 0)
+                        if (silentMarked > 0 || silentAwaitingUser > 0)
                         {
                             totalSessionsMarkedStalled += silentMarked;
-                            _logger.LogInformation($"Tenant {tenantId}: Marked {silentMarked} agent-silent sessions as Stalled (silence threshold: {agentSilenceHours}h)");
+                            _logger.LogInformation($"Tenant {tenantId}: Marked {silentMarked} agent-silent sessions as Stalled, {silentAwaitingUser} as AwaitingUser (WhiteGlove Part 2; silence threshold: {agentSilenceHours}h)");
                             await _maintenanceRepo.LogAuditEntryAsync(
                                 tenantId,
                                 "SessionStalled",
                                 "Session",
-                                $"{silentMarked} sessions",
+                                $"{silentMarked + silentAwaitingUser} sessions",
                                 "System.Maintenance",
                                 new Dictionary<string, string>
                                 {
                                     { "SessionsMarkedStalled", silentMarked.ToString() },
+                                    { "SessionsAwaitingUser", silentAwaitingUser.ToString() },
                                     { "AgentSilenceHours", agentSilenceHours.ToString() },
                                     { "SilenceCutoff", silenceCutoff.ToString("yyyy-MM-ddTHH:mm:ss") }
                                 });
@@ -454,7 +469,8 @@ namespace AutopilotMonitor.Functions.Services
                             // Device Setup → Incomplete. Never Failed without an explicit failure signal.
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
                             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                                rollup, effectiveStart, now, graceHours, session.LastEventAt);
+                                rollup, effectiveStart, now, graceHours, session.LastEventAt,
+                                isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
 
                             // No-op if the verdict equals the current (non-terminal) state.
                             if (targetStatus == session.Status)
@@ -566,6 +582,44 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, "Failed to check for stalled sessions");
                 return new SessionSweepResult(0, 0, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Applies the WhiteGlove Part-2 awaiting-user gate to one agent-silent candidate
+        /// (pre-provisioned + ResumedAt set — the caller pre-filters so only WhiteGlove Part-2
+        /// runs pay the event read). Reads the session's events, distills the classifier rollup
+        /// and, when <see cref="EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser"/> confirms
+        /// there is no user evidence since the resume, parks the session as AwaitingUser instead
+        /// of Stalled. Returns true when the AwaitingUser write happened; false (fail-soft, also
+        /// on read errors) lets the caller fall through to the normal Stalled marker.
+        /// </summary>
+        private async Task<bool> TryMarkWhiteGloveAwaitingUserAsync(SessionSummary silent)
+        {
+            try
+            {
+                var events = await _sessionRepo.GetSessionEventsAsync(
+                    silent.TenantId, silent.SessionId, maxResults: 1000);
+                var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
+                if (!EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(
+                        rollup, silent.IsPreProvisioned, silent.ResumedAt))
+                    return false;
+
+                var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                    silent.TenantId,
+                    silent.SessionId,
+                    SessionStatus.AwaitingUser,
+                    failureReason: EnrollmentTimeoutClassifier.WhiteGloveAwaitingUserReason(rollup));
+                if (transitioned)
+                    _logger.LogInformation(
+                        $"Session {silent.SessionId}: WhiteGlove Part 2 silent with no user evidence — parked as AwaitingUser instead of Stalled");
+                return transitioned;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    $"WhiteGlove awaiting-user gate failed for session {silent.SessionId}; falling back to Stalled marker");
+                return false;
             }
         }
 

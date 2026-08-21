@@ -109,7 +109,8 @@ namespace AutopilotMonitor.Functions.Services
                         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
                         var effectiveStart = session.ResumedAt ?? session.StartedAt;
                         var (target, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                            rollup, effectiveStart, now, graceHours, session.LastEventAt);
+                            rollup, effectiveStart, now, graceHours, session.LastEventAt,
+                            isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
 
                         if (target == SessionStatus.Failed)
                         {

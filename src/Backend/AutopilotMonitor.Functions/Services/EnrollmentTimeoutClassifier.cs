@@ -92,6 +92,7 @@ namespace AutopilotMonitor.Functions.Services
             bool AccountSetupAllSucceeded,
             bool HasExplicitFailure,
             bool HasTerminalComplete,
+            bool HasEnrollmentComplete,
             bool HasAgentEmergencyBreak,
             bool DesktopArrived,
             bool HelloResolved,
@@ -113,7 +114,7 @@ namespace AutopilotMonitor.Functions.Services
             bool deviceAll = false;
             int acctBestN = 0, acctBestM = 0;
             bool acctFallbackAll = false;
-            bool hasFailure = false, hasComplete = false, hasEmergencyBreak = false;
+            bool hasFailure = false, hasComplete = false, hasEnrollmentComplete = false, hasEmergencyBreak = false;
             bool desktopArrived = false, helloResolved = false;
             bool realmJoinDetected = false, realmJoinResolved = false;
             bool sawHelloPolicyEnabled = false, sawHelloPolicyDisabled = false;
@@ -135,7 +136,12 @@ namespace AutopilotMonitor.Functions.Services
                         hasFailure = true;
                 }
                 else if (Eq(type, "enrollment_complete") || Eq(type, "whiteglove_complete"))
+                {
                     hasComplete = true;
+                    // whiteglove_complete only proves Part 1 (technician flow) — the WhiteGlove
+                    // awaiting-user gate needs to know whether a REAL enrollment completion exists.
+                    if (Eq(type, "enrollment_complete")) hasEnrollmentComplete = true;
+                }
                 else if (Eq(type, "agent_emergency_break"))
                     hasEmergencyBreak = true;
                 else if (Eq(type, "desktop_arrived"))
@@ -217,6 +223,7 @@ namespace AutopilotMonitor.Functions.Services
                 AccountSetupAllSucceeded: acctAll,
                 HasExplicitFailure: hasFailure,
                 HasTerminalComplete: hasComplete,
+                HasEnrollmentComplete: hasEnrollmentComplete,
                 HasAgentEmergencyBreak: hasEmergencyBreak,
                 DesktopArrived: desktopArrived,
                 HelloResolved: helloResolved,
@@ -224,6 +231,46 @@ namespace AutopilotMonitor.Functions.Services
                 SkipUserEsp: sawSkipUserTrue && !sawSkipUserFalse,
                 RealmJoinDetected: realmJoinDetected,
                 RealmJoinResolved: realmJoinResolved);
+        }
+
+        /// <summary>
+        /// WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21). After the
+        /// reseal-reboot the session is BY DEFINITION in the user-driven final phase: the agent
+        /// resumed (<c>whiteglove_resumed</c> → ResumedAt, the only writer of that column), the
+        /// Part-2 Device ESP re-confirms in minutes, and the device sits at the logon screen.
+        /// Technicians routinely power the machine off there to box it — well before the 10-min
+        /// hybrid-login evidence window — so agent silence in this state means "sealed / powered
+        /// off awaiting the end user", not a stall. The gate demands the full evidence set:
+        /// pre-provisioned + resumed + Device Setup provisioned, and NO trace of a real user
+        /// since the resume (no Account Setup progress, no real-user desktop, no Hello terminal,
+        /// no enrollment completion) and no explicit failure. Any user evidence keeps the honest
+        /// Stalled/timeout handling — a stall after the user showed up is a real stall.
+        /// Shared by the maintenance sweep stage 1, the <c>session_stalled</c> ingest mapping and
+        /// <see cref="ClassifyTimedOutSession"/> so all paths apply one evidence rule.
+        /// </summary>
+        public static bool IsWhiteGloveAwaitingUser(
+            in EspProvisioningRollup rollup, bool isPreProvisioned, DateTime? resumedAt)
+            => isPreProvisioned
+               && resumedAt.HasValue
+               && rollup.DeviceSetupAllSucceeded
+               && !rollup.HasExplicitFailure
+               && !rollup.HasEnrollmentComplete
+               && rollup.AccountSetupSucceededCount == 0
+               && !rollup.DesktopArrived
+               && !rollup.HelloResolved;
+
+        /// <summary>
+        /// Customer-facing reason for a WhiteGlove Part-2 session parked as AwaitingUser by the
+        /// silence/stall paths. One authoring spot so the sweep, the ingest mapping and the
+        /// timeout classifier show the identical text.
+        /// </summary>
+        public static string WhiteGloveAwaitingUserReason(in EspProvisioningRollup rollup)
+        {
+            var acct = rollup.AccountSetupTotal > 0
+                ? $" (Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})"
+                : " (Account Setup not yet started)";
+            return "Pre-provisioning (WhiteGlove) completed; no user sign-in since Part 2 resumed — " +
+                   $"device presumably sealed or powered off awaiting the end user{acct}";
         }
 
         /// <summary>
@@ -242,17 +289,44 @@ namespace AutopilotMonitor.Functions.Services
         /// mechanism declared success too early" — session efbc17ff. Falls back to
         /// <paramref name="startedAtUtc"/> when unknown (same fallback the stalled-marker uses).
         /// </param>
+        /// <param name="isPreProvisioned">Session's IsPreProvisioned flag (WhiteGlove Part-2 gate input).</param>
+        /// <param name="resumedAt">Session's ResumedAt — set exclusively by the whiteglove_resumed ingest.</param>
         public static (SessionStatus Status, string Reason) ClassifyTimedOutSession(
             EspProvisioningRollup rollup, DateTime startedAtUtc, DateTime nowUtc, int graceHours,
-            DateTime? lastEventAtUtc = null)
+            DateTime? lastEventAtUtc = null, bool isPreProvisioned = false, DateTime? resumedAt = null)
         {
             // 1. An explicit terminal failure event is a real failure (defensive — such a session
             //    would normally already be terminal via ingest and not reach the sweep).
             if (rollup.HasExplicitFailure)
                 return (SessionStatus.Failed, "Enrollment reported an explicit failure before timeout");
 
+            // 1b. WhiteGlove Part 2 with zero user evidence since the resume: the device is parked
+            //     between technician and end user (sealed box / powered off at the logon screen).
+            //     Must run BEFORE rule 2 — the Part-1 whiteglove_complete in the same event stream
+            //     sets HasTerminalComplete and would otherwise reconcile the session to Succeeded
+            //     with a reason claiming Account Setup completed, which never happened. Within
+            //     grace the honest label is AwaitingUser; past grace the Part-1 success stands as
+            //     the session outcome (the user phase is tracked by the session the device
+            //     registers when it is finally unboxed), stated with an honest WhiteGlove reason.
+            if (IsWhiteGloveAwaitingUser(rollup, isPreProvisioned, resumedAt))
+            {
+                if ((nowUtc - startedAtUtc).TotalHours < graceHours)
+                    return (SessionStatus.AwaitingUser, WhiteGloveAwaitingUserReason(rollup));
+
+                return (SessionStatus.Succeeded, AppendReconcileTiming(
+                    $"Reconciled at timeout: pre-provisioning (WhiteGlove Part 1) completed — no user sign-in observed within {graceHours}h grace",
+                    startedAtUtc, nowUtc, lastEventAtUtc));
+            }
+
             // 2. Account Setup fully succeeded (or a terminal completion event) → reconcile to success.
-            if (rollup.AccountSetupAllSucceeded || rollup.HasTerminalComplete)
+            //    Once Part 2 has resumed, the Part-1 whiteglove_complete in the same stream no longer
+            //    proves the session's outcome — only a real enrollment_complete does. Without this,
+            //    a resumed session with partial user progress (e.g. Account Setup 1/5, then silence)
+            //    reconciled to Succeeded on Part-1 evidence, with a reason claiming Account Setup
+            //    completed; rules 4-6 below hold the honest verdicts for that shape.
+            var terminalCompleteProvesOutcome = rollup.HasEnrollmentComplete
+                || (rollup.HasTerminalComplete && !resumedAt.HasValue);
+            if (rollup.AccountSetupAllSucceeded || terminalCompleteProvesOutcome)
                 return (SessionStatus.Succeeded, AppendReconcileTiming(
                     "Reconciled at timeout: Account Setup completed (all subcategories succeeded / enrollment_complete observed)",
                     startedAtUtc, nowUtc, lastEventAtUtc));

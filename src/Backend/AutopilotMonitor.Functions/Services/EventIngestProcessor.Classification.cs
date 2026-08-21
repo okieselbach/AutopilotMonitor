@@ -287,7 +287,8 @@ namespace AutopilotMonitor.Functions.Services
 
             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp);
+                rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp,
+                isPreProvisioned: session?.IsPreProvisioned == true, resumedAt: session?.ResumedAt);
 
             // Keep the max-lifetime trigger visible: the Succeeded reasons already carry their own
             // silence-transparency clause, everything else gets the watchdog context appended.
@@ -356,7 +357,8 @@ namespace AutopilotMonitor.Functions.Services
                 var now = DateTime.UtcNow;
                 var effectiveStart = session.ResumedAt ?? session.StartedAt;
                 var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
-                    rollup, effectiveStart, now, graceHours, session.LastEventAt ?? c.LatestEventTimestamp);
+                    rollup, effectiveStart, now, graceHours, session.LastEventAt ?? c.LatestEventTimestamp,
+                    isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
 
                 if (targetStatus != SessionStatus.Succeeded)
                     return;
@@ -373,6 +375,49 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "{SessionPrefix} late-telemetry reconcile failed; existing verdict stands", sessionPrefix);
+            }
+        }
+
+        /// <summary>
+        /// WhiteGlove Part-2 awaiting-user gate for the agent-reported stall
+        /// (<c>session_stalled</c>). Pre-provisioned sessions with a ResumedAt whose event
+        /// stream shows no user evidence since the resume are parked as AwaitingUser instead of
+        /// Stalled — same evidence rule as the maintenance sweep
+        /// (<see cref="EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser"/>). Returns true
+        /// when the AwaitingUser write was applied; false (also on any error, fail-soft) lets
+        /// the caller run the normal Stalled mapping.
+        /// </summary>
+        private async Task<bool> TryMapStallToWhiteGloveAwaitingUserAsync(
+            IngestEventsRequest request, string sessionPrefix, EventClassification c)
+        {
+            try
+            {
+                var session = await _sessionRepo.GetSessionAsync(request.TenantId, request.SessionId);
+                if (session?.IsPreProvisioned != true || !session.ResumedAt.HasValue)
+                    return false;
+
+                var sessionEvents = await _sessionRepo.GetSessionEventsAsync(
+                    request.TenantId, request.SessionId, maxResults: 1000);
+                var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
+                if (!EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(
+                        rollup, isPreProvisioned: true, session.ResumedAt))
+                    return false;
+
+                var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                    request.TenantId, request.SessionId, SessionStatus.AwaitingUser,
+                    earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
+                    failureReason: EnrollmentTimeoutClassifier.WhiteGloveAwaitingUserReason(rollup));
+                if (transitioned)
+                    _logger.LogInformation(
+                        "{SessionPrefix} Status: AwaitingUser (agent stall probe on WhiteGlove Part 2 with no user evidence since resume)",
+                        sessionPrefix);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "{SessionPrefix} WhiteGlove awaiting-user gate failed for session_stalled; falling back to Stalled", sessionPrefix);
+                return false;
             }
         }
 
@@ -567,6 +612,16 @@ namespace AutopilotMonitor.Functions.Services
 
             if (c.SessionStalledEvent != null)
             {
+                // WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21): the
+                // agent-side stall probe also fires on a resumed Part-2 device that simply sits
+                // at the logon screen with nobody signing in. With zero user evidence since the
+                // resume that is the expected parking state between technician and end user, so
+                // the honest label is AwaitingUser, not Stalled. Rare path (one probe batch per
+                // stalling session), so the session + events reads are acceptable; fail-soft —
+                // any error falls back to the plain Stalled mapping.
+                if (await TryMapStallToWhiteGloveAwaitingUserAsync(request, sessionPrefix, c))
+                    return (statusTransitioned, whiteGloveStatusTransitioned, failureReason);
+
                 var stalledReason = "Agent reported stall after 60min without progress (stall_probe)";
                 var stalledTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
                     request.TenantId, request.SessionId, SessionStatus.Stalled,

@@ -471,4 +471,148 @@ public class EnrollmentTimeoutClassifierTests
             Assert.NotEqual(SessionStatus.Failed, status);
         }
     }
+
+    // -------- WhiteGlove Part-2 awaiting-user gate (fairstone.ca analysis 2026-08-21) --------
+
+    private static readonly DateTime Resumed = Start.AddMinutes(20);
+
+    private static (SessionStatus, string) ClassifyWhiteGlove(
+        IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 6, int grace = 51)
+    {
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
+        var now = Start.AddHours(hoursSinceStart);
+        return EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, now, grace, isPreProvisioned: true, resumedAt: Resumed);
+    }
+
+    /// <summary>The fairstone event shape: Part 1 sealed, Part 2 resumed, nobody signed in.</summary>
+    private static EnrollmentEvent[] WgParkedEvents() => new[]
+    {
+        Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05),
+    };
+
+    [Fact]
+    public void ExtractRollup_separates_enrollment_complete_from_whiteglove_complete()
+    {
+        var wgOnly = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("whiteglove_complete") });
+        Assert.True(wgOnly.HasTerminalComplete);
+        Assert.False(wgOnly.HasEnrollmentComplete);
+
+        var real = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("enrollment_complete") });
+        Assert.True(real.HasTerminalComplete);
+        Assert.True(real.HasEnrollmentComplete);
+    }
+
+    [Fact]
+    public void WhiteGloveGate_requires_preprovisioned_and_resume_and_device_setup()
+    {
+        var parked = EnrollmentTimeoutClassifier.ExtractRollup(WgParkedEvents());
+        Assert.True(EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(parked, true, Resumed));
+        Assert.False(EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(parked, false, Resumed));
+        Assert.False(EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(parked, true, null));
+
+        // Powered off before Device Setup ever provisioned → not the parking state.
+        var early = EnrollmentTimeoutClassifier.ExtractRollup(new[]
+        {
+            Esp("ESP provisioning status: DeviceSetup — 3 of 4 subcategories completed"),
+        });
+        Assert.False(EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(early, true, Resumed));
+    }
+
+    [Fact]
+    public void WhiteGloveGate_any_user_evidence_or_terminal_disarms_it()
+    {
+        foreach (var evidence in new[]
+        {
+            Esp(AccountSetup15),                    // Account Setup progressed → user was there
+            Evt("desktop_arrived"),                 // real-user desktop
+            Evt("hello_provisioning_completed"),    // positive Hello terminal
+            Evt("enrollment_complete"),             // real completion
+            Evt("enrollment_failed"),               // explicit failure
+        })
+        {
+            var rollup = EnrollmentTimeoutClassifier.ExtractRollup(new[]
+            {
+                Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05), evidence,
+            });
+            Assert.False(EnrollmentTimeoutClassifier.IsWhiteGloveAwaitingUser(rollup, true, Resumed));
+        }
+    }
+
+    [Fact]
+    public void Classify_whiteglove_part2_parked_within_grace_is_AwaitingUser()
+    {
+        // The fairstone shape: technician powers the device off at the logon screen minutes
+        // after the reseal-reboot. Part-1 whiteglove_complete must NOT reconcile to Succeeded.
+        var (status, reason) = ClassifyWhiteGlove(WgParkedEvents(), hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, status);
+        Assert.Contains("sealed or powered off awaiting the end user", reason);
+        Assert.Contains("(Account Setup 0/5)", reason);
+    }
+
+    [Fact]
+    public void Classify_whiteglove_part2_parked_past_grace_reconciles_with_honest_reason()
+    {
+        var (status, reason) = ClassifyWhiteGlove(WgParkedEvents(), hoursSinceStart: 60, grace: 51);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("pre-provisioning (WhiteGlove Part 1) completed", reason);
+        Assert.DoesNotContain("Account Setup completed", reason);
+    }
+
+    [Fact]
+    public void Classify_whiteglove_part2_with_partial_user_progress_is_not_reconciled_on_part1_evidence()
+    {
+        // User signed in and Account Setup progressed to 1/5, then silence. The Part-1
+        // whiteglove_complete previously reconciled this to Succeeded claiming "Account Setup
+        // completed" — on a resumed session only a real enrollment_complete proves the outcome,
+        // so this honest shape falls through to the AwaitingUser/Incomplete rules.
+        var events = new[]
+        {
+            Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup15),
+        };
+        var (withinGrace, _) = ClassifyWhiteGlove(events, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.AwaitingUser, withinGrace);
+
+        var (pastGrace, reason) = ClassifyWhiteGlove(events, hoursSinceStart: 60, grace: 51);
+        Assert.Equal(SessionStatus.Incomplete, pastGrace);
+        Assert.Contains("1/5", reason);
+    }
+
+    [Fact]
+    public void Classify_whiteglove_part2_with_desktop_and_hello_still_reconciles_via_user_evidence()
+    {
+        // Both Classic completion prerequisites in → the user provably finished; the
+        // user-completed reconcile (rule 4) owns this, not the parking gate.
+        var (status, reason) = ClassifyWhiteGlove(new[]
+        {
+            Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup15),
+            Evt("desktop_arrived"), Evt("hello_provisioning_completed"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("user completed setup", reason);
+    }
+
+    [Fact]
+    public void Classify_whiteglove_part2_real_enrollment_complete_still_reconciles_to_Succeeded()
+    {
+        var (status, _) = ClassifyWhiteGlove(new[]
+        {
+            Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05), Evt("enrollment_complete"),
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+    }
+
+    [Fact]
+    public void Classify_unresumed_session_keeps_terminal_complete_reconcile()
+    {
+        // No resumedAt (plain sessions, or a sealed Part 1 whose Pending write was lost):
+        // whiteglove_complete keeps reconciling to Succeeded exactly as before.
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(new[]
+        {
+            Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05),
+        });
+        var (status, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, Start.AddHours(6), 51, isPreProvisioned: true, resumedAt: null);
+        Assert.Equal(SessionStatus.Succeeded, status);
+    }
 }
