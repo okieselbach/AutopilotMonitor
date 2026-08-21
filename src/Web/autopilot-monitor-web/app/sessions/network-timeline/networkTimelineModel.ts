@@ -296,27 +296,30 @@ export function buildColorMap(segs: NetSegment[]): Map<string, string> {
 // the axis stays honest despite the local stretch.
 
 export const W = 1200;
-// Drawing content stops short of the right viewBox edge so the slanted
-// lifecycle-marker labels can always run up-right without leaving the SVG.
+// Drawing content is inset 64 units on BOTH sides: the right inset keeps the
+// slanted lifecycle-marker labels inside the SVG, the left inset mirrors it
+// for symmetry (and gives a left-edge marker label the same room).
+export const CONTENT_LEFT = 64;
 export const CONTENT_W = W - 64;
+const CONTENT_SPAN = CONTENT_W - CONTENT_LEFT;
 const MIN_SEG_W = 28;
 
 export function buildScale(segs: NetSegment[]): NetworkModel['scale'] {
   const widths = segs.map((s) => s.end - s.start);
   const total = widths.reduce((a, b) => a + b, 0) || 1;
-  let px = widths.map((w) => Math.max((w / total) * CONTENT_W, MIN_SEG_W));
+  let px = widths.map((w) => Math.max((w / total) * CONTENT_SPAN, MIN_SEG_W));
   const sum = px.reduce((a, b) => a + b, 0);
-  px = px.map((w) => (w / sum) * CONTENT_W);
+  px = px.map((w) => (w / sum) * CONTENT_SPAN);
 
   const tB: number[] = [segs[0]?.start ?? 0];
-  const xB: number[] = [0];
+  const xB: number[] = [CONTENT_LEFT];
   segs.forEach((s, i) => {
     tB.push(s.end);
     xB.push(xB[i] + px[i]);
   });
 
   const x = (t: number): number => {
-    if (t <= tB[0]) return 0;
+    if (t <= tB[0]) return CONTENT_LEFT;
     for (let i = 1; i < tB.length; i++) {
       if (t <= tB[i]) {
         const f = (t - tB[i - 1]) / Math.max(tB[i] - tB[i - 1], 1);
