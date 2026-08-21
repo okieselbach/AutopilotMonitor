@@ -15,10 +15,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// <summary>
     /// Live AC/battery watcher: subscribes to the WMI push event
     /// <c>Win32_PowerManagementEvent WHERE EventCode = 10</c> (PBT_APMPOWERSTATUSCHANGE — fires on
-    /// AC↔DC switches and battery-percentage steps; the event carries no payload, so each arrival
-    /// re-probes via <see cref="PowerStateProbe"/>) and diffs the snapshots through the pure
-    /// <see cref="PowerStateTransitionTracker"/> into <c>power_state_change</c> events. No polling:
-    /// between pushes the host is completely idle. Complements the one-shot startup
+    /// AC↔DC switches and battery-percentage steps), falling back to the intrinsic
+    /// <c>__InstanceModificationEvent WITHIN 30 … Win32_Battery</c> where the legacy push provider
+    /// no longer loads (Windows 11 24H2/25H2, builds 26200+: activation fails WBEM_E_NOT_FOUND
+    /// although the provider is still registered — session 161b838c). Either way the arriving
+    /// event's payload is ignored; each arrival re-probes via <see cref="PowerStateProbe"/> and
+    /// diffs the snapshots through the pure <see cref="PowerStateTransitionTracker"/> into
+    /// <c>power_state_change</c> events. No polling in this process (the fallback's WITHIN
+    /// sampling runs inside WinMgmt). Complements the one-shot startup
     /// <c>power_state_check</c> (<c>StartupEnvironmentProbes</c>), which stays the baseline event.
     /// <para>
     /// Devices without a battery (or with a failing probe) never arm the WMI subscription — zero
@@ -117,10 +121,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             if (!armWmi) return;
 
+            // Arm chain: the extrinsic push event first (zero WinMgmt cost, still alive on older
+            // builds), then the intrinsic Win32_Battery modification event. On Windows 11 24H2/25H2
+            // (observed on builds 26200/26220, session 161b838c) the MS_Power_Management_Event_Provider
+            // is still REGISTERED but its activation fails with WBEM_E_NOT_FOUND — the legacy provider
+            // no longer loads, so the push query throws on exactly the devices that enroll today.
+            // The fallback's WITHIN polling runs inside WinMgmt (a Win32_Battery snapshot every 30 s),
+            // NOT in this process; the handler path is identical (payload ignored, re-probe + diff),
+            // worst-case detection latency ≈ 35 s incl. debounce.
+            if (TryArmWatcher(
+                    "SELECT * FROM Win32_PowerManagementEvent WHERE EventCode = 10",
+                    "power_management_event (push)", baseline, out var pushError))
+            {
+                return;
+            }
+
+            if (TryArmWatcher(
+                    "SELECT * FROM __InstanceModificationEvent WITHIN 30 WHERE TargetInstance ISA 'Win32_Battery'",
+                    "battery_instance_poll (WinMgmt WITHIN 30s)", baseline, out var fallbackError))
+            {
+                return;
+            }
+
+            _logger.Warning($"[{Name}] could not arm any WMI power watcher — " +
+                $"push: {Describe(pushError)}; fallback: {Describe(fallbackError)} — " +
+                "live power-state transitions will not be observed this run");
+            CollectorDegradationReporter.Report(_post, _sessionId, _tenantId, Name, "watcher_arm_failed",
+                fallbackError ?? pushError);
+        }
+
+        private static string Describe(Exception? ex)
+            => ex == null ? "n/a" : $"{ex.GetType().Name}: {ex.Message}";
+
+        /// <summary>
+        /// One arm attempt for the given WQL event query, with the full dispose-race dance
+        /// (ConsoleBypassWatcher pattern). Returns true when the chain should stop: the watcher
+        /// armed, or disposal won the race (then arming anything would leak a subscription).
+        /// Returns false with the captured exception so the caller can try the next query.
+        /// </summary>
+        private bool TryArmWatcher(string wql, string modeLabel, PowerStateResult baseline, out Exception? error)
+        {
+            error = null;
             try
             {
-                var query = new WqlEventQuery("SELECT * FROM Win32_PowerManagementEvent WHERE EventCode = 10");
-                var watcher = new ManagementEventWatcher(query);
+                var watcher = new ManagementEventWatcher(new WqlEventQuery(wql));
                 watcher.EventArrived += OnPowerStatusChange;
 
                 lock (_lock)
@@ -130,7 +174,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                         // Dispose won the race against the background start — don't arm.
                         try { watcher.EventArrived -= OnPowerStatusChange; } catch { }
                         try { watcher.Dispose(); } catch { }
-                        return;
+                        return true;
                     }
                     _watcher = watcher;
                 }
@@ -151,25 +195,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     try { watcher.EventArrived -= OnPowerStatusChange; } catch { }
                     try { watcher.Stop(); } catch { }
                     try { watcher.Dispose(); } catch { }
-                    return;
+                    return true;
                 }
 
-                _logger.Info($"[{Name}] watching Win32_PowerManagementEvent (EventCode 10) — " +
+                _logger.Info($"[{Name}] armed via {modeLabel} — " +
                     $"baseline: {(baseline.OnAcPower ? "AC" : "battery")}, {baseline.BatteryPercent?.ToString() ?? "?"}%");
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.Warning($"[{Name}] could not arm WMI power watcher ({ex.GetType().Name}: {ex.Message}) — " +
-                    "live power-state transitions will not be observed this run");
+                error = ex;
+                _logger.Info($"[{Name}] arm attempt '{modeLabel}' failed ({ex.GetType().Name}: {ex.Message})");
                 lock (_lock) { _watcher = null; }
-                CollectorDegradationReporter.Report(_post, _sessionId, _tenantId, Name, "watcher_arm_failed", ex);
+                return false;
             }
         }
 
         private void OnPowerStatusChange(object sender, EventArrivedEventArgs e)
         {
-            // The WMI event carries no usable payload; it only tells us "power status changed".
-            // Debounce, then re-probe — never call watcher.Stop() from inside this callback.
+            // Push and fallback events are treated identically: the payload is ignored, the event
+            // only tells us "power status may have changed". Debounce, then re-probe — never call
+            // watcher.Stop() from inside this callback.
             try { ScheduleDebouncedTick(); }
             catch (Exception ex) { _logger.Debug($"[{Name}] power event handler error: {ex.Message}"); }
         }

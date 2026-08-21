@@ -22,10 +22,21 @@ invisible. The watcher closes that gap **event-driven, with zero polling**.
 
 # Mechanism
 
-- `PowerStateWatcherHost` (`Orchestration/Hosts`) subscribes to the WMI push event
-  `SELECT * FROM Win32_PowerManagementEvent WHERE EventCode = 10` (PBT_APMPOWERSTATUSCHANGE:
-  fires on AC↔DC switches and battery-percentage steps, granularity set by the battery
-  driver, typically 1–3%). The event carries no payload — each arrival re-probes via the
+- `PowerStateWatcherHost` (`Orchestration/Hosts`) arms a WMI event subscription with a
+  two-step chain:
+  1. `SELECT * FROM Win32_PowerManagementEvent WHERE EventCode = 10` (PBT_APMPOWERSTATUSCHANGE:
+     true kernel push, fires on AC↔DC switches and battery-percentage steps).
+  2. **Fallback** `SELECT * FROM __InstanceModificationEvent WITHIN 30 WHERE TargetInstance
+     ISA 'Win32_Battery'` — required because on Windows 11 24H2/25H2 (observed on builds
+     26200 and 26220, session 161b838c) the `MS_Power_Management_Event_Provider` is still
+     registered in the repository but its activation fails with `WBEM_E_NOT_FOUND`: the
+     legacy push provider no longer loads on exactly the OS builds new devices enroll with.
+     The WITHIN sampling runs inside WinMgmt (one Win32_Battery snapshot every 30 s), not in
+     the agent; worst-case detection latency ≈ 35 s incl. debounce. `collector_degraded`
+     (`watcher_arm_failed`) is emitted only when BOTH attempts fail; the agent log's arm
+     line names the active mode.
+
+  Either way the arriving event's payload is ignored — each arrival re-probes via the
   existing `PowerStateProbe.Probe()` (cheap P/Invoke).
 - Snapshots are diffed by the pure `PowerStateTransitionTracker`
   (`Monitoring/Enrollment/SystemSignals`), which decides what to emit. The host only owns
