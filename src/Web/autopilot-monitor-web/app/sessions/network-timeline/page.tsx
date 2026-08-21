@@ -136,8 +136,8 @@ function Content() {
             <NetworkBand model={model} />
             {model.hotspotDetected && (
               <p className="mt-1 text-[11px] text-amber-700">
-                Hotspot classification is a heuristic based on vendor-default subnets (e.g. 172.20.10.x on iOS) —
-                not a proven fact.
+                Hotspot classification is heuristic: &quot;Hotspot?&quot; marks subnet-only evidence (e.g. 172.20.10.x
+                on iOS); without the &quot;?&quot; the SSID itself matches a typical phone hotspot name.
               </p>
             )}
           </div>

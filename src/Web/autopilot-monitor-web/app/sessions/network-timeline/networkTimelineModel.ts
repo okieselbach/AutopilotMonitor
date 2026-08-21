@@ -23,6 +23,12 @@ export type SegmentKind = 'ethernet' | 'wifi' | 'offline' | 'unknown';
 export interface HotspotHint {
   vendor: 'Apple' | 'Windows' | 'Android';
   reason: string;
+  /**
+   * true when the SSID itself matches a typical phone-hotspot name
+   * (e.g. "xyz's iPhone") — strong enough to drop the "?" from the badge.
+   * false = subnet-only evidence, shown as "Hotspot?".
+   */
+  confident: boolean;
 }
 
 export interface NetSegment {
@@ -141,14 +147,28 @@ export function detectHotspot(seg: NetSegment): HotspotHint | undefined {
   if (seg.kind !== 'wifi') return undefined;
   const gw = seg.gateway ?? '';
   const ip = seg.ip ?? '';
+  // iOS default hotspot SSID is "<name>'s iPhone" (localized variants keep
+  // "iPhone"). A user COULD name any AP like this, but that is atypical —
+  // treat an iPhone-named SSID as confident, not just probable.
+  const iphoneSsid = /iphone/i.test(seg.ssid ?? '');
+
   if (gw.includes('172.20.10.1') || ip.startsWith('172.20.10.')) {
-    return { vendor: 'Apple', reason: 'subnet 172.20.10.x — hard-wired by iOS for the personal hotspot' };
+    return {
+      vendor: 'Apple',
+      confident: iphoneSsid,
+      reason: iphoneSsid
+        ? 'subnet 172.20.10.x (hard-wired by iOS) and the SSID matches the typical iPhone hotspot name'
+        : 'subnet 172.20.10.x — hard-wired by iOS for the personal hotspot',
+    };
   }
   if (gw.includes('192.168.137.1') || ip.startsWith('192.168.137.')) {
-    return { vendor: 'Windows', reason: 'subnet 192.168.137.x — Windows mobile hotspot default' };
+    return { vendor: 'Windows', confident: false, reason: 'subnet 192.168.137.x — Windows mobile hotspot default' };
   }
   if (gw.includes('192.168.43.1') || ip.startsWith('192.168.43.')) {
-    return { vendor: 'Android', reason: 'subnet 192.168.43.x — classic Android hotspot default' };
+    return { vendor: 'Android', confident: false, reason: 'subnet 192.168.43.x — classic Android hotspot default' };
+  }
+  if (iphoneSsid) {
+    return { vendor: 'Apple', confident: true, reason: `SSID "${seg.ssid}" matches the typical iPhone hotspot name` };
   }
   return undefined;
 }

@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from 'react';
 import {
   fmtDuration,
   fmtTime,
+  HotspotHint,
   NetworkModel,
   OFFLINE_COLOR,
   segmentTitle,
@@ -60,12 +61,14 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
     }
   });
 
-  // Legend entries in first-seen order
-  const legend: { identity: string; label: string; color: string; kind: SegmentKind; hotspot?: boolean }[] = [];
+  // Legend entries in first-seen order; the strongest hotspot hint wins.
+  const legend: { identity: string; label: string; color: string; kind: SegmentKind; hotspot?: HotspotHint }[] = [];
   for (const seg of segments) {
     const existing = legend.find((l) => l.identity === seg.identity);
     if (existing) {
-      existing.hotspot = existing.hotspot || !!seg.hotspot;
+      if (seg.hotspot && (!existing.hotspot || (seg.hotspot.confident && !existing.hotspot.confident))) {
+        existing.hotspot = seg.hotspot;
+      }
       continue;
     }
     legend.push({
@@ -73,7 +76,7 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
       label: segmentTitle(seg),
       color: colors.get(seg.identity) ?? UNKNOWN_COLOR,
       kind: seg.kind,
-      hotspot: !!seg.hotspot,
+      hotspot: seg.hotspot,
     });
   }
 
@@ -93,7 +96,9 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
             )}
             {l.label}
             {l.hotspot && (
-              <span className="text-[10px] px-1 py-px rounded bg-amber-100 text-amber-800 font-medium">Hotspot?</span>
+              <span className="text-[10px] px-1 py-px rounded bg-amber-100 text-amber-800 font-medium">
+                {l.hotspot.confident ? 'Hotspot' : 'Hotspot?'}
+              </span>
             )}
           </span>
         ))}
@@ -191,7 +196,7 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
                 {seg.adapterDescription && <div>{seg.adapterDescription}</div>}
                 {seg.hotspot && (
                   <div className="text-amber-300">
-                    Probable smartphone hotspot ({seg.hotspot.vendor}) — {seg.hotspot.reason}
+                    {`${seg.hotspot.confident ? 'Smartphone hotspot' : 'Probable smartphone hotspot'} (${seg.hotspot.vendor}) — ${seg.hotspot.reason}`}
                   </div>
                 )}
                 {seg.ssidInferred && <div className="text-amber-300">SSID inferred from matching gateway</div>}
