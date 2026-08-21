@@ -10,10 +10,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
     /// the <c>app_tracking_summary</c> terminal event.
     /// <para>
     /// <b>StartedAtUtc</b> is recorded on the first lifecycle transition into Downloading /
-    /// Installing / InProgress and never overwritten. <b>CompletedAtUtc</b> is recorded on a
-    /// transition to a terminal state (Installed / Skipped / Postponed / Error) and re-armed
-    /// to <c>null</c> when the app goes terminal → active again (IME retry / re-evaluation,
-    /// audit Q1) — so the final terminal event carries first-start → last-terminal.
+    /// Installing / InProgress. <b>CompletedAtUtc</b> is recorded on a transition to a
+    /// terminal state (Installed / Skipped / Postponed / Error). When the app goes
+    /// terminal → active again (IME retry / re-evaluation pass, audit Q1) BOTH endpoints
+    /// re-arm — CompletedAtUtc to <c>null</c>, StartedAtUtc to the re-entry time — so the
+    /// final terminal event carries the status-defining ATTEMPT's window (2026-08
+    /// attempt-duration change, matching the backend's AppInstallSummaries semantics),
+    /// never the first-start → last-terminal span across install passes.
     /// </para>
     /// </summary>
     public sealed class AppInstallTiming

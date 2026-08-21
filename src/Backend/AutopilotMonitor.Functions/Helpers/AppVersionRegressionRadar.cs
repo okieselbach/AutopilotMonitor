@@ -35,7 +35,12 @@ public sealed class AppVersionDurationRegressionFinding
 /// </list>
 /// Measured population: Succeeded, non-skip terminal state, plausible observed duration
 /// (<see cref="MetricsMath.HasMeasuredDuration"/>), no AppId collision, non-empty
-/// AppVersion. Version ORDER comes from first-seen install time (min StartedAt) — version
+/// AppVersion, and — cutover gate of the 2026-08 attempt-duration change — an
+/// attempt-anchored duration (<c>LastAttemptStartedAt</c> present). Rows from before the
+/// change carry the old full-span semantics; a median over a mixed population would both
+/// mask real regressions (inflated previous vs. attempt-short current) and falsely re-arm
+/// active episodes, so pre-cutover rows are excluded on BOTH sides of every comparison.
+/// Version ORDER comes from first-seen install time (min StartedAt) — version
 /// strings are never sorted lexically ("9.1" vs "2024.10" would lie). "Previous" is the
 /// version with the latest first-seen strictly before the current version's first-seen;
 /// with parallel ring rollouts that can be a concurrently-deployed version — accepted for
@@ -149,6 +154,9 @@ public static class AppVersionRegressionRadar
             if (summary.Status != "Succeeded") continue;
             if (MetricsMath.IsSkipTerminalState(summary)) continue;
             if (!MetricsMath.HasMeasuredDuration(summary)) continue;
+            // Attempt-semantics cutover gate (see class doc): only attempt-anchored rows
+            // enter the duration population, on both sides of every comparison.
+            if (!summary.LastAttemptStartedAt.HasValue) continue;
 
             if (!groups.TryGetValue(summary.AppName, out var list))
             {

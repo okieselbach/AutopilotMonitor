@@ -513,7 +513,10 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     exitCode = s.ExitCode,
                     attemptNumber = s.AttemptNumber,
                     startedAt = s.StartedAt,
-                    durationSeconds = s.DurationSeconds
+                    durationSeconds = s.DurationSeconds,
+                    // 2+ = the IME processed this app in multiple passes (device-ESP
+                    // evaluation + real install) — explains a completion far after startedAt.
+                    installPassCount = s.InstallPassCount
                 };
             }).ToList();
 

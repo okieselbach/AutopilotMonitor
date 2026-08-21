@@ -160,7 +160,11 @@ export const RULE_AUTHORING_GUIDE = {
         'Match a phase (eventType=esp_phase_changed, dataField=espPhase, operator=equals, ' +
         'value=<phase>); the evidence carries durationSeconds. Combine with a confidenceFactor ' +
         '"phase_duration > N" for the actual duration check.',
-      app_install_duration: 'Compare app install duration in seconds (operator gt/lt/gte/lte, value=seconds).',
+      app_install_duration:
+        'Compare app install duration in seconds (operator gt/lt/gte/lte, value=seconds). ' +
+        'Attempt-scoped: pairs each completion with the LATEST app_install_started before it ' +
+        '(sequence order), so an IME re-evaluation pass an hour earlier does not inflate the ' +
+        'value — same semantics as the apps dashboard since 2026-08.',
       event_correlation:
         'Join two event types over a shared field: eventType + correlateEventType + joinField, ' +
         'optional timeWindowSeconds, optional eventAFilterField/-Operator/-Value to pre-filter the ' +

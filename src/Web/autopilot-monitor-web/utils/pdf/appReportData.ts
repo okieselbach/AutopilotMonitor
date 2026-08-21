@@ -189,15 +189,20 @@ export function prepareReportModel(input: AppReportInput): AppReportModel {
       tone: failureRateTone(s.failureRate),
     },
     {
-      label: "Avg duration",
+      label: "Avg install time",
       value: formatDuration(s.avgDurationSeconds),
       tone: "default",
       hint:
         s.unmeasured > 0
-          ? `measured installs only — ${s.unmeasured} without observed start`
-          : "measured installs only",
+          ? `final attempt, measured installs only — ${s.unmeasured} without observed start`
+          : "final attempt, measured installs only",
     },
-    { label: "P95 duration", value: formatDuration(s.p95DurationSeconds), tone: "default" },
+    {
+      label: "P95 install time",
+      value: formatDuration(s.p95DurationSeconds),
+      tone: "default",
+      hint: "final attempt, measured installs only",
+    },
     {
       label: "Trend",
       value: trendText(s.trend, s.trendDelta),

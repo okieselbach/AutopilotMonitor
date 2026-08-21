@@ -142,6 +142,8 @@ interface SessionRow {
   attemptNumber: number;
   startedAt: string;
   durationSeconds: number;
+  /** Observed install passes (2+ = IME evaluation pass + real install); 0 on legacy rows. */
+  installPassCount?: number;
 }
 
 // ── Affected Sessions: column metadata (for the column picker) ─────────────
@@ -163,7 +165,7 @@ const SESSIONS_COLUMNS: SessionColumn[] = [
   { key: "status", label: "Status", defaultVisible: true },
   { key: "attempts", label: "Attempts", defaultVisible: true, numeric: true },
   { key: "failureCode", label: "Failure Code", defaultVisible: true },
-  { key: "duration", label: "Duration", defaultVisible: true, numeric: true },
+  { key: "duration", label: "Install Time", defaultVisible: true, numeric: true },
 ];
 
 const SESSIONS_COLUMNS_STORAGE_KEY = "appHealthSessions_visibleColumns";
@@ -544,12 +546,12 @@ function AppDetailContent() {
                   }
                 />
                 <SummaryCard
-                  label="Avg Duration"
+                  label="Avg Install Time"
                   value={formatDuration(analytics.summary.avgDurationSeconds)}
                   hint={
                     analytics.summary.unmeasured > 0
-                      ? `measured installs only — ${analytics.summary.unmeasured} without observed start`
-                      : "measured installs only"
+                      ? `final attempt, measured installs only — ${analytics.summary.unmeasured} without observed start`
+                      : "final attempt, measured installs only"
                   }
                 />
                 <SummaryCard label="Trend" value={trendText(analytics.summary.trend, analytics.summary.trendDelta)} />
@@ -588,18 +590,24 @@ function AppDetailContent() {
                     <EmptyState />
                   )}
                 </Card>
-                <Card title="Avg Install Duration over time">
+                <Card title="Avg Install Time over time">
                   {analytics.timeSeries.length > 0 ? (
-                    <AppLineChart
-                      data={analytics.timeSeries as unknown as Array<Record<string, unknown>>}
-                      xKey="bucketStart"
-                      series={[
-                        { dataKey: "avgDurationSeconds", label: "Avg duration (s)", color: chartColors.primary },
-                      ]}
-                      yUnit="s"
-                      yDomain={[0, "auto"]}
-                      formatXTick={formatBucketTick}
-                    />
+                    <>
+                      <AppLineChart
+                        data={analytics.timeSeries as unknown as Array<Record<string, unknown>>}
+                        xKey="bucketStart"
+                        series={[
+                          { dataKey: "avgDurationSeconds", label: "Avg install time (s)", color: chartColors.primary },
+                        ]}
+                        yUnit="s"
+                        yDomain={[0, "auto"]}
+                        formatXTick={formatBucketTick}
+                      />
+                      <p className="mt-2 text-xs text-gray-400">
+                        Measures the final install attempt since Aug 2026 — earlier points{" "}
+                        use the older span measurement and read higher.
+                      </p>
+                    </>
                   ) : (
                     <EmptyState />
                   )}
@@ -644,7 +652,7 @@ function AppDetailContent() {
                     </Card>
                   )}
                   {analytics.versionBreakdown.some((v) => v.measuredInstalls > 0) && (
-                    <Card title="Median Install Duration by Version">
+                    <Card title="Median Install Time by Version">
                       <AppBarChart
                         data={analytics.versionBreakdown.filter((v) => v.measuredInstalls > 0) as unknown as Array<Record<string, unknown>>}
                         categoryKey="appVersion"
@@ -952,6 +960,14 @@ function AppDetailContent() {
                                     return (
                                       <td key={col.key} className="px-3 py-2 text-right text-gray-700">
                                         {formatDuration(row.durationSeconds)}
+                                        {(row.installPassCount ?? 0) > 1 && (
+                                          <span
+                                            className="ml-1 text-xs text-gray-400 dark:text-gray-500"
+                                            title={`Processed in ${row.installPassCount} IME passes (evaluation + install) — install time counts only the final attempt`}
+                                          >
+                                            ×{row.installPassCount}
+                                          </span>
+                                        )}
                                       </td>
                                     );
                                   default:

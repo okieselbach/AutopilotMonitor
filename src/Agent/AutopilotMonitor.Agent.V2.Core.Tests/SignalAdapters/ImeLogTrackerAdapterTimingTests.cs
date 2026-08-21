@@ -245,11 +245,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         }
 
         [Fact]
-        public void Terminal_to_active_retry_rearms_CompletedAt_and_final_terminal_covers_total_occupancy()
+        public void Terminal_to_active_retry_rearms_BothEndpoints_and_final_terminal_covers_last_attempt()
         {
-            // Audit Q1: the IME retry path (Error -> Downloading -> Installed is permitted by
-            // AppPackageState.UpdateState). Pre-fix, CompletedAt froze at the first Error, so
-            // the final Installed payload carried the first failure's completedAt/duration.
+            // Audit Q1 + 2026-08 attempt-duration change: the IME retry path
+            // (Error -> Downloading -> Installed is permitted by AppPackageState.UpdateState).
+            // A terminal->active transition re-arms BOTH endpoints, so the final Installed
+            // payload describes the retry ATTEMPT (matching the backend's AppInstallSummaries
+            // semantics) — not the first-start -> last-terminal span across attempts.
             using var f = new ImeLogTrackerAdapterFixture(T0);
             using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
             var app = new AppPackageState("app-R", 0);
@@ -261,23 +263,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             adapter.TriggerAppStateFromTest(app, AppInstallationState.Error, AppInstallationState.Downloading);
 
             // Re-armed while active again: the retry's download event carries no completedAt,
-            // and the FIRST start stamp is kept.
+            // and the start stamp is the RETRY's re-entry time (fresh attempt window).
             Assert.Null(adapter.AppTimings["app-R"].CompletedAtUtc);
             var retryDownload = f.InfoEvent(SharedEventTypes.AppDownloadStarted);
             Assert.False(retryDownload.Payload!.ContainsKey("completedAt"));
             Assert.False(retryDownload.Payload.ContainsKey("durationSeconds"));
-            Assert.Equal(T0.ToString("o"), retryDownload.Payload["startedAt"]);
+            Assert.Equal(T0.AddSeconds(15).ToString("o"), retryDownload.Payload["startedAt"]);
 
             f.Clock.Advance(TimeSpan.FromSeconds(20));
             adapter.TriggerAppStateFromTest(app, AppInstallationState.Downloading, AppInstallationState.Installed);
 
             var timing = adapter.AppTimings["app-R"];
-            Assert.Equal(T0, timing.StartedAtUtc);
+            Assert.Equal(T0.AddSeconds(15), timing.StartedAtUtc);
             Assert.Equal(T0.AddSeconds(35), timing.CompletedAtUtc);
-            Assert.Equal(35.0, timing.DurationSeconds);
+            Assert.Equal(20.0, timing.DurationSeconds);
 
             var completed = Assert.Single(f.InfoEvents(SharedEventTypes.AppInstallComplete));
-            Assert.Equal("35.00", completed.Payload!["durationSeconds"]);
+            Assert.Equal("20.00", completed.Payload!["durationSeconds"]);
             Assert.Equal(T0.AddSeconds(35).ToString("o"), completed.Payload["completedAt"]);
         }
 

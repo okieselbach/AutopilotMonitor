@@ -66,7 +66,14 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string TerminalState { get; set; } = string.Empty;
 
-        /// <summary>Total installation duration in seconds (from start to complete/failed)</summary>
+        /// <summary>
+        /// Duration in seconds of the status-defining (last observed) install attempt:
+        /// <see cref="CompletedAt"/> minus <see cref="LastAttemptStartedAt"/>. Falls back to
+        /// the <see cref="StartedAt"/> anchor (the historical full-span semantics) only when
+        /// no <c>app_install_started</c> was ever observed (legacy agents, terminal-only
+        /// observation). Until 2026-08 this column was the first-observation → last-terminal
+        /// span across ALL install passes — rows from before the change still carry that value.
+        /// </summary>
         public int DurationSeconds { get; set; }
 
         /// <summary>Total download size in bytes</summary>
@@ -81,11 +88,35 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Error message if failed</summary>
         public string FailureMessage { get; set; } = string.Empty;
 
-        /// <summary>When this app install started</summary>
+        /// <summary>
+        /// When this app was FIRST observed in this session (earliest app-relevant event,
+        /// including download progress). This is the server-side window/bucket filter column
+        /// for every AppInstallSummaries scan and the version-ordering key of the regression
+        /// radar — it is never re-anchored to a later attempt (earliest always wins).
+        /// </summary>
         public DateTime StartedAt { get; set; }
 
         /// <summary>When this app install completed or failed</summary>
         public DateTime? CompletedAt { get; set; }
+
+        /// <summary>
+        /// Device-frame timestamp of the most recent observed <c>app_install_started</c> for
+        /// this app in this session — the anchor of <see cref="DurationSeconds"/>. Folds via
+        /// max in-batch and across batches (a replayed older batch can never regress it).
+        /// Null = sentinel: no start observed (row predates the 2026-08 attempt-duration
+        /// change, or the agent never emitted a start) — such rows keep the span fallback.
+        /// </summary>
+        public DateTime? LastAttemptStartedAt { get; set; }
+
+        /// <summary>
+        /// Number of observed install passes (<c>app_install_started</c> events) across the
+        /// session. The IME processes the app list repeatedly (device-ESP evaluation pass,
+        /// user-context pass, retries), so 2+ is normal and explains a
+        /// <see cref="CompletedAt"/> far after <see cref="StartedAt"/>. Additive across
+        /// batches, guarded by <see cref="LastAttemptStartedAt"/> monotonicity so a replayed
+        /// batch is not double-counted. 0 = sentinel (legacy row / never observed).
+        /// </summary>
+        public int InstallPassCount { get; set; }
 
         // Delivery Optimization telemetry
         /// <summary>DO: total file size reported by DO</summary>

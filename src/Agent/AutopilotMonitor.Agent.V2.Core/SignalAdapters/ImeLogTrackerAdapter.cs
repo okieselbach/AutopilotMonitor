@@ -804,12 +804,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         /// <see cref="AppInstallTiming"/> so the emitter can inline the values on the
         /// current event's payload without a second dictionary lookup.
         /// <para>
-        /// Audit Q1: a terminal→active transition (the IME retry path — <see
-        /// cref="AppPackageState.UpdateState"/> permits e.g. Error→Downloading and
-        /// Skipped→Downloading) re-arms <c>Completed</c> to <c>null</c>, so the NEXT terminal
-        /// transition stamps a fresh CompletedAt. StartedAt keeps its first value — the final
-        /// terminal payload then covers first-start → last-terminal (total occupancy across
-        /// attempts) instead of freezing at the first failure. Observed pre-fix: a user-scope
+        /// Audit Q1 + 2026-08 attempt-duration change: a terminal→active transition (the IME
+        /// retry / re-evaluation path — <see cref="AppPackageState.UpdateState"/> permits e.g.
+        /// Error→Downloading and Skipped→Downloading) re-arms BOTH endpoints: <c>Completed</c>
+        /// to <c>null</c> (the NEXT terminal transition stamps fresh) and <c>Started</c> to
+        /// the re-entry time. The final terminal payload therefore describes the
+        /// status-defining ATTEMPT — matching the backend's AppInstallSummaries semantics —
+        /// instead of first-start → last-terminal across passes: the IME processes the app
+        /// list repeatedly (device-ESP evaluation pass, user-context pass), and the idle gap
+        /// between passes is not install time. Observed pre-fix (old bug shape): a user-scope
         /// app Skipped early in DeviceSetup, retried after sign-in, emitted its final
         /// Installed event with the stale early CompletedAt (durationSeconds=-2342).
         /// </para>
@@ -820,11 +823,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             {
                 _appTimings.TryGetValue(appId, out var current);
 
-                // Terminal→active (retry): the earlier terminal stamp no longer describes this
-                // app's outcome — re-arm so the next terminal transition stamps fresh.
+                // Terminal→active (retry / new pass): the earlier stamps no longer describe
+                // this app's outcome — re-arm both endpoints so the next terminal transition
+                // reports the fresh attempt's window.
                 if (current.Completed != null && IsLifecycleActive(newState))
                 {
                     current.Completed = null;
+                    current.Started = now;
                 }
 
                 // First lifecycle-active transition → record StartedAt.

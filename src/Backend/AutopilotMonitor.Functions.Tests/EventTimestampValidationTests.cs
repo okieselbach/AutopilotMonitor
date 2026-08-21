@@ -379,20 +379,50 @@ public class EventTimestampValidationTests
     }
 
     [Fact]
-    public void RecalculateAppDurations_DownloadThenInstall_CorrectDownloadDuration()
+    public void DownloadThenInstall_AttemptScopedPairing_DownloadAndInstallDurations()
     {
+        // 2026-08 attempt-duration change: DownloadDurationSeconds pairs the latest download
+        // start with the NEXT install start at event-fold time (no first→first span math),
+        // and DurationSeconds anchors on the install attempt (download time is reported
+        // separately, not folded into the install duration).
         var downloadStart = new DateTime(2026, 3, 30, 10, 0, 0, DateTimeKind.Utc);
         var installStart = downloadStart.AddSeconds(30);
         var completed = installStart.AddSeconds(45);
 
+        var summaries = new Dictionary<string, AppInstallAggregationState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var evt in new[]
+        {
+            AppInstallEvent("app_download_started", downloadStart),
+            AppInstallEvent("app_install_started", installStart),
+            AppInstallEvent("app_install_completed", completed, "Installed"),
+        })
+        {
+            EventIngestProcessor.AggregateAppInstallEvent(evt, "tenant", "session", summaries);
+        }
+
+        var summary = summaries["TestApp"].Summary;
+        Assert.Equal(30, summary.DownloadDurationSeconds); // download→install gap
+        Assert.Equal(45, summary.DurationSeconds);         // install attempt only
+        Assert.Equal(installStart, summary.LastAttemptStartedAt);
+        Assert.Equal(downloadStart, summary.StartedAt);    // first-seen anchor
+    }
+
+    [Fact]
+    public void RecalculateAppDurations_AttemptAnchor_BeatsFirstSeenSpan()
+    {
+        // With an observed attempt start, the duration is the attempt — never the span
+        // back to the first observation an hour earlier.
+        var firstSeen = new DateTime(2026, 3, 30, 10, 0, 0, DateTimeKind.Utc);
+        var attemptStart = firstSeen.AddMinutes(60);
+        var completed = attemptStart.AddSeconds(45);
+
         var state = new AppInstallAggregationState
         {
-            DownloadStartedAt = downloadStart,
-            InstallStartedAt = installStart,
             Summary = new AppInstallSummary
             {
                 AppName = "TestApp",
-                StartedAt = downloadStart,
+                StartedAt = firstSeen,
+                LastAttemptStartedAt = attemptStart,
                 CompletedAt = completed,
                 Status = "Succeeded"
             }
@@ -400,8 +430,46 @@ public class EventTimestampValidationTests
 
         EventIngestProcessor.RecalculateAppDurations(state);
 
-        Assert.Equal(30, state.Summary.DownloadDurationSeconds); // download→install gap
-        Assert.Equal(75, state.Summary.DurationSeconds);         // full duration
+        Assert.Equal(45, state.Summary.DurationSeconds);
+    }
+
+    [Fact]
+    public void RecalculateAppDurations_AttemptNewerThanCompletion_KeepsRecordedDuration()
+    {
+        // A fresh pass is in flight (start after the last terminal): CompletedAt belongs to
+        // the previous attempt — its recorded duration must stand.
+        var attempt1 = new DateTime(2026, 3, 30, 10, 0, 0, DateTimeKind.Utc);
+        var completed = attempt1.AddSeconds(40);
+        var attempt2 = completed.AddMinutes(30);
+
+        var state = new AppInstallAggregationState
+        {
+            Summary = new AppInstallSummary
+            {
+                AppName = "TestApp",
+                StartedAt = attempt1,
+                LastAttemptStartedAt = attempt2,
+                CompletedAt = completed,
+                DurationSeconds = 40,
+                Status = "Succeeded"
+            }
+        };
+
+        EventIngestProcessor.RecalculateAppDurations(state);
+
+        Assert.Equal(40, state.Summary.DurationSeconds);
+    }
+
+    private static EnrollmentEvent AppInstallEvent(string eventType, DateTime ts, string? state = null)
+    {
+        var evt = new EnrollmentEvent
+        {
+            EventType = eventType,
+            Timestamp = ts,
+            Data = new Dictionary<string, object> { ["appName"] = "TestApp" },
+        };
+        if (state != null) evt.Data["state"] = state;
+        return evt;
     }
 
     [Fact]

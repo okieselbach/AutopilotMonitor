@@ -112,6 +112,22 @@ namespace AutopilotMonitor.Functions.Services
                 case "app_install_start":
                     if (!state.InstallStartedAt.HasValue || evt.Timestamp < state.InstallStartedAt.Value)
                         state.InstallStartedAt = evt.Timestamp;
+                    // Attempt anchor: the LATEST start wins (max-fold). DurationSeconds
+                    // measures the status-defining attempt, not the session-wide span — the
+                    // IME processes the app list in multiple passes (device-ESP evaluation,
+                    // user-context install, retries), often an hour apart.
+                    if (!summary.LastAttemptStartedAt.HasValue || evt.Timestamp > summary.LastAttemptStartedAt.Value)
+                        summary.LastAttemptStartedAt = evt.Timestamp;
+                    summary.InstallPassCount++;
+                    // Attempt-scoped download pairing: a pending download start is consumed
+                    // by the next install start of the same app.
+                    if (state.PendingDownloadStartedAt.HasValue && evt.Timestamp >= state.PendingDownloadStartedAt.Value)
+                    {
+                        var pairedDl = EventTimestampValidator.SafeDurationSeconds(state.PendingDownloadStartedAt.Value, evt.Timestamp);
+                        if (pairedDl > 0)
+                            summary.DownloadDurationSeconds = pairedDl;
+                        state.PendingDownloadStartedAt = null;
+                    }
                     if (summary.Status == "InProgress" || summary.Status == string.Empty)
                         summary.Status = "InProgress";
                     break;
@@ -119,34 +135,48 @@ namespace AutopilotMonitor.Functions.Services
                 case "app_download_started":
                     if (!state.DownloadStartedAt.HasValue || evt.Timestamp < state.DownloadStartedAt.Value)
                         state.DownloadStartedAt = evt.Timestamp;
+                    // Latest unconsumed download start — pairs with the NEXT install start.
+                    if (!state.PendingDownloadStartedAt.HasValue || evt.Timestamp > state.PendingDownloadStartedAt.Value)
+                        state.PendingDownloadStartedAt = evt.Timestamp;
                     if (summary.Status == "InProgress" || summary.Status == string.Empty)
                         summary.Status = "InProgress";
                     break;
 
                 case "app_install_completed":
                 case "app_install_complete":
+                    // A weaker terminal (Skipped/Postponed re-evaluation pass) never overrides
+                    // an Installed/Error already observed — mirrors the app_install_skipped
+                    // guard below. It must not move CompletedAt/DurationSeconds either: the
+                    // row keeps describing the attempt that produced the surviving terminal.
+                    var incomingTerminalState = evt.Data?.ContainsKey("state") == true
+                        ? evt.Data["state"]?.ToString() : null;
+                    if ((summary.TerminalState == "Installed" || summary.TerminalState == "Error") &&
+                        (incomingTerminalState == "Skipped" || incomingTerminalState == "Postponed"))
+                        break;
                     summary.Status = "Succeeded";
                     summary.CompletedAt = evt.Timestamp;
-                    if (summary.StartedAt != DateTime.MinValue)
-                        summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(summary.StartedAt, evt.Timestamp));
+                    var attemptStart = summary.LastAttemptStartedAt
+                        ?? (summary.StartedAt != DateTime.MinValue ? summary.StartedAt : (DateTime?)null);
+                    if (attemptStart.HasValue)
+                        summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(attemptStart.Value, evt.Timestamp));
                     // PR0 (2026-07-26): the agent emits app_install_completed for EVERY terminal
                     // transition — including Skipped/Postponed (V1 wire parity). The payload's
                     // `state` field is the only way to tell a real install apart from a no-op
                     // (e.g. WinGet "Update for X" policies that were not applicable). Persist it
                     // so metrics can exclude skips from durations and rates. Unknown/absent state
                     // leaves the sentinel empty — never guessed.
-                    var terminalStateRaw = evt.Data?.ContainsKey("state") == true
-                        ? evt.Data["state"]?.ToString() : null;
-                    if (terminalStateRaw == "Installed" || terminalStateRaw == "Skipped" || terminalStateRaw == "Postponed")
-                        summary.TerminalState = terminalStateRaw;
+                    if (incomingTerminalState == "Installed" || incomingTerminalState == "Skipped" || incomingTerminalState == "Postponed")
+                        summary.TerminalState = incomingTerminalState;
                     break;
 
                 case "app_install_failed":
                     summary.Status = "Failed";
                     summary.TerminalState = "Error";
                     summary.CompletedAt = evt.Timestamp;
-                    if (summary.StartedAt != DateTime.MinValue)
-                        summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(summary.StartedAt, evt.Timestamp));
+                    var failedAttemptStart = summary.LastAttemptStartedAt
+                        ?? (summary.StartedAt != DateTime.MinValue ? summary.StartedAt : (DateTime?)null);
+                    if (failedAttemptStart.HasValue)
+                        summary.DurationSeconds = Math.Max(1, EventTimestampValidator.SafeDurationSeconds(failedAttemptStart.Value, evt.Timestamp));
                     // FailureCode preference: canonical `failureType` > raw `errorCode` > empty.
                     // c117946b debrief (2026-05-12): the V2 termination handler tags promoted
                     // "likely stuck" apps with failureType=esp_apps_timeout so the UI can
@@ -310,20 +340,30 @@ namespace AutopilotMonitor.Functions.Services
                 summary.StartedAt = effectiveStart;
             }
 
-            // Download duration: from first download start to first install start.
-            if (state.DownloadStartedAt.HasValue && state.InstallStartedAt.HasValue &&
-                state.InstallStartedAt.Value >= state.DownloadStartedAt.Value)
-            {
-                summary.DownloadDurationSeconds = EventTimestampValidator.SafeDurationSeconds(
-                    state.DownloadStartedAt.Value, state.InstallStartedAt.Value);
-            }
+            // Download duration is paired attempt-scoped at the app_install_started event
+            // (latest download start → next install start) — no span computation here.
 
-            // Full duration: from effective start to completion/failure.
-            if (summary.CompletedAt.HasValue && summary.StartedAt != DateTime.MinValue &&
-                summary.CompletedAt.Value >= summary.StartedAt)
+            // Full duration: the status-defining attempt. CompletedAt pairs with the latest
+            // attempt start at or before it. A LastAttemptStartedAt NEWER than CompletedAt
+            // means a fresh pass is in flight — the recorded duration of the completed
+            // attempt stands. Rows without any observed start (legacy agents, terminal-only
+            // batches) keep the historical StartedAt (span) fallback.
+            if (summary.CompletedAt.HasValue)
             {
-                summary.DurationSeconds = EventTimestampValidator.SafeDurationSeconds(
-                    summary.StartedAt, summary.CompletedAt.Value);
+                if (summary.LastAttemptStartedAt.HasValue)
+                {
+                    if (summary.LastAttemptStartedAt.Value <= summary.CompletedAt.Value)
+                    {
+                        summary.DurationSeconds = EventTimestampValidator.SafeDurationSeconds(
+                            summary.LastAttemptStartedAt.Value, summary.CompletedAt.Value);
+                    }
+                }
+                else if (summary.StartedAt != DateTime.MinValue &&
+                         summary.CompletedAt.Value >= summary.StartedAt)
+                {
+                    summary.DurationSeconds = EventTimestampValidator.SafeDurationSeconds(
+                        summary.StartedAt, summary.CompletedAt.Value);
+                }
             }
         }
     }
@@ -333,5 +373,7 @@ namespace AutopilotMonitor.Functions.Services
         public AppInstallSummary Summary { get; set; } = new();
         public DateTime? DownloadStartedAt { get; set; }
         public DateTime? InstallStartedAt { get; set; }
+        /// <summary>Latest download start not yet consumed by an install start (attempt-scoped download-duration pairing).</summary>
+        public DateTime? PendingDownloadStartedAt { get; set; }
     }
 }

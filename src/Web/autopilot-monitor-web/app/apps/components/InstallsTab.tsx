@@ -283,7 +283,13 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
                 <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("succeeded")}>Succeeded {sortIndicator("succeeded")}</th>
                 <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failed")}>Failed {sortIndicator("failed")}</th>
                 <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failureRate")}>Failure Rate {sortIndicator("failureRate")}</th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("avgDurationSeconds")}>Avg Duration {sortIndicator("avgDurationSeconds")}</th>
+                <th
+                  className="px-4 py-3 cursor-pointer select-none text-right"
+                  onClick={() => toggleSort("avgDurationSeconds")}
+                  title="Average duration of the final install attempt. IME evaluation passes and time queued behind other apps are not counted."
+                >
+                  Avg Install Time {sortIndicator("avgDurationSeconds")}
+                </th>
                 <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("trend")}>Trend {sortIndicator("trend")}</th>
               </tr>
             </thead>

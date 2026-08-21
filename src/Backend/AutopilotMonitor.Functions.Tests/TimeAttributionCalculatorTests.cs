@@ -404,10 +404,12 @@ public class TimeAttributionCalculatorTests
         Assert.Equal(0, b.BlockingAppCount);
     }
 
-    // ── retry: occupancy spans to the LAST terminal event (audit Q1) ────────
+    // ── retry: every ATTEMPT counts as active time, idle gaps between them don't ──
+    // (2026-08 attempt-duration change: per-pass segment pairing replaced the old
+    // first-start → last-terminal hull.)
 
     [Fact]
-    public void Retry_IntervalRunsFromFirstStart_ToLastTerminalEvent()
+    public void Retry_ActiveSegmentsSummed_GapBetweenAttemptsExcluded()
     {
         var events = new List<EnrollmentEvent>
         {
@@ -426,10 +428,41 @@ public class TimeAttributionCalculatorTests
 
         AssertExactPartition(b);
         var interval = Assert.Single(b.BlockingApps);
-        // First started (+6m) → LAST terminal (+12m) = 360 s. The payload timing would have
-        // frozen at the first failure (+8m) — event timestamps are the only valid source.
-        Assert.Equal(360, interval.Seconds);
-        Assert.Equal(360, b.EspAppsOccupancySeconds);
+        // Failed attempt (+6m→+8m = 120 s) + retry (+9m→+12m = 180 s) = 300 s active; the
+        // idle minute between the attempts is not this app's time. The failed attempt still
+        // counts — the payload timing would have frozen at the first failure (audit Q1).
+        Assert.Equal(300, interval.Seconds);
+        // Hull endpoints stay first-start → last-terminal for display/what-if.
+        Assert.Equal(T0.AddMinutes(6), interval.StartUtc);
+        Assert.Equal(T0.AddMinutes(12), interval.EndUtc);
+        Assert.Equal(300, b.EspAppsOccupancySeconds);
+    }
+
+    [Fact]
+    public void TwoPasses_OccupancyCountsActiveSegments_NotTheInterPassGap()
+    {
+        // Field case 44862cd3 ("Set TimeZone"): evaluation pass ends Skipped, the real
+        // install runs much later. The app occupies the critical path only while the IME
+        // actively processes it — the gap belongs to whatever installed in between.
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(1), "esp_config_detected", data: EspLists(win32Ids: new[] { AppA })),
+            Evt(T0.AddMinutes(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(T0.AddMinutes(6), "app_install_started", data: AppData(AppA, "App A")),
+            Evt(T0.AddMinutes(7), "app_install_completed", data: AppData(AppA, "App A", "Skipped")),
+            Evt(T0.AddMinutes(40), "app_install_started", data: AppData(AppA, "App A")),  // real install pass
+            Evt(T0.AddMinutes(41), "app_install_completed", data: AppData(AppA, "App A", "Installed")),
+            Evt(T0.AddMinutes(45), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(45), durationSeconds: 2700))!;
+
+        AssertExactPartition(b);
+        var interval = Assert.Single(b.BlockingApps);
+        Assert.Equal(120, interval.Seconds);              // 60 s eval + 60 s install — not 2100 s hull
+        Assert.Equal(120, b.EspAppsOccupancySeconds);     // gap not on the critical path either
     }
 
     // ── reboots: spans from event gaps, never the detection event's stamp ───

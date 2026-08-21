@@ -568,7 +568,7 @@ export default function FleetHealthPage() {
                 Slowest Apps
                 <span
                   className="ml-2 text-xs font-normal text-gray-400"
-                  title="Averages are computed over installs with an observed duration only. Skipped (not-applicable) installs and installs whose start was never observed are excluded."
+                  title="Averages measure the final install attempt only — IME evaluation passes and time queued behind other apps are not counted. Computed over installs with an observed duration; skipped (not-applicable) installs and installs whose start was never observed are excluded."
                 >
                   measured installs
                 </span>

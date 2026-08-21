@@ -100,7 +100,7 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
   drawStackedBarChart(doc, { x: pdfPage.margin, y: ctx.y, w: contentW, h: BAR_CHART_H }, model.timeSeries);
   ctx.y += BAR_CHART_H + 2;
 
-  sectionTitle(ctx, "Avg Install Duration over time", LINE_CHART_H + 2);
+  sectionTitle(ctx, "Avg Install Time over time", LINE_CHART_H + 2);
   drawLineChart(doc, { x: pdfPage.margin, y: ctx.y, w: contentW, h: LINE_CHART_H }, model.timeSeries);
   ctx.y += LINE_CHART_H + 2;
 
@@ -146,8 +146,8 @@ export function buildAppReportDoc(model: AppReportModel, generatedAt: Date): jsP
         { header: "Installs", width: 22, align: "right" },
         { header: "Failed", width: 22, align: "right" },
         { header: "Failure rate", width: 26, align: "right" },
-        { header: "Median dur.", width: 25, align: "right" },
-        { header: "P95 dur.", width: 25, align: "right" },
+        { header: "Median install", width: 25, align: "right" },
+        { header: "P95 install", width: 25, align: "right" },
       ],
       rows: model.versions.rows,
       moreCount: model.versions.moreCount,

@@ -111,6 +111,10 @@ public static class TimeAttributionCalculator
         public string AppName = string.Empty;
         public DateTime? FirstStart;
         public DateTime? LastTerminal;
+        /// <summary>Start of the currently open activity segment (start seen, terminal pending).</summary>
+        public DateTime? OpenStart;
+        /// <summary>Closed activity segments: one per fully-observed install pass/attempt (start → terminal).</summary>
+        public List<(DateTime Start, DateTime End)> Segments = new();
     }
 
     /// <summary>
@@ -152,13 +156,15 @@ public static class TimeAttributionCalculator
         else if (blockingSets.IsTruncated)
             flags |= TimeAttributionFlags.BlockingSetTruncated;
 
-        var (blockingApps, blockingAppCount) = BuildBlockingAppIntervals(events, blockingSets, windows, ref flags);
+        var (blockingApps, blockingAppCount, blockingAppSegments) = BuildBlockingAppIntervals(events, blockingSets, windows, ref flags);
 
         int? occupancy = null;
         if (blockingSets != null && blockingSets.ListedCount > 0)
         {
             var espAppsSpans = spans.Where(s => s.SegmentKey == TimeAttributionSegments.EspApps).ToList();
-            occupancy = ComputeOccupancySeconds(blockingApps, espAppsSpans);
+            // Occupancy merges the per-pass SEGMENTS, not the per-app hulls — a hull spans
+            // the idle gap between install passes, which is not occupied by this app.
+            occupancy = ComputeOccupancySeconds(blockingAppSegments, espAppsSpans);
         }
 
         var rebootSpans = BuildRebootSpans(events, windows, spans);
@@ -403,12 +409,12 @@ public static class TimeAttributionCalculator
 
     // ── blocking-app intervals + occupancy ──────────────────────────────────
 
-    private static (List<BlockingAppInterval> Intervals, int MatchedCount) BuildBlockingAppIntervals(
+    private static (List<BlockingAppInterval> Intervals, int MatchedCount, List<BlockingAppInterval> OccupancySegments) BuildBlockingAppIntervals(
         List<EnrollmentEvent> events, EspBlockingSets? sets, List<Window> windows, ref TimeAttributionFlags flags)
     {
         var intervals = new List<BlockingAppInterval>();
         if (sets == null || sets.ListedCount == 0)
-            return (intervals, 0);
+            return (intervals, 0, intervals);
 
         // Fold per-app activity from EVENT timestamps (never payload timing — audit Q1).
         var apps = new Dictionary<string, AppActivity>(StringComparer.OrdinalIgnoreCase);
@@ -436,36 +442,75 @@ public static class TimeAttributionCalculator
                 activity.AppName = nameObj?.ToString()?.Trim() ?? string.Empty;
             }
 
-            if (isStart && (!activity.FirstStart.HasValue || evt.Timestamp < activity.FirstStart.Value))
-                activity.FirstStart = evt.Timestamp;
-            // LAST terminal wins — an IME retry (Error → retry → Installed) extends the
-            // occupancy to the final outcome instead of freezing at the first failure.
-            if (isTerminal && (!activity.LastTerminal.HasValue || evt.Timestamp > activity.LastTerminal.Value))
-                activity.LastTerminal = evt.Timestamp;
+            if (isStart)
+            {
+                if (!activity.FirstStart.HasValue || evt.Timestamp < activity.FirstStart.Value)
+                    activity.FirstStart = evt.Timestamp;
+                // A download start followed by an install start is ONE active window —
+                // the earliest open start survives until a terminal closes the segment.
+                activity.OpenStart ??= evt.Timestamp;
+            }
+            if (isTerminal)
+            {
+                if (!activity.LastTerminal.HasValue || evt.Timestamp > activity.LastTerminal.Value)
+                    activity.LastTerminal = evt.Timestamp;
+                // Segment pairing (2026-08 attempt-duration change): each fully-observed
+                // pass/attempt (start → terminal, sequence-ordered) is its own activity
+                // segment. The IME processes the app list in multiple passes; the idle gap
+                // between passes belongs to the apps actually running then, not to this one.
+                // A failed attempt still counts as active time — the retry opens a new
+                // segment, so the old "LAST terminal wins" retry intent is preserved.
+                if (activity.OpenStart.HasValue)
+                {
+                    if (evt.Timestamp >= activity.OpenStart.Value)
+                        activity.Segments.Add((activity.OpenStart.Value, evt.Timestamp));
+                    else
+                        flags |= TimeAttributionFlags.ClockSkewDropped;
+                    activity.OpenStart = null;
+                }
+                // Terminal without an observed start: no segment claim (attach window,
+                // audit §0.5) — same rule as before.
+            }
         }
 
         var matched = 0;
+        var occupancySegments = new List<BlockingAppInterval>();
         foreach (var activity in apps.Values)
         {
             if (!sets.Contains(activity.AppId)) continue; // absent ⇒ unknown, never "not blocking"
             matched++;
 
-            if (!activity.FirstStart.HasValue || !activity.LastTerminal.HasValue)
-                continue; // unobserved endpoint → no interval claim (attach window, audit §0.5)
-            if (activity.LastTerminal.Value < activity.FirstStart.Value)
-            {
-                flags |= TimeAttributionFlags.ClockSkewDropped;
-                continue;
-            }
+            if (activity.Segments.Count == 0)
+                continue; // no fully-observed attempt → no interval claim (attach window, audit §0.5)
 
-            var clamped = ClampToWindows(activity.FirstStart.Value, activity.LastTerminal.Value, windows);
-            if (!clamped.HasValue)
+            // Clamp each segment; the persisted per-app interval is the hull of the clamped
+            // segments with Seconds = the SUM of in-window active time (not the hull span —
+            // the inter-pass idle gap is not this app's time).
+            var total = 0;
+            DateTime? hullStart = null, hullEnd = null;
+            foreach (var segment in activity.Segments)
             {
-                // Outside the hull entirely → pathological timestamps (flagged, as before).
-                // Inside the hull but touching no window (wholly inside the WhiteGlove pause):
-                // no in-window observation → no interval claim, and nothing wrong with clocks.
-                if (activity.LastTerminal.Value < windows[0].Start ||
-                    activity.FirstStart.Value > windows[windows.Count - 1].End)
+                var clamped = ClampToWindows(segment.Start, segment.End, windows);
+                if (!clamped.HasValue) continue;
+                total += clamped.Value.Seconds;
+                if (hullStart == null || clamped.Value.Start < hullStart.Value) hullStart = clamped.Value.Start;
+                if (hullEnd == null || clamped.Value.End > hullEnd.Value) hullEnd = clamped.Value.End;
+                occupancySegments.Add(new BlockingAppInterval
+                {
+                    AppId = activity.AppId,
+                    AppName = activity.AppName,
+                    StartUtc = clamped.Value.Start,
+                    EndUtc = clamped.Value.End,
+                    Seconds = clamped.Value.Seconds,
+                });
+            }
+            if (hullStart == null || hullEnd == null)
+            {
+                // No segment overlapped any window. Outside the hull entirely →
+                // pathological timestamps (flagged, as before). Wholly inside the
+                // WhiteGlove pause → no in-window observation, nothing wrong with clocks.
+                if (activity.LastTerminal!.Value < windows[0].Start ||
+                    activity.FirstStart!.Value > windows[windows.Count - 1].End)
                 {
                     flags |= TimeAttributionFlags.ClockSkewDropped;
                 }
@@ -476,14 +521,13 @@ public static class TimeAttributionCalculator
             {
                 AppId = activity.AppId,
                 AppName = activity.AppName,
-                StartUtc = clamped.Value.Start,
-                EndUtc = clamped.Value.End,
-                // In-window seconds — a WG-pause-straddling interval never counts the pause.
-                Seconds = clamped.Value.Seconds,
+                StartUtc = hullStart.Value,
+                EndUtc = hullEnd.Value,
+                Seconds = total,
             });
         }
 
-        return (intervals, matched);
+        return (intervals, matched, occupancySegments);
     }
 
     /// <summary>

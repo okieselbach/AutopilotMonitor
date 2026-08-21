@@ -198,4 +198,164 @@ public class AppInstallTerminalStateAndReconcileTests
         // Column absent → Merge-mode preserves a prior batch's terminal state.
         Assert.False(empty.ContainsKey("TerminalState"));
     }
+
+    // ── attempt-duration semantics (2026-08): the field case that motivated it ──
+    // Session 44862cd3, "Set TimeZone": device-ESP evaluation pass ends Skipped, the real
+    // install happens ~66 min later in the user-context pass and takes 23 s. The old span
+    // semantics reported 4002 s.
+
+    [Fact]
+    public void TwoPasses_SingleBatch_DurationIsLastAttempt_NotSpan()
+    {
+        var s = Aggregate(
+            AppEvent("app_install_started", T0),
+            AppEvent("app_install_completed", T0.AddMinutes(6), "Skipped"),
+            AppEvent("app_install_started", T0.AddMinutes(66)),
+            AppEvent("app_install_completed", T0.AddMinutes(66).AddSeconds(23), "Installed"))["App"].Summary;
+
+        Assert.Equal(23, s.DurationSeconds);                        // last attempt, not 3983 s
+        Assert.Equal(T0, s.StartedAt);                              // first-seen anchor untouched
+        Assert.Equal(T0.AddMinutes(66), s.LastAttemptStartedAt);
+        Assert.Equal(2, s.InstallPassCount);
+        Assert.Equal("Installed", s.TerminalState);
+        Assert.Equal(T0.AddMinutes(66).AddSeconds(23), s.CompletedAt);
+    }
+
+    [Fact]
+    public void WeakerTerminal_CompletedSkipped_NeverOverridesInstalled_InBatch()
+    {
+        // Re-evaluation after a real install reports Skipped (already present) — the row
+        // keeps describing the install attempt, incl. CompletedAt and duration.
+        var s = Aggregate(
+            AppEvent("app_install_started", T0),
+            AppEvent("app_install_completed", T0.AddSeconds(40), "Installed"),
+            AppEvent("app_install_started", T0.AddMinutes(30)),
+            AppEvent("app_install_completed", T0.AddMinutes(30).AddSeconds(2), "Skipped"))["App"].Summary;
+
+        Assert.Equal("Installed", s.TerminalState);
+        Assert.Equal(T0.AddSeconds(40), s.CompletedAt);
+        Assert.Equal(40, s.DurationSeconds);
+    }
+
+    [Fact]
+    public void StartInOneBatch_TerminalInNext_ReconcileAnchorsOnStoredAttempt()
+    {
+        // Pass 2 start landed in batch N (stored anchor); the terminal-only batch N+1 must
+        // pair against it — not against the first-seen StartedAt an hour earlier.
+        var existing = new TableEntity("tenant", "session_App")
+        {
+            ["Status"] = "InProgress",
+            ["StartedAt"] = new DateTimeOffset(T0),
+            ["LastAttemptStartedAt"] = new DateTimeOffset(T0.AddMinutes(66)),
+            ["InstallPassCount"] = 2,
+        };
+        var summary = new AppInstallSummary
+        {
+            AppName = "App", SessionId = "session", TenantId = "tenant",
+            Status = "Succeeded", TerminalState = "Installed",
+            StartedAt = T0.AddMinutes(66).AddSeconds(23),           // batch init stamp (terminal event)
+            CompletedAt = T0.AddMinutes(66).AddSeconds(23),
+        };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal(T0, summary.StartedAt);                        // earliest wins (window key)
+        Assert.Equal(T0.AddMinutes(66), summary.LastAttemptStartedAt);
+        Assert.Equal(23, summary.DurationSeconds);                  // attempt-anchored, not 3983 s
+        Assert.Equal(2, summary.InstallPassCount);
+    }
+
+    [Fact]
+    public void Reconcile_ReplayedOlderBatch_NeverRegressesAnchorOrDoubleCountsPasses()
+    {
+        var existing = new TableEntity("tenant", "session_App")
+        {
+            ["StartedAt"] = new DateTimeOffset(T0),
+            ["LastAttemptStartedAt"] = new DateTimeOffset(T0.AddMinutes(66)),
+            ["InstallPassCount"] = 2,
+        };
+        // Replay of the pass-1 batch: its newest start is OLDER than the stored anchor.
+        var summary = new AppInstallSummary
+        {
+            AppName = "App", Status = "InProgress",
+            StartedAt = T0, LastAttemptStartedAt = T0, InstallPassCount = 1,
+        };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal(T0.AddMinutes(66), summary.LastAttemptStartedAt);  // max-fold: no regression
+        Assert.Equal(2, summary.InstallPassCount);                      // not 3 — replay not re-counted
+    }
+
+    [Fact]
+    public void Reconcile_NewerAttemptBatch_AddsPassCount()
+    {
+        var existing = new TableEntity("tenant", "session_App")
+        {
+            ["StartedAt"] = new DateTimeOffset(T0),
+            ["LastAttemptStartedAt"] = new DateTimeOffset(T0),
+            ["InstallPassCount"] = 1,
+        };
+        var summary = new AppInstallSummary
+        {
+            AppName = "App", Status = "InProgress",
+            StartedAt = T0.AddMinutes(66), LastAttemptStartedAt = T0.AddMinutes(66), InstallPassCount = 1,
+        };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal(T0.AddMinutes(66), summary.LastAttemptStartedAt);
+        Assert.Equal(2, summary.InstallPassCount);
+    }
+
+    [Fact]
+    public void Reconcile_WeakerTerminalBatch_NeverOverridesStoredInstalled()
+    {
+        // Cross-batch mirror of the in-batch guard: a batch that only saw the Skipped
+        // re-evaluation must not re-describe an Installed row.
+        var existing = new TableEntity("tenant", "session_App")
+        {
+            ["Status"] = "Succeeded",
+            ["TerminalState"] = "Installed",
+            ["StartedAt"] = new DateTimeOffset(T0),
+            ["CompletedAt"] = new DateTimeOffset(T0.AddSeconds(40)),
+            ["DurationSeconds"] = 40,
+        };
+        var summary = new AppInstallSummary
+        {
+            AppName = "App", Status = "Succeeded", TerminalState = "Skipped",
+            StartedAt = T0.AddMinutes(30),
+            LastAttemptStartedAt = T0.AddMinutes(30), InstallPassCount = 1,
+            CompletedAt = T0.AddMinutes(30).AddSeconds(2), DurationSeconds = 2,
+        };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal("Installed", summary.TerminalState);
+        // The guard drops the skip-pass endpoints; the Q4 path then re-adopts the STORED
+        // CompletedAt (the surviving install attempt's) — same value as on disk, and the
+        // attempt anchor being newer keeps DurationSeconds at 0, so the omitted column
+        // lets Merge preserve the stored 40 s.
+        Assert.Equal(T0.AddSeconds(40), summary.CompletedAt);
+        Assert.Equal(0, summary.DurationSeconds);
+    }
+
+    [Fact]
+    public void EntityBuilder_AttemptColumns_AreSentinelGated()
+    {
+        var with = new AppInstallSummary
+        {
+            AppName = "App",
+            LastAttemptStartedAt = T0,
+            InstallPassCount = 2,
+        };
+        var entity = TableStorageService.BuildAppInstallSummaryEntity(with, "rk");
+        Assert.Equal(new DateTimeOffset(T0), entity.GetDateTimeOffset("LastAttemptStartedAt"));
+        Assert.Equal(2, entity.GetInt32("InstallPassCount"));
+
+        var without = new AppInstallSummary { AppName = "App" };
+        var empty = TableStorageService.BuildAppInstallSummaryEntity(without, "rk");
+        Assert.False(empty.ContainsKey("LastAttemptStartedAt"));
+        Assert.False(empty.ContainsKey("InstallPassCount"));
+    }
 }

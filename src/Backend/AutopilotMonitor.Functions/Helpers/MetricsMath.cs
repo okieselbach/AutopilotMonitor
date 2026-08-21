@@ -35,11 +35,14 @@ public static class MetricsMath
     /// <summary>
     /// Upper plausibility bound for an observed install duration: 6 h, the agent's default
     /// max observation lifetime (AgentMaxLifetimeMinutes = 360) — nothing longer can have
-    /// been continuously watched. Rows above it are emission artifacts, not slow installs:
-    /// a batch emission at session end pins CompletedAt far past the real finish (verified
-    /// in production 2026-07-27: app rows carrying 60 175 s in a session whose own wall
-    /// clock was 2 697 s; 490 rows &gt; 6 h overall, worst 117 days — dominating the
-    /// slowest-apps ranking with six-figure averages).
+    /// been continuously watched. Historically this mostly caught full-span pathologies
+    /// (pre-2026-08 rows measured first observation → last terminal across all install
+    /// passes; verified in production 2026-07-27: app rows carrying 60 175 s in a session
+    /// whose own wall clock was 2 697 s; 490 rows &gt; 6 h overall, worst 117 days). Since
+    /// the 2026-08 attempt-duration change DurationSeconds measures the last attempt, so
+    /// far fewer rows trip this bound — it remains as the guard against back-stamped
+    /// completions, where a single ATTEMPT longer than the agent's own lifetime is still
+    /// impossible to have observed.
     /// </summary>
     public const int MaxPlausibleInstallDurationSeconds = 6 * 3600;
 

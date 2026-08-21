@@ -1483,7 +1483,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Get aggregated app-install health for Autopilot enrollments over a time window: the top failing apps ' +
         '(with failure counts, failure rate, and their most common failure codes), the slowest apps by average ' +
-        'install duration, and a fleet "deliveryOptimization" rollup — total bytes downloaded and how much came ' +
+        'install duration (durations measure the FINAL install attempt — the IME processes the app list in ' +
+        'multiple passes, and evaluation passes / time queued behind other apps are not counted; rows written ' +
+        'before 2026-08 carry the old first-observation-to-last-terminal span), and a fleet "deliveryOptimization" ' +
+        'rollup — total bytes downloaded and how much came ' +
         'from peers / Microsoft Connected Cache (MCC) vs. the CDN, plus a peerOffloadPercent (bandwidth saved by ' +
         'not pulling from the internet). Use this to answer "which app breaks or slows down my enrollments?" and ' +
         '"how much install bandwidth is served locally?". ' +
@@ -1528,7 +1531,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'time breakdown — wall-clock partition into device_prep / esp_apps / identity_hello / user_esp / ' +
         'desktop_handoff spans plus an EXPLICIT unattributed remainder (sums are exact against the session\'s ' +
         'authoritative duration; the WhiteGlove pause is excluded by design), the ESP-blocking app install ' +
-        'intervals with critical-path occupancy, reboot outage spans, and data-quality flags. Omit sessionId ' +
+        'intervals with critical-path occupancy (an app\'s seconds = its ACTIVE install time summed across all ' +
+        'IME passes/attempts — deliberately broader than get_app_install_metrics\' final-attempt duration, ' +
+        'because a failed attempt and an evaluation pass still occupied the critical path), reboot outage ' +
+        'spans, and data-quality flags. Omit sessionId ' +
         'for the fleet rollup: rolling 30-day median/p75/p90 per segment per enrollment class (classes are ' +
         'never mixed) plus the top time-consuming ESP-blocking apps with "up to" what-if savings bounds. ' +
         'breakdown=null means the session has no computable attribution (pre-feature, non-terminal, or ' +

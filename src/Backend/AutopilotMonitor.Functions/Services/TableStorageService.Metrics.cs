@@ -260,29 +260,75 @@ namespace AutopilotMonitor.Functions.Services
                     var existingStartedAt = existing.GetDateTimeOffset("StartedAt")?.UtcDateTime;
                     if (existingStartedAt.HasValue && existingStartedAt.Value != DateTime.MinValue)
                     {
-                        // Keep the earlier StartedAt; recalculate duration if CompletedAt is now known
+                        // Keep the earlier StartedAt — it is the window/bucket filter column and
+                        // the radar's version-ordering key, never re-anchored to a later attempt.
+                        // Duration recompute happens attempt-aware further down.
                         if (summary.StartedAt == DateTime.MinValue || existingStartedAt.Value < summary.StartedAt)
-                        {
                             summary.StartedAt = existingStartedAt.Value;
-                            if (summary.CompletedAt.HasValue && summary.CompletedAt.Value >= summary.StartedAt)
-                            {
-                                summary.DurationSeconds = (int)(summary.CompletedAt.Value - summary.StartedAt).TotalSeconds;
-                            }
-                        }
+                    }
+
+                    // Attempt anchor: the LATEST start wins across batches (mirror of the
+                    // in-batch max-fold — a replayed older batch can never regress it), and the
+                    // pass counter only grows when the batch carries genuinely newer starts
+                    // (replay guard: a batch whose newest start is not newer than the stored
+                    // anchor was already counted).
+                    var existingLastAttempt = existing.GetDateTimeOffset("LastAttemptStartedAt")?.UtcDateTime;
+                    var existingPassCount = existing.GetInt32("InstallPassCount") ?? 0;
+                    if (summary.LastAttemptStartedAt.HasValue &&
+                        (!existingLastAttempt.HasValue || summary.LastAttemptStartedAt.Value > existingLastAttempt.Value))
+                    {
+                        summary.InstallPassCount += existingPassCount;
+                    }
+                    else
+                    {
+                        summary.InstallPassCount = Math.Max(summary.InstallPassCount, existingPassCount);
+                        if (existingLastAttempt.HasValue)
+                            summary.LastAttemptStartedAt = existingLastAttempt;
+                    }
+
+                    // Cross-batch mirror of the weaker-terminal guard: a batch that only saw a
+                    // Skipped/Postponed re-evaluation pass never overrides a stored
+                    // Installed/Error, and its CompletedAt/DurationSeconds must not re-describe
+                    // the row (nulling them omits the columns → Merge preserves the stored
+                    // values of the surviving attempt).
+                    var existingTerminalStateForGuard = existing.GetString("TerminalState");
+                    if ((existingTerminalStateForGuard == "Installed" || existingTerminalStateForGuard == "Error") &&
+                        (summary.TerminalState == "Skipped" || summary.TerminalState == "Postponed"))
+                    {
+                        summary.TerminalState = existingTerminalStateForGuard!;
+                        if (existingStatus == "Succeeded" || existingStatus == "Failed")
+                            summary.Status = existingStatus!;
+                        summary.CompletedAt = null;
+                        summary.DurationSeconds = 0;
                     }
 
                     // Q4 (source-data audit 2026-07-26): out-of-order arrival — the terminal batch
-                    // landed FIRST (row already carries CompletedAt), the started batch arrives now
-                    // with the earlier StartedAt. Neither batch alone could compute the duration;
-                    // recompute it here against the stored CompletedAt so the row doesn't keep a
-                    // permanently unset duration despite both endpoints being known.
+                    // landed FIRST (row already carries CompletedAt), the started batch arrives now.
+                    // Neither batch alone could compute the duration; adopt the stored CompletedAt
+                    // so the attempt-aware recompute below can pair both endpoints.
                     if (!summary.CompletedAt.HasValue && summary.StartedAt != DateTime.MinValue)
                     {
                         var existingCompletedAt = existing.GetDateTimeOffset("CompletedAt")?.UtcDateTime;
                         if (existingCompletedAt.HasValue && existingCompletedAt.Value >= summary.StartedAt)
-                        {
                             summary.CompletedAt = existingCompletedAt.Value;
-                            summary.DurationSeconds = (int)(existingCompletedAt.Value - summary.StartedAt).TotalSeconds;
+                    }
+
+                    // Attempt-aware duration recompute — single site for both endpoints-known
+                    // paths (in-order and Q4 out-of-order). Anchor = latest attempt start at or
+                    // before CompletedAt; rows without an observed start keep the historical
+                    // StartedAt (span) fallback. A LastAttemptStartedAt NEWER than CompletedAt
+                    // means a fresh pass is in flight — the stored duration of the completed
+                    // attempt stands (DurationSeconds 0 omits the column, Merge preserves it).
+                    if (summary.CompletedAt.HasValue)
+                    {
+                        if (summary.LastAttemptStartedAt.HasValue)
+                        {
+                            if (summary.LastAttemptStartedAt.Value <= summary.CompletedAt.Value)
+                                summary.DurationSeconds = (int)(summary.CompletedAt.Value - summary.LastAttemptStartedAt.Value).TotalSeconds;
+                        }
+                        else if (summary.StartedAt != DateTime.MinValue && summary.CompletedAt.Value >= summary.StartedAt)
+                        {
+                            summary.DurationSeconds = (int)(summary.CompletedAt.Value - summary.StartedAt).TotalSeconds;
                         }
                     }
 
@@ -571,7 +617,10 @@ namespace AutopilotMonitor.Functions.Services
             "PartitionKey", "RowKey", "TenantId", "SessionId", "AppName", "AppType", "AppVersion",
             "Status", "TerminalState", "StartedAt", "CompletedAt", "DurationSeconds", "DownloadBytes",
             "AttemptNumber", "InstallerPhase", "FailureCode", "FailureMessage", "ExitCode", "DetectionResult",
-            "AppId", "EspBlocking", "AppIdCollision"
+            "AppId", "EspBlocking", "AppIdCollision",
+            // Attempt-duration columns (2026-08): the radar's cutover gate reads the anchor,
+            // the dashboard sessions table shows the pass count.
+            "LastAttemptStartedAt", "InstallPassCount"
         };
 
         /// <summary>
@@ -671,6 +720,8 @@ namespace AutopilotMonitor.Functions.Services
                 FailureMessage = entity.GetString("FailureMessage") ?? string.Empty,
                 StartedAt = entity.GetDateTimeOffset("StartedAt")?.UtcDateTime ?? DateTime.MinValue,
                 CompletedAt = entity.GetDateTimeOffset("CompletedAt")?.UtcDateTime,
+                LastAttemptStartedAt = entity.GetDateTimeOffset("LastAttemptStartedAt")?.UtcDateTime,
+                InstallPassCount = entity.GetInt32("InstallPassCount") ?? 0,
                 // Delivery Optimization telemetry
                 DoFileSize = entity.GetInt64("DoFileSize") ?? 0,
                 DoTotalBytesDownloaded = entity.GetInt64("DoTotalBytesDownloaded") ?? 0,
@@ -1563,6 +1614,12 @@ namespace AutopilotMonitor.Functions.Services
                 entity["DurationSeconds"] = summary.DurationSeconds;
             if (summary.CompletedAt.HasValue)
                 entity["CompletedAt"] = EnsureUtc(summary.CompletedAt.Value);
+            // Attempt-duration columns (2026-08): both sentinel-gated — a batch that observed
+            // no install start must not clobber the stored anchor/counter under Merge-mode.
+            if (summary.LastAttemptStartedAt.HasValue)
+                entity["LastAttemptStartedAt"] = EnsureUtc(summary.LastAttemptStartedAt.Value);
+            if (summary.InstallPassCount > 0)
+                entity["InstallPassCount"] = summary.InstallPassCount;
             if (!string.IsNullOrEmpty(summary.FailureCode))
                 entity["FailureCode"] = summary.FailureCode;
             if (!string.IsNullOrEmpty(summary.FailureMessage))

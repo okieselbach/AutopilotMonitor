@@ -134,7 +134,7 @@ export function drawStackedBarChart(doc: jsPDF, region: ChartRegion, points: Rep
   });
 }
 
-/** "Avg Install Duration over time": blue polyline, dot markers when sparse. */
+/** "Avg Install Time over time" (final attempt): blue polyline, dot markers when sparse. */
 export function drawLineChart(doc: jsPDF, region: ChartRegion, points: ReportTimeSeriesPoint[]) {
   if (points.length === 0) {
     drawEmptyPlaceholder(doc, region);
@@ -142,7 +142,7 @@ export function drawLineChart(doc: jsPDF, region: ChartRegion, points: ReportTim
   }
   const plot = plotArea(region);
   const { max, ticks } = niceTicks(Math.max(...points.map((p) => p.avgDurationSeconds)));
-  drawLegend(doc, region, [{ label: "Avg duration", color: pdfColors.primary }]);
+  drawLegend(doc, region, [{ label: "Avg install time", color: pdfColors.primary }]);
   drawAxes(doc, plot, ticks, max, "s", points);
   const yScale = linearScale(max, plot.h);
   const slotW = plot.w / points.length;

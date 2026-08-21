@@ -36,7 +36,8 @@ public class AppVersionRegressionRadarTests
         string appName = App,
         string status = "Succeeded",
         string terminalState = "Installed",
-        bool collision = false)
+        bool collision = false,
+        bool attemptAnchored = true)
         => new()
         {
             TenantId = TenantA,
@@ -47,6 +48,9 @@ public class AppVersionRegressionRadarTests
             TerminalState = terminalState,
             DurationSeconds = durationSeconds,
             StartedAt = startedAt ?? Now.AddDays(-1),
+            // Post-cutover rows carry the attempt anchor; the radar's cutover gate
+            // excludes rows without it (attemptAnchored: false = legacy span row).
+            LastAttemptStartedAt = attemptAnchored ? (startedAt ?? Now.AddDays(-1)) : null,
             AppIdCollision = collision,
         };
 
@@ -162,6 +166,26 @@ public class AppVersionRegressionRadarTests
         var finding = Assert.Single(AppVersionRegressionRadar.Evaluate(rows));
         Assert.Equal(10, finding.CurrentMeasuredCount);
         Assert.Equal(900, finding.CurrentMedianSeconds);
+    }
+
+    [Fact]
+    public void Evaluate_CutoverGate_LegacySpanRows_ExcludedOnBothSides()
+    {
+        // 2026-08 attempt-duration cutover: rows without LastAttemptStartedAt carry the old
+        // full-span semantics and are excluded from BOTH comparison sides.
+
+        // Current side: 10 legacy span rows would fire (lift 3.0), but only 5 are
+        // attempt-anchored → below MinMeasuredInstalls → silent.
+        var rows = Batch("1.0", 10, 300, Now.AddDays(-20));
+        rows.AddRange(Enumerable.Range(0, 10).Select(_ => Install("2.0", 900, Now.AddDays(-5), attemptAnchored: false)));
+        rows.AddRange(Enumerable.Range(0, 5).Select(_ => Install("2.0", 900, Now.AddDays(-5))));
+        Assert.Empty(AppVersionRegressionRadar.Evaluate(rows));
+
+        // Previous side entirely legacy → gated away → no comparison basis → silent,
+        // even though the raw medians (300 → 900) would scream regression.
+        var rows2 = Enumerable.Range(0, 10).Select(_ => Install("1.0", 300, Now.AddDays(-20), attemptAnchored: false)).ToList();
+        rows2.AddRange(Batch("2.0", 10, 900, Now.AddDays(-5)));
+        Assert.Empty(AppVersionRegressionRadar.Evaluate(rows2));
     }
 
     [Fact]
