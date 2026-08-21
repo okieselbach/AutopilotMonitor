@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
-import { AGENT_DOWNLOAD_URL } from "@/utils/config";
+import { AGENT_DOWNLOAD_URL, DOCS_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 
@@ -116,10 +116,13 @@ export function SectionOptionalGraphCapabilities() {
   const featureRows = status?.features ?? [];
   const allPermissions = Array.from(new Set(featureRows.flatMap(f => f.requiredPermissions)));
   const allPermissionsLine = allPermissions.map(p => `"${p}"`).join(",");
+  const featureNames = featureRows.map(f => f.name);
+  const exampleFeature = featureNames[0] ?? "ScriptDisplayNames";
 
   const scriptDownloadUrl = `${AGENT_DOWNLOAD_URL}/Grant-AutopilotMonitorAddOn.ps1`;
+  const docsUrl = `${DOCS_URL}/reference/optional-graph-permissions`;
   const psCommand = status?.clientId
-    ? `irm '${scriptDownloadUrl}' -OutFile .\\Grant-AutopilotMonitorAddOn.ps1\n.\\Grant-AutopilotMonitorAddOn.ps1 \`\n    -ClientId "${status.clientId}" \`\n    -Permissions ${allPermissionsLine} \`\n    -TenantId "${tenantId ?? "<your-tenant-id>"}"`
+    ? `irm '${scriptDownloadUrl}' -OutFile .\\Grant-AutopilotMonitorAddOn.ps1\n.\\Grant-AutopilotMonitorAddOn.ps1 \`\n    -ClientId "${status.clientId}" \`\n    -Features ${exampleFeature} \`\n    -TenantId "${tenantId ?? "<your-tenant-id>"}"`
     : "";
 
   return (
@@ -133,7 +136,16 @@ export function SectionOptionalGraphCapabilities() {
             additional permissions on the Autopilot Monitor service principal in your tenant. Grant them at any
             time by running the small <span className="font-mono">Grant-AutopilotMonitorAddOn.ps1</span>{" "}script
             with a Global Administrator (or Privileged Role Administrator) sign-in — the script does not change
-            the published app manifest, only your tenant&apos;s local grant.
+            the published app manifest, only your tenant&apos;s local grant. See the{" "}
+            <a
+              href={docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green-700 underline hover:text-green-800"
+            >
+              Optional Graph Permissions documentation
+            </a>{" "}
+            for the full walkthrough.
           </p>
         </header>
 
@@ -247,16 +259,19 @@ export function SectionOptionalGraphCapabilities() {
           </div>
 
           <p className="mt-3 text-xs text-gray-500">
-            Prefer the high-level form? Run the script with{" "}
-            <span className="font-mono">-Features All</span> instead of the permission list to grant every
-            optional capability in one go —{" "}
-            <span className="font-mono">-Features All -Revoke</span> removes them all again.
+            The command above grants the <span className="font-mono">{exampleFeature}</span>{" "}capability.
+            Swap the <span className="font-mono">-Features</span> value as needed — available:{" "}
+            <span className="font-mono">{[...featureNames, "All"].join(", ")}</span>, where{" "}
+            <span className="font-mono">All</span> grants every optional capability in one go and{" "}
+            <span className="font-mono">-Features All -Revoke</span> removes them all again. If you prefer raw
+            permission strings, pass <span className="font-mono">-Permissions</span> with the list from{" "}
+            <span className="font-mono">Copy permissions</span>.
           </p>
 
           <details className="mt-4 text-sm text-gray-600">
             <summary className="cursor-pointer text-gray-700 font-medium">What this script does (no surprises)</summary>
             <ul className="mt-2 list-disc list-inside space-y-1">
-              <li>Signs in to Microsoft Graph with delegated permissions <span className="font-mono">AppRoleAssignment.ReadWrite.All</span> + <span className="font-mono">Application.Read.All</span>.</li>
+              <li>Signs in to Microsoft Graph — in Azure Cloud Shell via the ambient identity of the signed-in admin (no device-code prompt), elsewhere interactively with delegated permissions <span className="font-mono">AppRoleAssignment.ReadWrite.All</span> + <span className="font-mono">Application.Read.All</span>.</li>
               <li>Finds the Autopilot Monitor service principal in your tenant (by ClientId above).</li>
               <li>Adds an <span className="font-mono">appRoleAssignment</span> for each listed Graph permission, only if missing.</li>
               <li>Never touches the published app manifest. Revoke at any time via <span className="font-mono">-Revoke</span>.</li>

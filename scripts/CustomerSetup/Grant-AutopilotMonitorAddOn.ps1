@@ -32,8 +32,9 @@
         (also works with -Revoke to remove all optional grants at once)
 
 .PARAMETER Permissions
-    Microsoft Graph application permission names to grant directly. Use when the admin UI
-    rendered a copy-paste command for you, or when you have a specific list in mind.
+    Microsoft Graph application permission names to grant directly. Use when you copied the
+    permission list from the admin UI ("Copy permissions"), or when you have a specific list
+    in mind.
 
 .PARAMETER TenantId
     Tenant ID (GUID) or verified domain. Optional -- defaults to the signed-in context.
@@ -49,7 +50,7 @@
     .\Grant-AutopilotMonitorAddOn.ps1 -ClientId "<your-client-id>" -Features ScriptDisplayNames
 
 .EXAMPLE
-    # Same effect, using the explicit-permission form (what the admin UI generates):
+    # Same effect, using the explicit-permission form:
     .\Grant-AutopilotMonitorAddOn.ps1 `
         -ClientId "<your-client-id>" `
         -Permissions "DeviceManagementScripts.Read.All" `
