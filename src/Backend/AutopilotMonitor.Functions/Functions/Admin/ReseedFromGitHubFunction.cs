@@ -137,6 +137,18 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
         private async Task<(int deleted, int written, int orphanStatesGcd, int sunsetSkipped)> ReseedGatherAsync(List<AutopilotMonitor.Shared.Models.GatherRule> rules)
         {
+            // Global-partition rules must stay inside the reserved built-in namespace — an ID
+            // outside it (e.g. GATHER-CUSTOM-*) would silently shadow every tenant's same-ID
+            // custom rule at merge time (global wins). Reject instead of import.
+            var rejectedGather = rules.Where(r => !AutopilotMonitor.Shared.Models.RuleIdPolicy.IsReservedBuiltInId(r.RuleId)).ToList();
+            if (rejectedGather.Count > 0)
+            {
+                _logger.LogError(
+                    "GitHub reseed gather: rejected {Count} rule(s) outside the reserved built-in namespace: {Ids}",
+                    rejectedGather.Count, string.Join(", ", rejectedGather.Select(r => r.RuleId)));
+                rules = rules.Except(rejectedGather).ToList();
+            }
+
             var existing = await _ruleRepo.GetGatherRulesAsync("global");
             var newCatalogIds = rules.Select(r => r.RuleId).ToHashSet(System.StringComparer.Ordinal);
             // A rule the deployed binary already ships IDENTICALLY is embedded-provenance; one whose
@@ -199,6 +211,18 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
         private async Task<(int deleted, int written, int orphanStatesGcd, int sunsetSkipped)> ReseedAnalyzeAsync(List<AutopilotMonitor.Shared.Models.AnalyzeRule> rules)
         {
+            // Global-partition rules must stay inside the reserved built-in namespace — an ID
+            // outside it (e.g. ANALYZE-CUSTOM-*) would silently shadow every tenant's same-ID
+            // custom rule at merge time (global wins). Reject instead of import.
+            var rejectedAnalyze = rules.Where(r => !AutopilotMonitor.Shared.Models.RuleIdPolicy.IsReservedBuiltInId(r.RuleId)).ToList();
+            if (rejectedAnalyze.Count > 0)
+            {
+                _logger.LogError(
+                    "GitHub reseed analyze: rejected {Count} rule(s) outside the reserved built-in namespace: {Ids}",
+                    rejectedAnalyze.Count, string.Join(", ", rejectedAnalyze.Select(r => r.RuleId)));
+                rules = rules.Except(rejectedAnalyze).ToList();
+            }
+
             var existing = await _ruleRepo.GetAnalyzeRulesAsync("global");
             var newCatalogIds = rules.Select(r => r.RuleId).ToHashSet(System.StringComparer.Ordinal);
             // A rule the deployed binary already ships IDENTICALLY is embedded-provenance; one whose

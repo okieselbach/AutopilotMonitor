@@ -289,10 +289,16 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                         rule.Title, rule.Category, rule.Severity,
                         fired, confidence).ConfigureAwait(false);
 
-                    await _metricsRepo.IncrementRuleStatAsync(
-                        today, "global", rule.RuleId, "analyze",
-                        rule.Title, rule.Category, rule.Severity,
-                        fired, confidence).ConfigureAwait(false);
+                    // Global aggregate row is catalog-only: custom-rule IDs are tenant-chosen
+                    // and not unique across tenants, so a shared "global_{ruleId}" row would
+                    // sum unrelated tenants' counters (title/severity last-writer-wins).
+                    if (rule.IsBuiltIn || rule.IsCommunity)
+                    {
+                        await _metricsRepo.IncrementRuleStatAsync(
+                            today, "global", rule.RuleId, "analyze",
+                            rule.Title, rule.Category, rule.Severity,
+                            fired, confidence).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception ex)

@@ -442,6 +442,20 @@ namespace AutopilotMonitor.Functions.Services
         public async Task<(int deleted, int failed)> DeleteRuleStatesForRuleIdAcrossTenantsAsync(string ruleId)
         {
             if (string.IsNullOrWhiteSpace(ruleId)) return (0, 0);
+
+            // This is a cross-partition delete keyed on a bare RowKey string, so only
+            // catalog (built-in/community) IDs may pass: custom-rule IDs are tenant-chosen
+            // and not unique across tenants, and a call with one would delete state rows
+            // of unrelated tenants. failed=-1 reuses the enumeration-failure contract —
+            // the caller then refuses the follow-up global catalog delete.
+            if (!RuleIdPolicy.IsReservedBuiltInId(ruleId))
+            {
+                _logger.LogError(
+                    "Refusing cross-tenant RuleState GC for '{RuleId}': ID is outside the reserved built-in namespace",
+                    ruleId);
+                return (0, -1);
+            }
+
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStates);

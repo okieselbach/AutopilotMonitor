@@ -13,18 +13,26 @@ const rulesRoot = path.resolve(__dirname, '..');
 
 // ── Rule combination ────────────────────────────────────────────────────────
 
+// Shipped gather/analyze rules must stay inside the reserved built-in namespace:
+// (ANALYZE|GATHER)-<CATEGORY>-<NNN> with CATEGORY !== CUSTOM. The CUSTOM category is
+// the sanctioned tenant namespace (RuleIdPolicy.cs) — a built-in shipped there would
+// silently shadow every tenant's same-ID custom rule at merge time (global wins).
+const RESERVED_BUILTIN_ID = /^(ANALYZE|GATHER)-(?!CUSTOM-)[A-Z]+-\d{3}$/;
+
 const configs = [
   {
     dir: path.join(rulesRoot, 'gather'),
     output: path.join(rulesRoot, 'dist', 'gather-rules.json'),
     schema: '../schema/gather-rule.schema.json',
-    idField: 'ruleId'
+    idField: 'ruleId',
+    reservedNamespace: RESERVED_BUILTIN_ID
   },
   {
     dir: path.join(rulesRoot, 'analyze'),
     output: path.join(rulesRoot, 'dist', 'analyze-rules.json'),
     schema: '../schema/analyze-rule.schema.json',
-    idField: 'ruleId'
+    idField: 'ruleId',
+    reservedNamespace: RESERVED_BUILTIN_ID
   },
   {
     dir: path.join(rulesRoot, 'ime-log-patterns'),
@@ -37,12 +45,27 @@ const configs = [
 for (const config of configs) {
   const files = fs.readdirSync(config.dir).filter(f => f.endsWith('.json')).sort();
   const rules = [];
+  const seenIds = new Map(); // lowercased id -> filename (case variants collide for humans and RuleIdPolicy)
 
   for (const file of files) {
     const content = fs.readFileSync(path.join(config.dir, file), 'utf8');
     const rule = JSON.parse(content);
     // Remove $schema from individual entries (it's on the wrapper)
     delete rule['$schema'];
+
+    const id = rule[config.idField] || '';
+    const idKey = id.toLowerCase();
+    if (seenIds.has(idKey)) {
+      console.error(`ERROR: duplicate ${config.idField} "${id}" in ${file} (already defined in ${seenIds.get(idKey)})`);
+      process.exit(1);
+    }
+    seenIds.set(idKey, file);
+
+    if (config.reservedNamespace && !config.reservedNamespace.test(id)) {
+      console.error(`ERROR: ${file}: ${config.idField} "${id}" is outside the reserved built-in namespace ${config.reservedNamespace} — built-ins must never use the tenant CUSTOM namespace`);
+      process.exit(1);
+    }
+
     rules.push(rule);
   }
 

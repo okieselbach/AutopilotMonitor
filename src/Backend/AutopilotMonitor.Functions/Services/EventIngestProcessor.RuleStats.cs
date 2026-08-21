@@ -36,10 +36,18 @@ namespace AutopilotMonitor.Functions.Services
                         ruleTitle, "", "",
                         fired: true, confidenceScore: null);
 
-                    await _metricsRepo.IncrementRuleStatAsync(
-                        today, "global", ruleId, "gather",
-                        ruleTitle, "", "",
-                        fired: true, confidenceScore: null);
+                    // Global aggregate row is catalog-only. The agent event carries no
+                    // IsBuiltIn flag, but custom rules can never occupy the reserved
+                    // built-in namespace (create/update guard), so the ID pattern is the
+                    // discriminator. Custom IDs are tenant-chosen and not unique across
+                    // tenants — a shared "global_{ruleId}" row would mix their counters.
+                    if (RuleIdPolicy.IsReservedBuiltInId(ruleId))
+                    {
+                        await _metricsRepo.IncrementRuleStatAsync(
+                            today, "global", ruleId, "gather",
+                            ruleTitle, "", "",
+                            fired: true, confidenceScore: null);
+                    }
                 }
             }
             catch (Exception ex)
