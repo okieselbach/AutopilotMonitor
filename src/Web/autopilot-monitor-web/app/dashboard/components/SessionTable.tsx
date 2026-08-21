@@ -343,7 +343,7 @@ export function SessionTable({
             className="px-2 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-500"
             title="Sessions per page"
           >
-            {[10, 15, 20, 50, 100].map((n) => (
+            {[5, 10, 15, 20, 50, 100].map((n) => (
               <option key={n} value={n}>{n} per page</option>
             ))}
           </select>
