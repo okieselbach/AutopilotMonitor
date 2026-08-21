@@ -191,6 +191,7 @@ function SessionDetailContent() {
     isGatherRulesSession,
     displayStatus,
     enrollmentDurationFromEvents,
+    standbySeconds,
     isSkipUserStatusPage,
     isWhiteGloveSession,
     whiteGloveSplitSequence,
@@ -565,6 +566,7 @@ function SessionDetailContent() {
               isGatherRulesSession={isGatherRulesSession}
               ntpOffset={ntpOffset}
               configMgrDetected={configMgrDetected}
+              standbySeconds={standbySeconds}
             />
             </div>
           )}

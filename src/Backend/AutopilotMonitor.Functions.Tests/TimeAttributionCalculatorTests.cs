@@ -499,6 +499,136 @@ public class TimeAttributionCalculatorTests
         Assert.Equal(1200 - 300, b.GetSegmentTotals()[TimeAttributionSegments.EspApps]);
     }
 
+    // ── sleep spans: payload instants are authoritative, annotation not partition ─────────
+
+    [Fact]
+    public void SleepSpan_ComesFromPayloadInstants_NotFromEventTimestamp()
+    {
+        var enteredAt = T0.AddMinutes(8);
+        var exitedAt = T0.AddMinutes(14);
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(5), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            // Emitted at wake (its Timestamp is the wake moment, possibly clamped) — only the
+            // payload carries the true episode bounds.
+            Evt(T0.AddMinutes(14.2), "system_sleep_episode", data: new Dictionary<string, object>
+            {
+                ["kind"] = "modern_standby",
+                ["enteredAt"] = enteredAt.ToString("o"),
+                ["exitedAt"] = exitedAt.ToString("o"),
+                ["durationSeconds"] = 360L,
+            }),
+            Evt(T0.AddMinutes(20), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(20), durationSeconds: 1200))!;
+
+        AssertExactPartition(b); // sleep is an annotation — the wall-clock partition is untouched
+        var span = Assert.Single(b.SleepSpans);
+        Assert.Equal(enteredAt, span.StartUtc);
+        Assert.Equal(exitedAt, span.EndUtc);
+        Assert.Equal(360, span.Seconds);
+        Assert.Equal(360, b.SleepSeconds);
+        Assert.Equal("modern_standby", span.Kind);
+        Assert.Equal(TimeAttributionSegments.EspApps, span.SegmentKey);
+    }
+
+    [Fact]
+    public void SleepSpan_DuplicateEpisode_NotDoubleCounted()
+    {
+        var enteredAt = T0.AddMinutes(8);
+        var exitedAt = T0.AddMinutes(10);
+        Dictionary<string, object> Episode() => new Dictionary<string, object>
+        {
+            ["kind"] = "sleep",
+            ["enteredAt"] = enteredAt.ToString("o"),
+            ["exitedAt"] = exitedAt.ToString("o"),
+        };
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            // Same episode observed twice (e.g. backfilled again after an agent restart from a
+            // different event-log record).
+            Evt(T0.AddMinutes(10.1), "system_sleep_episode", data: Episode()),
+            Evt(T0.AddMinutes(12), "system_sleep_episode", data: Episode()),
+            Evt(T0.AddMinutes(20), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(20), durationSeconds: 1200))!;
+
+        Assert.Single(b.SleepSpans);
+        Assert.Equal(120, b.SleepSeconds);
+    }
+
+    [Fact]
+    public void SleepSpan_MissingOrUnparseablePayload_Ignored()
+    {
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(5), "system_sleep_episode", data: new Dictionary<string, object>
+            {
+                ["kind"] = "sleep",
+                ["enteredAt"] = "not-a-timestamp",
+                ["exitedAt"] = T0.AddMinutes(5).ToString("o"),
+            }),
+            Evt(T0.AddMinutes(6), "system_sleep_episode", data: new Dictionary<string, object>
+            {
+                ["kind"] = "sleep", // bounds missing entirely
+            }),
+            // exitedAt <= enteredAt — pathological, no claim.
+            Evt(T0.AddMinutes(7), "system_sleep_episode", data: new Dictionary<string, object>
+            {
+                ["kind"] = "sleep",
+                ["enteredAt"] = T0.AddMinutes(7).ToString("o"),
+                ["exitedAt"] = T0.AddMinutes(6).ToString("o"),
+            }),
+            Evt(T0.AddMinutes(20), "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt: T0.AddMinutes(20), durationSeconds: 1200))!;
+
+        Assert.Empty(b.SleepSpans);
+        Assert.Equal(0, b.SleepSeconds);
+    }
+
+    [Fact]
+    public void WhiteGlove_SleepAcrossPause_CountsOnlyInWindowFlanks()
+    {
+        var part1End = T0.AddMinutes(20);
+        var resumedAt = T0.AddDays(2);
+        var completedAt = resumedAt.AddMinutes(10);
+
+        var events = new List<EnrollmentEvent>
+        {
+            Evt(T0, "agent_started", EnrollmentPhase.DeviceSetup),
+            Evt(T0.AddMinutes(2), "esp_phase_changed", EnrollmentPhase.AppsDevice),
+            Evt(part1End, "whiteglove_part1_complete"),
+            // Sealed device slept through the pause: episode starts 1 min before the seal and
+            // ends 30 s into part 2 — only the in-window flanks may count (90 s), never the
+            // ~2-day pause (RebootSpan precedent).
+            Evt(resumedAt.AddSeconds(35), "system_sleep_episode", data: new Dictionary<string, object>
+            {
+                ["kind"] = "hibernate",
+                ["enteredAt"] = part1End.AddMinutes(-1).ToString("o"),
+                ["exitedAt"] = resumedAt.AddSeconds(30).ToString("o"),
+            }),
+            Evt(completedAt, "enrollment_complete"),
+        };
+
+        var b = TimeAttributionCalculator.Compute(
+            Input(events, completedAt, durationSeconds: 1800, wg: true, resumedAt: resumedAt))!;
+
+        AssertExactPartition(b);
+        var span = Assert.Single(b.SleepSpans);
+        Assert.Equal(90, span.Seconds);
+        Assert.Equal(90, b.SleepSeconds);
+    }
+
     // ── WhiteGlove pause vs. intervals/reboots (Codex review P1): the pause lies INSIDE
     // the windows' hull, so hull-clamping alone would count it — a reboot bracketing the
     // pause must contribute only its in-window flanks, never the pause itself ─────────────

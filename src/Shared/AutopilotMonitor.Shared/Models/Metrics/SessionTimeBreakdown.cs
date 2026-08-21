@@ -148,6 +148,27 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// One completed sleep episode observed during the session (<c>system_sleep_episode</c>
+    /// payload — <c>enteredAt</c>/<c>exitedAt</c> are the authoritative instants, never the
+    /// event's own timestamp, which is stamped at wake and may be clamped). Cross-cutting
+    /// annotation like <see cref="RebootSpan"/>: sleep overlaps the segment it started in and is
+    /// NOT part of the wall-clock partition — the session really took that long; the span
+    /// explains where the time went.
+    /// </summary>
+    public class SleepSpan
+    {
+        public DateTime StartUtc { get; set; }
+        public DateTime EndUtc { get; set; }
+        public int Seconds { get; set; }
+
+        /// <summary>Segment the episode started in (<see cref="TimeAttributionSegments"/> key, or "unattributed").</summary>
+        public string SegmentKey { get; set; } = string.Empty;
+
+        /// <summary>Episode kind from the agent payload: "sleep", "hibernate" or "modern_standby".</summary>
+        public string Kind { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Per-session enrollment time attribution (F1, insights spec) — an exact partition of the
     /// session's authoritative wall clock into named segments plus an explicit unattributed
     /// remainder. Invariant (unit-enforced): sum of all span seconds + <see cref="UnattributedSeconds"/>
@@ -186,6 +207,11 @@ namespace AutopilotMonitor.Shared.Models
         public int RebootSeconds { get; set; }
 
         public List<RebootSpan> RebootSpans { get; set; } = new List<RebootSpan>();
+
+        /// <summary>Total observed in-window sleep seconds. Cross-cutting annotation like <see cref="RebootSeconds"/> — the wall clock keeps the pause; this discloses it.</summary>
+        public int SleepSeconds { get; set; }
+
+        public List<SleepSpan> SleepSpans { get; set; } = new List<SleepSpan>();
 
         /// <summary>
         /// Install intervals of ESP-blocking apps (positive-evidence join against the latest

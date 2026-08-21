@@ -111,6 +111,7 @@ export const EVENT_TYPES_CATALOG = {
     'ntp_time_check',
     'power_state_check',
     'power_state_change',
+    'system_clock_changed',
   ],
   identity_events: [
     'aad_placeholder_user_detected',
@@ -156,6 +157,7 @@ export const EVENT_TYPES_CATALOG = {
     'ime_session_change',
     'ime_process_exited',
     'system_reboot_detected',
+    'system_sleep_episode',
     'prior_run_died_with_state',
     'previous_crash_detected',
     'agent_emergency_break',

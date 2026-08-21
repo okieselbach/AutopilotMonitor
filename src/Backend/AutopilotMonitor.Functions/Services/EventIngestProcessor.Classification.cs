@@ -381,6 +381,10 @@ namespace AutopilotMonitor.Functions.Services
             // Environment observation (battery drain / AC flap), not enrollment progress —
             // must not count as "real activity" that heals a Stalled session.
             "power_state_change" => true,
+            // System timeline watcher: a clock step or a completed standby episode is environment
+            // observation too — a device that slept through its stall must stay Stalled.
+            "system_clock_changed" => true,
+            "system_sleep_episode" => true,
             _ => false
         };
 

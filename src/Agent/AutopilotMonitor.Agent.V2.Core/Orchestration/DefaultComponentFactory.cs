@@ -557,6 +557,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     stateDirectory: _stateDirectory));
             }
 
+            // System timeline watcher — System channel: Kernel-General 1 (system clock stepped,
+            // ground truth for time jumps incl. old/new time + setting process) and completed
+            // sleep/standby episodes (Power-Troubleshooter 1, Kernel-Power 507). Backfill recovers
+            // the pre-agent OOBE clock correction and standby episodes from the persistent .evtx.
+            if (collectors.EnableSystemTimelineWatcher)
+            {
+                hosts.Add(new SystemTimelineWatcherHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    logger: logger,
+                    ingress: ingress,
+                    clock: clock,
+                    backfillLookbackMinutes: collectors.SystemEventBackfillLookbackMinutes,
+                    stateDirectory: _stateDirectory));
+            }
+
             // ----- Peripheral hosts (event-only; driven by remote-config toggles) --------------
 
             // V1 parity (PeriodicCollectorManager) — combine Performance + AgentSelfMetrics under

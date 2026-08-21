@@ -1,0 +1,49 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-012",
+  "title": "Device Entered Standby During Enrollment",
+  "description": "Detects that the device completed a sleep, hibernate or Modern Standby episode of at least 5 minutes while the enrollment was running (system_sleep_episode event from the agent's system timeline watcher, recorded retroactively at wake from the Windows event log — pre-agent episodes are backfilled). Uses a single required condition on the episode's durationSeconds so the match is pinned to one event instance and the interpolated duration is the matched value. Short Modern Standby screen-off scenarios (under 60 s of real sleep) never emit the event, and this rule adds a 5-minute floor so brief lid-close moments do not fire it.",
+  "severity": "info",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed",
+    "on_event:system_sleep_episode"
+  ],
+  "trigger": "single",
+  "baseConfidence": 90,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "slept_during_enrollment",
+      "source": "event_data",
+      "eventType": "system_sleep_episode",
+      "dataField": "durationSeconds",
+      "operator": "gte",
+      "value": "300",
+      "required": true
+    }
+  ],
+  "explanation": "The device was asleep for {{durationSeconds}} seconds during the enrollment window. Nothing progresses while the device sleeps — downloads pause, the IME stops processing and the ESP simply waits — so the wall-clock enrollment duration includes this pause and can look much slower than the enrollment actually was. The matched system_sleep_episode event in the session timeline carries the exact enter/exit times, the episode kind (sleep, hibernate or Modern Standby) and, for Modern Standby, whether the device was on AC power. A long unexplained gap in the timeline right before that event is this pause, not missing telemetry.",
+  "remediation": [
+    {
+      "title": "Keep the device awake during enrollment",
+      "steps": [
+        "Check the matched system_sleep_episode event in the timeline for the episode bounds and kind — the enrollment duration minus the episode duration is the real active time.",
+        "If the device slept on battery, connect AC power during setup; Windows sleeps far more aggressively on battery.",
+        "Instruct users/technicians to keep the lid open and the device powered until the enrollment finishes.",
+        "For recurring cases, review the power plan applied during OOBE/ESP (e.g. via provisioning or Intune policy) — consider disabling sleep on AC for the enrollment window."
+      ]
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "power",
+    "standby",
+    "sleep",
+    "environment"
+  ]
+}

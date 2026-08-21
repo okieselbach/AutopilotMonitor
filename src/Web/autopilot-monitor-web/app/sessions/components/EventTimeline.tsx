@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
 import { getEnrichedOrLookup, formatErrorCode, type ErrorCodeEntry } from "@/utils/errorCodeMap";
-import { readTimeProvenance, classifyTimeJump } from "@/lib/timeProvenance";
+import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 
 interface EventTimelineProps {
@@ -74,6 +74,17 @@ export default function EventTimeline({
     if (matchesSearch) filtered = filtered.filter(matchesSearch);
     return filtered.sort((a, b) => a.sequence - b.sequence);
   }, [events, severityFilters, matchesSearch]);
+
+  // Ground-truth clock steps recorded by the agent's system timeline watcher — lets the
+  // TimeJumpBadge name a backwards display step as an actual OS clock set instead of an
+  // unexplained amber anomaly. Collected from ALL events (filters must not hide the cause).
+  const clockDeltas = useMemo(
+    () => events
+      .filter(e => e.eventType === "system_clock_changed")
+      .map(e => readClockChangeDeltaMs(e.data))
+      .filter((n): n is number => n !== null),
+    [events],
+  );
 
   const filterPhaseEvents = (phaseEvents: EnrollmentEvent[]) =>
     matchesSearch ? phaseEvents.filter(matchesSearch) : phaseEvents;
@@ -187,6 +198,7 @@ export default function EventTimeline({
                 key={ev.eventId || `${ev.sessionId}-${ev.sequence}`}
                 event={ev}
                 prevEvent={i > 0 ? sortedBySequence[i - 1] : null}
+                clockDeltas={clockDeltas}
               />
             ))}
           </div>
@@ -220,6 +232,7 @@ export default function EventTimeline({
                     onToggle={() => togglePhase(`pre-${phaseName}`)}
                     showScriptOutput={showScriptOutput}
                     borderColor="border-amber-400"
+                    clockDeltas={clockDeltas}
                   />
                 ))}
               </div>
@@ -257,6 +270,7 @@ export default function EventTimeline({
                       isExpanded={expandedPhases.has(`user-${phaseName}`)}
                       onToggle={() => togglePhase(`user-${phaseName}`)}
                       showScriptOutput={showScriptOutput}
+                      clockDeltas={clockDeltas}
                     />
                   ))}
                 </div>
@@ -304,6 +318,7 @@ export default function EventTimeline({
                       isExpanded={expandedPhases.has(phaseName)}
                       onToggle={() => togglePhase(phaseName)}
                       showScriptOutput={showScriptOutput}
+                      clockDeltas={clockDeltas}
                     />
                   ))}
                 </div>
@@ -322,7 +337,8 @@ function PhaseSection({
   isExpanded,
   onToggle,
   showScriptOutput,
-  borderColor = 'border-blue-500'
+  borderColor = 'border-blue-500',
+  clockDeltas,
 }: {
   phaseName: string;
   events: EnrollmentEvent[];
@@ -330,6 +346,7 @@ function PhaseSection({
   onToggle: () => void;
   showScriptOutput?: boolean;
   borderColor?: string;
+  clockDeltas?: number[];
 }) {
   return (
     <div id={`phase-${phaseName.replace(/[^a-zA-Z0-9]/g, '-')}`} className={`border-l-4 ${borderColor} pl-4`}>
@@ -353,6 +370,7 @@ function PhaseSection({
               event={event}
               showScriptOutput={showScriptOutput}
               prevEvent={i > 0 ? events[i - 1] : null}
+              clockDeltas={clockDeltas}
             />
           ))}
         </div>
@@ -413,11 +431,13 @@ function GapBadge({ prevTime, eventTime }: { prevTime: Date | null; eventTime: D
 // tier; an unexplained backwards step gets amber.
 const TIME_JUMP_ORDER_NOTE = "Events are shown in true write order (sequence).";
 
-function TimeJumpBadge({ prevEvent, event }: { prevEvent?: EnrollmentEvent | null; event: EnrollmentEvent }) {
+function TimeJumpBadge({ prevEvent, event, clockDeltas }: { prevEvent?: EnrollmentEvent | null; event: EnrollmentEvent; clockDeltas?: number[] }) {
   if (!prevEvent) return null;
   const jump = classifyTimeJump(
     { displayTime: getDisplayTime(prevEvent), provenance: readTimeProvenance(prevEvent.data) },
     { displayTime: getDisplayTime(event), provenance: readTimeProvenance(event.data) },
+    undefined,
+    clockDeltas,
   );
   if (!jump) return null;
 
@@ -430,7 +450,9 @@ function TimeJumpBadge({ prevEvent, event }: { prevEvent?: EnrollmentEvent | nul
   const times = `(${getDisplayTime(prevEvent).toLocaleTimeString()} → ${getDisplayTime(event).toLocaleTimeString()})`;
 
   const title =
-    jump.cause === "era-offset"
+    jump.cause === "clock-set"
+      ? `Time moved backwards by ${human} vs the previous event ${times}. The OS clock was actually set back — a system_clock_changed event in this session records a matching step (ground truth, not an ordering artifact). ${TIME_JUMP_ORDER_NOTE}`
+      : jump.cause === "era-offset"
       ? `Time moved backwards by ${human} vs the previous event ${times}. The two log lines were corrected with different UTC offsets (era-mixed log) — the jump reflects the offset change, not reordering. ${TIME_JUMP_ORDER_NOTE}`
       : jump.cause === "derived-timestamp"
         ? `Backdated log line: written ${human} before the previous event's displayed time ${times}. Its own timestamp was unusable, so the agent's clock time is shown. ${TIME_JUMP_ORDER_NOTE}`
@@ -449,7 +471,7 @@ function TimeJumpBadge({ prevEvent, event }: { prevEvent?: EnrollmentEvent | nul
 const CLAMPED_TOOLTIP_PREFIX =
   "The device-reported timestamp was outside the accepted range and was clamped to server receive time on ingest.";
 
-function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEvent; showScriptOutput?: boolean; prevEvent?: EnrollmentEvent | null }) {
+function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: EnrollmentEvent; showScriptOutput?: boolean; prevEvent?: EnrollmentEvent | null; clockDeltas?: number[] }) {
   const prevDisplayTime = prevEvent ? getDisplayTime(prevEvent) : null;
   const [showDetails, setShowDetails] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
@@ -541,7 +563,7 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
               )}
             </span>
             <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
-            <TimeJumpBadge prevEvent={prevEvent} event={event} />
+            <TimeJumpBadge prevEvent={prevEvent} event={event} clockDeltas={clockDeltas} />
             <SeverityBadge severity={event.severity} />
             {isBackfilled && (
               <span
@@ -682,6 +704,79 @@ function EventRow({ event, showScriptOutput, prevEvent }: { event: EnrollmentEve
                 )}
                 {mins !== undefined && mins !== null && (
                   <span className="text-gray-500">{String(mins)} min after the failure</span>
+                )}
+              </div>
+            );
+          })()}
+          {/* Ground-truth clock step (system timeline watcher): the OS clock was set from
+              oldTime to newTime — payload times are authoritative. Amber at ≥5 min (can
+              invalidate token/cert windows and visibly reorders the timeline), sky below. */}
+          {event.eventType === "system_clock_changed" && (() => {
+            const deltaMs = readClockChangeDeltaMs(event.data);
+            if (deltaMs === null) return null;
+            const forward = deltaMs >= 0;
+            const isLarge = Math.abs(deltaMs) >= 5 * 60 * 1000;
+            const reasonText = event.data?.reasonText as string | undefined;
+            const processName = event.data?.processName as string | undefined;
+            const processLeaf = processName ? processName.split("\\").pop() : null;
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={`px-1.5 py-0.5 rounded font-mono font-medium ${isLarge ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}
+                  title={`The system clock was stepped ${forward ? "forward" : "backward"} by ${formatDuration(Math.abs(deltaMs) / 1000)}. oldTime/newTime in the event details are the authoritative instants.`}
+                >
+                  ⏱ {forward ? "+" : "−"}{formatDuration(Math.abs(deltaMs) / 1000)}
+                </span>
+                {reasonText && <span className="text-gray-500">{reasonText === "application_set" ? "set by a process" : reasonText === "hardware_clock_sync" ? "hardware clock sync" : reasonText}</span>}
+                {processLeaf && <span className="text-gray-500 font-mono">{processLeaf}</span>}
+              </div>
+            );
+          })()}
+          {/* Completed sleep episode (emitted retroactively at wake): enteredAt/exitedAt in the
+              payload are the authoritative bounds — the gap in the surrounding timeline is this
+              episode, not missing telemetry. */}
+          {event.eventType === "system_sleep_episode" && (() => {
+            const kind = event.data?.kind as string | undefined;
+            const kindLabel = kind === "modern_standby" ? "Modern Standby" : kind === "hibernate" ? "Hibernate" : "Sleep";
+            const durationSeconds = Number(event.data?.durationSeconds);
+            const wakeText = event.data?.wakeSourceText as string | undefined;
+            const onAc = event.data?.onAcPower;
+            const onAcLabel = onAc === true || onAc === "true" ? "on AC" : onAc === false || onAc === "false" ? "on battery" : null;
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-medium"
+                  title="The device completed a sleep episode; this event is recorded at wake. enteredAt/exitedAt in the details are the episode bounds — the surrounding timeline gap is explained by this pause."
+                >
+                  🌙 {kindLabel}
+                </span>
+                {Number.isFinite(durationSeconds) && durationSeconds > 0 && (
+                  <span className="text-gray-600 font-medium">{formatDuration(durationSeconds)}</span>
+                )}
+                {wakeText && <span className="text-gray-500">wake: {wakeText}</span>}
+                {onAcLabel && <span className="text-gray-500">{onAcLabel}</span>}
+              </div>
+            );
+          })()}
+          {/* Live power-state change (power watcher, DEV-009/010): make the transition readable
+              without expanding the details. */}
+          {event.eventType === "power_state_change" && (() => {
+            const transition = event.data?.transition as string | undefined;
+            const batteryPercent = event.data?.batteryPercent;
+            const threshold = event.data?.thresholdPercent;
+            const chip = transition === "ac_to_battery"
+              ? { label: "AC → battery", cls: "bg-amber-100 text-amber-800" }
+              : transition === "battery_to_ac"
+                ? { label: "Battery → AC", cls: "bg-emerald-100 text-emerald-800" }
+                : transition === "threshold_crossed"
+                  ? { label: `Battery below ${String(threshold ?? "?")}%`, cls: String(threshold) === "15" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800" }
+                  : null;
+            if (!chip) return null;
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span className={`px-1.5 py-0.5 rounded font-medium ${chip.cls}`}>🔋 {chip.label}</span>
+                {batteryPercent !== undefined && batteryPercent !== null && String(batteryPercent) !== "unknown" && (
+                  <span className="text-gray-500">{String(batteryPercent)}% charge</span>
                 )}
               </div>
             );
@@ -989,7 +1084,7 @@ function TimeProvenanceRows({ event, provenance }: { event: EnrollmentEvent; pro
   );
 }
 
-function RawEventRow({ event, prevEvent }: { event: EnrollmentEvent; prevEvent?: EnrollmentEvent | null }) {
+function RawEventRow({ event, prevEvent, clockDeltas }: { event: EnrollmentEvent; prevEvent?: EnrollmentEvent | null; clockDeltas?: number[] }) {
   const [expanded, setExpanded] = useState(false);
   const detailData = useMemo(() => normalizeEventDataForDisplay(event.data), [event.data]);
   const hasDetails = detailData && Object.keys(detailData).length > 0;
@@ -1011,7 +1106,7 @@ function RawEventRow({ event, prevEvent }: { event: EnrollmentEvent; prevEvent?:
         <span className="text-gray-400 w-8 text-right flex-shrink-0">{event.sequence}</span>
         <span className="text-gray-500 flex-shrink-0">{(recordedAt ?? new Date(event.timestamp)).toLocaleTimeString()}</span>
         <GapBadge prevTime={prevDisplayTime ?? null} eventTime={recordedAt ?? new Date(event.timestamp)} />
-        <TimeJumpBadge prevEvent={prevEvent} event={event} />
+        <TimeJumpBadge prevEvent={prevEvent} event={event} clockDeltas={clockDeltas} />
         <span className={`flex-shrink-0 w-14 ${sevColor[event.severity] || "text-gray-500"}`}>{event.severity}</span>
         {isBackfilled && (
           <span className="text-slate-500 flex-shrink-0" title={BACKFILL_TOOLTIP}>⟲</span>

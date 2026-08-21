@@ -25,6 +25,7 @@ export interface UseSessionDerivedDataReturn {
   gatherRulesSucceeded: boolean;
   displayStatus: string;
   enrollmentDurationFromEvents: string | null;
+  standbySeconds: number | null;
   phaseNamesMap: Record<number, string>;
   phaseOrder: string[];
   isSkipUserStatusPage: boolean;
@@ -138,6 +139,25 @@ export function useSessionDerivedData(
     return `${Math.floor(durationSec / 3600)}h ${Math.floor((durationSec % 3600) / 60)}m`;
   }, [events]);
 
+  // Total observed sleep/standby seconds (system_sleep_episode ground truth). The wall-clock
+  // duration deliberately keeps the pause — this number tells the story next to it ("1h 20m,
+  // 56m of it standby"). Dedup on enteredAt: the same episode can be observed twice (agent
+  // restart re-backfills it from a different event-log record).
+  const standbySeconds = useMemo(() => {
+    const seenEpisodes = new Set<string>();
+    let total = 0;
+    for (const e of events) {
+      if (e.eventType !== "system_sleep_episode" || !e.data) continue;
+      const duration = Number(e.data.durationSeconds);
+      if (!Number.isFinite(duration) || duration <= 0) continue;
+      const enteredAt = typeof e.data.enteredAt === "string" ? e.data.enteredAt : `seq-${e.sequence}`;
+      if (seenEpisodes.has(enteredAt)) continue;
+      seenEpisodes.add(enteredAt);
+      total += duration;
+    }
+    return total > 0 ? Math.round(total) : null;
+  }, [events]);
+
   const phaseNamesMap = session?.enrollmentType === "v2" ? V2_PHASE_NAMES : V1_PHASE_NAMES;
   const phaseOrder = session?.enrollmentType === "v2" ? V2_PHASE_ORDER : V1_PHASE_ORDER;
 
@@ -213,6 +233,7 @@ export function useSessionDerivedData(
     gatherRulesSucceeded: !!gatherRulesSucceeded,
     displayStatus,
     enrollmentDurationFromEvents,
+    standbySeconds,
     phaseNamesMap,
     phaseOrder,
     isSkipUserStatusPage,

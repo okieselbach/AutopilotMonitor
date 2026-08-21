@@ -563,6 +563,8 @@ namespace AutopilotMonitor.Shared
             public const string NtpTimeCheck              = "ntp_time_check";
             public const string PowerStateCheck           = "power_state_check";
             public const string PowerStateChange          = "power_state_change";
+            public const string SystemClockChanged        = "system_clock_changed";   // Kernel-General EventID 1: OS clock stepped (oldTime/newTime/timeDeltaMs in Data are authoritative — the event's own Timestamp may be clamped server-side).
+            public const string SystemSleepEpisode        = "system_sleep_episode";   // Completed sleep/hibernate/modern-standby episode (Power-Troubleshooter 1 / Kernel-Power 507), emitted retroactively at wake.
             public const string AgentTrace                = "agent_trace";
 
             // Crash / process lifecycle

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   readTimeProvenance,
   classifyTimeJump,
+  readClockChangeDeltaMs,
+  findExplainingClockChange,
   BACKWARD_JUMP_THRESHOLD_MS,
   type TimeJumpInput,
 } from "../timeProvenance";
@@ -114,5 +116,46 @@ describe("classifyTimeJump", () => {
 
   it("respects a caller-supplied threshold", () => {
     expect(classifyTimeJump(input(T0), input(minutes(-3)), 120_000)).toEqual({ deltaMs: 180_000, cause: null });
+  });
+
+  it("names a recorded OS clock set (ground truth) matching the jump magnitude", () => {
+    // A −60 min system_clock_changed step explains a ~60 min backwards display step.
+    const jump = classifyTimeJump(input(T0), input(minutes(-60)), undefined, [-60 * 60 * 1000]);
+    expect(jump!.cause).toBe("clock-set");
+  });
+
+  it("clock-set (ground truth) wins over derived-timestamp inference (precedence)", () => {
+    const curr = input(minutes(-60), { derivedTimestamp: "true" });
+    const jump = classifyTimeJump(input(T0), curr, undefined, [-60 * 60 * 1000]);
+    expect(jump!.cause).toBe("clock-set");
+  });
+
+  it("stays unexplained when the recorded clock deltas do not match the jump", () => {
+    // Forward set, and a backward set of a very different magnitude — neither explains −60 min.
+    const jump = classifyTimeJump(input(T0), input(minutes(-60)), undefined, [60 * 60 * 1000, -5 * 60 * 1000]);
+    expect(jump!.cause).toBeNull();
+  });
+});
+
+describe("clock-change ground truth helpers", () => {
+  it("reads the signed payload delta (number or numeric string)", () => {
+    expect(readClockChangeDeltaMs({ timeDeltaMs: -3_600_000 })).toBe(-3_600_000);
+    expect(readClockChangeDeltaMs({ timeDeltaMs: "7200000" })).toBe(7_200_000);
+    expect(readClockChangeDeltaMs({ time_delta_ms: "-1000" })).toBe(-1000);
+    expect(readClockChangeDeltaMs({})).toBeNull();
+    expect(readClockChangeDeltaMs(undefined)).toBeNull();
+  });
+
+  it("matches within max(60 s, 20 %) tolerance — the display step includes elapsed real time", () => {
+    const hour = 60 * 60 * 1000;
+    expect(findExplainingClockChange(hour, [-hour])).toBe(-hour);
+    // 10 min drift on a 60 min jump is inside the 20 % band …
+    expect(findExplainingClockChange(hour, [-(hour - 10 * 60 * 1000)])).toBe(-(hour - 10 * 60 * 1000));
+    // … 20 min is outside.
+    expect(findExplainingClockChange(hour, [-(hour - 20 * 60 * 1000)])).toBeNull();
+    // Small jumps use the absolute 60 s floor.
+    expect(findExplainingClockChange(6 * 60 * 1000, [-(5 * 60 * 1000)])).toBe(-(5 * 60 * 1000));
+    // A forward set never explains a backward step.
+    expect(findExplainingClockChange(hour, [hour])).toBeNull();
   });
 });

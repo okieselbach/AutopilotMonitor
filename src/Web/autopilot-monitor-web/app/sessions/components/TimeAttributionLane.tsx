@@ -33,6 +33,15 @@ export interface RebootSpanDto {
   segmentKey: string;
 }
 
+export interface SleepSpanDto {
+  startUtc: string;
+  endUtc: string;
+  seconds: number;
+  segmentKey: string;
+  /** "sleep" | "hibernate" | "modern_standby" (from the system_sleep_episode payload). */
+  kind: string;
+}
+
 export interface SessionTimeBreakdownDto {
   tenantId: string;
   sessionId: string;
@@ -42,6 +51,9 @@ export interface SessionTimeBreakdownDto {
   unattributedSeconds: number;
   rebootSeconds: number;
   rebootSpans: RebootSpanDto[];
+  /** Optional: rows computed before AttributionVersion 3 lack these. */
+  sleepSeconds?: number;
+  sleepSpans?: SleepSpanDto[];
   blockingApps: BlockingAppIntervalDto[];
   blockingAppCount: number;
   espAppsOccupancySeconds: number | null;
@@ -108,14 +120,24 @@ export default function TimeAttributionLane({ breakdown }: { breakdown: SessionT
             {formatDuration(wallClock)} enrollment time
           </span>
         </h3>
-        {breakdown.rebootSeconds > 0 && (
-          <span
-            className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
-            title="Reboot outage overlaps the segment it started in — it is not a separate slice of the bar."
-          >
-            ⟳ {breakdown.rebootSpans.length} reboot{breakdown.rebootSpans.length !== 1 ? "s" : ""} · {formatDuration(breakdown.rebootSeconds)}
-          </span>
-        )}
+        <span className="inline-flex items-center gap-2">
+          {(breakdown.sleepSeconds ?? 0) > 0 && (
+            <span
+              className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5"
+              title="The device was asleep (standby/hibernate) for this long inside the enrollment window — the wall clock keeps the pause; this chip discloses it. Like reboots, sleep overlaps the segment it started in and is not a separate slice of the bar."
+            >
+              🌙 {(breakdown.sleepSpans ?? []).length} standby · {formatDuration(breakdown.sleepSeconds ?? 0)}
+            </span>
+          )}
+          {breakdown.rebootSeconds > 0 && (
+            <span
+              className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+              title="Reboot outage overlaps the segment it started in — it is not a separate slice of the bar."
+            >
+              ⟳ {breakdown.rebootSpans.length} reboot{breakdown.rebootSpans.length !== 1 ? "s" : ""} · {formatDuration(breakdown.rebootSeconds)}
+            </span>
+          )}
+        </span>
       </div>
 
       {/* Proportional stacked bar over the authoritative wall clock */}

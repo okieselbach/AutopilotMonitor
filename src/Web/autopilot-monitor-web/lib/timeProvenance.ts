@@ -80,7 +80,7 @@ export function readTimeProvenance(data: Record<string, unknown> | undefined | n
  */
 export const BACKWARD_JUMP_THRESHOLD_MS = 5 * 60 * 1000;
 
-export type TimeJumpCause = "era-offset" | "derived-timestamp" | "rejected-source" | null;
+export type TimeJumpCause = "clock-set" | "era-offset" | "derived-timestamp" | "rejected-source" | null;
 
 export interface TimeJump {
   /** Positive magnitude of the backwards step in milliseconds. */
@@ -94,23 +94,54 @@ export interface TimeJumpInput {
 }
 
 /**
+ * Reads the signed step of a `system_clock_changed` event's payload — the OS-level ground
+ * truth for "the clock was set from X to Y" (Kernel-General EventID 1, forwarded by the
+ * agent's system timeline watcher). Returns null for any other payload.
+ */
+export function readClockChangeDeltaMs(data: Record<string, unknown> | undefined | null): number | null {
+  if (!data || typeof data !== "object") return null;
+  return readNumber(data, "timeDeltaMs", "time_delta_ms");
+}
+
+/**
+ * Matches an observed backwards display step against the session's recorded clock sets.
+ * A backwards step of J ms is explained by a clock set of −D ms when the magnitudes agree
+ * within max(60 s, 20 % of the jump) — the display step includes whatever real time
+ * elapsed between the two rows, so exact equality never holds. Returns the matching
+ * (negative) clock delta, or null.
+ */
+export function findExplainingClockChange(backwardJumpMs: number, clockDeltasMs: readonly number[]): number | null {
+  for (const delta of clockDeltasMs) {
+    if (delta >= 0) continue; // only a backward set explains a backward display step
+    const tolerance = Math.max(60_000, backwardJumpMs * 0.2);
+    if (Math.abs(-delta - backwardJumpMs) <= tolerance) return delta;
+  }
+  return null;
+}
+
+/**
  * Detects a backwards step of the displayed time versus the previous RENDERED row and
- * names its cause when the provenance identifies one. Cause precedence: a clock-fallback
- * (derived) timestamp explains the row by itself; a rejected source timestamp likewise;
- * only then is an offset difference between the two rows read as an era-mixed log.
+ * names its cause when the provenance identifies one. Cause precedence: a recorded OS
+ * clock set (ground truth, when the session's `system_clock_changed` deltas are passed)
+ * beats every inference; then a clock-fallback (derived) timestamp explains the row by
+ * itself; a rejected source timestamp likewise; only then is an offset difference between
+ * the two rows read as an era-mixed log.
  * Callers pass prev = null at phase-section starts (jump detection never spans sections).
  */
 export function classifyTimeJump(
   prev: TimeJumpInput | null,
   curr: TimeJumpInput,
   thresholdMs: number = BACKWARD_JUMP_THRESHOLD_MS,
+  clockDeltasMs?: readonly number[],
 ): TimeJump | null {
   if (!prev) return null;
   const deltaMs = prev.displayTime.getTime() - curr.displayTime.getTime();
   if (!Number.isFinite(deltaMs) || deltaMs < thresholdMs) return null;
 
   let cause: TimeJumpCause = null;
-  if (curr.provenance?.derivedTimestamp) {
+  if (clockDeltasMs && findExplainingClockChange(deltaMs, clockDeltasMs) !== null) {
+    cause = "clock-set";
+  } else if (curr.provenance?.derivedTimestamp) {
     cause = "derived-timestamp";
   } else if (curr.provenance?.rejectedSourceTimestamp) {
     cause = "rejected-source";

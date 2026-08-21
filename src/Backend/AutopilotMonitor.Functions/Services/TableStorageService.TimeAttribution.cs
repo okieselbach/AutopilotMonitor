@@ -117,10 +117,12 @@ namespace AutopilotMonitor.Functions.Services
                 ["WallClockSeconds"] = b.WallClockSeconds,
                 ["UnattributedSeconds"] = b.UnattributedSeconds,
                 ["RebootSeconds"] = b.RebootSeconds,
+                ["SleepSeconds"] = b.SleepSeconds,
                 ["BlockingAppCount"] = b.BlockingAppCount,
                 ["QualityFlags"] = (int)b.QualityFlags,
                 ["SegmentsJson"] = JsonSerializer.Serialize(b.Segments),
                 ["RebootSpansJson"] = JsonSerializer.Serialize(b.RebootSpans),
+                ["SleepSpansJson"] = JsonSerializer.Serialize(b.SleepSpans),
                 ["BlockingAppsJson"] = JsonSerializer.Serialize(b.BlockingApps),
                 ["ComputedAt"] = DateTime.UtcNow,
             };
@@ -142,11 +144,13 @@ namespace AutopilotMonitor.Functions.Services
                 WallClockSeconds = entity.GetInt32("WallClockSeconds") ?? 0,
                 UnattributedSeconds = entity.GetInt32("UnattributedSeconds") ?? 0,
                 RebootSeconds = entity.GetInt32("RebootSeconds") ?? 0,
+                SleepSeconds = entity.GetInt32("SleepSeconds") ?? 0,
                 BlockingAppCount = entity.GetInt32("BlockingAppCount") ?? 0,
                 EspAppsOccupancySeconds = entity.GetInt32("EspAppsOccupancySeconds"),
                 QualityFlags = (TimeAttributionFlags)(entity.GetInt32("QualityFlags") ?? 0),
                 Segments = DeserializeJsonColumn<TimeAttributionSpan>(entity.GetString("SegmentsJson")),
                 RebootSpans = DeserializeJsonColumn<RebootSpan>(entity.GetString("RebootSpansJson")),
+                SleepSpans = DeserializeJsonColumn<SleepSpan>(entity.GetString("SleepSpansJson")),
                 BlockingApps = DeserializeJsonColumn<BlockingAppInterval>(entity.GetString("BlockingAppsJson")),
             };
         }

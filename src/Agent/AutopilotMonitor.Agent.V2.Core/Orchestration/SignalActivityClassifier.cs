@@ -61,6 +61,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // detection — the exact scenario the power watcher exists to observe.
             SharedConstants.EventTypes.PowerStateChange,
 
+            // Same reasoning for the system timeline watcher: a clock step, a wake from standby,
+            // or a backfilled episode at agent start is environment observation and must not
+            // reset the idle/stall clocks.
+            SharedConstants.EventTypes.SystemClockChanged,
+            SharedConstants.EventTypes.SystemSleepEpisode,
+
             // Agent health / control / transport — not device/enrollment progress.
             SharedConstants.EventTypes.CollectorDegraded,
             SharedConstants.EventTypes.TelemetryUploadPoisoned,

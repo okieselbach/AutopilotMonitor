@@ -46,6 +46,11 @@ public class TimeAttributionPersistenceAndAggregationTests
             {
                 new() { StartUtc = T0.AddMinutes(10), EndUtc = T0.AddMinutes(14), Seconds = 240, SegmentKey = TimeAttributionSegments.EspApps },
             },
+            SleepSeconds = 360,
+            SleepSpans = new List<SleepSpan>
+            {
+                new() { StartUtc = T0.AddMinutes(20), EndUtc = T0.AddMinutes(26), Seconds = 360, SegmentKey = TimeAttributionSegments.EspApps, Kind = "modern_standby" },
+            },
             BlockingApps = new List<BlockingAppInterval>
             {
                 new() { AppId = AppX, AppName = "App X", StartUtc = T0.AddMinutes(6), EndUtc = T0.AddMinutes(16), Seconds = 600 },
@@ -76,6 +81,13 @@ public class TimeAttributionPersistenceAndAggregationTests
         var reboot = Assert.Single(mapped.RebootSpans);
         Assert.Equal(TimeAttributionSegments.EspApps, reboot.SegmentKey);
         Assert.Equal(240, reboot.Seconds);
+
+        Assert.Equal(360, mapped.SleepSeconds);
+        var sleep = Assert.Single(mapped.SleepSpans);
+        Assert.Equal("modern_standby", sleep.Kind);
+        Assert.Equal(TimeAttributionSegments.EspApps, sleep.SegmentKey);
+        Assert.Equal(T0.AddMinutes(20), sleep.StartUtc);
+        Assert.Equal(360, sleep.Seconds);
 
         var app = Assert.Single(mapped.BlockingApps);
         Assert.Equal(AppX, app.AppId);

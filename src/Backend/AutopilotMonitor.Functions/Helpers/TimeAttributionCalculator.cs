@@ -72,7 +72,9 @@ public static class TimeAttributionCalculator
     /// <summary>Bump on any semantic change so aggregates never mix definitions (truthfulness rule 8).</summary>
     // v2: PriorEnrollmentResidue flag — sessions whose phase anchors are distorted by
     // pre-enrollment state on disk are now flagged and excluded from fleet segment stats.
-    public const int CurrentVersion = 2;
+    // v3: SleepSpans — completed sleep/standby episodes (system_sleep_episode) as cross-cutting
+    // annotations mirroring RebootSpans; the maintenance sweep recomputes older rows.
+    public const int CurrentVersion = 3;
 
     /// <summary>
     /// Enrollment class for fleet aggregation — classes are NEVER mixed in one aggregate (a
@@ -168,6 +170,7 @@ public static class TimeAttributionCalculator
         }
 
         var rebootSpans = BuildRebootSpans(events, windows, spans);
+        var sleepSpans = BuildSleepSpans(events, windows, spans);
 
         if (events.Any(e => e.EventType == Constants.EventTypes.AgentLateStart))
             flags |= TimeAttributionFlags.PartialObservation;
@@ -191,6 +194,8 @@ public static class TimeAttributionCalculator
             UnattributedSeconds = unattributed,
             RebootSeconds = rebootSpans.Sum(r => r.Seconds),
             RebootSpans = rebootSpans,
+            SleepSeconds = sleepSpans.Sum(s => s.Seconds),
+            SleepSpans = sleepSpans,
             BlockingApps = blockingApps
                 .OrderByDescending(a => a.Seconds)
                 .ThenBy(a => a.AppName, StringComparer.OrdinalIgnoreCase)
@@ -707,6 +712,63 @@ public static class TimeAttributionCalculator
         }
 
         return result;
+    }
+
+    // ── sleep spans ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// One span per completed sleep episode (<c>system_sleep_episode</c>). The payload's
+    /// <c>enteredAt</c>/<c>exitedAt</c> are the authoritative instants — the event's own
+    /// timestamp is stamped at wake and may have been clamped server-side. Structural clone of
+    /// <see cref="BuildRebootSpans"/>: spans are clipped to the observation hull (a WhiteGlove
+    /// pause episode contributes nothing), dedup'd on the enter instant (an episode straddling
+    /// an agent restart can be backfilled twice from different records), and annotate the
+    /// segment they started in — they are never a slice of the wall-clock partition.
+    /// </summary>
+    private static List<SleepSpan> BuildSleepSpans(
+        List<EnrollmentEvent> events, List<Window> windows, List<TimeAttributionSpan> spans)
+    {
+        var result = new List<SleepSpan>();
+        var seenEpisodes = new HashSet<DateTime>();
+
+        foreach (var evt in events)
+        {
+            if (evt.EventType != Constants.EventTypes.SystemSleepEpisode || evt.Data == null) continue;
+
+            var enteredAt = ParseUtcInstant(evt.Data, "enteredAt");
+            var exitedAt = ParseUtcInstant(evt.Data, "exitedAt");
+            if (!enteredAt.HasValue || !exitedAt.HasValue || exitedAt.Value <= enteredAt.Value) continue;
+            if (!seenEpisodes.Add(enteredAt.Value)) continue; // duplicate observation of the same episode
+
+            var clamped = ClampToWindows(enteredAt.Value, exitedAt.Value, windows);
+            if (!clamped.HasValue) continue;
+            var seconds = clamped.Value.Seconds;
+            if (seconds <= 0) continue;
+
+            var kind = evt.Data.TryGetValue("kind", out var kindObj) ? kindObj?.ToString() ?? string.Empty : string.Empty;
+
+            result.Add(new SleepSpan
+            {
+                StartUtc = clamped.Value.Start,
+                EndUtc = clamped.Value.End,
+                Seconds = seconds,
+                SegmentKey = SegmentAt(spans, clamped.Value.Start),
+                Kind = kind,
+            });
+        }
+
+        return result.OrderBy(s => s.StartUtc).ToList();
+    }
+
+    private static DateTime? ParseUtcInstant(Dictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var raw)) return null;
+        var text = raw?.ToString();
+        if (string.IsNullOrEmpty(text)) return null;
+        return DateTime.TryParse(text, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+            ? parsed
+            : (DateTime?)null;
     }
 
     private static string SegmentAt(List<TimeAttributionSpan> spans, DateTime ts)

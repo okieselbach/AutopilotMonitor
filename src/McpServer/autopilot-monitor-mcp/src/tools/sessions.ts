@@ -29,7 +29,7 @@ export const KEY_EVENT_TYPES = new Set([
   'desktop_arrived', 'hello_policy_detected', 'waiting_for_hello', 'hello_completion_timeout',
   'agent_started', 'agent_shutdown', 'agent_shutting_down', 'agent_trace',
   'script_started', 'script_completed', 'script_failed', 'historic_ime_replay_detected',
-  'vulnerability_report',
+  'vulnerability_report', 'system_sleep_episode',
 ]);
 // Phase-defining events promoted to the top of the triage timeline. Module-level
 // (not handler-local) so the same drift test can validate it.

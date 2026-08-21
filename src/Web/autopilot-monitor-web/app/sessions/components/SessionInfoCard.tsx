@@ -12,9 +12,17 @@ interface SessionInfoCardProps {
   isGatherRulesSession: boolean;
   ntpOffset?: { offsetSeconds: number; ntpServer?: string } | null;
   configMgrDetected?: { ccmVersion?: string; ccmServiceState?: string; siteCode?: string; confidenceScore?: number } | null;
+  /** Total observed sleep/standby seconds (system_sleep_episode ground truth) — explains an inflated wall-clock duration. */
+  standbySeconds?: number | null;
 }
 
-export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected }: SessionInfoCardProps) {
+// Compact duration for the standby note: "56m", "1h 2m".
+function formatStandby(seconds: number): string {
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.max(1, Math.round(seconds / 60))}m`;
+}
+
+export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected, standbySeconds }: SessionInfoCardProps) {
   const lastContactTooltip = session.lastEventAt
     ? `Last contact: ${new Date(session.lastEventAt).toLocaleString([], { dateStyle: "short", timeStyle: "medium" })}`
     : undefined;
@@ -56,7 +64,25 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           copyText={session.sessionId}
         />
         <InfoItem label="Started" value={new Date(session.startedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })} tooltip={lastContactTooltip} />
-        <InfoItem label="Duration" value={enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`} tooltip={lastContactTooltip} />
+        <InfoItem
+          label="Duration"
+          value={
+            standbySeconds && standbySeconds >= 60 ? (
+              <span>
+                {enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`}
+                <span
+                  className="text-indigo-600 font-normal"
+                  title={`The device spent ${formatStandby(standbySeconds)} asleep (standby/hibernate) during this window — the wall-clock duration includes that pause. Subtract it for the active enrollment time.`}
+                >
+                  {" "}· 🌙 {formatStandby(standbySeconds)} standby
+                </span>
+              </span>
+            ) : (
+              enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`
+            )
+          }
+          tooltip={lastContactTooltip}
+        />
         <InfoItem label="Events" value={session.eventCount.toString()} tooltip={lastContactTooltip} />
         <InfoItem label="Reboots" value={(session.rebootCount ?? 0).toString()} tooltip="System reboots observed during enrollment (V2 only)" />
         <InfoItem label="Status" value={<StatusBadge status={displayStatus} failureReason={session.failureReason} failureSource={session.failureSource} adminMarkedAction={session.adminMarkedAction} reconcileReason={session.reconcileReason} espSoftFailure={session.espSoftFailure} />} />

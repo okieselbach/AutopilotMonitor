@@ -530,6 +530,30 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int MdmRebootPolicyBackfillLookbackMinutes { get; set; } = 60;
 
+        // -----------------------------------------------------------------------
+        // System timeline watcher (System channel: clock changes + sleep episodes)
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Master switch for the system timeline watcher. When enabled the agent subscribes to the
+        /// System event log for Kernel-General EventID 1 (system clock stepped — ground truth for
+        /// time jumps incl. old/new time, delta and the setting process) and completed sleep
+        /// episodes (Power-Troubleshooter EventID 1 for classic sleep/hibernate, Kernel-Power
+        /// EventID 507 for Modern Standby) and emits system_clock_changed / system_sleep_episode
+        /// events. Explains timeline gaps and time jumps that are otherwise blind spots.
+        /// Default: true.
+        /// </summary>
+        public bool EnableSystemTimelineWatcher { get; set; } = true;
+
+        /// <summary>
+        /// Lookback window in minutes for the system timeline backfill scan on startup. The
+        /// decisive clock correction (w32time fixing a wrong BIOS clock) and pre-agent standby
+        /// episodes happen early in OOBE, often before the agent starts; the System .evtx persists
+        /// across reboots, so a generous backfill recovers them. Bounded well inside the backend's
+        /// 168 h past-tolerance clamp. 0 = backfill disabled. Default: 1440 minutes (24 h).
+        /// </summary>
+        public int SystemEventBackfillLookbackMinutes { get; set; } = 1440;
+
         /// <summary>
         /// Creates default collector configuration
         /// </summary>
