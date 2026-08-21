@@ -41,12 +41,15 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
 
   const { segments, colors, scale, phases, checks, lifeMarkers } = model;
 
-  const PHASE_Y = 8;
+  // Headroom above the phase lane for the slanted lifecycle-marker labels
+  // (Reboot / Desktop / Completed …) written directly at their dots.
+  const MARKER_LABEL_H = 32;
+  const PHASE_Y = 8 + MARKER_LABEL_H;
   const PHASE_H = 22;
-  const BAND_Y = 40;
+  const BAND_Y = PHASE_Y + 32;
   const BAND_H = 58;
   const TICK_Y = BAND_Y + BAND_H;
-  const H = 172;
+  const H = 172 + MARKER_LABEL_H;
 
   // Boundary ticks: real times at every segment boundary, staggered rows,
   // labels suppressed when they would collide.
@@ -60,6 +63,17 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
       lastX[row] = x;
     }
   });
+
+  // Lifecycle-marker label layout: a marker's slanted label is suppressed when
+  // the previous shown label sits closer than 30 units (tooltip still works).
+  const markerXs = lifeMarkers.map((m) => Math.min(Math.max(scale.x(m.t), 6), W - 6));
+  const markerLabelVisible: boolean[] = [];
+  const lastLabelX = [-100];
+  for (const x of markerXs) {
+    const show = x - lastLabelX[0] >= 30;
+    if (show) lastLabelX[0] = x;
+    markerLabelVisible.push(show);
+  }
 
   // Legend entries in first-seen order; the strongest hotspot hint wins.
   const legend: { identity: string; label: string; color: string; kind: SegmentKind; hotspot?: HotspotHint }[] = [];
@@ -249,38 +263,56 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
             );
           })}
 
-          {/* Lifecycle markers (reboot / desktop / terminal) */}
+          {/* Lifecycle markers (reboot / desktop / terminal) — labeled directly
+              at the dot, slanted up-right; near the right edge the label flips
+              to up-left so it never leaves the drawing. A label is suppressed
+              (tooltip still works) when its neighbor's label sits too close. */}
           {lifeMarkers.map((m, i) => {
-            const x = Math.min(Math.max(scale.x(m.t), 6), W - 6);
-            const tip = (
-              <div>
-                <div className="font-semibold">{m.label}</div>
-                <div>{fmtTime(m.t)}</div>
-              </div>
-            );
-            return (
-              <g key={`life-${i}`}>
-                <line
-                  x1={x}
-                  y1={PHASE_Y}
-                  x2={x}
-                  y2={TICK_Y}
-                  stroke="currentColor"
-                  strokeDasharray="3 3"
-                  strokeWidth="1"
-                  className="text-gray-400"
-                />
-                <circle
-                  cx={x}
-                  cy={PHASE_Y - 1}
-                  r="4.5"
-                  className="fill-gray-500"
+              const x = markerXs[i];
+              const showLabel = markerLabelVisible[i];
+              const nearRightEdge = x > W - 90;
+              const lx = nearRightEdge ? x - 7 : x + 7;
+              const ly = PHASE_Y - 10;
+              const tip = (
+                <div>
+                  <div className="font-semibold">{m.label}</div>
+                  <div>{fmtTime(m.t)}</div>
+                </div>
+              );
+              return (
+                <g
+                  key={`life-${i}`}
                   onMouseMove={(e) => showTooltip(e, tip)}
                   onClick={(e) => showTooltip(e, tip)}
                   onMouseLeave={hideTooltip}
-                />
-              </g>
-            );
+                >
+                  <line
+                    x1={x}
+                    y1={PHASE_Y}
+                    x2={x}
+                    y2={TICK_Y}
+                    stroke="currentColor"
+                    strokeDasharray="3 3"
+                    strokeWidth="1"
+                    className="text-gray-400"
+                  />
+                  <circle cx={x} cy={PHASE_Y - 1} r="4.5" className="fill-gray-500" />
+                  {/* invisible enlarged hit target — the dot alone is hard to hover */}
+                  <circle cx={x} cy={PHASE_Y - 1} r="12" fill="transparent" />
+                  {showLabel && (
+                    <text
+                      x={lx}
+                      y={ly}
+                      textAnchor={nearRightEdge ? 'end' : 'start'}
+                      fontSize="10"
+                      transform={`rotate(-30 ${lx} ${ly})`}
+                      className="fill-gray-500"
+                    >
+                      {m.label}
+                    </text>
+                  )}
+                </g>
+              );
           })}
 
           {/* Connectivity check markers */}
