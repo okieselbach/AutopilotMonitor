@@ -18,6 +18,10 @@ export interface DashboardStats {
   failedLastNDays: number;
   successRatePct: number;
   avgDurationMinutes: number;
+  /** Median over the same Succeeded population — the card's headline value (outlier-robust). */
+  medianDurationMinutes: number;
+  /** 90th percentile — the tail signal the median alone would hide. */
+  p90DurationMinutes: number;
   totalToday: number;
   failedToday: number;
   computedAt: string;

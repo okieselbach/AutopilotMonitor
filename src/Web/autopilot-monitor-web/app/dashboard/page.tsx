@@ -27,6 +27,7 @@ import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
 import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { formatDuration } from "@/lib/formatting";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import { DOCS_URL } from "@/utils/config";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
@@ -463,10 +464,22 @@ function HomeContent() {
               description="Last 7 days"
               color="green"
             />
+            {/* Median, not mean — a few overnight/WhiteGlove outliers dominate the average
+                of the right-skewed duration distribution; P90 keeps the tail visible. */}
             <StatsCard
-              title="Avg. Duration"
-              value={dashboardStats ? `${dashboardStats.avgDurationMinutes} min` : "..."}
-              description="Last 7 days"
+              title="Median Duration"
+              value={
+                dashboardStats
+                  ? dashboardStats.medianDurationMinutes > 0
+                    ? `${dashboardStats.medianDurationMinutes} min`
+                    : "—"
+                  : "..."
+              }
+              description={
+                dashboardStats && dashboardStats.p90DurationMinutes > 0
+                  ? `P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)} · last 7 days`
+                  : "Last 7 days"
+              }
               color="purple"
             />
             <StatsCard

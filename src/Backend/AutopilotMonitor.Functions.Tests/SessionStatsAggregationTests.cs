@@ -36,6 +36,8 @@ public class SessionStatsAggregationTests
         Assert.Equal(0, stats.FailedLastNDays);
         Assert.Equal(0, stats.SuccessRatePct);
         Assert.Equal(0, stats.AvgDurationMinutes);
+        Assert.Equal(0, stats.MedianDurationMinutes);
+        Assert.Equal(0, stats.P90DurationMinutes);
         Assert.Equal(0, stats.TotalToday);
         Assert.Equal(0, stats.FailedToday);
     }
@@ -116,6 +118,29 @@ public class SessionStatsAggregationTests
 
         // (30 + 10) / 2 = 20 minutes
         Assert.Equal(20, stats.AvgDurationMinutes);
+        // Same Succeeded population feeds the percentile stats: sorted [600, 1800].
+        Assert.Equal(10, stats.MedianDurationMinutes);
+        Assert.Equal(30, stats.P90DurationMinutes);
+    }
+
+    [Fact]
+    public void Median_duration_is_robust_against_outliers_that_dominate_the_average()
+    {
+        // 8 typical 10-min enrollments plus a 2 h and a 24 h outlier: the mean explodes
+        // to ~2.7 h while the median still answers "how long does a typical enrollment
+        // take" — the reason the dashboard card leads with the median.
+        var now = DateTime.UtcNow;
+        var sessions = new List<SessionSummary>();
+        for (int i = 0; i < 8; i++)
+            sessions.Add(MakeSession(SessionStatus.Succeeded, now.AddHours(-1), 600));
+        sessions.Add(MakeSession(SessionStatus.Succeeded, now.AddHours(-2), 7200));
+        sessions.Add(MakeSession(SessionStatus.Succeeded, now.AddHours(-3), 86400));
+
+        var stats = TableStorageService.AggregateSessionStats(sessions, days: 7);
+
+        Assert.Equal(164, stats.AvgDurationMinutes);   // (8*600 + 7200 + 86400) / 10 / 60
+        Assert.Equal(10, stats.MedianDurationMinutes); // unmoved by the tail
+        Assert.Equal(120, stats.P90DurationMinutes);   // tail stays visible
     }
 
     [Fact]

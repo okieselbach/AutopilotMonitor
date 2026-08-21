@@ -39,8 +39,17 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Succeeded / (Succeeded + Failed) * 100 (one decimal) — finished enrollments only,
         /// matching the SLA convention. 0 when nothing has finished yet (clients render "—").</summary>
         public double SuccessRate { get; set; }
-        /// <summary>Average duration in minutes over non-in-progress sessions that carry a duration.</summary>
+        /// <summary>Average duration in minutes over non-in-progress sessions that carry a duration.
+        /// Kept for API compatibility; the cards lead with the median, which a handful of
+        /// multi-hour outliers (overnight ESP, WhiteGlove late user phase) cannot drag around.</summary>
         public int AvgDurationMinutes { get; set; }
+
+        /// <summary>Median duration in minutes over the same population as <see cref="AvgDurationMinutes"/>.</summary>
+        public int MedianDurationMinutes { get; set; }
+
+        /// <summary>90th-percentile duration in minutes over the same population — the tail signal
+        /// the median alone would hide.</summary>
+        public int P90DurationMinutes { get; set; }
     }
 
     public sealed class FleetDailyPoint

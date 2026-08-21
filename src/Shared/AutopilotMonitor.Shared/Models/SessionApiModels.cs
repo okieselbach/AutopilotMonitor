@@ -576,8 +576,16 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int SuccessRatePct { get; set; }
 
-        /// <summary>Average duration of Succeeded sessions in the window, in minutes (rounded).</summary>
+        /// <summary>Average duration of Succeeded sessions in the window, in minutes (rounded).
+        /// Kept for API compatibility; the dashboard card leads with the median, which
+        /// multi-hour outliers cannot drag around.</summary>
         public int AvgDurationMinutes { get; set; }
+
+        /// <summary>Median duration in minutes over the same Succeeded population.</summary>
+        public int MedianDurationMinutes { get; set; }
+
+        /// <summary>90th-percentile duration in minutes over the same population — the tail signal.</summary>
+        public int P90DurationMinutes { get; set; }
 
         /// <summary>Sessions whose StartedAt is on or after UTC midnight of the current day.</summary>
         public int TotalToday { get; set; }

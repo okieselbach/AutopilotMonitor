@@ -1230,8 +1230,7 @@ namespace AutopilotMonitor.Functions.Services
             int succeeded = 0;
             int failed = 0;
             int incomplete = 0;
-            long succeededDurationSeconds = 0;
-            int succeededWithDurationCount = 0;
+            var succeededDurationSeconds = new List<double>();
             int totalToday = 0;
             int failedToday = 0;
 
@@ -1250,10 +1249,7 @@ namespace AutopilotMonitor.Functions.Services
                     case SessionStatus.Succeeded:
                         succeeded++;
                         if (s.DurationSeconds is int d && d > 0)
-                        {
-                            succeededDurationSeconds += d;
-                            succeededWithDurationCount++;
-                        }
+                            succeededDurationSeconds.Add(d);
                         break;
                     case SessionStatus.Failed:
                         failed++;
@@ -1275,8 +1271,9 @@ namespace AutopilotMonitor.Functions.Services
             int successRatePct = terminal > 0
                 ? (int)Math.Round((double)succeeded / terminal * 100.0)
                 : 0;
-            int avgDurationMinutes = succeededWithDurationCount > 0
-                ? (int)Math.Round((double)succeededDurationSeconds / succeededWithDurationCount / 60.0)
+            succeededDurationSeconds.Sort(); // MetricsMath.Percentile expects ascending order
+            int avgDurationMinutes = succeededDurationSeconds.Count > 0
+                ? (int)Math.Round(succeededDurationSeconds.Average() / 60.0)
                 : 0;
 
             return new SessionStats
@@ -1289,6 +1286,8 @@ namespace AutopilotMonitor.Functions.Services
                 IncompleteLastNDays = incomplete,
                 SuccessRatePct = successRatePct,
                 AvgDurationMinutes = avgDurationMinutes,
+                MedianDurationMinutes = MetricsMath.SecondsToMinutes(MetricsMath.Percentile(succeededDurationSeconds, 50)),
+                P90DurationMinutes = MetricsMath.SecondsToMinutes(MetricsMath.Percentile(succeededDurationSeconds, 90)),
                 TotalToday = totalToday,
                 FailedToday = failedToday,
                 ComputedAt = DateTime.UtcNow,

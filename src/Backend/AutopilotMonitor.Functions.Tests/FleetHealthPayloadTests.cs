@@ -46,6 +46,8 @@ public class FleetHealthPayloadTests
         Assert.Equal(0, payload.Stats.Total);
         Assert.Equal(0d, payload.Stats.SuccessRate);
         Assert.Equal(0, payload.Stats.AvgDurationMinutes);
+        Assert.Equal(0, payload.Stats.MedianDurationMinutes);
+        Assert.Equal(0, payload.Stats.P90DurationMinutes);
         Assert.Empty(payload.FailureReasons);
         Assert.Empty(payload.ModelHealth);
         Assert.Empty(payload.SlowestModels);
@@ -109,6 +111,28 @@ public class FleetHealthPayloadTests
 
         // (600 + 1200) / 2 / 60 = 15 min.
         Assert.Equal(15, payload.Stats.AvgDurationMinutes);
+        // Same population feeds the percentile stats: sorted [600, 1200].
+        Assert.Equal(10, payload.Stats.MedianDurationMinutes);
+        Assert.Equal(20, payload.Stats.P90DurationMinutes);
+    }
+
+    [Fact]
+    public void MedianDuration_IsRobustAgainstOutliers_ThatDominateTheAverage()
+    {
+        // The card's raison d'être: 8 typical 10-min enrollments plus a 2 h and a 24 h
+        // outlier (overnight ESP / WhiteGlove late user phase). The mean explodes to ~2.7 h
+        // while the median still answers "how long does a typical enrollment take".
+        var sessions = new List<SessionSummary>();
+        for (int i = 0; i < 8; i++)
+            sessions.Add(S(SessionStatus.Succeeded, durationSeconds: 600));
+        sessions.Add(S(SessionStatus.Succeeded, durationSeconds: 7200));
+        sessions.Add(S(SessionStatus.Succeeded, durationSeconds: 86400));
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        Assert.Equal(164, payload.Stats.AvgDurationMinutes);   // (8*600 + 7200 + 86400) / 10 / 60
+        Assert.Equal(10, payload.Stats.MedianDurationMinutes); // unmoved by the tail
+        Assert.Equal(120, payload.Stats.P90DurationMinutes);   // tail stays visible
     }
 
     [Fact]

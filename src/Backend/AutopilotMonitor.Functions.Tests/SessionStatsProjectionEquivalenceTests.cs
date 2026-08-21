@@ -172,7 +172,9 @@ public class SessionStatsProjectionEquivalenceTests
         Assert.Equal(full.SucceededLastNDays, projected.SucceededLastNDays);
         Assert.Equal(full.FailedLastNDays, projected.FailedLastNDays);
         Assert.Equal(full.SuccessRatePct, projected.SuccessRatePct);
-        Assert.Equal(full.AvgDurationMinutes, projected.AvgDurationMinutes); // the duration-sensitive card
+        Assert.Equal(full.AvgDurationMinutes, projected.AvgDurationMinutes); // duration-sensitive
+        Assert.Equal(full.MedianDurationMinutes, projected.MedianDurationMinutes); // the headline card
+        Assert.Equal(full.P90DurationMinutes, projected.P90DurationMinutes);
         Assert.Equal(full.TotalToday, projected.TotalToday);
         Assert.Equal(full.FailedToday, projected.FailedToday);
     }

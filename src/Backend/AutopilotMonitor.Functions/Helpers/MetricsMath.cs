@@ -168,14 +168,15 @@ public static class MetricsMath
     /// drained up to 200k raw sessions into the browser and ran these aggregations on the main
     /// thread. Success rate follows the SLA convention: Succeeded / (Succeeded + Failed) — finished
     /// enrollments only, so in-flight sessions and Incomplete (terminal, non-failure) never dilute
-    /// it. Average duration counts every non-in-progress session that carries a positive duration
-    /// (failures included).
+    /// it. Duration stats (average, median, P90) count every non-in-progress session that carries a
+    /// positive duration (failures included); the cards lead with the median because enrollment
+    /// durations are heavily right-skewed and a handful of multi-hour outliers make the mean
+    /// meaningless as a "typical enrollment" answer.
     /// </summary>
     public static FleetHealthMetrics BuildFleetHealthPayload(IReadOnlyList<SessionSummary> sessions, int days)
     {
         int succeeded = 0, failed = 0, inProgress = 0, incomplete = 0;
-        long completedDurationSeconds = 0;
-        int completedWithDurationCount = 0;
+        var completedDurationSeconds = new List<double>();
 
         foreach (var s in sessions)
         {
@@ -188,12 +189,10 @@ public static class MetricsMath
             }
 
             if (s.Status != SessionStatus.InProgress && s.DurationSeconds is int d && d > 0)
-            {
-                completedDurationSeconds += d;
-                completedWithDurationCount++;
-            }
+                completedDurationSeconds.Add(d);
         }
 
+        completedDurationSeconds.Sort(); // Percentile() expects ascending order
         int total = sessions.Count;
         int finished = succeeded + failed;
         var stats = new FleetHealthStats
@@ -204,9 +203,11 @@ public static class MetricsMath
             InProgress = inProgress,
             Incomplete = incomplete,
             SuccessRate = finished > 0 ? Math.Round((double)succeeded / finished * 100, 1) : 0,
-            AvgDurationMinutes = completedWithDurationCount > 0
-                ? (int)Math.Round((double)completedDurationSeconds / completedWithDurationCount / 60.0, MidpointRounding.AwayFromZero)
+            AvgDurationMinutes = completedDurationSeconds.Count > 0
+                ? (int)Math.Round(completedDurationSeconds.Average() / 60.0, MidpointRounding.AwayFromZero)
                 : 0,
+            MedianDurationMinutes = SecondsToMinutes(Percentile(completedDurationSeconds, 50)),
+            P90DurationMinutes = SecondsToMinutes(Percentile(completedDurationSeconds, 90)),
         };
 
         return new FleetHealthMetrics
@@ -369,6 +370,10 @@ public static class MetricsMath
     /// rounded to one decimal place. Callers MUST pass values pre-sorted ascending.
     /// Returns 0 for an empty list.
     /// </summary>
+    /// <summary>Rounds a duration in seconds to whole minutes (away from zero, matching the avg).</summary>
+    public static int SecondsToMinutes(double seconds)
+        => (int)Math.Round(seconds / 60.0, MidpointRounding.AwayFromZero);
+
     public static double Percentile(List<double> sortedValues, int percentile)
     {
         if (sortedValues.Count == 0) return 0;

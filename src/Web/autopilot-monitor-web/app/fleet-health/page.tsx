@@ -23,6 +23,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { formatDuration } from "@/lib/formatting";
 
 interface AppMetric {
   appName: string;
@@ -164,8 +165,7 @@ export default function FleetHealthPage() {
   }, [isConnected, effectiveTenantId, joinGroup, leaveGroup]);
 
   // Server payload, with presentation-friendly defaults so the JSX renders
-  // without null guards once loading clears. `avgDuration` keeps the card's
-  // original field name (server sends avgDurationMinutes).
+  // without null guards once loading clears.
   const s = data?.stats;
   const stats = {
     total: s?.total ?? 0,
@@ -174,7 +174,8 @@ export default function FleetHealthPage() {
     inProgress: s?.inProgress ?? 0,
     incomplete: s?.incomplete ?? 0,
     successRate: s?.successRate ?? 0,
-    avgDuration: s?.avgDurationMinutes ?? 0,
+    medianDuration: s?.medianDurationMinutes ?? 0,
+    p90Duration: s?.p90DurationMinutes ?? 0,
   };
   // Success rate is an outcome quota over finished enrollments (succeeded + failed);
   // with none finished there is no rate to show — the card renders "—" instead of 0%.
@@ -301,10 +302,17 @@ export default function FleetHealthPage() {
                   : "red"
               }
             />
+            {/* Median, not mean: enrollment durations are heavily right-skewed, so a few
+                overnight/WhiteGlove outliers made the old average card read like hours.
+                The P90 subtitle keeps the tail visible — that skew is the diagnostic signal. */}
             <FleetStatCard
-              title="Avg. Enrollment Time"
-              value={`${stats.avgDuration} min`}
-              subtitle="Completed enrollments"
+              title="Median Enrollment Time"
+              value={stats.medianDuration > 0 ? `${stats.medianDuration} min` : "—"}
+              subtitle={
+                stats.p90Duration > 0
+                  ? `P90 ${formatDuration(stats.p90Duration * 60)} · completed enrollments`
+                  : "Completed enrollments"
+              }
               color="blue"
             />
             <FleetStatCard

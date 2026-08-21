@@ -20,6 +20,10 @@ export interface FleetHealthStats {
   /** Succeeded / (succeeded + failed) — finished enrollments only. 0 when nothing finished yet. */
   successRate: number;
   avgDurationMinutes: number;
+  /** Median over the same population as avg — the card's headline value (outlier-robust). */
+  medianDurationMinutes: number;
+  /** 90th percentile — the tail signal the median alone would hide. */
+  p90DurationMinutes: number;
 }
 export interface FleetDailyPoint {
   date: string;
