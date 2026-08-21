@@ -91,6 +91,22 @@ describe('clock-era correction', () => {
     expect(clockMarker!.detail).toContain('before agent start');
   });
 
+  it('formats day-scale steps in days (CMOS clock years off)', () => {
+    // Real fleet case 0bd4af1c: clock stepped +66,387,532,699 ms (2024 → 2026).
+    const events = [
+      ethernetInfo(1, 0),
+      ev(2, 'system_clock_changed', 5 * MIN, {
+        timeDeltaMs: 66_387_532_699,
+        backfilled: true,
+        timeCreated: iso(2 * MIN),
+      }),
+      ev(3, 'log_entry', 10 * MIN),
+    ];
+    const model = buildNetworkModel(session, events)!;
+    const marker = model.lifeMarkers.find((m) => m.label.startsWith('Clock'));
+    expect(marker!.label).toBe('Clock +768d 8h');
+  });
+
   it('ignores sub-30s steps (NTP nudges)', () => {
     const events = [
       ethernetInfo(1, 0),

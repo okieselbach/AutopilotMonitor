@@ -130,7 +130,10 @@ export function fmtDuration(ms: number): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  if (h < 24) return `${h}h ${m % 60}m`;
+  // Day scale (e.g. a CMOS clock jumping years): minutes are noise here.
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
 }
 
 export function segmentTitle(seg: NetSegment): string {
