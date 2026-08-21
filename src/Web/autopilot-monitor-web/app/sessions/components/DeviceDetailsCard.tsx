@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
+import { networkTimelineUrl } from "@/lib/routes";
 import { EnrollmentEvent, Session } from "@/types";
 import OobeConfigModal from "./OobeConfigModal";
 import { compareVersions, stripGitHashSuffix } from "@/utils/bootstrapVersion";
@@ -245,6 +247,18 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
             {/* Network */}
             {(networkAdapters || dnsConfig || proxyConfig || networkInterfaceInfo || wifiSignalInfo) && (
               <DetailSection title="Network">
+                {/* Deep link to the network timeline page */}
+                {session && (
+                  <div className="-mt-1 mb-2">
+                    <Link
+                      href={networkTimelineUrl(session.sessionId, { tenantId: session.tenantId })}
+                      className="text-xs text-green-700 hover:text-green-800 hover:underline inline-flex items-center gap-1"
+                    >
+                      <span>Network timeline</span>
+                      <span aria-hidden>→</span>
+                    </Link>
+                  </div>
+                )}
                 {networkAdapters && networkAdapters.adapters && (
                   (networkAdapters.adapters as unknown[]).map((adapter, i: number) => {
                     const a = adapter as { [key: string]: unknown; macAddress?: string };

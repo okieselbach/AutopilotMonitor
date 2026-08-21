@@ -53,6 +53,7 @@ describe("legacyTarget", () => {
   it("leaves canonical and unrelated paths alone", () => {
     expect(legacyTarget("/sessions", q("id=abc"), "")).toBeNull();
     expect(legacyTarget("/sessions/inspector", q("id=abc"), "")).toBeNull();
+    expect(legacyTarget("/sessions/network-timeline", q("id=abc&tenantId=t"), "")).toBeNull();
     expect(legacyTarget("/apps/detail", q("name=x"), "")).toBeNull();
     expect(legacyTarget("/admin/backups/detail", q("id=x"), "")).toBeNull();
     expect(legacyTarget("/admin/customs-archive/detail", q(""), "")).toBeNull();

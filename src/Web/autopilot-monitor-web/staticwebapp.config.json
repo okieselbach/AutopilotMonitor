@@ -26,6 +26,7 @@
 
     { "route": "/sessions/index.txt", "rewrite": "/sessions/index.txt" },
     { "route": "/sessions/inspector/index.txt", "rewrite": "/sessions/inspector/index.txt" },
+    { "route": "/sessions/network-timeline/index.txt", "rewrite": "/sessions/network-timeline/index.txt" },
     { "route": "/diagnosis/index.txt", "rewrite": "/diagnosis/index.txt" },
     { "route": "/apps/index.txt", "rewrite": "/apps/index.txt" },
     { "route": "/apps/detail/index.txt", "rewrite": "/apps/detail/index.txt" },
@@ -36,6 +37,7 @@
 
     { "route": "/sessions", "rewrite": "/sessions/index.html" },
     { "route": "/sessions/inspector", "rewrite": "/sessions/inspector/index.html" },
+    { "route": "/sessions/network-timeline", "rewrite": "/sessions/network-timeline/index.html" },
     { "route": "/sessions/*", "rewrite": "/sessions/index.html" },
     { "route": "/diagnosis", "rewrite": "/diagnosis/index.html" },
     { "route": "/diagnosis/*", "rewrite": "/diagnosis/index.html" },

@@ -39,6 +39,13 @@ export function inspectorUrl(sessionId: string, opts?: { tab?: string }): Route 
   return withQuery("/sessions/inspector", { id: sessionId, tab: opts?.tab });
 }
 
+export function networkTimelineUrl(
+  sessionId: string,
+  opts?: { tenantId?: string },
+): Route {
+  return withQuery("/sessions/network-timeline", { id: sessionId, tenantId: opts?.tenantId });
+}
+
 export function diagnosisUrl(sessionId: string): Route {
   return withQuery("/diagnosis", { id: sessionId });
 }
