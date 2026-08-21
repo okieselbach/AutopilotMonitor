@@ -246,6 +246,13 @@ export function SectionOptionalGraphCapabilities() {
             )}
           </div>
 
+          <p className="mt-3 text-xs text-gray-500">
+            Prefer the high-level form? Run the script with{" "}
+            <span className="font-mono">-Features All</span> instead of the permission list to grant every
+            optional capability in one go —{" "}
+            <span className="font-mono">-Features All -Revoke</span> removes them all again.
+          </p>
+
           <details className="mt-4 text-sm text-gray-600">
             <summary className="cursor-pointer text-gray-700 font-medium">What this script does (no surprises)</summary>
             <ul className="mt-2 list-disc list-inside space-y-1">

@@ -28,6 +28,8 @@
         (validates Windows 365 Cloud PCs against the tenant's Cloud PC inventory --
          Cloud PCs are never Autopilot-registered, so this enables agent monitoring
          of Cloud PC first-connect enrollment)
+      - All                    -> every optional permission above, in one run
+        (also works with -Revoke to remove all optional grants at once)
 
 .PARAMETER Permissions
     Microsoft Graph application permission names to grant directly. Use when the admin UI
@@ -52,6 +54,10 @@
         -ClientId "<your-client-id>" `
         -Permissions "DeviceManagementScripts.Read.All" `
         -TenantId "contoso.onmicrosoft.com"
+
+.EXAMPLE
+    # Grant every optional capability in one run:
+    .\Grant-AutopilotMonitorAddOn.ps1 -ClientId "<your-client-id>" -Features All
 
 .EXAMPLE
     # Verify current state only, no changes:
@@ -86,7 +92,7 @@ param(
     [string]$ClientId,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByFeatures')]
-    [ValidateSet('ScriptDisplayNames', 'W365CloudPcValidation')]
+    [ValidateSet('All', 'ScriptDisplayNames', 'W365CloudPcValidation')]
     [string[]]$Features,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByPermissions')]
@@ -112,7 +118,11 @@ $FeatureCatalog = @{
 }
 
 # Translate Features -> Permissions when caller used the high-level form.
+# 'All' is a script-side meta-value: it expands to every catalog feature.
 if ($PSCmdlet.ParameterSetName -eq 'ByFeatures') {
+    if ($Features -contains 'All') {
+        $Features = @($FeatureCatalog.Keys)
+    }
     $Permissions = @()
     foreach ($f in $Features) {
         $Permissions += $FeatureCatalog[$f]

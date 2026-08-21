@@ -54,9 +54,13 @@ public class GraphFeatureCatalogSyncTests
             .Select(m => m.Groups["f"].Value)
             .ToArray();
 
+        // 'All' is a script-side meta-value that expands to every catalog feature — it is not
+        // (and must never become) a GraphFeatureCatalog entry, but the script must keep offering it.
+        Assert.Contains("All", scriptFeatures);
+
         Assert.Equal(
             GraphFeatureCatalog.Features.OrderBy(f => f, StringComparer.OrdinalIgnoreCase),
-            scriptFeatures.OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
+            scriptFeatures.Where(f => f != "All").OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
     }
 
     private static string ReadGrantScript()
