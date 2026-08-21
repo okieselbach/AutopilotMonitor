@@ -562,6 +562,7 @@ namespace AutopilotMonitor.Shared
             public const string TimezoneAutoSet           = "timezone_auto_set";
             public const string NtpTimeCheck              = "ntp_time_check";
             public const string PowerStateCheck           = "power_state_check";
+            public const string PowerStateChange          = "power_state_change";
             public const string AgentTrace                = "agent_trace";
 
             // Crash / process lifecycle

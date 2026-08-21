@@ -56,6 +56,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // real activity (rare, and worth keeping diagnostics running for).
             SharedConstants.EventTypes.ModernDeploymentLog,
 
+            // Environment observation, not device/enrollment progress: an idle device draining
+            // its battery must not keep the periodic collectors alive or push out stall
+            // detection — the exact scenario the power watcher exists to observe.
+            SharedConstants.EventTypes.PowerStateChange,
+
             // Agent health / control / transport — not device/enrollment progress.
             SharedConstants.EventTypes.CollectorDegraded,
             SharedConstants.EventTypes.TelemetryUploadPoisoned,

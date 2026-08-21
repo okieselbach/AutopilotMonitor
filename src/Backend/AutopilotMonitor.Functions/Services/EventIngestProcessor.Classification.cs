@@ -378,6 +378,9 @@ namespace AutopilotMonitor.Functions.Services
             "stall_probe_result" => true,
             "session_stalled" => true,
             "modern_deployment_log" => true,
+            // Environment observation (battery drain / AC flap), not enrollment progress —
+            // must not count as "real activity" that heals a Stalled session.
+            "power_state_change" => true,
             _ => false
         };
 

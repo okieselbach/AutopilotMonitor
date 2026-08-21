@@ -274,7 +274,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new AgentConfigResponse
             {
-                ConfigVersion = 37, // EnableEspContinueAnywayObservation (Continue-Anyway observation mode)
+                ConfigVersion = 38, // Collectors.EnablePowerStateWatcher (live AC/battery watcher)
                 UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,
                 SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
                 KeepLogFile = tenantConfig.KeepLogFile ?? false,

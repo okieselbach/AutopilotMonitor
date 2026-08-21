@@ -35,6 +35,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         // OS-eventlog forwarding — observability, not enrollment progress (session 8bc1180f:
         // an EventID-100 burst must not keep the periodic collectors alive).
         [InlineData("modern_deployment_log")]
+        // Environment observation — battery drain on an idle device must not reset idle clocks.
+        [InlineData("power_state_change")]
         // Agent health / control / transport — not device/enrollment progress (P2).
         [InlineData("collector_degraded")]
         [InlineData("telemetry_upload_poisoned")]

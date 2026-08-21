@@ -152,6 +152,8 @@ export const KNOWN_EVENT_TYPES: EventTypeEntry[] = [
     description: "Certificate validation result." },
   { value: "network_state_change", label: "network_state_change", category: "diagnostics",
     description: "Network state changed (online/offline/interface)." },
+  { value: "power_state_change", label: "power_state_change", category: "diagnostics",
+    description: "Live AC/battery change during enrollment (WMI push, no polling): transition=ac_to_battery (Warning) / battery_to_ac (Info) / threshold_crossed with thresholdPercent 50/30/15 (each level latched once per session). Payload carries onAcPower, batteryPercent, isCharging, batteryLifeMinutes. Never emitted on devices without a battery." },
   { value: "network_bandwidth_estimate", label: "network_bandwidth_estimate", category: "diagnostics",
     description: "Session-level internet-bandwidth estimate derived passively from the Delivery Optimization byte counters (no synthetic traffic). At most twice per session: an interim snapshot after DeviceSetup (snapshotTrigger=device_setup_end — survives account-phase starvation) and the authoritative final at enrollment end (collector_stop). p90/max Mbit/s for internet-path (HTTP + internet peers) and LAN sources (peers/Connected Cache) separately, plus bucket (<10 / 10-50 / 50-100 / 100-250 / 250+) and confidence." },
   { value: "vulnerability_report", label: "vulnerability_report", category: "diagnostics",

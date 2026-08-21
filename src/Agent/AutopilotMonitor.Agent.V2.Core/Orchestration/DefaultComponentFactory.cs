@@ -595,6 +595,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 logger: logger,
                 apiBaseUrl: _agentConfig.ApiBaseUrl));
 
+            // Live AC/battery watcher — WMI Win32_PowerManagementEvent push (no polling), emits
+            // power_state_change on AC↔battery transitions and 50/30/15 % downward threshold
+            // crossings. Deliberately NOT under PeriodicCollectorLifecycleHost: it is push-based
+            // (zero idle cost) and must stay alive precisely when the device sits idle on battery.
+            // Never arms on devices without a battery. Kill-switchable via remote config.
+            if (collectors.EnablePowerStateWatcher)
+            {
+                hosts.Add(new PowerStateWatcherHost(
+                    sessionId: sessionId,
+                    tenantId: tenantId,
+                    ingress: ingress,
+                    clock: clock,
+                    logger: logger));
+            }
+
             // Microsoft 365 Apps (Office C2R) install detector — event-driven (Rev 2): woken by a WMI
             // Win32_ProcessStartTrace push on OfficeC2RClient.exe (+ startup probe), progress via
             // RegNotifyChangeKeyValue, stop via Process.Exited. No idle polling. Constructed first so

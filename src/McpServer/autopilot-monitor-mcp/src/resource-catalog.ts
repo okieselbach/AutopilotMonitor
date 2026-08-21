@@ -110,6 +110,7 @@ export const EVENT_TYPES_CATALOG = {
     'timezone_auto_set',
     'ntp_time_check',
     'power_state_check',
+    'power_state_change',
   ],
   identity_events: [
     'aad_placeholder_user_detected',

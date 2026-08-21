@@ -1,0 +1,48 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-DEV-009",
+  "title": "Battery Critically Low During Enrollment",
+  "description": "Detects that the device's battery dropped to 15% or less while enrolling on battery power (power_state_change threshold event from the agent's live power watcher). A device dying mid-enrollment leaves a half-provisioned state that typically needs a full reset; this rule surfaces the risk while there is still time to plug the device in. Uses a single required condition on the agent-stamped thresholdPercent field (the data field 'transition' on the event is unrelated to this rule's 'trigger' property).",
+  "severity": "high",
+  "category": "device",
+  "version": "1.0.0",
+  "enabled": true,
+  "evaluateOn": [
+    "enrollment_end",
+    "whiteglove_sealed",
+    "on_event:power_state_change"
+  ],
+  "trigger": "single",
+  "baseConfidence": 90,
+  "confidenceThreshold": 60,
+  "conditions": [
+    {
+      "signal": "battery_threshold_15",
+      "source": "event_data",
+      "eventType": "power_state_change",
+      "dataField": "thresholdPercent",
+      "operator": "equals",
+      "value": "15",
+      "required": true
+    }
+  ],
+  "explanation": "The device's battery fell below **{{thresholdPercent}}%** while the enrollment was running on battery power. If the battery drains completely mid-enrollment, the device is left in a half-provisioned state — apps, policies, or the user profile may be incomplete, and in most cases the device has to be reset and re-enrolled. The agent detected the threshold crossing live via a Windows power-status notification; the exact percentage at that moment is recorded on the matched power_state_change event in the session timeline.",
+  "remediation": [
+    {
+      "title": "Secure power for the running enrollment",
+      "steps": [
+        "Connect the device to AC power immediately — the enrollment continues normally once power is stable.",
+        "If the device shut down before completing, check whether the session reached the desktop; if not, reset the device (Autopilot reset or reimage) and re-enroll it plugged in.",
+        "For technician/White Glove flows, make AC power part of the bench checklist — pre-provisioning on battery is the most common source of this alert.",
+        "If this fires across many devices of one model, review that model's battery health (the hardware_spec event carries design vs. full-charge capacity)."
+      ]
+    }
+  ],
+  "markSessionAsFailedDefault": false,
+  "tags": [
+    "device",
+    "power",
+    "battery",
+    "environment"
+  ]
+}

@@ -355,6 +355,16 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public int OfficeInstallSettleSeconds { get; set; } = 10;
 
+        /// <summary>
+        /// Enable the live AC/battery power-state watcher. Event-driven (no polling): a WMI
+        /// Win32_PowerManagementEvent (EventCode 10) push triggers a GetSystemPowerStatus
+        /// re-probe; emits power_state_change on AC↔battery transitions and downward battery
+        /// threshold crossings (50/30/15 %). Never armed on devices without a battery.
+        /// Cheap and high-value → on by default, kept as a kill-switch.
+        /// Default: true
+        /// </summary>
+        public bool EnablePowerStateWatcher { get; set; } = true;
+
         // -----------------------------------------------------------------------
         // Stall detection (Ebene 2 — StallProbeCollector)
         // -----------------------------------------------------------------------

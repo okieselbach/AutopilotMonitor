@@ -596,6 +596,7 @@ export const SHARED_MANIFEST = {
     "performance_collector_stopped",
     "performance_snapshot",
     "phase_transition",
+    "power_state_change",
     "power_state_check",
     "previous_crash_detected",
     "prior_run_died_with_state",
