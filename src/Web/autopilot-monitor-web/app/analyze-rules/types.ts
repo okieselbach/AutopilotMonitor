@@ -123,6 +123,10 @@ export interface RuleForm {
   evalAtWhitegloveSealed: boolean;
   /** Comma-separated event types for on_event:<type> interim triggers. */
   evalOnEventTypes: string;
+  /** Carried through create/save so exports and JSON pastes don't lose them (no form UI). */
+  tags: string[];
+  /** Effective "fire → mark session failed" carried as the new rule's default on import. */
+  markSessionAsFailedDefault: boolean;
 }
 
 export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enrollment"] as const;
@@ -210,6 +214,8 @@ export const EMPTY_FORM: RuleForm = {
   evalAtEnrollmentEnd: true,
   evalAtWhitegloveSealed: false,
   evalOnEventTypes: "",
+  tags: [],
+  markSessionAsFailedDefault: false,
 };
 
 export function ruleToForm(rule: AnalyzeRule): RuleForm {
@@ -235,7 +241,50 @@ export function ruleToForm(rule: AnalyzeRule): RuleForm {
       .filter(t => t.toLowerCase().startsWith("on_event:"))
       .map(t => t.slice("on_event:".length))
       .join(", "),
+    tags: [...(rule.tags ?? [])],
+    // Fold the tenant override into the effective value: an exported rule that marks
+    // sessions failed must keep doing so when re-created from its JSON.
+    markSessionAsFailedDefault: rule.markSessionAsFailed ?? rule.markSessionAsFailedDefault ?? false,
   };
+}
+
+/**
+ * What JSON-mode paste can contain: the serialized form, a rule export, or a mix.
+ * Shared fields take the rule's (nullable) typing so an AnalyzeRule assigns directly;
+ * the form-only eval* fields come from RuleForm.
+ */
+export type PastedAnalyzeJson = Partial<AnalyzeRule> & Partial<Omit<RuleForm, keyof AnalyzeRule>>;
+
+/**
+ * Maps pasted JSON into a RuleForm, accepting BOTH shapes: the serialized form (has the
+ * eval* checkbox fields) and a rule-shaped export (has evaluateOn, or neither when the
+ * rule is terminal-only). Without the rule-shaped path, pasting an export silently
+ * dropped evaluateOn — the rule quietly reverted to the enrollment-end default.
+ */
+export function jsonToForm(parsed: PastedAnalyzeJson): RuleForm {
+  // An explicit evaluateOn is authoritative rule-shape; the form fields only decide when
+  // it is absent (a terminal-only export carries neither, which the default handles).
+  const formShaped =
+    parsed.evaluateOn === undefined &&
+    (parsed.evalAtEnrollmentEnd !== undefined ||
+      parsed.evalAtWhitegloveSealed !== undefined ||
+      parsed.evalOnEventTypes !== undefined);
+  if (formShaped) return { ...EMPTY_FORM, ...(parsed as Partial<RuleForm>) };
+
+  return ruleToForm({
+    ...parsed,
+    ruleId: parsed.ruleId ?? "",
+    title: parsed.title ?? "",
+    severity: parsed.severity ?? EMPTY_FORM.severity,
+    category: parsed.category ?? EMPTY_FORM.category,
+    trigger: parsed.trigger ?? EMPTY_FORM.trigger,
+    baseConfidence: parsed.baseConfidence ?? EMPTY_FORM.baseConfidence,
+    confidenceThreshold: parsed.confidenceThreshold ?? EMPTY_FORM.confidenceThreshold,
+    conditions: Array.isArray(parsed.conditions) ? parsed.conditions : [],
+    confidenceFactors: Array.isArray(parsed.confidenceFactors) ? parsed.confidenceFactors : [],
+    remediation: Array.isArray(parsed.remediation) ? parsed.remediation : [],
+    relatedDocs: Array.isArray(parsed.relatedDocs) ? parsed.relatedDocs : [],
+  } as AnalyzeRule);
 }
 
 /**

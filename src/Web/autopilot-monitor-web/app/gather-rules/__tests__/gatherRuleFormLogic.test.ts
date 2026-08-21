@@ -4,6 +4,7 @@ import {
   NewRuleForm,
   buildScopeFields,
   firesExactlyOnce,
+  gatherRuleToForm,
   supportsEmitMode,
   supportsPhaseScope,
   validateScopeSelection,
@@ -132,5 +133,100 @@ describe("withDerivedScopeMode", () => {
   it("survives non-array activePhases from hand-written JSON", () => {
     const parsed = { ...EMPTY_FORM, activePhases: undefined } as unknown as NewRuleForm;
     expect(withDerivedScopeMode(parsed).activePhases).toEqual([]);
+  });
+});
+
+/**
+ * The JSON editor serializes the FORM object, but what users paste is usually a rule
+ * EXPORT (the "Export" button's shape) — e.g. a rule received from another tenant.
+ * Exports keep collector options in a nested `parameters` object; before the mapper,
+ * that key was silently discarded and the imported rule lost every parameter.
+ */
+describe("gatherRuleToForm", () => {
+  it("unflattens the parameters object of a rule-shaped export", () => {
+    const form = gatherRuleToForm({
+      ruleId: "CONTOSO-WIFI-001",
+      title: "WiFi driver version",
+      collectorType: "registry",
+      target: "HKLM\\SOFTWARE\\Contoso",
+      parameters: { valueName: "DriverVersion", listSubkeys: "true" },
+      trigger: "startup",
+      intervalSeconds: null,
+      triggerPhase: null,
+      triggerEventType: null,
+      outputEventType: "contoso_wifi_driver",
+      outputSeverity: "info",
+      tags: ["contoso", "network"],
+    });
+
+    expect(form.valueName).toBe("DriverVersion");
+    expect(form.listSubkeys).toBe(true);
+    expect(form.tags).toEqual(["contoso", "network"]);
+    expect(form.intervalSeconds).toBe(60);
+    // A rule without emitMode behaves "always" — the import must not upgrade it to
+    // the empty-form on_change default.
+    expect(form.emitMode).toBe("always");
+  });
+
+  it("prefers the parameters object over stale flat fields on an edit merge", () => {
+    const staleEditForm = { ...EMPTY_FORM, logPattern: "old-pattern", trackPosition: false };
+    const form = gatherRuleToForm({
+      ...staleEditForm,
+      title: "IME log watcher",
+      collectorType: "logparser",
+      target: "%ProgramData%\\Logs\\App*.log",
+      parameters: { pattern: "new-pattern", maxLines: "50" },
+    });
+
+    expect(form.logPattern).toBe("new-pattern");
+    expect(form.maxLines).toBe("50");
+    // parameters is authoritative: keys it does not carry fall back to collector defaults,
+    // not to the stale flat fields of the previously edited rule.
+    expect(form.trackPosition).toBe(true);
+  });
+
+  it("passes form-shaped JSON (no parameters key) through unchanged", () => {
+    const form = gatherRuleToForm({
+      ...EMPTY_FORM,
+      ruleId: "GATHER-CUSTOM-101",
+      title: "Pasted form",
+      valueName: "State",
+      emitMode: "on_change",
+      scopeMode: "from",
+      activeFromPhase: "AccountSetup",
+    });
+
+    expect(form.valueName).toBe("State");
+    expect(form.emitMode).toBe("on_change");
+    // scopeMode is UI-only and re-derived from the data, exactly like withDerivedScopeMode.
+    expect(form.scopeMode).toBe("from");
+  });
+
+  it("round-trips a rule through form and back without losing scope or params", () => {
+    const exported = {
+      ruleId: "GATHER-CUSTOM-042",
+      title: "Battery status",
+      collectorType: "wmi",
+      target: "SELECT BatteryStatus FROM Win32_Battery",
+      parameters: {},
+      trigger: "interval",
+      intervalSeconds: 300,
+      activePhases: ["DeviceSetup", "AppsDevice"],
+      emitMode: "on_change",
+      outputEventType: "battery_status",
+      outputSeverity: "info",
+      tags: ["power"],
+    };
+
+    const form = gatherRuleToForm(exported);
+    expect(form.scopeMode).toBe("during");
+    expect(form.activePhases).toEqual(["DeviceSetup", "AppsDevice"]);
+    expect(form.intervalSeconds).toBe(300);
+    expect(form.emitMode).toBe("on_change");
+    expect(buildScopeFields(form)).toEqual({
+      activePhases: ["DeviceSetup", "AppsDevice"],
+      activeFromPhase: null,
+      emitMode: "on_change",
+    });
   });
 });

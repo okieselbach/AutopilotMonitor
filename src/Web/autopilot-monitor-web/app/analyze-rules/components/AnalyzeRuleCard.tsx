@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AnalyzeRule, RuleForm, getSeverityColor, getCategoryColor, interimTriggerLabels } from "../types";
+import { AnalyzeRule, RuleForm, PastedAnalyzeJson, getSeverityColor, getCategoryColor, interimTriggerLabels, jsonToForm } from "../types";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
@@ -635,9 +635,11 @@ export default function AnalyzeRuleCard({
             jsonError={jsonError}
             onApplyJson={() => {
               try {
-                const parsed = JSON.parse(jsonText) as RuleForm;
+                const parsed = JSON.parse(jsonText) as PastedAnalyzeJson;
                 if (!parsed.title) throw new Error("JSON must include title");
-                setEditForm({ ...editForm, ...parsed });
+                // Merge keeps unmentioned fields; a rule-shaped paste brings an explicit
+                // evaluateOn, which the mapper prefers over the stale eval* form fields.
+                setEditForm(jsonToForm({ ...editForm, ...parsed }));
                 onSetJsonModeEdit(false);
                 onSetJsonError(null);
               } catch (e) {
@@ -655,9 +657,9 @@ export default function AnalyzeRuleCard({
             <button onClick={() => {
               if (jsonModeEdit) {
                 try {
-                  const parsed = JSON.parse(jsonText) as RuleForm;
+                  const parsed = JSON.parse(jsonText) as PastedAnalyzeJson;
                   onSetJsonError(null);
-                  onSaveEdit(rule, { ...editForm, ...parsed });
+                  onSaveEdit(rule, jsonToForm({ ...editForm, ...parsed }));
                 } catch (e) {
                   onSetJsonError(e instanceof Error ? e.message : "Invalid JSON");
                 }

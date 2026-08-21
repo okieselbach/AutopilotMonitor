@@ -27,7 +27,7 @@ Namespace split (`RuleIdPolicy.cs`, shared model):
 
 - **Custom vs built-in**: impossible via API — `CreateRuleAsync`/`UpdateRuleAsync` reject reserved IDs (409) and check existence against `global` ∪ own tenant partition. Legacy debris is neutralized at merge time: global wins, tenant copy dropped with a warning (pinned by `RuleMergeCollisionGuardTests`, motivated by the 5ca2b350 duplicate-key incident).
 - **Custom vs custom across tenants**: allowed and harmless — separate partitions, separate evaluation, separate RuleResults/tenant stats. Two tenants both using `ANALYZE-CUSTOM-101` never interact.
-- **JSON copy between tenants** (export → paste into create editor): goes through the same create path, so an ID already taken in the receiving tenant surfaces as 409 — the user renames. There is no bulk import endpoint; note the export→paste round-trip is lossy (gather `parameters`, analyze `evaluateOn` are form-derived and silently dropped by the create editor).
+- **JSON copy between tenants** (export → paste into create editor): goes through the same create path, so an ID already taken in the receiving tenant surfaces as 409 — the user renames. There is no bulk import endpoint. The JSON editors accept both shapes — a rule export and the serialized form — via `gatherRuleToForm` / `jsonToForm` (web `types.ts` of each rules page): nested gather `parameters` are unflattened, analyze `evaluateOn` maps onto the eval checkboxes, and `tags` plus the effective `markSessionAsFailed` survive the import.
 
 # Guards (all enforced, 2026-08-21)
 

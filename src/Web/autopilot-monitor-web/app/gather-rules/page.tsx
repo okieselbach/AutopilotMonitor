@@ -14,7 +14,7 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, targetBlocked, validateScopeSelection, withDerivedScopeMode } from "./types";
+import { GatherRule, NewRuleForm, PastedGatherJson, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, gatherRuleToForm, targetBlocked, validateScopeSelection } from "./types";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 import { DOCS_URL } from "@/utils/config";
@@ -238,6 +238,7 @@ export default function GatherRulesPage() {
       ...buildScopeFields(form),
       outputEventType: form.outputEventType,
       outputSeverity: form.outputSeverity,
+      tags: form.tags ?? [],
       enabled: !blocked,
     };
 
@@ -267,41 +268,7 @@ export default function GatherRulesPage() {
     // Ensure the card stays expanded when entering edit mode
     setExpandedRuleId(rule.ruleId);
     setEditingRuleId(rule.ruleId);
-    setEditForm({
-      ruleId: rule.ruleId,
-      title: rule.title,
-      description: rule.description,
-      category: rule.category,
-      collectorType: rule.collectorType,
-      target: rule.target,
-      valueName: rule.parameters?.valueName || "",
-      listSubkeys: rule.parameters?.listSubkeys === "true",
-      eventId: rule.parameters?.eventId || "",
-      messageFilter: rule.parameters?.messageFilter || "",
-      maxEntries: rule.parameters?.maxEntries || "",
-      source: rule.parameters?.source || "",
-      readContent: rule.parameters?.readContent === "true",
-      logPattern: rule.parameters?.pattern || "",
-      logFormat: rule.parameters?.format || "cmtrace",
-      trackPosition: rule.parameters?.trackPosition !== "false",
-      maxLines: rule.parameters?.maxLines || "",
-      jsonPath: rule.parameters?.jsonpath || "",
-      xpath: rule.parameters?.xpath || "",
-      xmlNamespaces: rule.parameters?.namespaces || "",
-      maxResults: rule.parameters?.maxResults || "",
-      trigger: rule.trigger,
-      intervalSeconds: rule.intervalSeconds || 60,
-      triggerPhase: rule.triggerPhase || "",
-      triggerEventType: rule.triggerEventType || "",
-      scopeMode: rule.activePhases?.length ? "during" : rule.activeFromPhase ? "from" : "always",
-      activePhases: rule.activePhases || [],
-      activeFromPhase: rule.activeFromPhase || "",
-      // Existing rules without the field keep today's behavior ("always") — the on_change
-      // default applies to NEW rules only.
-      emitMode: rule.emitMode === "on_change" ? "on_change" : "always",
-      outputEventType: rule.outputEventType,
-      outputSeverity: rule.outputSeverity,
-    });
+    setEditForm(gatherRuleToForm(rule));
   };
 
   const handleSaveEdit = async (rule: GatherRule, overrideForm?: NewRuleForm) => {
@@ -338,8 +305,9 @@ export default function GatherRulesPage() {
       version: bumpVersion(rule.version),
       enabled: rule.enabled && !forcedOff,
       createdAt: rule.createdAt,
-      // Same wipe class as the toggle bug: the full-replace PUT must carry tags or they vanish.
-      tags: rule.tags ?? [],
+      // Same wipe class as the toggle bug: the full-replace PUT must carry tags or they
+      // vanish. The form carries them (populated by gatherRuleToForm, editable via JSON).
+      tags: form.tags ?? rule.tags ?? [],
       isBuiltIn: rule.isBuiltIn ?? false,
       isCommunity: rule.isCommunity ?? false,
     };
@@ -550,11 +518,11 @@ export default function GatherRulesPage() {
                       jsonError={jsonError}
                       onApplyJson={() => {
                         try {
-                          const parsed = JSON.parse(jsonText) as NewRuleForm;
+                          const parsed = JSON.parse(jsonText) as PastedGatherJson;
                           if (!parsed.ruleId && !parsed.title) throw new Error("JSON must include at least ruleId and title");
-                          // Rule-shaped JSON carries activePhases/activeFromPhase but no scopeMode
-                          // — derive it so the scope fields survive into the create payload.
-                          setNewRule(withDerivedScopeMode({ ...EMPTY_FORM, ...parsed }));
+                          // Handles both shapes: rule-shaped exports (nested parameters,
+                          // no scopeMode) and the serialized form itself.
+                          setNewRule(gatherRuleToForm(parsed));
                           setJsonModeCreate(false);
                           setJsonError(null);
                         } catch (e) {
@@ -585,9 +553,9 @@ export default function GatherRulesPage() {
                         onClick={() => {
                           if (jsonModeCreate) {
                             try {
-                              const parsed = JSON.parse(jsonText) as NewRuleForm;
+                              const parsed = JSON.parse(jsonText) as PastedGatherJson;
                               setJsonError(null);
-                              handleCreateRule(withDerivedScopeMode({ ...EMPTY_FORM, ...parsed }));
+                              handleCreateRule(gatherRuleToForm(parsed));
                             } catch (e) {
                               setJsonError(e instanceof Error ? e.message : "Invalid JSON");
                             }
@@ -666,9 +634,11 @@ export default function GatherRulesPage() {
                       onJsonTextChange={(text) => { setJsonText(text); setJsonError(null); }}
                       onApplyJson={() => {
                         try {
-                          const parsed = JSON.parse(jsonText) as NewRuleForm;
+                          const parsed = JSON.parse(jsonText) as PastedGatherJson;
                           if (!parsed.title) throw new Error("JSON must include title");
-                          setEditForm(withDerivedScopeMode({ ...editForm, ...parsed }));
+                          // Merge keeps unmentioned fields; a rule-shaped paste brings a
+                          // parameters object, which the mapper prefers over stale flat fields.
+                          setEditForm(gatherRuleToForm({ ...editForm, ...parsed }));
                           setJsonModeEdit(false);
                           setJsonError(null);
                         } catch (e) {

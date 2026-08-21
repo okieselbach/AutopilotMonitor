@@ -16,7 +16,7 @@ import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdmin
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 import { isTemplateRule } from "@/lib/analyzeRuleTabs";
-import { AnalyzeRule, RuleForm, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, formToEvaluateOn, validateOnEventTypes } from "./types";
+import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, validateOnEventTypes } from "./types";
 import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
 
 /** Pre-flight for the evaluation-trigger form fields; returns an error message or null. */
@@ -340,6 +340,8 @@ export default function AnalyzeRulesPage() {
     setCreating(true);
     const payload = {
       evaluateOn: formToEvaluateOn(form),
+      tags: form.tags ?? [],
+      markSessionAsFailedDefault: form.markSessionAsFailedDefault ?? false,
       ruleId: form.ruleId.trim(),
       title: form.title.trim(),
       description: form.description.trim(),
@@ -398,6 +400,8 @@ export default function AnalyzeRulesPage() {
     const payload = {
       ...rule,
       evaluateOn: formToEvaluateOn(form) ?? null,
+      // From the form (not ...rule) so tag changes pasted in JSON mode survive the save.
+      tags: form.tags ?? rule.tags ?? [],
       title: form.title.trim(),
       description: form.description.trim(),
       severity: form.severity,
@@ -797,9 +801,11 @@ export default function AnalyzeRulesPage() {
                       jsonError={jsonError}
                       onApplyJson={() => {
                         try {
-                          const parsed = JSON.parse(jsonText) as RuleForm;
+                          const parsed = JSON.parse(jsonText) as PastedAnalyzeJson;
                           if (!parsed.ruleId && !parsed.title) throw new Error("JSON must include at least ruleId and title");
-                          setNewRule({ ...EMPTY_FORM, ...parsed });
+                          // Handles both shapes: rule-shaped exports (evaluateOn) and the
+                          // serialized form itself (eval* checkbox fields).
+                          setNewRule(jsonToForm(parsed));
                           setJsonModeCreate(false);
                           setJsonError(null);
                         } catch (e) {
@@ -816,9 +822,9 @@ export default function AnalyzeRulesPage() {
                       <button onClick={() => {
                         if (jsonModeCreate) {
                           try {
-                            const parsed = JSON.parse(jsonText) as RuleForm;
+                            const parsed = JSON.parse(jsonText) as PastedAnalyzeJson;
                             setJsonError(null);
-                            handleCreateRule({ ...EMPTY_FORM, ...parsed });
+                            handleCreateRule(jsonToForm(parsed));
                           } catch (e) {
                             setJsonError(e instanceof Error ? e.message : "Invalid JSON");
                           }

@@ -59,6 +59,7 @@ export interface NewRuleForm {
   emitMode: string;
   outputEventType: string;
   outputSeverity: string;
+  tags: string[];
 }
 
 export const CATEGORIES = ["network", "identity", "apps", "device", "esp", "enrollment"] as const;
@@ -169,6 +170,7 @@ export const EMPTY_FORM: NewRuleForm = {
   emitMode: "on_change",
   outputEventType: "",
   outputSeverity: "info",
+  tags: [],
 };
 
 export function formatTrigger(trigger: string) {
@@ -264,4 +266,60 @@ export function withDerivedScopeMode(form: NewRuleForm): NewRuleForm {
     activePhases.length > 0 ? "during" : activeFromPhase ? "from" : "always";
   const emitMode = form.emitMode === "on_change" ? "on_change" : "always";
   return { ...form, activePhases, activeFromPhase, scopeMode, emitMode };
+}
+
+/**
+ * What JSON-mode paste can contain: the serialized form, a rule export, or a mix.
+ * Shared fields take the rule's (nullable) typing so a GatherRule assigns directly;
+ * the form-only flat fields come from NewRuleForm.
+ */
+export type PastedGatherJson = Partial<GatherRule> & Partial<Omit<NewRuleForm, keyof GatherRule>>;
+
+/**
+ * Maps rule-shaped OR form-shaped JSON into a NewRuleForm. Rule exports carry a nested
+ * `parameters` object (collector options) while the form stores them as flat fields —
+ * without this unflattening, pasting an export into the JSON editor silently dropped
+ * every collector parameter. When `parameters` is present it is authoritative and the
+ * flat fields are ignored (they can only be stale merge leftovers); form-shaped JSON
+ * (no `parameters` key — the shape the JSON toggle serializes) keeps its flat fields.
+ * Also the single mapper behind startEditing, so edit and paste stay equivalent.
+ */
+export function gatherRuleToForm(input: PastedGatherJson): NewRuleForm {
+  const p = input.parameters && typeof input.parameters === "object" ? input.parameters : null;
+  return withDerivedScopeMode({
+    ...EMPTY_FORM,
+    ruleId: input.ruleId ?? "",
+    title: input.title ?? "",
+    description: input.description ?? "",
+    category: input.category ?? EMPTY_FORM.category,
+    collectorType: input.collectorType ?? EMPTY_FORM.collectorType,
+    target: input.target ?? "",
+    valueName: p ? p.valueName || "" : input.valueName ?? "",
+    listSubkeys: p ? p.listSubkeys === "true" : input.listSubkeys ?? false,
+    eventId: p ? p.eventId || "" : input.eventId ?? "",
+    messageFilter: p ? p.messageFilter || "" : input.messageFilter ?? "",
+    maxEntries: p ? p.maxEntries || "" : input.maxEntries ?? "",
+    source: p ? p.source || "" : input.source ?? "",
+    readContent: p ? p.readContent === "true" : input.readContent ?? false,
+    logPattern: p ? p.pattern || "" : input.logPattern ?? "",
+    logFormat: p ? p.format || "cmtrace" : input.logFormat ?? "cmtrace",
+    trackPosition: p ? p.trackPosition !== "false" : input.trackPosition ?? true,
+    maxLines: p ? p.maxLines || "" : input.maxLines ?? "",
+    jsonPath: p ? p.jsonpath || "" : input.jsonPath ?? "",
+    xpath: p ? p.xpath || "" : input.xpath ?? "",
+    xmlNamespaces: p ? p.namespaces || "" : input.xmlNamespaces ?? "",
+    maxResults: p ? p.maxResults || "" : input.maxResults ?? "",
+    trigger: input.trigger ?? EMPTY_FORM.trigger,
+    intervalSeconds: input.intervalSeconds || 60,
+    triggerPhase: input.triggerPhase ?? "",
+    triggerEventType: input.triggerEventType ?? "",
+    activePhases: input.activePhases ?? [],
+    activeFromPhase: input.activeFromPhase ?? "",
+    // A rule without the field behaves "always"; only an explicit on_change survives —
+    // the on_change default is for rules started from the empty form, not for imports.
+    emitMode: input.emitMode ?? "always",
+    outputEventType: input.outputEventType ?? "",
+    outputSeverity: input.outputSeverity ?? EMPTY_FORM.outputSeverity,
+    tags: Array.isArray(input.tags) ? input.tags.filter((t): t is string => typeof t === "string") : [],
+  });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GatherRule, NewRuleForm, CATEGORY_COLORS, COLLECTOR_TYPE_LABELS, formatTrigger, formatGatherPhase, withDerivedScopeMode } from "../types";
+import { GatherRule, NewRuleForm, PastedGatherJson, CATEGORY_COLORS, COLLECTOR_TYPE_LABELS, formatTrigger, formatGatherPhase, gatherRuleToForm } from "../types";
 import { GatherRuleFormFields } from "./GatherRuleFormFields";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import { validateGatherRuleTarget } from "@/utils/guardValidation";
@@ -484,8 +484,8 @@ export function GatherRuleCard({
               onClick={() => {
                 if (jsonModeEdit) {
                   try {
-                    const parsed = JSON.parse(jsonText) as NewRuleForm;
-                    onSaveEdit(rule, withDerivedScopeMode({ ...editForm, ...parsed }));
+                    const parsed = JSON.parse(jsonText) as PastedGatherJson;
+                    onSaveEdit(rule, gatherRuleToForm({ ...editForm, ...parsed }));
                   } catch {
                     // jsonError is handled by parent
                   }
