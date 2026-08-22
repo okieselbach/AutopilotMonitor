@@ -36,6 +36,8 @@ interface InstallEventData {
   error_pattern_id?: string;
   errorCode?: string;
   error_code?: string;
+  intent?: string;
+  state?: string;
 }
 
 // Where an install row was observed. `ime` is the default and stays unlabelled in the UI —
@@ -55,7 +57,10 @@ export interface InstallItem {
   source: InstallSource;
   appName: string;
   appId: string;
-  state: "Installing" | "Installed" | "Failed" | "Postponed" | "Skipped" | "Preinstalled";
+  // IME enforcement intent ("Install" / "Uninstall" / "RequiredUninstall" …). Only present on
+  // IME app events from agents that forward it; undefined keeps legacy behaviour.
+  intent?: string;
+  state: "Installing" | "Installed" | "Uninstalled" | "Failed" | "Postponed" | "Skipped" | "Preinstalled";
   startedAt?: string;
   completedAt?: string;
   durationMs?: number;
@@ -154,17 +159,24 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
     // RealmJoin has no separate failed event — realmjoin_package_completed carries
     // success ("true"/"false") + lastExitCode, so success=false routes to the failed branch.
     const rjFailed = type === "realmjoin_package_completed" && String(d.success).toLowerCase() === "false";
+    // IME reports skip and uninstall outcomes through the same app_install_completed event —
+    // the distinction lives only in the payload (state "Skipped", intent "Uninstall"). Session
+    // 502274b4 (2026-08-21): folding those to "Installed" made the completed pill disagree with
+    // the app_tracking_summary header, which buckets by intent on the agent side.
+    const intent = typeof d.intent === "string" ? d.intent : undefined;
+    const isSkippedCompletion = type === "app_install_completed" && d.state === "Skipped";
+    const isUninstallIntent = intent != null && intent.toLowerCase().includes("uninstall");
     const isStarted = type === "app_install_started" || type === "office_install_started" || type === "realmjoin_package_started";
-    const isCompleted = type === "app_install_completed" || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
+    const isCompleted = (type === "app_install_completed" && !isSkippedCompletion) || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
     const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
 
-    const base = { key, source, appName, appId };
+    const base = { key, source, appName, appId, intent: intent ?? existing?.intent };
 
     if (isStarted) {
       // Don't reset an app that already completed — later batch re-scans
       // would overwrite the real duration with near-zero timestamps.
       // Allow restart after failure (retry).
-      if (existing?.state === "Installed") {
+      if (existing?.state === "Installed" || existing?.state === "Uninstalled") {
         // Out-of-order delivery: completed arrived before started (e.g. Office already on disk when
         // C2R ran — CSP / Win32-wrapper install). Backfill the missing start time so the duration is
         // computed, without downgrading the completed state.
@@ -190,14 +202,16 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
       });
     } else if (isCompleted) {
       // Keep the first valid completion — don't let batch re-scans overwrite.
-      if (existing?.state === "Installed" && existing.durationMs != null) continue;
+      if ((existing?.state === "Installed" || existing?.state === "Uninstalled") && existing.durationMs != null) continue;
       const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;
       const endTime = new Date(eventTs).getTime();
       const duration = startTime ? endTime - startTime : undefined;
 
       installMap.set(key, {
         ...base,
-        state: "Installed",
+        // A completed uninstall enforcement is not an installation — it gets its own
+        // terminal state so the completed pill keeps agreeing with the summary header.
+        state: isUninstallIntent ? "Uninstalled" : "Installed",
         startedAt: existing?.startedAt,
         completedAt: eventTs,
         durationMs: duration,
@@ -212,8 +226,8 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         eventData: d,
       });
     } else if (isFailed) {
-      // Don't downgrade from Installed to Failed.
-      if (existing?.state === "Installed") continue;
+      // Don't downgrade from Installed/Uninstalled to Failed.
+      if (existing?.state === "Installed" || existing?.state === "Uninstalled") continue;
       const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;
       const endTime = new Date(eventTs).getTime();
       const duration = startTime ? endTime - startTime : undefined;
@@ -248,7 +262,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
       // Office was already fully resident on disk at the first signal (OEM/consumer inbox Office
       // running a background CLIENTUPDATE) — informational, not an enrollment install or failure.
       // Don't overwrite a real terminal state if one somehow co-exists.
-      if (existing?.state === "Installed" || existing?.state === "Failed") continue;
+      if (existing?.state === "Installed" || existing?.state === "Uninstalled" || existing?.state === "Failed") continue;
       installMap.set(key, {
         ...base,
         state: "Preinstalled",
@@ -262,8 +276,8 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         eventData: d,
       });
     } else if (type === "app_install_postponed") {
-      // Don't downgrade from Installed to Postponed.
-      if (existing?.state === "Installed") continue;
+      // Don't downgrade from Installed/Uninstalled to Postponed.
+      if (existing?.state === "Installed" || existing?.state === "Uninstalled") continue;
       const startTime = existing?.startedAt ? new Date(existing.startedAt).getTime() : null;
       const endTime = new Date(eventTs).getTime();
       const duration = startTime ? endTime - startTime : undefined;
@@ -282,9 +296,11 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
         eventData: d,
       });
-    } else if (type === "app_install_skipped") {
-      // Don't overwrite terminal states.
-      if (existing?.state === "Installed" || existing?.state === "Failed" || existing?.state === "Postponed") continue;
+    } else if (type === "app_install_skipped" || isSkippedCompletion) {
+      // Don't overwrite terminal states. Ordering note: state "Skipped" wins over an
+      // uninstall intent on the same event — "uninstall skipped" means the app was
+      // never present, so nothing was uninstalled (Ubuntu case in session 502274b4).
+      if (existing?.state === "Installed" || existing?.state === "Uninstalled" || existing?.state === "Failed" || existing?.state === "Postponed") continue;
       installMap.set(key, {
         ...base,
         state: "Skipped",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldSkipLowBytesTotal, shouldSkipNoActivity } from "../downloadProgressFilters";
+import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "../downloadProgressFilters";
 
 const base = {
   bytesDownloaded: 0,
@@ -64,5 +64,26 @@ describe("shouldSkipNoActivity", () => {
   it("keeps events with any byte activity", () => {
     expect(shouldSkipNoActivity({ ...base, bytesDownloaded: 1 })).toBe(false);
     expect(shouldSkipNoActivity({ ...base, bytesTotal: 1 })).toBe(false);
+  });
+});
+
+describe("hasByteActivity", () => {
+  it("denies the terminal Store/WinGet uninstall event (session 502274b4 Xbox: 0/0 bytes, 0 %, completed)", () => {
+    // Slips past shouldSkipNoActivity via status === "completed" but never downloaded anything —
+    // without this predicate it rendered as a phantom completed download row.
+    expect(hasByteActivity({ ...base, status: "completed" })).toBe(false);
+  });
+
+  it("grants a download-start signal even with zero bytes", () => {
+    expect(hasByteActivity({ ...base, isDownloadStartEvent: true })).toBe(true);
+  });
+
+  it("grants real byte counters (Win32 uninstall re-downloading the package)", () => {
+    expect(hasByteActivity({ ...base, bytesDownloaded: 1_000_000, bytesTotal: 2_000_000, status: "completed" })).toBe(true);
+    expect(hasByteActivity({ ...base, bytesTotal: 2_000_000 })).toBe(true);
+  });
+
+  it("grants progress percent alone (WinGet percent-as-bytes reporting)", () => {
+    expect(hasByteActivity({ ...base, progressPercent: 35 })).toBe(true);
   });
 });

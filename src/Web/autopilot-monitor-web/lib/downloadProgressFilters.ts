@@ -29,6 +29,18 @@ export function shouldSkipLowBytesTotal(input: DownloadFilterInput): boolean {
   );
 }
 
+// Returns true if the event carries evidence that package content actually flowed (or is
+// about to): a download-start signal, byte counters, or download progress. The terminal
+// download_progress event IME emits at enforcement end passes the two skip-filters below via
+// status === "completed" even when nothing was ever downloaded — Store/WinGet uninstalls
+// (session 502274b4: Xbox, Xbox Game Bar) arrive as 0/0 bytes, 0 %, "completed" and would
+// otherwise render as phantom completed downloads. Win32 uninstalls DO re-download the full
+// package and keep their row through real byte counters.
+export function hasByteActivity(input: DownloadFilterInput): boolean {
+  const { bytesDownloaded, bytesTotal, isDownloadStartEvent, progressPercent } = input;
+  return isDownloadStartEvent || bytesDownloaded > 0 || bytesTotal > 0 || progressPercent > 0;
+}
+
 // Returns true if the event has no activity (zero bytes, not started, not progressed)
 // and should not yet appear as a download row.
 export function shouldSkipNoActivity(input: DownloadFilterInput): boolean {

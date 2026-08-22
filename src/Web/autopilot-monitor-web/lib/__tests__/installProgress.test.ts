@@ -127,3 +127,68 @@ describe("buildInstallItems — state folding", () => {
     expect(items[0].appName).toBe("Snake_Case App");
   });
 });
+
+// IME reports skips and uninstall enforcements through the same app_install_completed event —
+// the distinction lives only in the payload. Fixtures mirror session 502274b4 (2026-08-21).
+describe("buildInstallItems — intent & skip-via-completed folding", () => {
+  it("folds app_install_completed with state Skipped into the Skipped state (Autopatch Client Broker case)", () => {
+    const items = buildInstallItems([
+      evt("app_install_completed", "2026-08-21T20:48:15Z", { appName: "Windows Autopatch Client Broker", intent: "Install", state: "Skipped" }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Skipped");
+    expect(items[0].isError).toBe(false);
+  });
+
+  it("routes a completed uninstall enforcement into the Uninstalled state (Xbox case)", () => {
+    const items = buildInstallItems([
+      evt("app_install_completed", "2026-08-21T20:48:22Z", { appName: "Xbox (System)", intent: "Uninstall", state: "Installed" }),
+    ]);
+
+    expect(items[0].state).toBe("Uninstalled");
+    expect(items[0].intent).toBe("Uninstall");
+    expect(items[0].isCompleted).toBe(true);
+    expect(items[0].isError).toBe(false);
+  });
+
+  it("lets state Skipped win over an uninstall intent — app was never present (Ubuntu case)", () => {
+    const items = buildInstallItems([
+      evt("app_install_completed", "2026-08-21T20:48:20Z", { appName: "Ubuntu 20.04.5 LTS", intent: "Uninstall", state: "Skipped" }),
+    ]);
+
+    expect(items[0].state).toBe("Skipped");
+  });
+
+  it("keeps legacy events without intent/state folding to Installed", () => {
+    const items = buildInstallItems([
+      evt("app_install_completed", "2026-08-21T20:47:27Z", { appName: "RealmJoin Agent (Device)", intent: "Install", state: "Installed" }),
+      evt("app_install_completed", "2026-08-21T20:47:27Z", { appName: "Legacy App" }),
+    ]);
+
+    expect(items.find(i => i.appName === "RealmJoin Agent (Device)")!.state).toBe("Installed");
+    expect(items.find(i => i.appName === "Legacy App")!.state).toBe("Installed");
+  });
+
+  it("treats Uninstalled as terminal — no downgrade to failed and no restart reset", () => {
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-08-21T20:48:00Z", { appName: "Xbox (System)", intent: "Uninstall" }),
+      evt("app_install_completed", "2026-08-21T20:48:22Z", { appName: "Xbox (System)", intent: "Uninstall" }),
+      evt("app_install_failed", "2026-08-21T20:48:30Z", { appName: "Xbox (System)", intent: "Uninstall" }),
+      evt("app_install_started", "2026-08-21T20:48:40Z", { appName: "Xbox (System)", intent: "Uninstall" }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Uninstalled");
+    expect(items[0].durationMs).toBe(22 * 1000);
+  });
+
+  it("carries the intent onto non-terminal rows so active uninstalls can be labelled", () => {
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-08-21T20:48:00Z", { appName: "Some Win32 App", intent: "Uninstall" }),
+    ]);
+
+    expect(items[0].state).toBe("Installing");
+    expect(items[0].intent).toBe("Uninstall");
+  });
+});

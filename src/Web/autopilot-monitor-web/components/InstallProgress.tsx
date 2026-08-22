@@ -5,6 +5,7 @@ import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { buildInstallItems, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
+import PendingAppRow from "@/components/PendingAppRow";
 
 interface SummaryStats {
   totalApps?: number;
@@ -12,6 +13,9 @@ interface SummaryStats {
   installed?: number;
   failed?: number;
   likelyStuck?: number;
+  // Apps the tracker knows about that have no install events yet — rendered as
+  // toggleable pending rows so the "X of Y installed" header fully adds up.
+  pendingNames?: string[];
 }
 
 interface InstallProgressProps {
@@ -65,6 +69,17 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+
+  // Tracker-known apps without any install event yet. Defensive dedupe against
+  // event-backed rows so a race between summary snapshot and first event never
+  // renders the same app twice.
+  const pendingNames = useMemo(() => {
+    const names = summaryStats?.pendingNames ?? [];
+    if (names.length === 0) return names;
+    const existing = new Set(installs.map(i => i.appName));
+    return names.filter(n => !existing.has(n));
+  }, [summaryStats, installs]);
 
   // Sum of individual install durations (actual time spent installing, not wall-clock)
   // Must be before the early return to keep hooks in stable order across renders.
@@ -88,6 +103,9 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
 
   const activeCount = installs.filter(d => d.state === "Installing").length;
   const completedCount = installs.filter(d => d.state === "Installed").length;
+  // Enforced uninstall assignments — counted separately so the completed pill keeps
+  // agreeing with the "X of Y installed" header (which buckets by intent agent-side).
+  const uninstalledCount = installs.filter(d => d.state === "Uninstalled").length;
   // Separate confirmed failures from likely-stuck (esp_apps_timeout) so the user
   // sees an honest count of "this really failed" vs "we don't actually know".
   // Session 080edee9 follow-up — `esp_apps_detection_failure` and
@@ -108,8 +126,11 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-between w-full text-left"
       >
-        <div className="flex items-center space-x-2">
-          <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        {/* flex-wrap + gap (not space-x): on narrow screens the pills wrap as whole units
+            below the title instead of overflowing the viewport; whitespace-nowrap inherits
+            so no pill breaks internally. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-nowrap">
+          <svg className="w-5 h-5 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
           </svg>
           <h2 className="text-lg font-semibold text-gray-900">Install Progress</h2>
@@ -123,7 +144,7 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
               — Total: {formatDuration(totalDuration)}
             </span>
           )}
-          <div className="flex items-center space-x-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             {activeCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-medium">
                 {activeCount} active
@@ -132,6 +153,16 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
             {completedCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                 {completedCount} completed
+              </span>
+            )}
+            {uninstalledCount > 0 && (
+              // Deliberately muted (gray family, dark-mode covered by the global overrides) —
+              // a saturated pill here pulls the eye to what is a successful non-event.
+              <span
+                className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+                title="Uninstall assignments enforced during this enrollment — the app was removed, not installed."
+              >
+                {uninstalledCount} uninstalled
               </span>
             )}
             {failedCount > 0 && (
@@ -161,9 +192,18 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
                 {skippedCount} skipped {showSkipped ? "▾" : "▸"}
               </button>
             )}
+            {pendingNames.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
+                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+                title="Assigned to this device but not picked up by the management extension yet — no install activity has been observed."
+              >
+                {pendingNames.length} pending {showPending ? "▾" : "▸"}
+              </button>
+            )}
           </div>
         </div>
-        <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
       </button>
@@ -171,6 +211,9 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
       {expanded && <div className="space-y-3 mt-4">
         {filteredInstalls.map((item) => (
           <InstallItemRow key={item.key} item={item} />
+        ))}
+        {showPending && pendingNames.map((name) => (
+          <PendingAppRow key={`pending|${name}`} name={name} />
         ))}
         {historicCount > 0 && (
           <div
@@ -270,6 +313,26 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           )}
           {item.state === "Skipped" && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
+          )}
+          {item.state === "Uninstalled" && (
+            // Neutral outline like the source pills — row color stays "success green",
+            // the badge only answers WHAT succeeded (a removal, not an install).
+            <span
+              className="text-xs px-2 py-0.5 rounded-full bg-gray-100 border border-gray-300 text-gray-600 font-medium whitespace-nowrap"
+              title="Intune enforced an uninstall assignment for this app — it was removed from the device, not installed."
+            >
+              Uninstalled
+            </span>
+          )}
+          {item.intent?.toLowerCase().includes("uninstall") && item.state !== "Uninstalled" && (
+            // Non-terminal (or skipped/failed) uninstall assignment — label the intent so an
+            // active "install-looking" row isn't mistaken for an installation.
+            <span
+              className="text-xs px-2 py-0.5 rounded-full bg-gray-100 border border-gray-300 text-gray-600 font-medium whitespace-nowrap"
+              title="This assignment is an uninstall — Intune removes the app rather than installing it."
+            >
+              Uninstall
+            </span>
           )}
           {item.state === "Failed" && item.isLikelyStuck && (
             <span

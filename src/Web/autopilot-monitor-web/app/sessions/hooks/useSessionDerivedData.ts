@@ -87,6 +87,12 @@ export function useSessionDerivedData(
       // `esp_apps_timeout`; rendered separately by InstallProgress so the user
       // sees confirmed failures and ESP-timeout-induced presumptions side by side.
       likelyStuck: parseInt(d.likelyStuck ?? "0", 10),
+      // Names of apps the tracker knows about that have not produced any install/download
+      // event yet — the only way the progress panels can render the "missing" rows that
+      // make their "X of Y" headers add up (session 502274b4: Windows Media Player).
+      pendingNames: Array.isArray(d.pendingNames)
+        ? (d.pendingNames as unknown[]).filter((n): n is string => typeof n === "string")
+        : [],
     };
   }, [events]);
 

@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { shouldSkipLowBytesTotal, shouldSkipNoActivity } from "@/lib/downloadProgressFilters";
+import PendingAppRow from "@/components/PendingAppRow";
+import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
 
@@ -31,6 +32,7 @@ interface DownloadEventData {
   download_rate_bps?: string;
   downloadRateBps?: string;
   status?: string;
+  intent?: string;
   progress_percent?: string;
   progressPercent?: string;
   doFileSize?: string;
@@ -54,6 +56,9 @@ interface SummaryStats {
   skipped?: number;
   failed?: number;
   pending?: number;
+  // Apps the tracker knows about that have no events yet — rendered as toggleable
+  // pending rows so the "X of Y downloaded" header fully adds up.
+  pendingNames?: string[];
 }
 
 interface DownloadProgressProps {
@@ -87,6 +92,13 @@ interface DownloadItem {
   completedMs: number | null;
   isComplete: boolean;
   isSkipped: boolean;
+  // IME enforcement intent — a Win32 uninstall re-downloads the full package, so uninstall
+  // rows are legitimate here; they just get labelled and counted separately.
+  isUninstall: boolean;
+  // Whether any event for this row ever showed real download activity (start signal, bytes,
+  // progress). Rows without it are phantom "completed" rows from the terminal
+  // download_progress event and are dropped after folding.
+  hasByteEvidence: boolean;
   firstSeenIndex: number;
   eventData?: Record<string, unknown>;
   doStats?: DoStats | null;
@@ -186,6 +198,7 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
       if (shouldSkipLowBytesTotal(filterInput)) continue;
       if (shouldSkipNoActivity(filterInput)) continue;
 
+      const intent = typeof d.intent === "string" ? d.intent : undefined;
       const existing = downloadMap.get(appName);
       // Max plausible rate: 250 MB/s (~2 Gbit/s, generous for any real client connection)
       const MAX_PLAUSIBLE_BPS = 250 * 1024 * 1024;
@@ -238,6 +251,8 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
         completedMs: existing?.completedMs ?? (isComplete && Number.isFinite(eventTs) ? eventTs : null),
         isComplete,
         isSkipped: isSkippedEvent || (existing?.isSkipped ?? false),
+        isUninstall: (intent?.toLowerCase().includes("uninstall") ?? false) || (existing?.isUninstall ?? false),
+        hasByteEvidence: hasByteActivity(filterInput) || (existing?.hasByteEvidence ?? false),
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
         eventData: d,
         doStats,
@@ -253,6 +268,19 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
+  // Rows without any observed download activity (Store/WinGet uninstalls and skips whose
+  // terminal download_progress event carries 0/0 bytes) — hidden by default, but revealable
+  // so every row IME reported stays accountable instead of silently disappearing.
+  const [showNoDownload, setShowNoDownload] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+
+  // Tracker-known apps without any event yet (dedupe against event-backed rows).
+  const pendingNames = useMemo(() => {
+    const names = summaryStats?.pendingNames ?? [];
+    if (names.length === 0) return names;
+    const existing = new Set(downloads.map(d => d.appName));
+    return names.filter(n => !existing.has(n));
+  }, [summaryStats, downloads]);
 
   // Sum of individual download durations (DO telemetry when present, otherwise
   // the observed start->complete event window per app).
@@ -291,13 +319,21 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
   }, [downloads]);
 
   const filteredDownloads = useMemo(() => {
-    return showSkipped ? downloads : downloads.filter(d => !d.isSkipped);
-  }, [downloads, showSkipped]);
+    return downloads.filter(d =>
+      (showSkipped || !d.isSkipped) &&
+      (showNoDownload || d.isSkipped || d.hasByteEvidence)
+    );
+  }, [downloads, showSkipped, showNoDownload]);
 
-  if (downloads.length === 0) return null;
+  if (downloads.length === 0 && pendingNames.length === 0) return null;
 
-  const activeCount = downloads.filter(d => !d.isComplete && !d.isSkipped).length;
-  const completedCount = downloads.filter(d => d.isComplete && !d.isSkipped).length;
+  // Pills stay install-scope (matching the "X of Y downloaded" header, whose summary
+  // buckets uninstalls under skipped) — uninstall downloads get their own count, and
+  // rows without any observed download activity sit behind the "no download" toggle.
+  const activeCount = downloads.filter(d => !d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence).length;
+  const completedCount = downloads.filter(d => d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence).length;
+  const uninstallCount = downloads.filter(d => d.isUninstall && !d.isSkipped && d.hasByteEvidence).length;
+  const noDownloadCount = downloads.filter(d => !d.isSkipped && !d.hasByteEvidence).length;
   const skippedCount = downloads.filter(d => d.isSkipped).length;
 
   // "X of Y downloaded" from summary stats: apps past download phase / total apps that actually download
@@ -314,13 +350,21 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-between w-full text-left"
       >
-        <div className="flex items-center space-x-2">
-          <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        {/* flex-wrap + gap (not space-x): on narrow screens the pills wrap as whole units
+            below the title instead of overflowing the viewport; whitespace-nowrap inherits
+            so no pill breaks internally. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 whitespace-nowrap">
+          <svg className="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
           <h2 className="text-lg font-semibold text-gray-900">Download Progress</h2>
           {totalDownloadable != null && downloadedCount != null ? (
-            <span className="text-xs text-gray-400">({downloadedCount} of {totalDownloadable} downloaded)</span>
+            <span
+              className="text-xs text-gray-400"
+              title="Install assignments only — skipped apps and uninstall downloads are not counted here."
+            >
+              ({downloadedCount} of {totalDownloadable} downloaded)
+            </span>
           ) : (
             <span className="text-xs text-gray-400">({downloads.length} {downloads.length === 1 ? 'download' : 'downloads'})</span>
           )}
@@ -337,7 +381,7 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
               — P2P: {totalP2P.percent}%
             </span>
           )}
-          <div className="flex items-center space-x-2 text-xs">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             {activeCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
                 {activeCount} active
@@ -346,6 +390,16 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
             {completedCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                 {completedCount} completed
+              </span>
+            )}
+            {uninstallCount > 0 && (
+              // Muted gray on purpose (dark-mode covered by the global gray overrides) —
+              // it's context, not a state the user needs to act on.
+              <span
+                className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+                title="Package content downloaded for uninstall assignments — Win32 uninstalls re-download the full package before removing the app."
+              >
+                {uninstallCount} uninstall
               </span>
             )}
             {skippedCount > 0 && (
@@ -357,9 +411,27 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
                 {skippedCount} skipped {showSkipped ? "▾" : "▸"}
               </button>
             )}
+            {noDownloadCount > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowNoDownload(!showNoDownload); }}
+                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showNoDownload ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+                title="Assignments the management extension reported without downloading any package content — typically Store/WinGet uninstalls and skips."
+              >
+                {noDownloadCount} no download {showNoDownload ? "▾" : "▸"}
+              </button>
+            )}
+            {pendingNames.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowPending(!showPending); }}
+                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${showPending ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"}`}
+                title="Assigned to this device but not picked up by the management extension yet — no download activity has been observed."
+              >
+                {pendingNames.length} pending {showPending ? "▾" : "▸"}
+              </button>
+            )}
           </div>
         </div>
-        <svg className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
       </button>
@@ -372,6 +444,9 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
 
           return <DownloadItem key={dl.appName} download={dl} progressPercent={progressPercent} />;
         })}
+        {showPending && pendingNames.map((name) => (
+          <PendingAppRow key={`pending|${name}`} name={name} />
+        ))}
       </div>}
     </div>
   );
@@ -382,10 +457,11 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
   const [showDoStats, setShowDoStats] = useState(false);
   const hasKnownTotal = dl.bytesTotal > 0;
   const durationMs = effectiveDurationMs(dl);
-  const showProgressBar = !dl.isSkipped && (hasKnownTotal || dl.isComplete || !dl.isComplete);
+  // No-download rows get neither a progress bar nor success green — there was no download.
+  const showProgressBar = !dl.isSkipped && dl.hasByteEvidence;
 
   // Determine container styling
-  const containerClass = dl.isSkipped
+  const containerClass = dl.isSkipped || !dl.hasByteEvidence
     ? "bg-gray-50 border border-gray-300"
     : dl.isComplete
       ? "bg-green-50 border border-green-200"
@@ -399,6 +475,11 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                     <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                     </svg>
+                  ) : !dl.hasByteEvidence ? (
+                    // Minus in circle — the assignment finished without any package download.
+                    <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                   ) : dl.isComplete ? (
                     <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -411,6 +492,16 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                   <TruncatedLabel text={dl.appName} className={`text-sm font-medium ${dl.isSkipped ? "text-gray-500" : "text-gray-900"}`} />
                   {dl.isSkipped && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
+                  )}
+                  {dl.isUninstall && !dl.isSkipped && (
+                    // Neutral outline like the install panel's source pills — the row keeps its
+                    // normal progress/success colors, the badge only labels the intent.
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full bg-gray-100 border border-gray-300 text-gray-600 font-medium whitespace-nowrap"
+                      title="Uninstall assignment — Win32 uninstalls download the full package before removing the app."
+                    >
+                      Uninstall
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center space-x-3 text-xs text-gray-500 flex-shrink-0 ml-2">
@@ -452,6 +543,13 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                     </span>
                     <span>{progressPercent > 0 ? `${progressPercent.toFixed(0)}%` : "started"}</span>
                   </div>
+                </div>
+              )}
+
+              {/* No-download rows: say explicitly why there is no progress bar */}
+              {!dl.isSkipped && !dl.hasByteEvidence && (
+                <div className="mt-1 text-xs text-gray-400">
+                  No package content was downloaded for this assignment.
                 </div>
               )}
 
