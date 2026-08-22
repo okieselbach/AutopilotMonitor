@@ -4,7 +4,7 @@ title: Tenant Activation & the Once-Only Welcome Mail
 description: How a signup becomes an activated tenant (manual approve or auto-approve queue), and how the welcome mail is sent exactly once even though activation and the user-provided address race each other.
 resource: backend
 tags: [activation, auto-approve, welcome-email, preview-whitelist, race]
-timestamp: 2026-08-02
+timestamp: 2026-08-22
 ---
 
 # Schema
@@ -58,6 +58,27 @@ The Global-Admin resend endpoint (`POST /api/preview/send-welcome-email/{tenantI
 always sends (explicit intent) and consumes the marker best-effort so the automatic
 paths never duplicate afterwards.
 
+## Mail transport
+
+Both transactional mails (welcome, post-offboarding farewell) go through the
+provider-neutral `EmailService` (`IEmailService` for the welcome path,
+`IOffboardFarewellEmailSender` for the farewell path). The provider is an implementation
+detail confined to one private transport method plus the `Email:*` configuration
+section — a provider swap must not rename classes, DI registrations or callers.
+
+* Current provider: **Mailchimp Transactional (Mandrill)**, `POST {Email:Endpoint}`
+  (`messages/send`), API key in the JSON body, typed `HttpClient` with the shared
+  `ResiliencePolicies.Notification` retry policy (15 s timeout).
+* Settings (App Settings use `Email__Key`): `Email:ApiKey` (required — empty means every
+  send is a logged no-op, never an error), `Email:Endpoint`, `Email:FromAddress`
+  (default `noreply@autopilotmonitor.com`), `Email:FromName` (default `Autopilot Monitor`).
+* Result handling: per-recipient status `sent`/`queued`/`scheduled` = success;
+  `rejected`/`invalid` (with `reject_reason`), non-2xx or malformed bodies = warning.
+  Never throws — both callers rely on that fail-soft contract.
+* `track_opens`/`track_clicks` are explicitly `false` and `auto_text` is `true`: the provider
+  receives only the recipient address and the tenant domain, which is exactly the claim on
+  the privacy page and the trust data-flows page. Changing tracking = changing those pages.
+
 # Examples
 
 * Auto-approve wins the race: approve at T+64 s finds no address → logs "deferred to the
@@ -73,3 +94,5 @@ paths never duplicate afterwards.
 * `src/Backend/AutopilotMonitor.Functions/Functions/Rules/PreviewWhitelistFunction.cs` — save-path trigger, GA resend
 * `src/Backend/AutopilotMonitor.Functions/DataAccess/TableStorage/TableConfigRepository.cs` — conditional inserts (approved / welcome-email-sent)
 * `src/Backend/AutopilotMonitor.Functions.Tests/TenantApprovalServiceTests.cs` — ordering + dedup pins
+* `src/Backend/AutopilotMonitor.Functions/Services/EmailService.cs` — provider-neutral transport (Mandrill wire format, result handling, tracking off)
+* `src/Backend/AutopilotMonitor.Functions.Tests/EmailServiceTests.cs` — wire-format, fail-soft and gate-ordering pins

@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Functions.Tests.Offboarding;
 /// <summary>
 /// Test double for <see cref="IOffboardFarewellEmailSender"/>. Records every invocation so
 /// the handler-side tests can assert "did the farewell send fire after History → Completed?"
-/// without booting the real Resend client. Default = silent noop; set <see cref="ThrowOnSend"/>
+/// without booting the real mail provider client. Default = silent noop; set <see cref="ThrowOnSend"/>
 /// to simulate downstream failures and prove the handler's fail-soft contract.
 /// </summary>
 internal sealed class FakeOffboardFarewellEmailSender : IOffboardFarewellEmailSender

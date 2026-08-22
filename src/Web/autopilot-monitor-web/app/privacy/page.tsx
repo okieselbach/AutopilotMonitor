@@ -140,9 +140,10 @@ export default function PrivacyPage() {
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">External Services</h2>
           <p className="text-gray-700">
-            <strong>Microsoft Azure is the only place your data is stored.</strong> Resend delivers the onboarding
-            approval email when a tenant is activated — it receives an administrator&apos;s email address and the tenant
-            domain, never enrollment telemetry. Vulnerability reference data is read inbound from NVD, the CISA KEV
+            <strong>Microsoft Azure is the only place your data is stored.</strong> Mailchimp Transactional (Mandrill)
+            delivers the welcome email when a tenant is activated and the farewell email after offboarding — it receives
+            an administrator&apos;s email address and the tenant domain, never enrollment telemetry; open and click
+            tracking is disabled. Vulnerability reference data is read inbound from NVD, the CISA KEV
             catalog, and MSRC; nothing about your environment is sent to them.
           </p>
           <p className="text-gray-700">

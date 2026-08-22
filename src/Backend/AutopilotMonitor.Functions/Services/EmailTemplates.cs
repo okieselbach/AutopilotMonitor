@@ -3,7 +3,7 @@ using AutopilotMonitor.Shared;
 namespace AutopilotMonitor.Functions.Services;
 
 /// <summary>
-/// Email templates for Resend notifications.
+/// Templates for the product's transactional emails (sent via <see cref="EmailService"/>).
 /// Keep all email content here for easy maintenance.
 /// </summary>
 public static class EmailTemplates

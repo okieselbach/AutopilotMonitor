@@ -221,7 +221,7 @@ public class TenantOffboardingHandlerOrderingTests
     public async Task PostDrain_FarewellEmail_Skipped_WhenNotificationEmailNull()
     {
         // Tenants that never set a preview-notification email get null capture; the handler
-        // skip-gates the send so no Resend call is even attempted.
+        // skip-gates the send so no provider call is even attempted.
         var harness = Harness.New();
         Assert.Null(harness.Repo.History[HistoryRowKey].NotificationEmail);
 
@@ -235,7 +235,7 @@ public class TenantOffboardingHandlerOrderingTests
     public async Task PostDrain_FarewellEmail_Skipped_WhenNotificationEmailWhitespace()
     {
         // Defensive: legacy History rows may have a non-null empty/whitespace value. Treat
-        // these as "no email captured" so we never call Resend with a useless string.
+        // these as "no email captured" so we never call the mail provider with a useless string.
         var harness = Harness.New();
         harness.Repo.History[HistoryRowKey].NotificationEmail = "   ";
 
@@ -248,11 +248,11 @@ public class TenantOffboardingHandlerOrderingTests
     [Fact]
     public async Task PostDrain_FarewellEmail_SenderThrows_HandlerSurvives_HistoryStillCompleted()
     {
-        // The send is best-effort. A Resend outage / template bug / serializer crash must
+        // The send is best-effort. A mail-provider outage / template bug / serializer crash must
         // NOT propagate to the queue worker — that would re-poison a Completed offboard.
         var harness = Harness.New();
         harness.Repo.History[HistoryRowKey].NotificationEmail = "ops@contoso.invalid";
-        harness.FarewellEmail.ThrowOnSend = new InvalidOperationException("simulated Resend outage");
+        harness.FarewellEmail.ThrowOnSend = new InvalidOperationException("simulated mail-provider outage");
 
         await harness.Sut.HandleAsync(harness.Envelope());
 

@@ -19,20 +19,20 @@ public class PreviewWhitelistFunction
     private readonly PreviewWhitelistService _previewWhitelistService;
     private readonly TenantApprovalService _tenantApprovalService;
     private readonly TenantConfigurationService _tenantConfigurationService;
-    private readonly ResendEmailService _resendEmailService;
+    private readonly IEmailService _emailService;
 
     public PreviewWhitelistFunction(
         ILogger<PreviewWhitelistFunction> logger,
         PreviewWhitelistService previewWhitelistService,
         TenantApprovalService tenantApprovalService,
         TenantConfigurationService tenantConfigurationService,
-        ResendEmailService resendEmailService)
+        IEmailService emailService)
     {
         _logger = logger;
         _previewWhitelistService = previewWhitelistService;
         _tenantApprovalService = tenantApprovalService;
         _tenantConfigurationService = tenantConfigurationService;
-        _resendEmailService = resendEmailService;
+        _emailService = emailService;
     }
 
     /// <summary>
@@ -221,7 +221,7 @@ public class PreviewWhitelistFunction
         }
 
         var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-        await _resendEmailService.SendPreviewApprovedEmailAsync(email, tenantConfig.DomainName);
+        await _emailService.SendPreviewApprovedEmailAsync(email, tenantConfig.DomainName);
 
         // Explicit GA send always sends; consume the once-only marker (best-effort) so
         // the automatic paths won't produce a duplicate afterwards.

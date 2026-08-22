@@ -21,7 +21,7 @@ public class TenantApprovalServiceTests
 
     private readonly Mock<PreviewWhitelistService> _previewMock;
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
-    private readonly Mock<ResendEmailService> _resendMock;
+    private readonly Mock<IEmailService> _emailMock;
     private readonly TenantApprovalService _sut;
 
     public TenantApprovalServiceTests()
@@ -37,9 +37,10 @@ public class TenantApprovalServiceTests
             configRepo, cache, NullLogger<PreviewWhitelistService>.Instance, _tenantConfigMock.Object)
         { CallBase = false };
 
-        _resendMock = new Mock<ResendEmailService>(
-            Mock.Of<Microsoft.Extensions.Configuration.IConfiguration>(),
-            NullLogger<ResendEmailService>.Instance);
+        _emailMock = new Mock<IEmailService>();
+        _emailMock.Setup(x => x.SendPreviewApprovedEmailAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
         _sut = new TenantApprovalService(
             NullLogger<TenantApprovalService>.Instance,
@@ -47,7 +48,7 @@ public class TenantApprovalServiceTests
             _tenantConfigMock.Object,
             new Mock<TenantAdminsService>(
                 Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
-            _resendMock.Object);
+            _emailMock.Object);
     }
 
     [Fact]
@@ -94,7 +95,7 @@ public class TenantApprovalServiceTests
 
         Assert.False(sent);
         _previewMock.Verify(x => x.TryMarkWelcomeEmailSentAsync(It.IsAny<string>()), Times.Never);
-        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _emailMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public class TenantApprovalServiceTests
         var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
 
         Assert.True(sent);
-        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", "contoso.com"), Times.Once);
+        _emailMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", "contoso.com", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public class TenantApprovalServiceTests
         var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
 
         Assert.False(sent);
-        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _emailMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -134,7 +135,7 @@ public class TenantApprovalServiceTests
         var sent = await _sut.TrySendWelcomeEmailAsync(TenantId);
 
         Assert.False(sent);
-        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _emailMock.Verify(x => x.SendPreviewApprovedEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -151,6 +152,6 @@ public class TenantApprovalServiceTests
         var newlyApproved = await _sut.ApproveWithSideEffectsAsync(TenantId, ApprovedBy);
 
         Assert.True(newlyApproved);
-        _resendMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", It.IsAny<string>()), Times.Once);
+        _emailMock.Verify(x => x.SendPreviewApprovedEmailAsync("it@contoso.com", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

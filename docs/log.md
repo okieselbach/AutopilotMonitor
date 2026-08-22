@@ -2,6 +2,8 @@
 
 ## 2026-08-22
 
+* **Update**: `backend/tenant-activation-welcome-mail.md` — new "Mail transport" section: transactional mail now goes through the provider-neutral `EmailService` (`IEmailService` + `IOffboardFarewellEmailSender`) with the provider confined to one private transport method and the `Email:*` settings (`ApiKey`, `Endpoint`, `FromAddress`, `FromName`); current provider Mailchimp Transactional (Mandrill) replacing Resend (NuGet dropped, typed `HttpClient` + `ResiliencePolicies.Notification`). Result-array semantics (`sent`/`queued`/`scheduled` ok, `rejected`/`invalid` warn), open/click tracking explicitly off because the privacy/trust claim depends on it.
+
 * **New**: `backend/plan-downgrade-retention-grace.md` — plan downgrade policy: every Pro entitlement gates read-time and reversibly on downgrade ("gate, don't destroy"), except retention, which now gets a 30-day grace (`FeatureEntitlementCatalog.RetentionDowngradeGraceDays`) before the Community cap starts hard-deleting the 90–365-day band. Anchor model: `ProDowngradedUtc` stamped/cleared by the plan endpoint's pure `ApplyPlanChanges` core on EFFECTIVE-edition transitions (covers explicitly ended trials; planTier downgrade under an active trial deliberately doesn't stamp), trial expiry anchors read-time via `TrialExpiresUtc`. New Warning ops events `TenantPlanDowngraded` (PATCH handler) and `TenantRetentionGraceExpiring`/`TenantRetentionGraceEnded` (TrialExpirySweep window mechanics, only when stored retention exceeds the Community cap). Field is patch-denied + revert-protected; retention WRITE cap deliberately ignores the grace.
 
 ## 2026-08-21

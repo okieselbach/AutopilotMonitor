@@ -16,20 +16,20 @@ public class TenantApprovalService
     private readonly PreviewWhitelistService _previewWhitelistService;
     private readonly TenantConfigurationService _tenantConfigurationService;
     private readonly TenantAdminsService _tenantAdminsService;
-    private readonly ResendEmailService _resendEmailService;
+    private readonly IEmailService _emailService;
 
     public TenantApprovalService(
         ILogger<TenantApprovalService> logger,
         PreviewWhitelistService previewWhitelistService,
         TenantConfigurationService tenantConfigurationService,
         TenantAdminsService tenantAdminsService,
-        ResendEmailService resendEmailService)
+        IEmailService emailService)
     {
         _logger = logger;
         _previewWhitelistService = previewWhitelistService;
         _tenantConfigurationService = tenantConfigurationService;
         _tenantAdminsService = tenantAdminsService;
-        _resendEmailService = resendEmailService;
+        _emailService = emailService;
     }
 
     /// <summary>
@@ -140,7 +140,7 @@ public class TenantApprovalService
             }
 
             var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            _ = _resendEmailService.SendPreviewApprovedEmailAsync(
+            _ = _emailService.SendPreviewApprovedEmailAsync(
                     notificationEmail, tenantConfig.DomainName)
                 .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                     "Fire-and-forget welcome email failed for tenant {TenantId}", tenantId),

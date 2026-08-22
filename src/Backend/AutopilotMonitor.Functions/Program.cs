@@ -437,8 +437,13 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Notifications
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
 builder.Services.AddHttpClient<TelegramNotificationService>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
-builder.Services.AddSingleton<ResendEmailService>();
-builder.Services.AddSingleton<IOffboardFarewellEmailSender>(sp => sp.GetRequiredService<ResendEmailService>());
+// Transactional email (welcome / farewell). Typed client like the other outbound notifiers;
+// the provider is an implementation detail of EmailService + the Email:* settings.
+builder.Services.AddHttpClient<EmailService>()
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15))
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
+builder.Services.AddTransient<IEmailService>(sp => sp.GetRequiredService<EmailService>());
+builder.Services.AddTransient<IOffboardFarewellEmailSender>(sp => sp.GetRequiredService<EmailService>());
 builder.Services.AddSingleton<GlobalNotificationService>();
 builder.Services.AddSingleton<TenantNotificationService>();
 

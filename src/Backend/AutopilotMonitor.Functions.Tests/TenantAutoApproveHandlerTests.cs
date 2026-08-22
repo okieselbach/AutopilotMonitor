@@ -50,9 +50,7 @@ public class TenantAutoApproveHandlerTests
             _tenantConfigMock.Object,
             new Mock<TenantAdminsService>(
                 Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
-            new Mock<ResendEmailService>(
-                Mock.Of<Microsoft.Extensions.Configuration.IConfiguration>(),
-                NullLogger<ResendEmailService>.Instance).Object)
+            Mock.Of<IEmailService>())
         { CallBase = false };
 
         var opsRepo = new Mock<IOpsEventRepository>();
