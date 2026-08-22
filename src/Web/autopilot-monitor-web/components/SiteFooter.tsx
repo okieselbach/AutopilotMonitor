@@ -15,6 +15,7 @@ const LINK_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Documentation", href: DOCS_URL, external: true },
+      { label: "Help & Support", href: "/help" },
       { label: "Feedback", href: "https://github.com/okieselbach/AutopilotMonitor/issues", external: true },
       { label: "GitHub", href: "https://github.com/okieselbach/AutopilotMonitor", external: true },
     ],
