@@ -41,14 +41,14 @@ public static class EmailTemplates
              The brand mark is drawn with CSS borders (no images anywhere in the mail). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
              linear-gradient and the slanted bottom edge via clip-path; Outlook shows a flat band. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 52%, #2ea85a 52%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 82%, #33b161 82%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 42%, #3cbb6a 42%, #3cbb6a 50%, #2ea85a 50%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, bottom
-                       edge rising to the right. Must stay a <div>: Outlook paints transparent <td> borders
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, flat
+                       bottom edge (the original's 5% slope is ~2px at this size). Must stay a <div>: Outlook paints transparent <td> borders
                        white (solid square), but honours them on a block element. -->
-                  <div style=""width:0; height:17px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0; display:block; font-size:0; line-height:0;""></div>
+                  <div style=""width:0; height:21px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
@@ -132,14 +132,14 @@ public static class EmailTemplates
              The brand mark is drawn with CSS borders (no images anywhere in the mail). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
              linear-gradient and the slanted bottom edge via clip-path; Outlook shows a flat band. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 52%, #2ea85a 52%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 82%, #33b161 82%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 42%, #3cbb6a 42%, #3cbb6a 50%, #2ea85a 50%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, bottom
-                       edge rising to the right. Must stay a <div>: Outlook paints transparent <td> borders
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, flat
+                       bottom edge (the original's 5% slope is ~2px at this size). Must stay a <div>: Outlook paints transparent <td> borders
                        white (solid square), but honours them on a block element. -->
-                  <div style=""width:0; height:17px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0; display:block; font-size:0; line-height:0;""></div>
+                  <div style=""width:0; height:21px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
