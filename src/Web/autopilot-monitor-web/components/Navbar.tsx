@@ -12,6 +12,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { BrandMark } from './BrandMark';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
+import { useEditionInfo } from '@/hooks/useEditionInfo';
 import GlobalSearch from './GlobalSearch';
 import { DOCS_URL } from "@/utils/config";
 
@@ -31,6 +32,10 @@ export default function Navbar() {
   const [showOverflow, setShowOverflow] = useState(false);
   const [overflowSubmenu, setOverflowSubmenu] = useState<'help' | 'settings' | null>(null);
   const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
+  // Community-edition reminder under the wordmark; Pro (incl. trial) gets clean chrome.
+  // null until the feature-flags fetch confirms → no label flash for Pro tenants.
+  const editionInfo = useEditionInfo();
+  const showCommunityTag = editionInfo?.edition === 'community';
 
   const notificationRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -191,10 +196,17 @@ export default function Navbar() {
           <div className="flex items-center">
             <Link href="/" prefetch={false} className="flex items-center space-x-2.5">
               <BrandMark className="w-6 h-6" />
-              <span className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-gray-100">
-                <span className="hidden lg:inline">Autopilot Monitor</span>
-                <span className="hidden md:inline lg:hidden">AP Monitor</span>
-                <span className="md:hidden">AP Mon</span>
+              <span className="flex flex-col justify-center">
+                <span className="text-[15px] font-bold tracking-tight leading-tight text-gray-900 dark:text-gray-100">
+                  <span className="hidden lg:inline">Autopilot Monitor</span>
+                  <span className="hidden md:inline lg:hidden">AP Monitor</span>
+                  <span className="md:hidden">AP Mon</span>
+                </span>
+                {showCommunityTag && (
+                  <span className="hidden lg:block text-[10px] font-medium leading-tight tracking-tight text-gray-500 dark:text-gray-400">
+                    Community Edition
+                  </span>
+                )}
               </span>
             </Link>
           </div>
