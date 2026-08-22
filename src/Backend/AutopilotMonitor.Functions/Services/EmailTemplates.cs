@@ -37,11 +37,21 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: hosted PNG (mail clients drop CSS gradients / inline SVG); solid bgcolor keeps a green band when images are blocked -->
+        <!-- Header: native HTML (solid bgcolor + text wordmark) so it survives blocked images and
+             clients that drop CSS gradients; only the small brand mark is an image (alt empty). -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:0; line-height:0; font-size:0;"">
-            <img src=""{Constants.WebsiteBaseUrl}/email/header.png"" width=""600"" height=""150"" alt=""Autopilot Monitor""
-                 style=""display:block; width:100%; max-width:600px; height:auto; border:0;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:28px 40px;"">
+            <table cellpadding=""0"" cellspacing=""0"" border=""0"">
+              <tr>
+                <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0;"">
+                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
+                       style=""display:block; width:36px; height:33px; border:0;"">
+                </td>
+                <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
+                  Autopilot Monitor
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
 
@@ -115,11 +125,21 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: hosted PNG (mail clients drop CSS gradients / inline SVG); solid bgcolor keeps a green band when images are blocked -->
+        <!-- Header: native HTML (solid bgcolor + text wordmark) so it survives blocked images and
+             clients that drop CSS gradients; only the small brand mark is an image (alt empty). -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:0; line-height:0; font-size:0;"">
-            <img src=""{Constants.WebsiteBaseUrl}/email/header.png"" width=""600"" height=""150"" alt=""Autopilot Monitor""
-                 style=""display:block; width:100%; max-width:600px; height:auto; border:0;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:28px 40px;"">
+            <table cellpadding=""0"" cellspacing=""0"" border=""0"">
+              <tr>
+                <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0;"">
+                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
+                       style=""display:block; width:36px; height:33px; border:0;"">
+                </td>
+                <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
+                  Autopilot Monitor
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
 
