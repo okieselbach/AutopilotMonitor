@@ -61,6 +61,7 @@ export function AdminPageSections() {
     { id: "diagnostics-log-paths", label: "Diagnostics Log Paths", href: route("/admin/settings/diagnostics-log-paths"), group: "Settings" },
     { id: "config-reseed", label: "Config Reseed", href: route("/admin/settings/config-reseed"), group: "Settings" },
     { id: "usage-plans", label: "Usage Plans", href: route("/admin/settings/usage-plans"), group: "Settings" },
+    { id: "email-templates", label: "Email Templates", href: route("/admin/settings/email-templates"), group: "Settings" },
 
     // Ops (single page)
     { id: "ops", label: "Maintenance", href: "/admin/ops", group: "Ops", groupIcon: <WrenchIcon /> },

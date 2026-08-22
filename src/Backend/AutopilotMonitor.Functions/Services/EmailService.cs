@@ -38,6 +38,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     };
 
     private readonly HttpClient _http;
+    private readonly IEmailTemplateProvider _templates;
     private readonly ILogger<EmailService> _logger;
     private readonly string _apiKey;
     private readonly string _endpoint;
@@ -47,9 +48,11 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     public EmailService(
         HttpClient http,
         IConfiguration configuration,
+        IEmailTemplateProvider templates,
         ILogger<EmailService> logger)
     {
         _http = http;
+        _templates = templates;
         _logger = logger;
         _apiKey = configuration[ApiKeyConfigKey] ?? string.Empty;
         _endpoint = FirstNonBlank(configuration["Email:Endpoint"], DefaultEndpoint);
@@ -75,7 +78,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         var sent = await SendViaMandrillAsync(
             toEmail,
             EmailTemplates.PreviewApprovedSubject,
-            EmailTemplates.GetPreviewApprovedHtml(domainName),
+            await _templates.GetHtmlAsync(EmailTemplateKind.Welcome, domainName, ct),
             tag: "welcome",
             ct);
 
@@ -114,7 +117,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
         var sent = await SendViaMandrillAsync(
             toEmail,
             EmailTemplates.OffboardingFarewellSubject,
-            EmailTemplates.GetOffboardingFarewellHtml(domainName),
+            await _templates.GetHtmlAsync(EmailTemplateKind.Farewell, domainName, ct),
             tag: "offboarding-farewell",
             ct);
 
@@ -124,6 +127,25 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 "Offboard farewell email sent to {ToEmail} for tenant {TenantId} ({Domain})",
                 toEmail, tenantId, domainName);
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SendTestAsync(EmailTemplateKind kind, string toEmail, string domainName, string? draftHtml, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_apiKey))
+        {
+            _logger.LogWarning("{ConfigKey} not configured — cannot send {Kind} test email", ApiKeyConfigKey, kind);
+            return false;
+        }
+
+        var html = draftHtml is null
+            ? await _templates.GetHtmlAsync(kind, domainName, ct)
+            : EmailTemplateService.Render(draftHtml, domainName);
+
+        var sent = await SendViaMandrillAsync(toEmail, EmailTemplateService.Subject(kind), html, tag: "test", ct);
+        if (sent)
+            _logger.LogInformation("{Kind} test email sent to {ToEmail} (draft={IsDraft})", kind, toEmail, draftHtml is not null);
+        return sent;
     }
 
     /// <summary>

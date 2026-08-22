@@ -83,6 +83,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<Dictionary<string, string>> GetPreviewConfigAsync();
         Task<bool> SavePreviewConfigAsync(string key, string value);
 
+        // --- Email Template Overrides (operator-level, PreviewConfig table, partition "EmailTemplates") ---
+        /// <summary>Returns the stored override for the given kind, or null when the built-in template applies.</summary>
+        Task<EmailTemplateOverride?> GetEmailTemplateOverrideAsync(string kind);
+        Task SaveEmailTemplateOverrideAsync(EmailTemplateOverride overrideEntry);
+        Task DeleteEmailTemplateOverrideAsync(string kind);
+
         // --- Preview Notification Email ---
         Task<string?> GetNotificationEmailAsync(string tenantId);
         Task SaveNotificationEmailAsync(string tenantId, string? email);

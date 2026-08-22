@@ -7,6 +7,7 @@ export const SETTINGS_NAV_SECTIONS = [
   { id: "config-reseed", label: "Config Reseed", description: "Fetch and reseed rules from GitHub" },
   { id: "usage-plans", label: "Usage Plans", description: "Define MCP usage plan tiers and limits" },
   { id: "alerts", label: "Alerts", description: "Configure ops event alert rules and notification providers" },
+  { id: "email-templates", label: "Email Templates", description: "Preview, test and customize the welcome and farewell emails" },
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_NAV_SECTIONS)[number]["id"];

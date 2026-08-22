@@ -38,16 +38,20 @@ public static class EmailTemplates
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
         <!-- Header, progressively enhanced. Base (every client): solid bgcolor band + text wordmark.
-             The brand mark is the one image (exact shape matters; alt empty so blocked images just
-             omit it). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
+             The brand mark is drawn with CSS borders (no images anywhere in the mail). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
              linear-gradient and the slanted bottom edge via clip-path; Outlook shows a flat band. -->
         <tr>
           <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 52%, #2ea85a 52%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 82%, #33b161 82%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
-                       style=""display:block; width:36px; height:33px; border:0;"">
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right,
+                       bottom edge rising to the right (transparent top/bottom borders on a 0-width cell) -->
+                  <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;"">
+                    <tr>
+                      <td style=""width:0; height:17px; padding:0; font-size:0; line-height:0; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0;""></td>
+                    </tr>
+                  </table>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
@@ -128,16 +132,20 @@ public static class EmailTemplates
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
         <!-- Header, progressively enhanced. Base (every client): solid bgcolor band + text wordmark.
-             The brand mark is the one image (exact shape matters; alt empty so blocked images just
-             omit it). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
+             The brand mark is drawn with CSS borders (no images anywhere in the mail). Enhancements where supported (Apple Mail, most of Gmail): diagonal stripes via
              linear-gradient and the slanted bottom edge via clip-path; Outlook shows a flat band. -->
         <tr>
           <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(68deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 52%, #2ea85a 52%, #2ea85a 74%, #3cbb6a 74%, #3cbb6a 82%, #33b161 82%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
-                       style=""display:block; width:36px; height:33px; border:0;"">
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right,
+                       bottom edge rising to the right (transparent top/bottom borders on a 0-width cell) -->
+                  <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;"">
+                    <tr>
+                      <td style=""width:0; height:17px; padding:0; font-size:0; line-height:0; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0;""></td>
+                    </tr>
+                  </table>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor

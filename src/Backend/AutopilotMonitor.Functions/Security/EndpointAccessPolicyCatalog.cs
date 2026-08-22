@@ -497,6 +497,12 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "versions/block",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "versions/block/{encodedPattern}", EndpointPolicy.GlobalAdminOnly),
         new("POST",   "maintenance/trigger",        EndpointPolicy.GlobalAdminOnly),
+        // Transactional email templates (welcome / farewell): read, override, reset, test send.
+        // Read stays GA-only too — the override HTML is operator content, not tenant data.
+        new("GET",    "global/email-templates/{kind}",      EndpointPolicy.GlobalAdminOnly),
+        new("PUT",    "global/email-templates/{kind}",      EndpointPolicy.GlobalAdminOnly),
+        new("DELETE", "global/email-templates/{kind}",      EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "global/email-templates/{kind}/test", EndpointPolicy.GlobalAdminOnly),
         // One-time retro-reconcile of misclassified historical sessions (audit 2026-07-16) —
         // mutating, dry-run by default, GA only.
         new("POST",   "maintenance/reclassify-legacy", EndpointPolicy.GlobalAdminOnly),

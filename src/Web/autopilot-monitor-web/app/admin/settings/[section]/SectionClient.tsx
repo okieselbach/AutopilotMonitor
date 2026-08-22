@@ -10,6 +10,7 @@ import { SectionTenantGroups } from "../sections/SectionTenantGroups";
 import { SectionConfigReseed } from "../sections/SectionConfigReseed";
 import { SectionUsagePlans } from "../sections/SectionUsagePlans";
 import { SectionAlerts } from "../sections/SectionAlerts";
+import { SectionEmailTemplates } from "../sections/SectionEmailTemplates";
 
 const SECTION_COMPONENTS: Record<SettingsSectionId, React.ComponentType> = {
   "global": SectionGlobalSettings,
@@ -20,6 +21,7 @@ const SECTION_COMPONENTS: Record<SettingsSectionId, React.ComponentType> = {
   "config-reseed": SectionConfigReseed,
   "usage-plans": SectionUsagePlans,
   "alerts": SectionAlerts,
+  "email-templates": SectionEmailTemplates,
 };
 
 export function SectionClient({ section }: { section: string }) {

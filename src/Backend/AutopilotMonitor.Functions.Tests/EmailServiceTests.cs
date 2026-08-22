@@ -269,7 +269,11 @@ public sealed class EmailServiceTests
         var handler = new StubHandler();
         if (responder is not null) handler.Responder = responder;
         var logger = new CapturingLogger<EmailService>();
-        var sut = new EmailService(new HttpClient(handler, disposeHandler: false), config, logger);
+        var templates = new EmailTemplateService(
+            Moq.Mock.Of<AutopilotMonitor.Shared.DataAccess.IConfigRepository>(),
+            new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailTemplateService>.Instance);
+        var sut = new EmailService(new HttpClient(handler, disposeHandler: false), config, templates, logger);
         return (sut, handler, logger);
     }
 

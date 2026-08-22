@@ -439,6 +439,8 @@ builder.Services.AddHttpClient<TelegramNotificationService>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
 // Transactional email (welcome / farewell). Typed client like the other outbound notifiers;
 // the provider is an implementation detail of EmailService + the Email:* settings.
+builder.Services.AddSingleton<EmailTemplateService>();
+builder.Services.AddSingleton<IEmailTemplateProvider>(sp => sp.GetRequiredService<EmailTemplateService>());
 builder.Services.AddHttpClient<EmailService>()
     .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15))
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);

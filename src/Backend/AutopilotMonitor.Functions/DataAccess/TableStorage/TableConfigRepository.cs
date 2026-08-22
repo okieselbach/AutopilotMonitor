@@ -494,6 +494,54 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        // --- Email Template Overrides ---
+
+        private const string EmailTemplatesPartition = "EmailTemplates";
+
+        public async Task<EmailTemplateOverride?> GetEmailTemplateOverrideAsync(string kind)
+        {
+            try
+            {
+                var entity = await _previewConfigTableClient.GetEntityAsync<TableEntity>(EmailTemplatesPartition, kind);
+                var html = entity.Value.GetString("Html");
+                if (string.IsNullOrEmpty(html)) return null;
+                return new EmailTemplateOverride
+                {
+                    Kind = kind,
+                    Html = html,
+                    UpdatedBy = entity.Value.GetString("UpdatedBy") ?? string.Empty,
+                    UpdatedUtc = entity.Value.GetDateTime("UpdatedUtc") ?? DateTime.MinValue,
+                };
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+        }
+
+        public async Task SaveEmailTemplateOverrideAsync(EmailTemplateOverride overrideEntry)
+        {
+            var entity = new TableEntity(EmailTemplatesPartition, overrideEntry.Kind)
+            {
+                ["Html"] = overrideEntry.Html,
+                ["UpdatedBy"] = overrideEntry.UpdatedBy,
+                ["UpdatedUtc"] = overrideEntry.UpdatedUtc == default ? DateTime.UtcNow : overrideEntry.UpdatedUtc,
+            };
+            await _previewConfigTableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+        }
+
+        public async Task DeleteEmailTemplateOverrideAsync(string kind)
+        {
+            try
+            {
+                await _previewConfigTableClient.DeleteEntityAsync(EmailTemplatesPartition, kind);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // already gone — reset is idempotent
+            }
+        }
+
         // --- Preview Notification Email ---
 
         public async Task<string?> GetNotificationEmailAsync(string tenantId)

@@ -697,6 +697,18 @@ export const api = {
       `${API_BASE_URL}/api/global/backups/${encodeURIComponent(backupId)}/restore-row`,
   },
 
+  // ── Email Templates (GA) ──────────────────────────────────────────────────
+  emailTemplates: {
+    get: (kind: "welcome" | "farewell") =>
+      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+    save: (kind: "welcome" | "farewell") =>
+      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+    reset: (kind: "welcome" | "farewell") =>
+      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+    sendTest: (kind: "welcome" | "farewell") =>
+      `${API_BASE_URL}/api/global/email-templates/${kind}/test`,
+  },
+
   // ── Maintenance ───────────────────────────────────────────────────────────
   maintenance: {
     trigger: (date?: string) =>
