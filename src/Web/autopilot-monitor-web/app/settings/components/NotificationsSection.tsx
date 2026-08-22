@@ -24,8 +24,8 @@ const PROVIDERS = [
   { value: 1, label: "Microsoft Teams (Legacy Connector)", placeholder: "https://your-org.webhook.office.com/webhookb2/...", badge: "Deprecated", badgeColor: "bg-amber-100 text-amber-800" },
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/...", badge: "Recommended", badgeColor: "bg-green-100 text-green-800" },
   { value: 10, label: "Slack", placeholder: "https://hooks.slack.com/services/T.../B.../..." },
-  { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
   { value: 30, label: "Discord", placeholder: "https://discord.com/api/webhooks/..." },
+  { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
 ];
 
 const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: string }[] = [
