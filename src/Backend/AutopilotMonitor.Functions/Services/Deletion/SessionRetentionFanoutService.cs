@@ -162,16 +162,17 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             // trial expired, or whose stored value predates the cap, is enforced here even though
             // the stored DataRetentionDays is left untouched. days <= 0 stays the GA-only
             // "infinite" escape hatch (skipped below, never clamped).
+            var nowUtc = _utcNow();
             var storedDays = config?.DataRetentionDays ?? 90;
             var retentionDays = config == null
                 ? 90
-                : TenantEntitlementService.GetEffectiveRetentionDays(config, DateTime.UtcNow);
+                : TenantEntitlementService.GetEffectiveRetentionDays(config, nowUtc);
             if (retentionDays > 0 && retentionDays < storedDays)
             {
                 _logger.LogWarning(
                     "Tenant {TenantId}: DataRetentionDays={Stored} exceeds the {Edition}-edition cap — enforcing {Effective} days",
                     tenantId, storedDays,
-                    TenantEntitlementService.ResolveEdition(config!, DateTime.UtcNow), retentionDays);
+                    TenantEntitlementService.ResolveEdition(config!, nowUtc), retentionDays);
             }
 
             if (retentionDays <= 0)
@@ -180,7 +181,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 return;
             }
 
-            var cutoffUtc = DateTime.UtcNow.AddDays(-retentionDays);
+            var cutoffUtc = nowUtc.AddDays(-retentionDays);
 
             // Server-bounded read: fetch one more than the per-run dispatch cap. The loop below
             // only ever advances MaxEnqueuesPerTenantPerRun sessions, so loading the whole backlog

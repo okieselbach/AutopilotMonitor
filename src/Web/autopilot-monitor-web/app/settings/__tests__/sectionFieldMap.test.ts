@@ -59,6 +59,7 @@ const SERVER_DENIED_FIELDS = new Set([
   "lastUpdated", "updatedBy", "onboardedAt", "onboardedBy",
   "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",
   "planTier", "trialExpiresUtc", "trialStartedUtc", "trialConsumed", "trialGrantedBy",
+  "proDowngradedUtc",
 ]);
 
 describe("SECTION_FIELD_MAP parity", () => {

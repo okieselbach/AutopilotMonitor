@@ -671,6 +671,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "TrialStartedUtc", config.TrialStartedUtc },
                 { "TrialConsumed", config.TrialConsumed },
                 { "TrialGrantedBy", config.TrialGrantedBy },
+                { "ProDowngradedUtc", config.ProDowngradedUtc },
                 // SLA targets
                 { "SlaTargetSuccessRate", config.SlaTargetSuccessRate.HasValue ? (double)config.SlaTargetSuccessRate.Value : (double?)null },
                 { "SlaTargetMaxDurationMinutes", config.SlaTargetMaxDurationMinutes },
@@ -783,6 +784,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 TrialStartedUtc = entity.GetDateTime("TrialStartedUtc"),
                 TrialConsumed = entity.GetBoolean("TrialConsumed") ?? false,
                 TrialGrantedBy = entity.GetString("TrialGrantedBy"),
+                ProDowngradedUtc = entity.GetDateTime("ProDowngradedUtc"),
                 // SLA targets
                 SlaTargetSuccessRate = entity.GetDouble("SlaTargetSuccessRate") != null ? (decimal)entity.GetDouble("SlaTargetSuccessRate")! : null,
                 SlaTargetMaxDurationMinutes = entity.GetInt32("SlaTargetMaxDurationMinutes"),

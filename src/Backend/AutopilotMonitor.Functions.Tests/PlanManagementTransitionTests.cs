@@ -1,0 +1,145 @@
+using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Shared.Models;
+
+namespace AutopilotMonitor.Functions.Tests;
+
+/// <summary>
+/// Tests for <see cref="PlanManagementFunction.ApplyPlanChanges"/> — the pure mutation core
+/// of the PATCH plan endpoint. Pins the retention-grace anchor lifecycle: an EFFECTIVE
+/// Pro→Community transition stamps <see cref="TenantConfiguration.ProDowngradedUtc"/>, any
+/// effectively-Pro outcome clears it, and a planTier downgrade under an active trial does
+/// NOT stamp (the edition is still Pro — the later trial expiry is the anchor then).
+/// </summary>
+public class PlanManagementTransitionTests
+{
+    private static readonly DateTime Now = new(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+    private const string Caller = "ga@operator.example";
+
+    private static (TenantEdition Before, TenantEdition After, Dictionary<string, string> Changes) Apply(
+        TenantConfiguration config, string? planTier = null, bool trialProvided = false, DateTime? trialExpiresUtc = null)
+    {
+        var changes = new Dictionary<string, string>();
+        var (before, after) = PlanManagementFunction.ApplyPlanChanges(
+            config, planTier, trialProvided, trialExpiresUtc, Caller, Now, changes);
+        return (before, after, changes);
+    }
+
+    [Fact]
+    public void Downgrade_ProToCommunity_StampsAnchorAndRecordsChange()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PlanTier = "pro" };
+
+        var (before, after, changes) = Apply(config, planTier: "community");
+
+        Assert.Equal(TenantEdition.Pro, before);
+        Assert.Equal(TenantEdition.Community, after);
+        Assert.Equal(Now, config.ProDowngradedUtc);
+        Assert.True(changes.ContainsKey("ProDowngradedUtc"));
+        Assert.True(changes.ContainsKey("PlanTier"));
+    }
+
+    [Fact]
+    public void Upgrade_CommunityToPro_ClearsAnchor()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = "t1",
+            PlanTier = "community",
+            ProDowngradedUtc = Now.AddDays(-10)
+        };
+
+        var (_, after, changes) = Apply(config, planTier: "pro");
+
+        Assert.Equal(TenantEdition.Pro, after);
+        Assert.Null(config.ProDowngradedUtc);
+        Assert.True(changes.ContainsKey("ProDowngradedUtc"));
+    }
+
+    [Fact]
+    public void Downgrade_WithActiveTrial_DoesNotStamp_EditionStaysPro()
+    {
+        // planTier drops but the trial keeps the EFFECTIVE edition Pro: no anchor now —
+        // the trial's own expiry timestamp anchors the grace later, read-time.
+        var config = new TenantConfiguration
+        {
+            TenantId = "t1",
+            PlanTier = "pro",
+            TrialExpiresUtc = Now.AddDays(5)
+        };
+
+        var (before, after, changes) = Apply(config, planTier: "community");
+
+        Assert.Equal(TenantEdition.Pro, before);
+        Assert.Equal(TenantEdition.Pro, after);
+        Assert.Null(config.ProDowngradedUtc);
+        Assert.False(changes.ContainsKey("ProDowngradedUtc"));
+    }
+
+    [Fact]
+    public void EndingTrialExplicitly_StampsAnchor()
+    {
+        // GA sets trialExpiresUtc: null on a trial-Pro tenant — TrialExpiresUtc is gone, so
+        // WITHOUT the explicit stamp the grace would have no anchor at all.
+        var config = new TenantConfiguration
+        {
+            TenantId = "t1",
+            PlanTier = "free",
+            TrialExpiresUtc = Now.AddDays(5)
+        };
+
+        var (before, after, _) = Apply(config, trialProvided: true, trialExpiresUtc: null);
+
+        Assert.Equal(TenantEdition.Pro, before);
+        Assert.Equal(TenantEdition.Community, after);
+        Assert.Equal(Now, config.ProDowngradedUtc);
+        Assert.Null(config.TrialExpiresUtc);
+    }
+
+    [Fact]
+    public void GrantingTrial_ToDowngradedTenant_ClearsAnchor()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = "t1",
+            PlanTier = "community",
+            ProDowngradedUtc = Now.AddDays(-10)
+        };
+
+        var (_, after, _) = Apply(config, trialProvided: true, trialExpiresUtc: Now.AddDays(30));
+
+        Assert.Equal(TenantEdition.Pro, after);
+        Assert.Null(config.ProDowngradedUtc);
+        Assert.Equal(Caller, config.TrialGrantedBy);
+    }
+
+    [Fact]
+    public void NoOpPatch_SameTier_RecordsNothing()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PlanTier = "community" };
+
+        var (before, after, changes) = Apply(config, planTier: "community");
+
+        Assert.Equal(TenantEdition.Community, before);
+        Assert.Equal(TenantEdition.Community, after);
+        Assert.Empty(changes);
+        Assert.Null(config.ProDowngradedUtc);
+    }
+
+    [Fact]
+    public void RepeatedDowngradeAfterReUpgrade_RestampsWithNewTimestamp()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PlanTier = "pro" };
+
+        Apply(config, planTier: "community");
+        Assert.Equal(Now, config.ProDowngradedUtc);
+
+        Apply(config, planTier: "pro");
+        Assert.Null(config.ProDowngradedUtc);
+
+        var changes = new Dictionary<string, string>();
+        var later = Now.AddDays(40);
+        PlanManagementFunction.ApplyPlanChanges(config, "community", false, null, Caller, later, changes);
+        Assert.Equal(later, config.ProDowngradedUtc);
+    }
+}

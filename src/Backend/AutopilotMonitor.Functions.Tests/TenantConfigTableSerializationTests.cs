@@ -20,6 +20,7 @@ public class TenantConfigTableSerializationTests
     {
         var expires = new DateTime(2026, 8, 6, 10, 30, 0, DateTimeKind.Utc);
         var started = new DateTime(2026, 7, 7, 10, 30, 0, DateTimeKind.Utc);
+        var downgraded = new DateTime(2026, 8, 10, 8, 0, 0, DateTimeKind.Utc);
         var config = new TenantConfiguration
         {
             TenantId = TenantId,
@@ -29,7 +30,8 @@ public class TenantConfigTableSerializationTests
             TrialExpiresUtc = expires,
             TrialStartedUtc = started,
             TrialConsumed = true,
-            TrialGrantedBy = "alice@contoso.com"
+            TrialGrantedBy = "alice@contoso.com",
+            ProDowngradedUtc = downgraded
         };
 
         var entity = TableConfigRepository.ConvertToTenantTableEntity(config);
@@ -40,6 +42,7 @@ public class TenantConfigTableSerializationTests
         Assert.Equal(started, mapped.TrialStartedUtc);
         Assert.True(mapped.TrialConsumed);
         Assert.Equal("alice@contoso.com", mapped.TrialGrantedBy);
+        Assert.Equal(downgraded, mapped.ProDowngradedUtc);
     }
 
     [Fact]
@@ -59,6 +62,7 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.TrialStartedUtc);
         Assert.False(mapped.TrialConsumed);
         Assert.Null(mapped.TrialGrantedBy);
+        Assert.Null(mapped.ProDowngradedUtc);
     }
 
     [Fact]
@@ -77,6 +81,7 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.TrialExpiresUtc);
         Assert.False(mapped.TrialConsumed);
         Assert.Null(mapped.TrialGrantedBy);
+        Assert.Null(mapped.ProDowngradedUtc); // pre-grace row: no anchor, no grace
     }
 
     [Fact]

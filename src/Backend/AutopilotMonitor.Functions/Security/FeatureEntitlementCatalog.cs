@@ -95,6 +95,16 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         public const string LegacyEnterpriseTierName = "enterprise";
 
+        /// <summary>
+        /// Retention downgrade grace period: for this many days after a tenant loses Pro
+        /// (explicit downgrade or trial expiry) the retention sweep keeps enforcing the PRO
+        /// cap, so the downgrade does not immediately hard-delete data older than the
+        /// Community cap. Retention is the only entitlement with a grace — everything else
+        /// gates read-time immediately because it is reversible without data loss.
+        /// Resolved via <see cref="Services.TenantEntitlementService.GetRetentionGraceEndUtc"/>.
+        /// </summary>
+        public const int RetentionDowngradeGraceDays = 30;
+
         private static readonly EditionEntitlements Community = new()
         {
             Edition = TenantEdition.Community,

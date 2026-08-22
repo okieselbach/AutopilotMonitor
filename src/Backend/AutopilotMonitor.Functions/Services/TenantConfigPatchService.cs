@@ -121,6 +121,7 @@ namespace AutopilotMonitor.Functions.Services
             "LastUpdated", "UpdatedBy", "OnboardedAt", "OnboardedBy",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
+            "ProDowngradedUtc",
         };
 
         /// <summary>
@@ -148,6 +149,7 @@ namespace AutopilotMonitor.Functions.Services
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "OnboardedBy", "OnboardedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
+            "ProDowngradedUtc",
         };
 
         private static readonly Dictionary<string, PropertyInfo> ModelProperties =

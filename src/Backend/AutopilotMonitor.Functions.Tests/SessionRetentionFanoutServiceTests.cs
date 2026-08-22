@@ -331,8 +331,9 @@ public class SessionRetentionFanoutServiceTests
         var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var deadline = baseTime.AddMinutes(50);
         var clockCalls = 0;
-        // Call sequence: tenant-A boundary (1), session s0 (2), session s1 (3), session s2 (4 → past deadline).
-        var harness = new Harness(utcNow: () => ++clockCalls >= 4 ? deadline.AddMinutes(1) : baseTime);
+        // Call sequence: tenant-A boundary (1), retention resolution (2), session s0 (3),
+        // session s1 (4), session s2 (5 → past deadline).
+        var harness = new Harness(utcNow: () => ++clockCalls >= 5 ? deadline.AddMinutes(1) : baseTime);
 
         var sessions = new List<SessionSummary>();
         for (int i = 0; i < 4; i++) sessions.Add(Summary(TenantA, $"s{i}"));
@@ -386,6 +387,38 @@ public class SessionRetentionFanoutServiceTests
             SessionId = sessionId,
             StartedAt = DateTime.UtcNow.AddDays(-ageDays),
         };
+    }
+
+    // =========================================== Retention downgrade grace ====
+
+    [Fact]
+    public async Task Tenant_InRetentionGrace_KeepsProCutoff()
+    {
+        // Downgraded 10 days ago, stored retention 365: the grace keeps the Pro cap, so the
+        // cutoff must be now-365d — NOT now-90d (which would enqueue the 90–365d band).
+        var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+        var harness = new Harness(utcNow: () => now);
+        harness.WithTenant("t1", retentionDays: 365, sessions: Array.Empty<SessionSummary>(),
+            planTier: "community", proDowngradedUtc: now.AddDays(-10));
+
+        await harness.RunAsync();
+
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
+            "t1", now.AddDays(-365), It.IsAny<int>(), It.IsAny<bool>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Tenant_AfterRetentionGrace_CommunityCutoffApplies()
+    {
+        var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+        var harness = new Harness(utcNow: () => now);
+        harness.WithTenant("t1", retentionDays: 365, sessions: Array.Empty<SessionSummary>(),
+            planTier: "community", proDowngradedUtc: now.AddDays(-31));
+
+        await harness.RunAsync();
+
+        harness.MaintenanceRepo.Verify(m => m.GetSessionsOlderThanAsync(
+            "t1", now.AddDays(-90), It.IsAny<int>(), It.IsAny<bool>()), Times.Once);
     }
 
     // ============================================================ Harness ====
@@ -450,11 +483,18 @@ public class SessionRetentionFanoutServiceTests
             return result;
         }
 
-        public void WithTenant(string tenantId, int retentionDays, SessionSummary[] sessions, string planTier = "free")
+        public void WithTenant(string tenantId, int retentionDays, SessionSummary[] sessions, string planTier = "free",
+            DateTime? proDowngradedUtc = null)
         {
             _tenantIds.Add(tenantId);
             TenantConfig.Setup(t => t.GetConfigurationAsync(tenantId))
-                .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, DataRetentionDays = retentionDays, PlanTier = planTier });
+                .ReturnsAsync(new TenantConfiguration
+                {
+                    TenantId = tenantId,
+                    DataRetentionDays = retentionDays,
+                    PlanTier = planTier,
+                    ProDowngradedUtc = proDowngradedUtc,
+                });
             MaintenanceRepo.Setup(m => m.GetSessionsOlderThanAsync(tenantId, It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<bool>()))
                 .ReturnsAsync(new List<SessionSummary>(WithTenantId(tenantId, sessions)));
         }

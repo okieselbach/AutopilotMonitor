@@ -135,6 +135,15 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // (AutoApproveNewTenants enabled). Info-tier. Dual-register per memory
     // feedback_ops_event_types_dual_register.
     "TenantAutoApproved",
+    // Plan downgrade / retention grace. Downgraded is dispatched by PlanManagementFunction
+    // (RecordTenantPlanDowngradedAsync) when a GA plan mutation drops the effective edition
+    // Pro → Community; the grace events by TrialExpirySweepFunction — Expiring during the
+    // ≤3-day heads-up (re-emitted daily), Ended once via the 24h look-back, both only when
+    // stored retention exceeds the Community cap (data actually at risk). All Warning-tier.
+    // Dual-register per memory feedback_ops_event_types_dual_register.
+    "TenantPlanDowngraded",
+    "TenantRetentionGraceExpiring",
+    "TenantRetentionGraceEnded",
   ],
   Agent: [
     "BlobStorageMissing",

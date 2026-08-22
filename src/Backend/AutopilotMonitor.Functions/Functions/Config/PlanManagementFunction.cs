@@ -27,14 +27,16 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly TenantConfigurationService _configService;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly OpsEventService _opsEvents;
         private readonly TimeProvider _time;
 
         public PlanManagementFunction(
             ILogger<PlanManagementFunction> logger,
             TenantConfigurationService configService,
             AdminConfigurationService adminConfigService,
-            IMaintenanceRepository maintenanceRepo)
-            : this(logger, configService, adminConfigService, maintenanceRepo, TimeProvider.System)
+            IMaintenanceRepository maintenanceRepo,
+            OpsEventService opsEvents)
+            : this(logger, configService, adminConfigService, maintenanceRepo, opsEvents, TimeProvider.System)
         {
         }
 
@@ -44,12 +46,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
             TenantConfigurationService configService,
             AdminConfigurationService adminConfigService,
             IMaintenanceRepository maintenanceRepo,
+            OpsEventService opsEvents,
             TimeProvider time)
         {
             _logger = logger;
             _configService = configService;
             _adminConfigService = adminConfigService;
             _maintenanceRepo = maintenanceRepo;
+            _opsEvents = opsEvents;
             _time = time;
         }
 
@@ -139,22 +143,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
                 var changes = new Dictionary<string, string>();
 
-                if (newPlanTier != null && !string.Equals(config.PlanTier, newPlanTier, StringComparison.Ordinal))
-                {
-                    changes["PlanTier"] = $"{config.PlanTier} -> {newPlanTier}";
-                    config.PlanTier = newPlanTier;
-                }
-
-                if (trialProvided && config.TrialExpiresUtc != newTrialExpiresUtc)
-                {
-                    changes["TrialExpiresUtc"] = $"{FormatUtc(config.TrialExpiresUtc)} -> {FormatUtc(newTrialExpiresUtc)}";
-                    config.TrialExpiresUtc = newTrialExpiresUtc;
-                    if (newTrialExpiresUtc.HasValue)
-                    {
-                        config.TrialStartedUtc ??= nowUtc;
-                        config.TrialGrantedBy = caller;
-                    }
-                }
+                var (editionBefore, editionAfter) =
+                    ApplyPlanChanges(config, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
 
                 if (changes.Count > 0)
                 {
@@ -171,9 +161,17 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         requestCtx.TargetTenantId,
                         caller,
                         changes);
-                }
 
-                var effectiveEdition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+                    if (editionBefore == TenantEdition.Pro && editionAfter == TenantEdition.Community)
+                    {
+                        await _opsEvents.RecordTenantPlanDowngradedAsync(
+                            requestCtx.TargetTenantId,
+                            config.DomainName,
+                            caller,
+                            TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc),
+                            config.DataRetentionDays);
+                    }
+                }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new
@@ -182,7 +180,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     planTier = config.PlanTier,
                     trialExpiresUtc = config.TrialExpiresUtc,
                     trialConsumed = config.TrialConsumed,
-                    effectiveEdition = effectiveEdition.ToString().ToLowerInvariant()
+                    effectiveEdition = editionAfter.ToString().ToLowerInvariant(),
+                    retentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc)
                 });
                 return response;
             }
@@ -193,6 +192,61 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
                 return errorResponse;
             }
+        }
+
+        /// <summary>
+        /// Pure mutation core of the PATCH plan endpoint — no I/O, unit-testable. Applies the
+        /// plan/trial changes to <paramref name="config"/>, records human-readable entries in
+        /// <paramref name="changes"/>, and returns the EFFECTIVE edition before/after (same
+        /// <paramref name="nowUtc"/> for both, so only the mutation itself can flip it).
+        ///
+        /// Maintains the retention downgrade grace anchor: an effective Pro→Community
+        /// transition stamps <see cref="TenantConfiguration.ProDowngradedUtc"/> (covers both a
+        /// planTier downgrade and an explicitly ended trial); any state that is effectively Pro
+        /// afterwards clears the anchor, so a re-upgrade also resets the grace clock.
+        /// </summary>
+        internal static (TenantEdition Before, TenantEdition After) ApplyPlanChanges(
+            TenantConfiguration config,
+            string? newPlanTier,
+            bool trialProvided,
+            DateTime? newTrialExpiresUtc,
+            string caller,
+            DateTime nowUtc,
+            Dictionary<string, string> changes)
+        {
+            var before = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+
+            if (newPlanTier != null && !string.Equals(config.PlanTier, newPlanTier, StringComparison.Ordinal))
+            {
+                changes["PlanTier"] = $"{config.PlanTier} -> {newPlanTier}";
+                config.PlanTier = newPlanTier;
+            }
+
+            if (trialProvided && config.TrialExpiresUtc != newTrialExpiresUtc)
+            {
+                changes["TrialExpiresUtc"] = $"{FormatUtc(config.TrialExpiresUtc)} -> {FormatUtc(newTrialExpiresUtc)}";
+                config.TrialExpiresUtc = newTrialExpiresUtc;
+                if (newTrialExpiresUtc.HasValue)
+                {
+                    config.TrialStartedUtc ??= nowUtc;
+                    config.TrialGrantedBy = caller;
+                }
+            }
+
+            var after = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+
+            if (before == TenantEdition.Pro && after == TenantEdition.Community)
+            {
+                changes["ProDowngradedUtc"] = $"{FormatUtc(config.ProDowngradedUtc)} -> {FormatUtc(nowUtc)}";
+                config.ProDowngradedUtc = nowUtc;
+            }
+            else if (after == TenantEdition.Pro && config.ProDowngradedUtc.HasValue)
+            {
+                changes["ProDowngradedUtc"] = $"{FormatUtc(config.ProDowngradedUtc)} -> (none)";
+                config.ProDowngradedUtc = null;
+            }
+
+            return (before, after);
         }
 
         /// <summary>
@@ -262,6 +316,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 config.TrialExpiresUtc = nowUtc.AddDays(SelfServiceTrialDays);
                 config.TrialConsumed = true;
                 config.TrialGrantedBy = caller;
+                // Effectively Pro again — a leftover retention grace anchor is obsolete.
+                config.ProDowngradedUtc = null;
                 config.UpdatedBy = caller;
 
                 // Fail-loud: throws when the write did not persist (cache invalidated in finally).

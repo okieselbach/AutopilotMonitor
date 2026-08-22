@@ -80,6 +80,7 @@ export const SHARED_MANIFEST = {
       "trialStartedUtc",
       "trialConsumed",
       "trialGrantedBy",
+      "proDowngradedUtc",
       "manufacturerWhitelist",
       "modelWhitelist",
       "validateAutopilotDevice",

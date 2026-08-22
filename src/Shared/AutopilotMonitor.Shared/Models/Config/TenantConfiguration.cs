@@ -167,6 +167,17 @@ namespace AutopilotMonitor.Shared.Models
         public string? TrialGrantedBy { get; set; }
 
         /// <summary>
+        /// When the tenant's EFFECTIVE edition last dropped Pro → Community via the plan
+        /// endpoint (UTC). Anchors the retention downgrade grace period: for
+        /// RetentionDowngradeGraceDays after losing Pro the retention cap stays at the Pro
+        /// value so a downgrade (e.g. non-payment) does not immediately hard-delete data
+        /// older than the Community cap. Trial expiry needs no write — TrialExpiresUtc
+        /// itself is the anchor there. Cleared whenever the tenant becomes effectively Pro
+        /// again. Backend-only: not delivered to the agent (no ConfigVersion impact).
+        /// </summary>
+        public DateTime? ProDowngradedUtc { get; set; }
+
+        /// <summary>
         /// Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*")
         /// Comma-separated list
         /// </summary>

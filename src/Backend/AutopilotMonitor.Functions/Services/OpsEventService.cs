@@ -527,6 +527,60 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System.TrialSweep", new { domainName, trialExpiredUtc });
         }
 
+        // ── Plan downgrade / retention grace (informational — enforcement is read-time) ──
+        // All three types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
+        // (memory feedback_ops_event_types_dual_register). Downgraded is dispatched by
+        // PlanManagementFunction, the grace events by TrialExpirySweepFunction.
+
+        /// <summary>
+        /// A GA plan mutation dropped the tenant's EFFECTIVE edition Pro → Community. The
+        /// retention downgrade grace period starts now; data older than the Community cap is
+        /// deleted only after it ends. Warning-tier: the business moment (e.g. non-payment)
+        /// an operator wants a ping for.
+        /// </summary>
+        public Task RecordTenantPlanDowngradedAsync(
+            string tenantId, string? domainName, string caller, DateTime? retentionGraceEndsUtc, int storedRetentionDays)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var graceNote = retentionGraceEndsUtc is DateTime graceEnd
+                ? $"retention grace until {graceEnd:yyyy-MM-dd HH:mm}Z"
+                : "no retention grace applicable";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantPlanDowngraded", OpsEventSeverity.Warning,
+                $"Tenant {tenantLabel} was downgraded Pro → Community by {caller} — {graceNote} (stored retention {storedRetentionDays}d)",
+                tenantId, caller, new { domainName, retentionGraceEndsUtc, storedRetentionDays });
+        }
+
+        /// <summary>
+        /// Heads-up: a downgraded tenant's retention grace ends within the next few days —
+        /// after that, the sweep enforces the Community cap and deletes the older data.
+        /// Emitted only for tenants that actually have data at risk (stored retention above
+        /// the Community cap). Re-fired daily during the heads-up window (no dedup state).
+        /// </summary>
+        public Task RecordTenantRetentionGraceExpiringAsync(
+            string tenantId, string? domainName, DateTime graceEndsUtc, int daysLeft, int storedRetentionDays)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantRetentionGraceExpiring", OpsEventSeverity.Warning,
+                $"Retention grace for downgraded tenant {tenantLabel} ends in {daysLeft} day(s) ({graceEndsUtc:yyyy-MM-dd HH:mm}Z) — " +
+                $"data older than the Community cap will then be deleted (stored retention {storedRetentionDays}d)",
+                tenantId, "System.TrialSweep", new { domainName, graceEndsUtc, daysLeft, storedRetentionDays });
+        }
+
+        /// <summary>
+        /// A downgraded tenant's retention grace ended within the last sweep window — from now
+        /// on the retention sweep enforces the Community cap and starts deleting the older data.
+        /// Last call for a GA intervention (re-upgrade / retention decision).
+        /// </summary>
+        public Task RecordTenantRetentionGraceEndedAsync(
+            string tenantId, string? domainName, DateTime graceEndedUtc, int storedRetentionDays)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantRetentionGraceEnded", OpsEventSeverity.Warning,
+                $"Retention grace for downgraded tenant {tenantLabel} ended ({graceEndedUtc:yyyy-MM-dd HH:mm}Z) — " +
+                $"the Community retention cap is now enforced and older data will be deleted (stored retention {storedRetentionDays}d)",
+                tenantId, "System.TrialSweep", new { domainName, graceEndedUtc, storedRetentionDays });
+        }
+
         /// <summary>
         /// F3 regression radar (insights spec §F3): an analyze rule's 7-day hit rate rose ≥2×
         /// over its 28-day baseline with disjoint Wilson intervals. Fired ONCE per episode (the

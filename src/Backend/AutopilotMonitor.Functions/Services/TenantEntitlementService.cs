@@ -98,9 +98,35 @@ namespace AutopilotMonitor.Functions.Services
                && config.UnrestrictedMode;
 
         /// <summary>
+        /// End of the retention downgrade grace period, or null when none applies (tenant is
+        /// effectively Pro, or never lost Pro). The anchor is the LATEST of the explicit
+        /// downgrade timestamp (<see cref="TenantConfiguration.ProDowngradedUtc"/>, written by
+        /// the plan endpoint) and an expired trial's <see cref="TenantConfiguration.TrialExpiresUtc"/>
+        /// (read-time, no write on expiry). A returned value in the past means the grace is over.
+        /// </summary>
+        public static DateTime? GetRetentionGraceEndUtc(TenantConfiguration config, DateTime nowUtc)
+        {
+            if (ResolveEdition(config, nowUtc) == TenantEdition.Pro)
+                return null;
+
+            DateTime? anchor = config.ProDowngradedUtc;
+            if (config.TrialExpiresUtc is DateTime trialEnd && trialEnd <= nowUtc &&
+                (anchor is null || trialEnd > anchor))
+            {
+                anchor = trialEnd;
+            }
+
+            return anchor?.AddDays(FeatureEntitlementCatalog.RetentionDowngradeGraceDays);
+        }
+
+        /// <summary>
         /// The retention days the platform actually enforces for this config: the stored value
         /// clamped to the edition's cap. <c>days &lt;= 0</c> is the GA-only "infinite" escape hatch
         /// and is passed through unclamped (the fanout skips those tenants entirely).
+        /// Downgrade grace: for <see cref="FeatureEntitlementCatalog.RetentionDowngradeGraceDays"/>
+        /// days after losing Pro the PRO cap keeps applying, so a downgrade or trial expiry never
+        /// immediately hard-deletes the 90–365-day band. Retention is the only entitlement with
+        /// a grace — the others are reversible gates.
         /// </summary>
         public static int GetEffectiveRetentionDays(TenantConfiguration config, DateTime nowUtc)
         {
@@ -108,7 +134,14 @@ namespace AutopilotMonitor.Functions.Services
             if (days <= 0)
                 return 0;
 
-            var cap = FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).RetentionCapDays;
+            var edition = ResolveEdition(config, nowUtc);
+            var cap = FeatureEntitlementCatalog.Get(edition).RetentionCapDays;
+            if (edition == TenantEdition.Community &&
+                GetRetentionGraceEndUtc(config, nowUtc) is DateTime graceEnd && graceEnd > nowUtc)
+            {
+                cap = FeatureEntitlementCatalog.Get(TenantEdition.Pro).RetentionCapDays;
+            }
+
             return Math.Min(days, cap);
         }
     }

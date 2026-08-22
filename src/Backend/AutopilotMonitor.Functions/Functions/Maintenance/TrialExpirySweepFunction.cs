@@ -10,15 +10,21 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Maintenance;
 
 /// <summary>
-/// Daily informational sweep over tenant Pro trials. NOT load-bearing — trial expiry
-/// degrades a tenant to Community at READ time (FeatureEntitlementCatalog.ResolveEdition);
-/// this timer only surfaces the transitions as ops events so the operator has visibility:
+/// Daily informational sweep over the tenant plan lifecycle. NOT load-bearing — trial expiry
+/// degrades a tenant to Community at READ time (FeatureEntitlementCatalog.ResolveEdition),
+/// and the retention grace is likewise resolved read-time by the retention fanout; this timer
+/// only surfaces the transitions as ops events so the operator has visibility:
 /// <list type="bullet">
 ///   <item><c>TenantTrialExpired</c> (Warning) — the trial ended within the last sweep window
 ///         (24h look-back matching the daily cadence).</item>
 ///   <item><c>TenantTrialExpiring</c> (Info) — the trial ends within the next
 ///         <see cref="ExpiringHeadsUpDays"/> days (re-emitted each daily run until expiry —
 ///         acceptable for an Info-tier heads-up, no dedupe state to maintain).</item>
+///   <item><c>TenantRetentionGraceExpiring</c> / <c>TenantRetentionGraceEnded</c> (Warning) —
+///         same window mechanics for the retention downgrade grace
+///         (TenantEntitlementService.GetRetentionGraceEndUtc). Emitted only when data is
+///         actually at risk: stored retention above the Community cap (0 = infinite ⇒ never
+///         at risk, the fanout skips those tenants).</item>
 /// </list>
 /// Tenants whose stored <c>PlanTier</c> is already a permanent Pro tier ("pro"/legacy "enterprise") are skipped —
 /// their trial timestamps are inert leftovers and expiry changes nothing.
@@ -90,38 +96,84 @@ public class TrialExpirySweepFunction
         {
             ct.ThrowIfCancellationRequested();
 
-            if (config.TrialExpiresUtc is not DateTime expiry)
-                continue;
-
-            // Permanent Pro: the trial timestamps are inert leftovers — expiry changes nothing.
-            if (FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier))
-                continue;
-
-            result.TrialsSeen++;
-
-            if (expiry <= now)
-            {
-                if (expiry > now - ExpiredLookBack)
-                {
-                    await _opsEvents.RecordTenantTrialExpiredAsync(config.TenantId, config.DomainName, expiry)
-                        .ConfigureAwait(false);
-                    result.ExpiredEmitted++;
-                }
-                // Older expiries were reported by a previous run — stay silent.
-            }
-            else if (expiry <= now + ExpiringHeadsUp)
-            {
-                var daysLeft = Math.Max(1, (int)Math.Ceiling((expiry - now).TotalDays));
-                await _opsEvents.RecordTenantTrialExpiringAsync(config.TenantId, config.DomainName, expiry, daysLeft)
-                    .ConfigureAwait(false);
-                result.ExpiringEmitted++;
-            }
+            await SweepTrialAsync(config, now, result).ConfigureAwait(false);
+            await SweepRetentionGraceAsync(config, now, result).ConfigureAwait(false);
         }
 
         _logger.LogInformation(
-            "TrialExpirySweep completed: trialsSeen={TrialsSeen} expiredEmitted={ExpiredEmitted} expiringEmitted={ExpiringEmitted}",
-            result.TrialsSeen, result.ExpiredEmitted, result.ExpiringEmitted);
+            "TrialExpirySweep completed: trialsSeen={TrialsSeen} expiredEmitted={ExpiredEmitted} expiringEmitted={ExpiringEmitted} " +
+            "graceExpiringEmitted={GraceExpiringEmitted} graceEndedEmitted={GraceEndedEmitted}",
+            result.TrialsSeen, result.ExpiredEmitted, result.ExpiringEmitted,
+            result.GraceExpiringEmitted, result.GraceEndedEmitted);
         return result;
+    }
+
+    private async Task SweepTrialAsync(
+        AutopilotMonitor.Shared.Models.TenantConfiguration config, DateTime now, SweepResult result)
+    {
+        if (config.TrialExpiresUtc is not DateTime expiry)
+            return;
+
+        // Permanent Pro: the trial timestamps are inert leftovers — expiry changes nothing.
+        if (FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier))
+            return;
+
+        result.TrialsSeen++;
+
+        if (expiry <= now)
+        {
+            if (expiry > now - ExpiredLookBack)
+            {
+                await _opsEvents.RecordTenantTrialExpiredAsync(config.TenantId, config.DomainName, expiry)
+                    .ConfigureAwait(false);
+                result.ExpiredEmitted++;
+            }
+            // Older expiries were reported by a previous run — stay silent.
+        }
+        else if (expiry <= now + ExpiringHeadsUp)
+        {
+            var daysLeft = Math.Max(1, (int)Math.Ceiling((expiry - now).TotalDays));
+            await _opsEvents.RecordTenantTrialExpiringAsync(config.TenantId, config.DomainName, expiry, daysLeft)
+                .ConfigureAwait(false);
+            result.ExpiringEmitted++;
+        }
+    }
+
+    /// <summary>
+    /// Retention downgrade grace visibility: warn shortly before and once after the grace ends,
+    /// but only when data is actually at risk — stored retention above the Community cap.
+    /// (0 = the GA-only infinite escape hatch: the fanout skips those tenants, nothing is ever
+    /// deleted, so the comparison excludes it naturally.) GetRetentionGraceEndUtc returns null
+    /// for effectively-Pro tenants, so re-upgraded tenants go silent automatically.
+    /// </summary>
+    private async Task SweepRetentionGraceAsync(
+        AutopilotMonitor.Shared.Models.TenantConfiguration config, DateTime now, SweepResult result)
+    {
+        var communityCap = FeatureEntitlementCatalog.Get(TenantEdition.Community).RetentionCapDays;
+        if (config.DataRetentionDays <= communityCap)
+            return;
+
+        if (TenantEntitlementService.GetRetentionGraceEndUtc(config, now) is not DateTime graceEnd)
+            return;
+
+        if (graceEnd <= now)
+        {
+            if (graceEnd > now - ExpiredLookBack)
+            {
+                await _opsEvents.RecordTenantRetentionGraceEndedAsync(
+                        config.TenantId, config.DomainName, graceEnd, config.DataRetentionDays)
+                    .ConfigureAwait(false);
+                result.GraceEndedEmitted++;
+            }
+        }
+        else if (graceEnd <= now + ExpiringHeadsUp)
+        {
+            var daysLeft = Math.Max(1, (int)Math.Ceiling((graceEnd - now).TotalDays));
+            await _opsEvents.RecordTenantRetentionGraceExpiringAsync(
+                    config.TenantId, config.DomainName, graceEnd, daysLeft, config.DataRetentionDays)
+                .ConfigureAwait(false);
+            result.GraceExpiringEmitted++;
+        }
     }
 
     /// <summary>Summary counters returned from <see cref="RunCoreAsync"/> so tests can assert outcomes.</summary>
@@ -130,5 +182,7 @@ public class TrialExpirySweepFunction
         public int TrialsSeen { get; set; }
         public int ExpiredEmitted { get; set; }
         public int ExpiringEmitted { get; set; }
+        public int GraceExpiringEmitted { get; set; }
+        public int GraceEndedEmitted { get; set; }
     }
 }

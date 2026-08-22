@@ -194,8 +194,10 @@ public class TenantEntitlementServiceTests
     }
 
     [Fact]
-    public void GetEffectiveRetentionDays_TrialExpiry_DegradesCapFrom365To90()
+    public void GetEffectiveRetentionDays_TrialExpiry_ProCapHoldsThroughGrace_ThenDegradesTo90()
     {
+        // Trial expiry is a downgrade: the Pro cap keeps applying for the 30-day retention
+        // grace (anchor = TrialExpiresUtc, no write involved), THEN the Community cap bites.
         var config = new TenantConfiguration
         {
             TenantId = TenantId,
@@ -204,6 +206,93 @@ public class TenantEntitlementServiceTests
             TrialExpiresUtc = Now.AddDays(1)
         };
         Assert.Equal(365, TenantEntitlementService.GetEffectiveRetentionDays(config, Now));
-        Assert.Equal(90, TenantEntitlementService.GetEffectiveRetentionDays(config, Now.AddDays(2)));
+        // 1 day after expiry: inside the grace — still the Pro cap.
+        Assert.Equal(365, TenantEntitlementService.GetEffectiveRetentionDays(config, Now.AddDays(2)));
+        // 31 days after expiry: grace over — Community cap enforced.
+        Assert.Equal(90, TenantEntitlementService.GetEffectiveRetentionDays(config, Now.AddDays(32)));
+    }
+
+    // ── Retention downgrade grace (GetRetentionGraceEndUtc + cap interplay) ──────
+
+    [Fact]
+    public void GetRetentionGraceEndUtc_ProTenant_ReturnsNull()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "pro",
+            ProDowngradedUtc = Now.AddDays(-5) // stale leftover must not matter while Pro
+        };
+        Assert.Null(TenantEntitlementService.GetRetentionGraceEndUtc(config, Now));
+    }
+
+    [Fact]
+    public void GetRetentionGraceEndUtc_NeverLostPro_ReturnsNull()
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = "free" };
+        Assert.Null(TenantEntitlementService.GetRetentionGraceEndUtc(config, Now));
+    }
+
+    [Fact]
+    public void GetRetentionGraceEndUtc_ExplicitDowngrade_AnchorPlusGraceDays()
+    {
+        var downgraded = Now.AddDays(-10);
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "community",
+            ProDowngradedUtc = downgraded
+        };
+        Assert.Equal(
+            downgraded.AddDays(FeatureEntitlementCatalog.RetentionDowngradeGraceDays),
+            TenantEntitlementService.GetRetentionGraceEndUtc(config, Now));
+    }
+
+    [Fact]
+    public void GetRetentionGraceEndUtc_LatestAnchorWins()
+    {
+        // Downgrade, re-granted trial, trial expired again: the LATER trial expiry anchors.
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "community",
+            ProDowngradedUtc = Now.AddDays(-20),
+            TrialExpiresUtc = Now.AddDays(-3)
+        };
+        Assert.Equal(
+            Now.AddDays(-3).AddDays(FeatureEntitlementCatalog.RetentionDowngradeGraceDays),
+            TenantEntitlementService.GetRetentionGraceEndUtc(config, Now));
+    }
+
+    [Fact]
+    public void GetEffectiveRetentionDays_ExplicitDowngrade_ProCapDuringGrace_CommunityCapAfter()
+    {
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId,
+            PlanTier = "community",
+            DataRetentionDays = 365,
+            ProDowngradedUtc = Now
+        };
+        Assert.Equal(365, TenantEntitlementService.GetEffectiveRetentionDays(config, Now.AddDays(29)));
+        Assert.Equal(90, TenantEntitlementService.GetEffectiveRetentionDays(config, Now.AddDays(31)));
+    }
+
+    [Fact]
+    public void GetEffectiveRetentionDays_GraceDoesNotRaiseAnythingElse()
+    {
+        // 0 (infinite) passes through untouched, and a stored value below the Community cap
+        // is unaffected — the grace only swaps which CAP clamps.
+        var zero = new TenantConfiguration
+        {
+            TenantId = TenantId, PlanTier = "community", DataRetentionDays = 0, ProDowngradedUtc = Now
+        };
+        Assert.Equal(0, TenantEntitlementService.GetEffectiveRetentionDays(zero, Now.AddDays(5)));
+
+        var below = new TenantConfiguration
+        {
+            TenantId = TenantId, PlanTier = "community", DataRetentionDays = 60, ProDowngradedUtc = Now
+        };
+        Assert.Equal(60, TenantEntitlementService.GetEffectiveRetentionDays(below, Now.AddDays(5)));
     }
 }

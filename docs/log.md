@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-22
+
+* **New**: `backend/plan-downgrade-retention-grace.md` — plan downgrade policy: every Pro entitlement gates read-time and reversibly on downgrade ("gate, don't destroy"), except retention, which now gets a 30-day grace (`FeatureEntitlementCatalog.RetentionDowngradeGraceDays`) before the Community cap starts hard-deleting the 90–365-day band. Anchor model: `ProDowngradedUtc` stamped/cleared by the plan endpoint's pure `ApplyPlanChanges` core on EFFECTIVE-edition transitions (covers explicitly ended trials; planTier downgrade under an active trial deliberately doesn't stamp), trial expiry anchors read-time via `TrialExpiresUtc`. New Warning ops events `TenantPlanDowngraded` (PATCH handler) and `TenantRetentionGraceExpiring`/`TenantRetentionGraceEnded` (TrialExpirySweep window mechanics, only when stored retention exceeds the Community cap). Field is patch-denied + revert-protected; retention WRITE cap deliberately ignores the grace.
+
 ## 2026-08-21
 
 * **New**: `agent/do-group-id-auto-set.md` — optional DO peering-group seed (`EnableDoGroupIdAutoSet`, default off, ConfigVersion 40): `DoGroupIdService` derives a deterministic GUID from the default gateway's IPv4 + SendARP MAC in RealmJoin's exact byte layout (cross-product peering) and writes `DOGroupId` in the 64-bit GPO Policies store with readback verification. Conservative by design: no random-GUID fallback (skip on missing gateway/MAC), `DOGroupIdSource`/MDM-managed values/foreign GPO values always win (skip reasons in the `do_group_id_auto_set` event), own stale values are recognized via the `written:<guid>` StartupEventGate fingerprint and updated after a gateway change. Gateway heuristic extracted into the shared `NetworkInterfaceLocator` (dedup of NetworkChangeDetector + DeviceInfoCollector copies).
