@@ -37,23 +37,25 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: image-free, progressively enhanced. Base (every client): solid bgcolor band +
-             text wordmark + brand mark drawn with a CSS border trapezoid. Enhancements where
-             supported (Apple/iOS Mail, most of Gmail): diagonal stripes via linear-gradient and the
-             slanted bottom edge via clip-path; clients that drop them simply show a flat band. -->
+        <!-- Header: image-free. Base for every client: solid bgcolor band, text wordmark, brand mark
+             drawn with CSS borders (trapezoid + a green wedge for the slanted right edge; must stay
+             <div>s — Outlook paints transparent <td> borders white). Progressive enhancement where
+             supported (Apple/iOS Mail, most of Gmail): three layered half-plane gradients form the
+             facets and clip-path cuts the slanted bottom edge; Outlook shows a flat band instead.
+             Geometry is the approved reference (scratch header-render.html): facets
+             light right of (40%,0)->(70%,100%), dark right of (55%,0)->(85%,100%) and left of
+             (78%,0)->(100%,60%). Change only against a side-by-side render. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(112deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 60%, #2ea85a 60%, #2ea85a 78%, #33b161 78%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
-            <table cellpadding=""0"" cellspacing=""0"" border=""0"">
-              <tr>
-                <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <div style=""width:0; height:20px; border-left:36px solid #ffffff; border-top:13px solid transparent; border-bottom:2px solid transparent; border-right:0; display:block;""></div>
-                </td>
-                <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
-                  Autopilot Monitor
-                </td>
-              </tr>
-            </table>
-          </td>
+        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
+          <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
+            <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
+              <div style=""width:0; height:20px; border-left:34px solid #ffffff; border-top:13px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
+              <div style=""width:0; height:0; border-right:4px solid #33b161; border-bottom:33px solid transparent; border-left:0; border-top:0; margin:-33px 0 0 30px; display:block; font-size:0; line-height:0;""></div>
+              <div style=""width:0; height:0; border-right:34px solid transparent; border-bottom:2px solid #33b161; border-left:0; border-top:0; margin:-2px 0 0 0; display:block; font-size:0; line-height:0;""></div>
+            </td>
+            <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"">Autopilot Monitor</td>
+          </tr></table>
+        </td>
         </tr>
 
         <!-- Body -->
@@ -126,23 +128,25 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: image-free, progressively enhanced. Base (every client): solid bgcolor band +
-             text wordmark + brand mark drawn with a CSS border trapezoid. Enhancements where
-             supported (Apple/iOS Mail, most of Gmail): diagonal stripes via linear-gradient and the
-             slanted bottom edge via clip-path; clients that drop them simply show a flat band. -->
+        <!-- Header: image-free. Base for every client: solid bgcolor band, text wordmark, brand mark
+             drawn with CSS borders (trapezoid + a green wedge for the slanted right edge; must stay
+             <div>s — Outlook paints transparent <td> borders white). Progressive enhancement where
+             supported (Apple/iOS Mail, most of Gmail): three layered half-plane gradients form the
+             facets and clip-path cuts the slanted bottom edge; Outlook shows a flat band instead.
+             Geometry is the approved reference (scratch header-render.html): facets
+             light right of (40%,0)->(70%,100%), dark right of (55%,0)->(85%,100%) and left of
+             (78%,0)->(100%,60%). Change only against a side-by-side render. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(112deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 60%, #2ea85a 60%, #2ea85a 78%, #33b161 78%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
-            <table cellpadding=""0"" cellspacing=""0"" border=""0"">
-              <tr>
-                <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <div style=""width:0; height:20px; border-left:36px solid #ffffff; border-top:13px solid transparent; border-bottom:2px solid transparent; border-right:0; display:block;""></div>
-                </td>
-                <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
-                  Autopilot Monitor
-                </td>
-              </tr>
-            </table>
-          </td>
+        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
+          <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
+            <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
+              <div style=""width:0; height:20px; border-left:34px solid #ffffff; border-top:13px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
+              <div style=""width:0; height:0; border-right:4px solid #33b161; border-bottom:33px solid transparent; border-left:0; border-top:0; margin:-33px 0 0 30px; display:block; font-size:0; line-height:0;""></div>
+              <div style=""width:0; height:0; border-right:34px solid transparent; border-bottom:2px solid #33b161; border-left:0; border-top:0; margin:-2px 0 0 0; display:block; font-size:0; line-height:0;""></div>
+            </td>
+            <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"">Autopilot Monitor</td>
+          </tr></table>
+        </td>
         </tr>
 
         <!-- Body -->
