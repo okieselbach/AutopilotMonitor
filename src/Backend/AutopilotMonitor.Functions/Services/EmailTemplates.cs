@@ -45,13 +45,10 @@ public static class EmailTemplates
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right,
-                       bottom edge rising to the right (transparent top/bottom borders on a 0-width cell) -->
-                  <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;"">
-                    <tr>
-                      <td style=""width:0; height:17px; padding:0; font-size:0; line-height:0; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0;""></td>
-                    </tr>
-                  </table>
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, bottom
+                       edge rising to the right. Must stay a <div>: Outlook paints transparent <td> borders
+                       white (solid square), but honours them on a block element. -->
+                  <div style=""width:0; height:17px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0; display:block; font-size:0; line-height:0;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
@@ -139,13 +136,10 @@ public static class EmailTemplates
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
                 <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
-                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right,
-                       bottom edge rising to the right (transparent top/bottom borders on a 0-width cell) -->
-                  <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;"">
-                    <tr>
-                      <td style=""width:0; height:17px; padding:0; font-size:0; line-height:0; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0;""></td>
-                    </tr>
-                  </table>
+                  <!-- brand mark drawn in CSS: vertical left edge, top edge falling to the right, bottom
+                       edge rising to the right. Must stay a <div>: Outlook paints transparent <td> borders
+                       white (solid square), but honours them on a block element. -->
+                  <div style=""width:0; height:17px; border-left:36px solid #ffffff; border-top:12px solid transparent; border-bottom:5px solid transparent; border-right:0; display:block; font-size:0; line-height:0;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
