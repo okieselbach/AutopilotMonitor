@@ -6,12 +6,12 @@ export function WelcomeMessage() {
   return (
     <div className="bg-white shadow rounded-lg overflow-hidden">
       {/* Top accent bar */}
-      <div className="h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+      <div className="h-1 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500" />
       <div className="p-6 sm:p-8">
         {/* Header */}
         <div className="flex items-start gap-4 mb-6">
-          <div className="shrink-0 w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-            <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="shrink-0 w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
+            <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
@@ -49,10 +49,10 @@ export function WelcomeMessage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <a
             href={DOCS_URL} target="_blank" rel="noopener noreferrer"
-            className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+            className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 hover:border-green-300 hover:bg-green-50 transition-colors"
           >
-            <span className="shrink-0 w-8 h-8 rounded-lg bg-white border border-gray-200 group-hover:border-blue-200 flex items-center justify-center shadow-sm">
-              <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <span className="shrink-0 w-8 h-8 rounded-lg bg-white border border-gray-200 group-hover:border-green-200 flex items-center justify-center shadow-sm">
+              <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
             </span>
@@ -60,7 +60,7 @@ export function WelcomeMessage() {
               <p className="text-sm font-medium text-gray-900">Documentation</p>
               <p className="text-xs text-gray-500">Setup and configuration guides</p>
             </div>
-            <svg className="w-4 h-4 text-gray-300 group-hover:text-blue-400 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4 text-gray-300 group-hover:text-green-400 ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </a>

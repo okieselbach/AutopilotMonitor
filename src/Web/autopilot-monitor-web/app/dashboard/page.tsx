@@ -12,6 +12,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { StatsCard } from "./components/StatsCards";
 import { WelcomeMessage } from "./components/WelcomeMessage";
+import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
 import { SessionTable } from "./components/SessionTable";
 import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
@@ -29,7 +30,6 @@ import { api } from "@/lib/api";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { formatDuration } from "@/lib/formatting";
 import { hasTenantReadScope } from "@/lib/tenantScope";
-import { DOCS_URL } from "@/utils/config";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 
 export default function Home() {
@@ -345,55 +345,8 @@ function HomeContent() {
       {/* Main content */}
       <main className={mainClassName}>
         <div className="px-4 sm:px-0">
-          {/* Feedback & bug report banner */}
-          <div className="mb-4 bg-blue-50 border border-blue-300 rounded-lg px-4 py-3 flex items-start gap-3 dark:bg-blue-950/30 dark:border-blue-700/50">
-            <svg className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-            </svg>
-            <p className="text-sm text-blue-800 dark:text-blue-300">
-              <span className="font-semibold">Actively developed.</span>{" "}
-              Autopilot Monitor recognizes a wide range of deployment scenarios and improves
-              continuously — your reports directly shape it.{" "}
-              If something looks off, check the{" "}
-              <a
-                href={`${DOCS_URL}/changelog/platform-changelog`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
-              >
-                Platform Changelog
-              </a>{" "}
-              or{" "}
-              <a
-                href={`${DOCS_URL}/troubleshooting/service-announcements`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
-              >
-                Service Announcements
-              </a>
-              .{" "}
-              Feedback or bug report?{" "}
-              <a
-                href="https://github.com/okieselbach/AutopilotMonitor/issues"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
-              >
-                Open a GitHub issue
-              </a>
-              {" "}or message me on{" "}
-              <a
-                href="https://www.linkedin.com/in/oliver-kieselbach/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-medium hover:text-green-600 dark:hover:text-blue-200"
-              >
-                LinkedIn
-              </a>
-              .
-            </p>
-          </div>
+          {/* Feedback & bug report banner (session-dismissable, telemetry-instrumented) */}
+          <ActivelyDevelopedBanner />
 
           {serialValidationEnabled === false && (
             <div className="mb-6 bg-red-600 border-2 border-red-700 rounded-xl p-5 shadow-lg">
