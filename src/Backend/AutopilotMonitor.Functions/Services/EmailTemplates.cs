@@ -37,15 +37,16 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: native HTML (solid bgcolor + text wordmark) so it survives blocked images and
-             clients that drop CSS gradients; only the small brand mark is an image (alt empty). -->
+        <!-- Header: image-free, progressively enhanced. Base (every client): solid bgcolor band +
+             text wordmark + brand mark drawn with a CSS border trapezoid. Enhancements where
+             supported (Apple/iOS Mail, most of Gmail): diagonal stripes via linear-gradient and the
+             slanted bottom edge via clip-path; clients that drop them simply show a flat band. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:28px 40px;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(112deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 60%, #2ea85a 60%, #2ea85a 78%, #33b161 78%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
-                <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0;"">
-                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
-                       style=""display:block; width:36px; height:33px; border:0;"">
+                <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
+                  <div style=""width:0; height:20px; border-left:36px solid #ffffff; border-top:13px solid transparent; border-bottom:2px solid transparent; border-right:0; display:block;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
@@ -125,15 +126,16 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header: native HTML (solid bgcolor + text wordmark) so it survives blocked images and
-             clients that drop CSS gradients; only the small brand mark is an image (alt empty). -->
+        <!-- Header: image-free, progressively enhanced. Base (every client): solid bgcolor band +
+             text wordmark + brand mark drawn with a CSS border trapezoid. Enhancements where
+             supported (Apple/iOS Mail, most of Gmail): diagonal stripes via linear-gradient and the
+             slanted bottom edge via clip-path; clients that drop them simply show a flat band. -->
         <tr>
-          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:28px 40px;"">
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(112deg, #33b161 0%, #33b161 44%, #3cbb6a 44%, #3cbb6a 60%, #2ea85a 60%, #2ea85a 78%, #33b161 78%, #33b161 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 80%); padding:28px 40px 52px;"">
             <table cellpadding=""0"" cellspacing=""0"" border=""0"">
               <tr>
-                <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0;"">
-                  <img src=""{Constants.WebsiteBaseUrl}/email/mark.png"" width=""36"" height=""33"" alt=""""
-                       style=""display:block; width:36px; height:33px; border:0;"">
+                <td valign=""middle"" style=""padding:0 14px 0 0; line-height:0; font-size:0;"">
+                  <div style=""width:0; height:20px; border-left:36px solid #ffffff; border-top:13px solid transparent; border-bottom:2px solid transparent; border-right:0; display:block;""></div>
                 </td>
                 <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap;"">
                   Autopilot Monitor
