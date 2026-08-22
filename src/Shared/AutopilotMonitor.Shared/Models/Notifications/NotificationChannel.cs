@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>
         /// Provider type (int form of <see cref="WebhookProviderType"/>):
-        /// 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson.
+        /// 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord.
         /// </summary>
         public int ProviderType { get; set; }
 
@@ -55,6 +55,12 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// only when <see cref="ProviderType"/> is GenericJson. Secret — redacted for readers.
         /// </summary>
         public string? CustomHeadersJson { get; set; }
+
+        /// <summary>
+        /// HMAC key for signing outgoing requests (X-AutopilotMonitor-Signature), applied
+        /// only when <see cref="ProviderType"/> is GenericJson. Secret — redacted for readers.
+        /// </summary>
+        public string? SigningSecret { get; set; }
 
         /// <summary>Master switch: a disabled channel never receives anything.</summary>
         public bool Enabled { get; set; } = true;
@@ -91,6 +97,18 @@ namespace AutopilotMonitor.Shared.Models.Notifications
                 return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             return WebhookHeaderParser.Parse(CustomHeadersJson);
+        }
+
+        /// <summary>
+        /// Returns the HMAC signing secret for the generic-webhook dispatcher, or null when
+        /// the channel is not GenericJson or no secret is configured.
+        /// </summary>
+        public string? GetSigningSecret()
+        {
+            if (ProviderType != (int)WebhookProviderType.GenericJson)
+                return null;
+
+            return string.IsNullOrWhiteSpace(SigningSecret) ? null : SigningSecret;
         }
 
         /// <summary>

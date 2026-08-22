@@ -23,5 +23,11 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// Supports per-tenant custom request headers for API-key authentication.
         /// </summary>
         GenericJson = 20,
+
+        /// <summary>
+        /// Discord channel webhook (embed format). Webhooks cannot post buttons, so
+        /// openUrl actions are rendered as markdown links inside the embed description.
+        /// </summary>
+        Discord = 30,
     }
 }

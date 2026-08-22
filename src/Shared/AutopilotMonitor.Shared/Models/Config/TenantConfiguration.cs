@@ -820,6 +820,7 @@ namespace AutopilotMonitor.Shared.Models
                 {
                     channel.Url = RedactNullable(channel.Url);
                     channel.CustomHeadersJson = RedactNullable(channel.CustomHeadersJson);
+                    channel.SigningSecret = RedactNullable(channel.SigningSecret);
                 }
 
                 return Notifications.NotificationChannel.SerializeList(channels);
@@ -878,6 +879,7 @@ namespace AutopilotMonitor.Shared.Models
                     continue;
                 if (channel.Url == Constants.RedactedSecretPlaceholder) channel.Url = match.Url;
                 if (channel.CustomHeadersJson == Constants.RedactedSecretPlaceholder) channel.CustomHeadersJson = match.CustomHeadersJson;
+                if (channel.SigningSecret == Constants.RedactedSecretPlaceholder) channel.SigningSecret = match.SigningSecret;
             }
 
             NotificationChannelsJson = Notifications.NotificationChannel.SerializeList(incoming);

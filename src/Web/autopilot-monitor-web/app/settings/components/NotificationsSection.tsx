@@ -25,6 +25,7 @@ const PROVIDERS = [
   { value: 2, label: "Microsoft Teams (Workflow Webhook)", placeholder: "https://prod-xx.westeurope.logic.azure.com:443/workflows/...", badge: "Recommended", badgeColor: "bg-green-100 text-green-800" },
   { value: 10, label: "Slack", placeholder: "https://hooks.slack.com/services/T.../B.../..." },
   { value: GENERIC_PROVIDER, label: "Generic JSON (ticketing / automation)", placeholder: "https://your-system.example.com/api/webhooks/autopilot" },
+  { value: 30, label: "Discord", placeholder: "https://discord.com/api/webhooks/..." },
 ];
 
 const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: string }[] = [
@@ -190,12 +191,14 @@ function ChannelEditor({
           value={channel.providerType}
           onChange={(e) => {
             const next = Number(e.target.value);
-            // Custom headers are generic-only; clear them when leaving the generic provider so
-            // a later switch back can't revive stale auth headers and persist them to a new endpoint.
+            // Custom headers and the signing secret are generic-only; clear them when leaving the
+            // generic provider so a later switch back can't revive stale secrets and persist them
+            // to a new endpoint.
             onChange({
               ...channel,
               providerType: next,
               customHeadersJson: next === GENERIC_PROVIDER ? channel.customHeadersJson : undefined,
+              signingSecret: next === GENERIC_PROVIDER ? channel.signingSecret : undefined,
             });
           }}
           className="block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
@@ -232,6 +235,8 @@ function ChannelEditor({
               ? "Create an Incoming Webhook in Slack (Apps → Incoming Webhooks → Add to channel) and paste the URL here."
               : channel.providerType === GENERIC_PROVIDER
               ? "Any HTTPS endpoint that accepts a JSON POST. Receives a stable payload (schemaVersion + eventType, e.g. \"enrollment_succeeded\") for ticketing, automation, or an SMTP gateway like Postal."
+              : channel.providerType === 30
+              ? "Create a webhook in your Discord channel (Channel settings → Integrations → Webhooks) and paste the URL here."
               : "Create an Incoming Webhook in your Teams channel (Channel → Connectors → Incoming Webhook) and paste the URL here."}
           </p>
           <div className="flex items-center gap-2">
@@ -257,6 +262,41 @@ function ChannelEditor({
           value={channel.customHeadersJson ?? ""}
           onChange={(v) => onChange({ ...channel, customHeadersJson: v || undefined })}
         />
+      )}
+
+      {/* Signing secret (generic provider only) */}
+      {channel.providerType === GENERIC_PROVIDER && (
+        <div>
+          <label className="block">
+            <span className="text-gray-700 font-medium text-sm">Signing Secret (optional)</span>
+            <p className="text-xs text-gray-500 mb-1">
+              When set, every request carries <code className="font-mono">X-AutopilotMonitor-Signature</code> (HMAC-SHA256)
+              so your endpoint can verify it came from Autopilot Monitor — see the docs for the verification scheme.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={channel.signingSecret ?? ""}
+                onChange={(e) => onChange({ ...channel, signingSecret: e.target.value || undefined })}
+                placeholder="16-128 characters"
+                autoComplete="off"
+                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const bytes = new Uint8Array(32);
+                  crypto.getRandomValues(bytes);
+                  const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+                  onChange({ ...channel, signingSecret: secret });
+                }}
+                className="mt-1 flex-shrink-0 px-3 py-2 text-sm font-medium text-sky-600 hover:text-sky-700 border border-sky-200 hover:border-sky-300 rounded-lg transition-colors"
+              >
+                Generate
+              </button>
+            </div>
+          </label>
+        </div>
       )}
 
       {/* Event subscriptions */}

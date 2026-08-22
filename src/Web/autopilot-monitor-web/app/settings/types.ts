@@ -9,11 +9,13 @@ export interface NotificationChannel {
   /** Stable id (UUID, generated on creation). Rules reference channels by this id. */
   id: string;
   name: string;
-  /** 1=Teams Legacy, 2=Teams Workflow, 10=Slack, 20=Generic JSON */
+  /** 1=Teams Legacy, 2=Teams Workflow, 10=Slack, 20=Generic JSON, 30=Discord */
   providerType: number;
   url?: string;
   /** JSON object string { "Header-Name": "value" }; generic provider only. */
   customHeadersJson?: string;
+  /** HMAC key for X-AutopilotMonitor-Signature request signing; generic provider only. */
+  signingSecret?: string;
   enabled: boolean;
   notifyOnStart?: boolean;
   notifyOnSuccess?: boolean;

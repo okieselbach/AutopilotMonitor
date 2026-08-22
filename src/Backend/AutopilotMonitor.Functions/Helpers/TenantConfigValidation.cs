@@ -182,6 +182,35 @@ namespace AutopilotMonitor.Functions.Helpers
                 var headerError = ValidateWebhookCustomHeaders(channel.CustomHeadersJson);
                 if (headerError != null)
                     return $"channel \"{label}\" headers: {headerError}";
+
+                var secretError = ValidateWebhookSigningSecret(channel.SigningSecret);
+                if (secretError != null)
+                    return $"channel \"{label}\" signing secret: {secretError}";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Validates a generic-webhook HMAC signing secret. Returns an error message, or null when
+        /// valid/absent. A short key is brute-forceable as an HMAC key; the printable-ASCII rule
+        /// keeps the secret copy-paste safe and (as a side effect) rejects a stray unrestored
+        /// redaction sentinel, which is shorter than the minimum. No provider gate here — a secret
+        /// on a non-generic channel is stored but inert at dispatch (GetSigningSecret), matching
+        /// how CustomHeadersJson behaves.
+        /// </summary>
+        internal static string? ValidateWebhookSigningSecret(string? secret)
+        {
+            if (string.IsNullOrWhiteSpace(secret))
+                return null;
+
+            if (secret.Length < 16 || secret.Length > 128)
+                return "must be 16-128 characters.";
+
+            foreach (var ch in secret)
+            {
+                if (ch < 0x21 || ch > 0x7E)
+                    return "must be printable ASCII without spaces or line breaks.";
             }
 
             return null;

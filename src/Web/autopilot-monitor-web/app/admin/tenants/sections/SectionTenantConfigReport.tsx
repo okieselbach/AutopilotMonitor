@@ -211,6 +211,7 @@ const WEBHOOK_PROVIDERS: Record<number, string> = {
   2: 'Teams (Workflow Webhook)',
   10: 'Slack',
   20: 'Generic JSON',
+  30: 'Discord',
 };
 
 function formatValue(val: unknown): string {

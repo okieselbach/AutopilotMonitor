@@ -29,6 +29,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 [WebhookProviderType.TeamsWorkflowWebhook] = new TeamsWorkflowAdaptiveCardRenderer(),
                 [WebhookProviderType.Slack] = new SlackRenderer(),
                 [WebhookProviderType.GenericJson] = new GenericJsonRenderer(),
+                [WebhookProviderType.Discord] = new DiscordRenderer(),
             };
         }
 
@@ -36,9 +37,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// Sends a notification (fire-and-forget, non-fatal). Exceptions are logged as warnings.
         /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request,
         /// e.g. an API-key/Authorization header for a ticketing system or SMTP gateway.
+        /// <paramref name="signingSecret"/> (generic webhooks only) adds HMAC signature headers
+        /// (see <see cref="WebhookSignatureCalculator"/>).
         /// </summary>
         public async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
-            IReadOnlyDictionary<string, string>? customHeaders = null)
+            IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
         {
             if (string.IsNullOrEmpty(webhookUrl) || providerType == WebhookProviderType.None)
                 return;
@@ -54,7 +57,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 await SsrfGuard.ValidateDestinationAsync(webhookUrl);
 
                 var json = renderer.RenderToJson(alert);
-                var response = await PostAsync(webhookUrl, json, customHeaders);
+                var response = await PostAsync(webhookUrl, json, customHeaders, signingSecret);
 
                 if (response.IsSuccessStatusCode)
                     _logger.LogInformation("Webhook notification sent: {Summary} (provider={ProviderType})", alert.Summary, providerType);
@@ -88,16 +91,18 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     channel.Url,
                     (WebhookProviderType)channel.ProviderType,
                     alert,
-                    channel.GetCustomHeaders());
+                    channel.GetCustomHeaders(),
+                    channel.GetSigningSecret());
             }
         }
 
         /// <summary>
         /// Sends a notification and returns the result (for test endpoint). Not fire-and-forget.
-        /// <paramref name="customHeaders"/> (generic webhooks only) are attached to the request.
+        /// <paramref name="customHeaders"/> and <paramref name="signingSecret"/> (generic
+        /// webhooks only) are applied exactly like in <see cref="SendNotificationAsync"/>.
         /// </summary>
         public async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
-            IReadOnlyDictionary<string, string>? customHeaders = null)
+            IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
         {
             if (string.IsNullOrEmpty(webhookUrl))
                 return new WebhookTestResult { Success = false, Message = "Webhook URL is not configured." };
@@ -120,7 +125,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             try
             {
                 var json = renderer.RenderToJson(alert);
-                var response = await PostAsync(webhookUrl, json, customHeaders);
+                var response = await PostAsync(webhookUrl, json, customHeaders, signingSecret);
                 var statusCode = (int)response.StatusCode;
 
                 if (response.IsSuccessStatusCode)
@@ -145,8 +150,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// <summary>
         /// POSTs the rendered JSON, attaching any custom headers as request headers. Restricted
         /// (framing/host/content) headers are already filtered upstream by GetGenericWebhookHeaders().
+        /// When a signing secret is present, HMAC signature headers are computed over the exact
+        /// JSON string being posted — after custom headers, so they can never be spoofed by one.
         /// </summary>
-        private Task<HttpResponseMessage> PostAsync(string webhookUrl, string json, IReadOnlyDictionary<string, string>? customHeaders)
+        private Task<HttpResponseMessage> PostAsync(string webhookUrl, string json, IReadOnlyDictionary<string, string>? customHeaders,
+            string? signingSecret = null)
         {
             var request = new HttpRequestMessage(HttpMethod.Post, webhookUrl)
             {
@@ -157,6 +165,16 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             {
                 foreach (var header in customHeaders)
                     request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            if (!string.IsNullOrEmpty(signingSecret))
+            {
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                request.Headers.Remove(WebhookSignatureCalculator.TimestampHeader);
+                request.Headers.Remove(WebhookSignatureCalculator.SignatureHeader);
+                request.Headers.TryAddWithoutValidation(WebhookSignatureCalculator.TimestampHeader, timestamp);
+                request.Headers.TryAddWithoutValidation(WebhookSignatureCalculator.SignatureHeader,
+                    WebhookSignatureCalculator.ComputeSignature(signingSecret, timestamp, json));
             }
 
             return _http.SendAsync(request);

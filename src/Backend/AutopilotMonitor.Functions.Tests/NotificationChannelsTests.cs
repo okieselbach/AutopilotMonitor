@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
@@ -62,6 +63,17 @@ public class NotificationChannelsTests
         Assert.Equal("k", generic.GetCustomHeaders()["X-Api-Key"]);
         Assert.False(generic.GetCustomHeaders().ContainsKey("Host")); // restricted header dropped
         Assert.Empty(slack.GetCustomHeaders());
+    }
+
+    [Fact]
+    public void GetSigningSecret_OnlyForGenericJson()
+    {
+        var secret = "0123456789abcdef";
+        Assert.Equal(secret, new NotificationChannel { Id = "g", ProviderType = 20, SigningSecret = secret }.GetSigningSecret());
+        Assert.Null(new NotificationChannel { Id = "s", ProviderType = 10, SigningSecret = secret }.GetSigningSecret());
+        Assert.Null(new NotificationChannel { Id = "d", ProviderType = 30, SigningSecret = secret }.GetSigningSecret());
+        Assert.Null(new NotificationChannel { Id = "w", ProviderType = 20, SigningSecret = "  " }.GetSigningSecret());
+        Assert.Null(new NotificationChannel { Id = "n", ProviderType = 20 }.GetSigningSecret());
     }
 
     // ── Legacy synthesis (GetNotificationChannels) ────────────────────────
@@ -141,7 +153,7 @@ public class NotificationChannelsTests
         var cfg = new TenantConfiguration
         {
             NotificationChannelsJson = "[" +
-                ChannelJson("ch-1", extra: ",\"customHeadersJson\":\"{\\\"X-Api-Key\\\":\\\"k\\\"}\"") + "," +
+                ChannelJson("ch-1", extra: ",\"customHeadersJson\":\"{\\\"X-Api-Key\\\":\\\"k\\\"}\",\"signingSecret\":\"0123456789abcdef\"") + "," +
                 ChannelJson("ch-2", providerType: 10, url: "https://slack.example/h") + "]",
         };
 
@@ -151,8 +163,10 @@ public class NotificationChannelsTests
         Assert.Equal("ch-1", redacted[0].Id);                                  // structure visible
         Assert.Equal(Constants.RedactedSecretPlaceholder, redacted[0].Url);    // secrets masked
         Assert.Equal(Constants.RedactedSecretPlaceholder, redacted[0].CustomHeadersJson);
+        Assert.Equal(Constants.RedactedSecretPlaceholder, redacted[0].SigningSecret);
         Assert.Equal(Constants.RedactedSecretPlaceholder, redacted[1].Url);
         Assert.Null(redacted[1].CustomHeadersJson);                            // unset stays unset
+        Assert.Null(redacted[1].SigningSecret);
     }
 
     [Fact]
@@ -169,7 +183,7 @@ public class NotificationChannelsTests
         {
             NotificationChannelsJson = "[" +
                 ChannelJson("ch-1", url: "https://real.example/hook",
-                    extra: ",\"customHeadersJson\":\"{\\\"X-Api-Key\\\":\\\"real\\\"}\"") + "]",
+                    extra: ",\"customHeadersJson\":\"{\\\"X-Api-Key\\\":\\\"real\\\"}\",\"signingSecret\":\"real-secret-0123\"") + "]",
         };
 
         // Round-trip the redacted view back onto a save (defense-in-depth path).
@@ -179,6 +193,7 @@ public class NotificationChannelsTests
         var ch = Assert.Single(NotificationChannel.ParseList(incoming.NotificationChannelsJson));
         Assert.Equal("https://real.example/hook", ch.Url);
         Assert.Equal("{\"X-Api-Key\":\"real\"}", ch.CustomHeadersJson);
+        Assert.Equal("real-secret-0123", ch.SigningSecret);
     }
 
     [Fact]
@@ -243,5 +258,41 @@ public class NotificationChannelsTests
         var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(json);
         Assert.NotNull(error);
         Assert.Contains("headers", error);
+    }
+
+    // ── Signing-secret validation ─────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("0123456789abcdef")] // 16 chars (minimum)
+    public void ValidateWebhookSigningSecret_AcceptsAbsentOrValid(string? secret)
+    {
+        Assert.Null(TenantConfigValidation.ValidateWebhookSigningSecret(secret));
+        // 128 chars (maximum) and a typical generated 64-char hex secret
+        Assert.Null(TenantConfigValidation.ValidateWebhookSigningSecret(new string('a', 128)));
+        Assert.Null(TenantConfigValidation.ValidateWebhookSigningSecret(new string('f', 64)));
+    }
+
+    [Theory]
+    [InlineData("short-15-chars.")]                  // below minimum
+    [InlineData("has a space in the middle!")]       // whitespace
+    [InlineData("line\nbreak-0123456789")]           // control char
+    [InlineData("umlauts-äöü-0123456789")]           // non-ASCII
+    [InlineData("***REDACTED***")]                   // unrestored sentinel (too short anyway)
+    public void ValidateWebhookSigningSecret_RejectsInvalid(string secret)
+    {
+        Assert.NotNull(TenantConfigValidation.ValidateWebhookSigningSecret(secret));
+        Assert.NotNull(TenantConfigValidation.ValidateWebhookSigningSecret(new string('a', 129)));
+    }
+
+    [Fact]
+    public void ValidateNotificationChannels_RejectsBadPerChannelSigningSecret()
+    {
+        var json = "[" + ChannelJson("ch-1", extra: ",\"signingSecret\":\"too-short\"") + "]";
+        var error = UpdateTenantConfigurationFunction.ValidateNotificationChannels(json);
+        Assert.NotNull(error);
+        Assert.Contains("signing secret", error);
     }
 }

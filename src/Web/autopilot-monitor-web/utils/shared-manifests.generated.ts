@@ -419,7 +419,8 @@ export const SHARED_MANIFEST = {
     "TeamsLegacyConnector": 1,
     "TeamsWorkflowWebhook": 2,
     "Slack": 10,
-    "GenericJson": 20
+    "GenericJson": 20,
+    "Discord": 30
   },
   "annotationLanes": [
     "operator",
