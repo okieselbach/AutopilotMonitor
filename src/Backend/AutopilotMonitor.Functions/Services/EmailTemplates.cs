@@ -37,11 +37,11 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header -->
+        <!-- Header: hosted PNG (mail clients drop CSS gradients / inline SVG); solid bgcolor keeps a green band when images are blocked -->
         <tr>
-          <td style=""background:linear-gradient(135deg,#1e8a4c,#33b161); padding:32px 40px; text-align:center;"">
-            <h1 style=""color:#ffffff; margin:0; font-size:24px; font-weight:700;"">Autopilot Monitor</h1>
-            <p style=""color:#c9efd8; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:0; line-height:0; font-size:0;"">
+            <img src=""{Constants.WebsiteBaseUrl}/email/header.png"" width=""600"" height=""150"" alt=""Autopilot Monitor""
+                 style=""display:block; width:100%; max-width:600px; height:auto; border:0;"">
           </td>
         </tr>
 
@@ -56,14 +56,14 @@ public static class EmailTemplates
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 24px;"">
               Thank you for taking the time to try Autopilot Monitor. Every organization that
-              puts it to work in a real environment helps shape what it becomes &mdash; we're
+              puts it to work in a real environment helps shape what it becomes &ndash; we're
               genuinely grateful you gave it a chance.
             </p>
 
             <!-- Gentle feedback ask -->
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 12px;"">
-              If something didn't fit &mdash; a missing feature, a bug that got in the way, or
-              simply a better alternative &mdash; we'd love to hear about it. A couple of honest
+              If something didn't fit &ndash; a missing feature, a bug that got in the way, or
+              simply a better alternative &ndash; we'd love to hear about it. A couple of honest
               sentences help more than you'd think:
             </p>
 
@@ -78,7 +78,7 @@ public static class EmailTemplates
 
             <p style=""color:#6b7280; font-size:13px; line-height:1.6; margin:0;"">
               This is the last email you'll receive from us. This mailbox doesn't accept
-              replies &mdash; please use the links above if you'd like to get in touch.
+              replies &ndash; please use the links above if you'd like to get in touch.
             </p>
           </td>
         </tr>
@@ -115,11 +115,11 @@ public static class EmailTemplates
     <tr><td align=""center"">
       <table width=""600"" cellpadding=""0"" cellspacing=""0"" style=""background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.07);"">
 
-        <!-- Header -->
+        <!-- Header: hosted PNG (mail clients drop CSS gradients / inline SVG); solid bgcolor keeps a green band when images are blocked -->
         <tr>
-          <td style=""background:linear-gradient(135deg,#1e8a4c,#33b161); padding:32px 40px; text-align:center;"">
-            <h1 style=""color:#ffffff; margin:0; font-size:24px; font-weight:700;"">Autopilot Monitor</h1>
-            <p style=""color:#c9efd8; margin:8px 0 0; font-size:14px;"">Windows Autopilot monitoring</p>
+          <td bgcolor=""#33b161"" style=""background-color:#33b161; padding:0; line-height:0; font-size:0;"">
+            <img src=""{Constants.WebsiteBaseUrl}/email/header.png"" width=""600"" height=""150"" alt=""Autopilot Monitor""
+                 style=""display:block; width:100%; max-width:600px; height:auto; border:0;"">
           </td>
         </tr>
 
@@ -129,8 +129,8 @@ public static class EmailTemplates
             <h2 style=""color:#111827; margin:0 0 16px; font-size:20px;"">Welcome to Autopilot Monitor!</h2>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 16px;"">
-              Great news &mdash; access for <strong>{displayDomain}</strong> has been activated and is ready to use.
-              You can now sign in and start monitoring your Windows Autopilot enrollments in real time.
+              Great news &ndash; access for <strong>{displayDomain}</strong> has been activated and is ready to use.
+              You can now <a href=""{Constants.PortalBaseUrl}"" target=""_blank"" style=""color:#1e8a4c; text-decoration:underline;"">sign in</a> and start monitoring your Windows Autopilot enrollments in real time.
             </p>
 
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 24px;"">
@@ -149,13 +149,6 @@ public static class EmailTemplates
               </tr>
             </table>
 
-            <!-- Active development note -->
-            <div style=""background-color:#fef3c7; border:1px solid #fde68a; border-radius:8px; padding:16px 20px; margin:0 0 24px;"">
-              <p style=""color:#92400e; font-size:14px; line-height:1.5; margin:0;"">
-                <strong>Please note:</strong> Autopilot Monitor is in active development. Some features are still being built
-                and things may occasionally not work as expected. Your patience and understanding are greatly appreciated!
-              </p>
-            </div>
 
             <!-- Feedback -->
             <p style=""color:#374151; font-size:15px; line-height:1.6; margin:0 0 12px;"">
@@ -169,7 +162,7 @@ public static class EmailTemplates
             </ul>
 
             <p style=""color:#6b7280; font-size:14px; line-height:1.6; margin:0;"">
-              Thanks for being part of the journey &mdash; enjoy Autopilot Monitor!
+              Thanks for being part of the journey &ndash; enjoy Autopilot Monitor!
             </p>
           </td>
         </tr>
