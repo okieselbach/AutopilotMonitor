@@ -4,7 +4,7 @@ title: Tenant Activation & the Once-Only Welcome Mail
 description: How a signup becomes an activated tenant (manual approve or auto-approve queue), and how the welcome mail is sent exactly once even though activation and the user-provided address race each other.
 resource: backend
 tags: [activation, auto-approve, welcome-email, preview-whitelist, race]
-timestamp: 2026-08-22
+timestamp: 2026-08-23
 ---
 
 # Schema
@@ -79,6 +79,25 @@ section — a provider swap must not rename classes, DI registrations or callers
   receives only the recipient address and the tenant domain, which is exactly the claim on
   the privacy page and the trust data-flows page. Changing tracking = changing those pages.
 
+## Template overrides (operator-editable)
+
+Global Admins can replace either HTML body without a deployment (portal: Settings →
+Email Templates). `EmailTemplateService` resolves the body for every send: the stored
+override wins, otherwise the built-in `EmailTemplates.*`. Overrides live in the
+`PreviewConfig` table (partition `EmailTemplates`, row key `welcome` | `farewell`,
+properties `Html`, `UpdatedBy`, `UpdatedUtc`), cached 5 minutes, invalidated on save/reset.
+
+* The only placeholder is `{{domainName}}`; an empty domain renders as "your organization",
+  matching the built-ins. Subjects are not editable (pinned constants).
+* Limit 30 000 characters (Table string property cap is 32K UTF-16 chars).
+* The send path is fail-soft: a storage error falls back to the built-in body. The admin
+  read path is not — a broken store surfaces as an error instead of silently showing the
+  built-in.
+* Endpoints (all GlobalAdminOnly): `GET|PUT|DELETE /api/global/email-templates/{kind}` and
+  `POST /api/global/email-templates/{kind}/test`. The test send goes to the caller's tenant
+  contact address (activation notification email → `ContactEmail` → caller UPN) with the
+  caller's tenant domain, optionally with an unsaved draft body; provider tag `test`.
+
 # Examples
 
 * Auto-approve wins the race: approve at T+64 s finds no address → logs "deferred to the
@@ -96,3 +115,6 @@ section — a provider swap must not rename classes, DI registrations or callers
 * `src/Backend/AutopilotMonitor.Functions.Tests/TenantApprovalServiceTests.cs` — ordering + dedup pins
 * `src/Backend/AutopilotMonitor.Functions/Services/EmailService.cs` — provider-neutral transport (Mandrill wire format, result handling, tracking off)
 * `src/Backend/AutopilotMonitor.Functions.Tests/EmailServiceTests.cs` — wire-format, fail-soft and gate-ordering pins
+* `src/Backend/AutopilotMonitor.Functions/Services/EmailTemplateService.cs` — override resolution, placeholder rendering, cache
+* `src/Backend/AutopilotMonitor.Functions/Functions/Admin/EmailTemplatesFunction.cs` — GA endpoints (read / override / reset / test send)
+* `src/Web/autopilot-monitor-web/app/admin/settings/sections/SectionEmailTemplates.tsx` — portal editor, preview frame, test send

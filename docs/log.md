@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-23
+
+* **Update**: `backend/tenant-activation-welcome-mail.md` — new "Template overrides" section: Global Admins can replace the welcome/farewell HTML in the portal (Settings → Email Templates); `EmailTemplateService` resolves override-or-built-in per send (PreviewConfig table, partition `EmailTemplates`, 5-min cache, `{{domainName}}` placeholder, 30k limit, fail-soft send path), GA endpoints `global/email-templates/{kind}` (+`/test` to the caller's tenant contact address). Also: the mail header is image-free (CSS-drawn brand mark, gradient stripes and clip-path edge as progressive enhancement).
+
 ## 2026-08-22
 
 * **Update**: `backend/tenant-activation-welcome-mail.md` — new "Mail transport" section: transactional mail now goes through the provider-neutral `EmailService` (`IEmailService` + `IOffboardFarewellEmailSender`) with the provider confined to one private transport method and the `Email:*` settings (`ApiKey`, `Endpoint`, `FromAddress`, `FromName`); current provider Mailchimp Transactional (Mandrill) replacing Resend (NuGet dropped, typed `HttpClient` + `ResiliencePolicies.Notification`). Result-array semantics (`sent`/`queued`/`scheduled` ok, `rejected`/`invalid` warn), open/click tracking explicitly off because the privacy/trust claim depends on it.
