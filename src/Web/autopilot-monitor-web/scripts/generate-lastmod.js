@@ -18,6 +18,9 @@ const OUTPUT_FILE = path.join(WEB_ROOT, "utils/page-lastmod.generated.ts");
 const PAGE_MAP = {
   "/": ["app/page.tsx"],
   "/about": ["app/about/page.tsx"],
+  "/buy": ["app/buy/page.tsx"],
+  "/help": ["app/help/page.tsx"],
+  "/plans": ["app/plans/page.tsx", "components/plans/planData.ts"],
   "/roadmap": ["app/roadmap/page.tsx"],
   "/changelog": ["app/changelog/page.tsx"],
   "/privacy": ["app/privacy/page.tsx"],

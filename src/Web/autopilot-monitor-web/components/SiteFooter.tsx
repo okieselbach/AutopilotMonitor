@@ -8,7 +8,7 @@ const LINK_COLUMNS = [
       { label: "The Story", href: "/#story" },
       { label: "Capabilities", href: "/#features" },
       { label: "Compare", href: "/#comparison" },
-      { label: "Plans", href: `${DOCS_URL}/plans`, external: true },
+      { label: "Plans", href: "/plans" },
     ],
   },
   {

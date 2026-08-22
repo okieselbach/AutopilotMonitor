@@ -1,5 +1,3 @@
-import { DOCS_URL } from "@/utils/config";
-
 export function FinalCta() {
   return (
     <section className="py-20 sm:py-24 px-6 border-t border-[var(--lp-line-soft)]">
@@ -19,9 +17,7 @@ export function FinalCta() {
             <span className="block mt-0.5">
               Need SLAs, support, or MSP delegation?{" "}
               <a
-                href={`${DOCS_URL}/plans`}
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/plans"
                 className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
               >
                 There&apos;s a Pro plan

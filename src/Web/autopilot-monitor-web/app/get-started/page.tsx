@@ -103,9 +103,7 @@ export default function GetStartedPage() {
           <p className="mt-6 text-sm text-[var(--lp-ink-faint)] leading-relaxed max-w-xl">
             When you need more later: the{" "}
             <a
-              href={`${DOCS_URL}/plans`}
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/plans"
               className="text-[var(--lp-accent-ink)] hover:opacity-80 underline"
             >
               Pro plan

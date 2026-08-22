@@ -861,6 +861,14 @@ html:hover ::-webkit-scrollbar-thumb {
 .dark .landing-v2 .border-gray-300 { border-color: #d1d5db !important; }
 .dark .landing-v2 .hover\:bg-gray-50:hover { background-color: #f9fafb !important; }
 .dark .landing-v2 .hover\:bg-gray-100:hover { background-color: #f3f4f6 !important; }
+/* Purple utilities on the shared plan cards (/plans): only the classes that
+   HAVE a global .dark override need neutralizing here — the slash-opacity
+   surfaces (bg-purple-50/20) are separate tokens the override map never
+   matched in the first place. */
+.dark .landing-v2 .text-purple-900 { color: #581c87 !important; }
+.dark .landing-v2 .text-purple-700 { color: #7e22ce !important; }
+.dark .landing-v2 .bg-purple-100 { background-color: #f3e8ff !important; }
+.dark .landing-v2 .border-purple-200 { border-color: #e9d5ff !important; }
 
 /* Scroll-triggered reveal: Reveal.tsx adds .lp-in when the element
    enters the viewport. Reduced motion renders everything visible. */

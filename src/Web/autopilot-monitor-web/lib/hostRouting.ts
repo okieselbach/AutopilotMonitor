@@ -22,10 +22,12 @@ import { PORTAL_URL, SITE_URL } from "@/utils/config";
  */
 export const PUBLIC_PATH_PREFIXES = [
   "/about",
+  "/buy",
   "/changelog",
   "/docs",
   "/get-started",
   "/help",
+  "/plans",
   "/privacy",
   "/terms",
   "/roadmap",

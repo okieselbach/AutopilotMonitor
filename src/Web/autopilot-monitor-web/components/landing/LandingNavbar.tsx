@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: "/#story", label: "Product" },
   { href: "/#features", label: "Capabilities" },
   { href: "/#comparison", label: "Compare" },
+  { href: "/plans", label: "Plans" },
   { href: DOCS_URL, label: "Docs", external: true },
 ];
 

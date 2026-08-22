@@ -128,6 +128,8 @@ describe("hostRouting public/portal guard", () => {
     // Prefix matching: subpaths and generated asset variants match…
     expect(isPublicPath("/about")).toBe(true);
     expect(isPublicPath("/help")).toBe(true);
+    expect(isPublicPath("/plans")).toBe(true);
+    expect(isPublicPath("/buy")).toBe(true);
     expect(isPublicPath("/docs/setup")).toBe(true);
     expect(isPublicPath("/icon-192.png")).toBe(true);
     expect(isPublicPath("/opengraph-image.png")).toBe(true);
