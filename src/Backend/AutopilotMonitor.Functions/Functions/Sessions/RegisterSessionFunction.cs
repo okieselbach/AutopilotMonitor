@@ -305,7 +305,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                                  $"enrollment session at {registration.StartedAt:yyyy-MM-dd HH:mm} UTC before this one " +
                                  "reached a terminal state.";
                     var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                        registration.TenantId, stale.SessionId, SessionStatus.Incomplete,
+                        registration.TenantId, stale.SessionId, SessionStatus.Incomplete, VerdictPaths.RegisterSuperseded,
                         failureReason: reason, failureSource: "superseded_by_reregistration");
                     if (!transitioned)
                         continue;

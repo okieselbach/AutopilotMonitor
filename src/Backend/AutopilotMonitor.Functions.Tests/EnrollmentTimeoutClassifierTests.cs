@@ -164,6 +164,12 @@ public class EnrollmentTimeoutClassifierTests
 
     private static (SessionStatus, string) Classify(IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 6, int grace = 72)
     {
+        var (status, reason, _) = ClassifyWithRule(events, hoursSinceStart, grace);
+        return (status, reason);
+    }
+
+    private static (SessionStatus, string, string) ClassifyWithRule(IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 6, int grace = 72)
+    {
         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
         var now = Start.AddHours(hoursSinceStart);
         return EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, now, grace);
@@ -220,7 +226,7 @@ public class EnrollmentTimeoutClassifierTests
             Esp(DeviceSetup44), Esp(AccountSetup15),
             Evt("desktop_arrived"), Evt("hello_provisioning_completed"), Evt("realmjoin_detected"),
         });
-        var (status, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+        var (status, reason, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
             rollup, Start, now, graceHours: 72, lastEventAtUtc: lastEvent);
 
         Assert.Equal(SessionStatus.Succeeded, status);
@@ -481,8 +487,9 @@ public class EnrollmentTimeoutClassifierTests
     {
         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
         var now = Start.AddHours(hoursSinceStart);
-        return EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+        var (status, reason, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
             rollup, Start, now, grace, isPreProvisioned: true, resumedAt: Resumed);
+        return (status, reason);
     }
 
     /// <summary>The fairstone event shape: Part 1 sealed, Part 2 resumed, nobody signed in.</summary>
@@ -611,7 +618,7 @@ public class EnrollmentTimeoutClassifierTests
         {
             Esp(DeviceSetup44), Evt("whiteglove_complete"), Esp(AccountSetup05),
         });
-        var (status, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+        var (status, _, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
             rollup, Start, Start.AddHours(6), 51, isPreProvisioned: true, resumedAt: null);
         Assert.Equal(SessionStatus.Succeeded, status);
     }
@@ -622,9 +629,10 @@ public class EnrollmentTimeoutClassifierTests
         IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 3, int grace = 51)
     {
         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
-        return EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+        var (status, reason, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
             rollup, Start, Start.AddHours(hoursSinceStart), grace,
             lastEventAtUtc: Start.AddMinutes(4), isSelfDeployingProfile: true);
+        return (status, reason);
     }
 
     // Session 195593e2 replay: DeviceSetup 4/4 (fallback-confirmed), AccountSetup registry
@@ -675,8 +683,8 @@ public class EnrollmentTimeoutClassifierTests
         // Guard against the gate leaking into user-driven sessions: the identical event shape
         // on a user-driven profile is still "awaiting user" within grace / Incomplete past it.
         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(KioskSilentStream);
-        var (within, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(3), 51);
-        var (past, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(60), 51);
+        var (within, _, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(3), 51);
+        var (past, _, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(60), 51);
         Assert.Equal(SessionStatus.AwaitingUser, within);
         Assert.Equal(SessionStatus.Incomplete, past);
     }

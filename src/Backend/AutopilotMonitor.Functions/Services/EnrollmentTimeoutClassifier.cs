@@ -320,7 +320,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <param name="isPreProvisioned">Session's IsPreProvisioned flag (WhiteGlove Part-2 gate input).</param>
         /// <param name="resumedAt">Session's ResumedAt — set exclusively by the whiteglove_resumed ingest.</param>
         /// <param name="isSelfDeployingProfile">Session's IsSelfDeployingProfile flag (rule 1c gate input).</param>
-        public static (SessionStatus Status, string Reason) ClassifyTimedOutSession(
+        public static (SessionStatus Status, string Reason, string Rule) ClassifyTimedOutSession(
             EspProvisioningRollup rollup, DateTime startedAtUtc, DateTime nowUtc, int graceHours,
             DateTime? lastEventAtUtc = null, bool isPreProvisioned = false, DateTime? resumedAt = null,
             bool isSelfDeployingProfile = false)
@@ -328,7 +328,7 @@ namespace AutopilotMonitor.Functions.Services
             // 1. An explicit terminal failure event is a real failure (defensive — such a session
             //    would normally already be terminal via ingest and not reach the sweep).
             if (rollup.HasExplicitFailure)
-                return (SessionStatus.Failed, "Enrollment reported an explicit failure before timeout");
+                return (SessionStatus.Failed, "Enrollment reported an explicit failure before timeout", ClassifierRules.R1ExplicitFailure);
 
             // 1b. WhiteGlove Part 2 with zero user evidence since the resume: the device is parked
             //     between technician and end user (sealed box / powered off at the logon screen).
@@ -341,11 +341,11 @@ namespace AutopilotMonitor.Functions.Services
             if (IsWhiteGloveAwaitingUser(rollup, isPreProvisioned, resumedAt))
             {
                 if ((nowUtc - startedAtUtc).TotalHours < graceHours)
-                    return (SessionStatus.AwaitingUser, WhiteGloveAwaitingUserReason(rollup));
+                    return (SessionStatus.AwaitingUser, WhiteGloveAwaitingUserReason(rollup), ClassifierRules.R1bWhiteGloveAwaiting);
 
                 return (SessionStatus.Succeeded, AppendReconcileTiming(
                     $"Reconciled at timeout: pre-provisioning (WhiteGlove Part 1) completed — no user sign-in observed within {graceHours}h grace",
-                    startedAtUtc, nowUtc, lastEventAtUtc));
+                    startedAtUtc, nowUtc, lastEventAtUtc), ClassifierRules.R1bWhiteGloveSucceeded);
             }
 
             // 1c. Self-deploying profile with Device Setup fully provisioned: there is no user phase
@@ -355,7 +355,7 @@ namespace AutopilotMonitor.Functions.Services
             //     contradict it (a kiosk autologon is not a user) and an explicit failure already
             //     returned in rule 1.
             if (IsSelfDeployingProvisioned(rollup, isSelfDeployingProfile))
-                return (SessionStatus.Succeeded, SelfDeployingReconcileReason(startedAtUtc, nowUtc, lastEventAtUtc));
+                return (SessionStatus.Succeeded, SelfDeployingReconcileReason(startedAtUtc, nowUtc, lastEventAtUtc), ClassifierRules.R1cSelfDeploying);
 
             // 2. Account Setup fully succeeded (or a terminal completion event) → reconcile to success.
             //    Once Part 2 has resumed, the Part-1 whiteglove_complete in the same stream no longer
@@ -368,14 +368,15 @@ namespace AutopilotMonitor.Functions.Services
             if (rollup.AccountSetupAllSucceeded || terminalCompleteProvesOutcome)
                 return (SessionStatus.Succeeded, AppendReconcileTiming(
                     "Reconciled at timeout: Account Setup completed (all subcategories succeeded / enrollment_complete observed)",
-                    startedAtUtc, nowUtc, lastEventAtUtc));
+                    startedAtUtc, nowUtc, lastEventAtUtc), ClassifierRules.R2AccountSetupComplete);
 
             // 3. The agent's absolute-age emergency break fired — the agent has cleaned up and exited, so
             //    nothing more will ever arrive for this session. Terminalize NOW (skip the AwaitingUser grace):
             //    it did not complete (2) and did not explicitly fail (1), so the honest verdict is Incomplete.
             if (rollup.HasAgentEmergencyBreak)
                 return (SessionStatus.Incomplete,
-                    "Agent emergency break fired (absolute session-age cap) — agent gone without completion");
+                    "Agent emergency break fired (absolute session-age cap) — agent gone without completion",
+                    ClassifierRules.R3EmergencyBreak);
 
             // 4. The user demonstrably finished setup: a real-user desktop was observed AND
             //    Windows Hello reached a positive terminal (provisioned or skipped). Those are
@@ -410,7 +411,7 @@ namespace AutopilotMonitor.Functions.Services
                     : "agent went silent before reporting completion";
                 return (SessionStatus.Succeeded, AppendReconcileTiming(
                     $"Reconciled at timeout: user completed setup ({evidence}) — {detail}",
-                    startedAtUtc, nowUtc, lastEventAtUtc));
+                    startedAtUtc, nowUtc, lastEventAtUtc), ClassifierRules.R4DesktopHello);
             }
 
             // 5. Device Setup fully provisioned (device is AADJ + MDM-enrolled), user phase pending.
@@ -423,7 +424,8 @@ namespace AutopilotMonitor.Functions.Services
                         ? $" (Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})"
                         : " (Account Setup not yet started)";
                     return (SessionStatus.AwaitingUser,
-                        $"Device Setup completed; awaiting user / Account Setup phase — agent silent, within {graceHours}h grace{acct}");
+                        $"Device Setup completed; awaiting user / Account Setup phase — agent silent, within {graceHours}h grace{acct}",
+                        ClassifierRules.R5DeviceSetupAwaiting);
                 }
 
                 // "0/0" would suggest a parsed rollup that never existed — when no Account Setup
@@ -432,12 +434,14 @@ namespace AutopilotMonitor.Functions.Services
                     ? $"last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal}"
                     : "Account Setup progress never observed";
                 return (SessionStatus.Incomplete,
-                    $"No completion signal within {graceHours}h grace after Device Setup completed ({acctDetail})");
+                    $"No completion signal within {graceHours}h grace after Device Setup completed ({acctDetail})",
+                    ClassifierRules.R5DeviceSetupIncomplete);
             }
 
             // 6. Silent before Device Setup completed, with no explicit failure → unknown, not a failure.
             return (SessionStatus.Incomplete,
-                "No Device Setup completion or explicit failure signal observed before timeout");
+                "No Device Setup completion or explicit failure signal observed before timeout",
+                ClassifierRules.R6Fallthrough);
         }
 
         /// <summary>

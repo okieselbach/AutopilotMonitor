@@ -220,13 +220,36 @@ namespace AutopilotMonitor.Shared.Models
         public string FailureReason { get; set; } = default!;
 
         /// <summary>
-        /// Origin of a Failed status. Values:
+        /// Origin of a Failed status — persisted ONLY on a Failed write (a non-Failed verdict
+        /// discards it; see <see cref="VerdictPath"/> for the status-independent attribution). Values:
         ///   - "" / null: agent-reported (default; terminal enrollment_failed event)
         ///   - "rule:&lt;RuleId&gt;": session failed because an analyze rule with MarkSessionAsFailed fired
         ///   - "manual": operator flipped the session via the portal
+        ///   - "max_lifetime_watchdog": the agent's max-lifetime shutdown verdict was Failed
         /// Consumers use this to render rule-based failures distinctly (badge + link to rule).
         /// </summary>
         public string FailureSource { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Machine-readable origin of the CURRENT <see cref="Status"/> — which code path wrote it
+        /// (<see cref="VerdictPaths"/> vocabulary, e.g. <c>agent:complete</c>, <c>sweep:r5_incomplete</c>,
+        /// <c>manual:failed</c>). Stamped on every status write regardless of status, so the verdict
+        /// calibration aggregate can count each path. Null on rows written before instrumentation
+        /// (read-side derivation covers those).
+        /// </summary>
+        public string? VerdictPath { get; set; }
+
+        /// <summary>
+        /// The verdict this session carried BEFORE the current status overrode it — set only when a
+        /// write replaces a prior Succeeded/Failed/Incomplete/AwaitingUser (admin mark, late agent
+        /// completion upgrading a sweep verdict, retro-reclassification). Together with
+        /// <see cref="PriorVerdictPath"/> this is the correction stream: "path X was overridden".
+        /// Null when the status never overrode a verdict.
+        /// </summary>
+        public string? PriorStatus { get; set; }
+
+        /// <summary>The <see cref="VerdictPath"/> of the overridden prior verdict; see <see cref="PriorStatus"/>.</summary>
+        public string? PriorVerdictPath { get; set; }
 
         /// <summary>
         /// Non-empty only when the BACKEND (not the agent) declared this session Succeeded:

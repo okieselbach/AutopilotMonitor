@@ -49,6 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     tenantId,
                     sessionId,
                     SessionStatus.Failed,
+                    VerdictPaths.ManualFailed,
                     currentPhase: null, // Keep current phase
                     failureReason: "Manually marked as failed by administrator",
                     failureSource: "manual",

@@ -83,8 +83,14 @@ namespace AutopilotMonitor.Shared.DataAccess
             string? tenantIdFilter, int days, IReadOnlyCollection<string>? allowedTenantIds = null);
 
         // --- Session Updates ---
+        /// <summary>
+        /// Single status-write seam. <paramref name="verdictPath"/> is REQUIRED: every writer names
+        /// the code path that produced the status (<see cref="VerdictPaths"/>), stamped for all
+        /// statuses so the verdict calibration aggregate can count each path. Overriding a prior
+        /// verdict preserves it in PriorStatus/PriorVerdictPath.
+        /// </summary>
         Task<bool> UpdateSessionStatusAsync(
-            string tenantId, string sessionId, SessionStatus status,
+            string tenantId, string sessionId, SessionStatus status, string verdictPath,
             EnrollmentPhase? currentPhase = null, string? failureReason = null,
             DateTime? completedAt = null, DateTime? earliestEventTimestamp = null,
             DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null,
@@ -123,7 +129,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null);
         Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned,
-            SessionStatus? status = null, bool? isUserDriven = null);
+            SessionStatus? status = null, bool? isUserDriven = null, string? verdictPath = null);
         Task UpdateSessionGeoAsync(string tenantId, string sessionId,
             string? country, string? region, string? city, string? loc);
         Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version);

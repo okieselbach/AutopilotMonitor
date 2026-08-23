@@ -74,7 +74,7 @@ public class SessionStartedAtBackwardShiftGuardTests
         var harness = new Harness(SessionRow(), earliestStoredEvent: poisoned);
 
         var ok = await harness.Sut.UpdateSessionStatusAsync(
-            TenantId, SessionId, SessionStatus.Pending,
+            TenantId, SessionId, SessionStatus.Pending, VerdictPaths.AgentWhiteGlovePending,
             earliestEventTimestamp: poisoned, latestEventTimestamp: lastEvent);
 
         Assert.True(ok);
@@ -93,7 +93,7 @@ public class SessionStartedAtBackwardShiftGuardTests
         var harness = new Harness(SessionRow(), earliestStoredEvent: earliest);
 
         var ok = await harness.Sut.UpdateSessionStatusAsync(
-            TenantId, SessionId, SessionStatus.Pending,
+            TenantId, SessionId, SessionStatus.Pending, VerdictPaths.AgentWhiteGlovePending,
             latestEventTimestamp: lastEvent);
 
         Assert.True(ok);
@@ -132,7 +132,7 @@ public class SessionStartedAtBackwardShiftGuardTests
         });
 
         var ok = await harness.Sut.UpdateSessionStatusAsync(
-            TenantId, SessionId, SessionStatus.Pending,
+            TenantId, SessionId, SessionStatus.Pending, VerdictPaths.AgentWhiteGlovePending,
             latestEventTimestamp: lastEvent);
 
         Assert.True(ok);

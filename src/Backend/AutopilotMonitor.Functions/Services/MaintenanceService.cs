@@ -392,6 +392,7 @@ namespace AutopilotMonitor.Functions.Services
                                 silent.TenantId,
                                 silent.SessionId,
                                 SessionStatus.Stalled,
+                                VerdictPaths.SweepStalled,
                                 stalledAt: now,
                                 failureReason: $"Agent silent for {silentMinutes}min (detected by maintenance sweep)");
                             silentMarked++;
@@ -482,7 +483,7 @@ namespace AutopilotMonitor.Functions.Services
                             // Device Setup done + within grace → AwaitingUser, else Incomplete; silent before
                             // Device Setup → Incomplete. Never Failed without an explicit failure signal.
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
-                            var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                            var (targetStatus, reason, rule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                                 rollup, effectiveStart, now, graceHours, session.LastEventAt,
                                 isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
                                 isSelfDeployingProfile: session.IsSelfDeployingProfile);
@@ -495,6 +496,7 @@ namespace AutopilotMonitor.Functions.Services
                                 session.TenantId,
                                 session.SessionId,
                                 targetStatus,
+                                VerdictPaths.Compose(VerdictPaths.OriginSweep, rule),
                                 failureReason: reason,
                                 failureSnapshotJson: snapshotJson
                             );
@@ -624,6 +626,7 @@ namespace AutopilotMonitor.Functions.Services
                     silent.TenantId,
                     silent.SessionId,
                     SessionStatus.AwaitingUser,
+                    VerdictPaths.SweepWhiteGloveAwaiting,
                     failureReason: EnrollmentTimeoutClassifier.WhiteGloveAwaitingUserReason(rollup));
                 if (transitioned)
                     _logger.LogInformation(
@@ -660,6 +663,7 @@ namespace AutopilotMonitor.Functions.Services
                     silent.TenantId,
                     silent.SessionId,
                     SessionStatus.Succeeded,
+                    VerdictPaths.SweepSelfDeployingReconcile,
                     failureReason: EnrollmentTimeoutClassifier.SelfDeployingReconcileReason(
                         silent.ResumedAt ?? silent.StartedAt, now, lastContactAt));
                 if (transitioned)

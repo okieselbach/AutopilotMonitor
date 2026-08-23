@@ -211,6 +211,18 @@ export const SHARED_MANIFEST = {
         "optional": false
       },
       {
+        "name": "verdictPath",
+        "optional": true
+      },
+      {
+        "name": "priorStatus",
+        "optional": true
+      },
+      {
+        "name": "priorVerdictPath",
+        "optional": true
+      },
+      {
         "name": "reconcileReason",
         "optional": false
       },

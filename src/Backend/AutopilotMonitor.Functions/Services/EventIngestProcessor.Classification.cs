@@ -286,7 +286,7 @@ namespace AutopilotMonitor.Functions.Services
             var effectiveStart = session?.ResumedAt ?? session?.StartedAt ?? triggerEvent.Timestamp;
 
             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
-            var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            var (targetStatus, reason, rule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                 rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp,
                 isPreProvisioned: session?.IsPreProvisioned == true, resumedAt: session?.ResumedAt,
                 isSelfDeployingProfile: session?.IsSelfDeployingProfile == true);
@@ -315,7 +315,8 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                request.TenantId, request.SessionId, targetStatus, triggerEvent.Phase, reason,
+                request.TenantId, request.SessionId, targetStatus, VerdictPaths.Compose(VerdictPaths.OriginMaxLifetime, rule),
+                triggerEvent.Phase, reason,
                 completedAt: isTerminalNonSuccess ? triggerEvent.Timestamp : (DateTime?)null,
                 earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                 failureSource: isTerminalNonSuccess ? "max_lifetime_watchdog" : null,
@@ -357,7 +358,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var now = DateTime.UtcNow;
                 var effectiveStart = session.ResumedAt ?? session.StartedAt;
-                var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                var (targetStatus, reason, rule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                     rollup, effectiveStart, now, graceHours, session.LastEventAt ?? c.LatestEventTimestamp,
                     isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
                     isSelfDeployingProfile: session.IsSelfDeployingProfile);
@@ -367,6 +368,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var healed = await _sessionRepo.UpdateSessionStatusAsync(
                     request.TenantId, request.SessionId, SessionStatus.Succeeded,
+                    VerdictPaths.Compose(VerdictPaths.OriginLateReconcile, rule),
                     failureReason: reason,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
                 if (healed)
@@ -406,7 +408,7 @@ namespace AutopilotMonitor.Functions.Services
                     return false;
 
                 var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.AwaitingUser,
+                    request.TenantId, request.SessionId, SessionStatus.AwaitingUser, VerdictPaths.IngestWhiteGloveAwaiting,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                     failureReason: EnrollmentTimeoutClassifier.WhiteGloveAwaitingUserReason(rollup));
                 if (transitioned)
@@ -465,7 +467,9 @@ namespace AutopilotMonitor.Functions.Services
                     ? c.CompletionEvent.Data["completionSource"]?.ToString() : null;
 
                 statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Succeeded, c.CompletionEvent.Phase,
+                    request.TenantId, request.SessionId, SessionStatus.Succeeded,
+                    espSoftFailure ? VerdictPaths.AgentCompleteSoft : VerdictPaths.AgentComplete,
+                    c.CompletionEvent.Phase,
                     completedAt: c.CompletionEvent.Timestamp,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                     espSoftFailure: espSoftFailure, completionSource: completionSource);
@@ -492,7 +496,8 @@ namespace AutopilotMonitor.Functions.Services
                         : c.FailureEvent.Message;
 
                     statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                        request.TenantId, request.SessionId, SessionStatus.Failed, c.FailureEvent.Phase, failureReason,
+                        request.TenantId, request.SessionId, SessionStatus.Failed, VerdictPaths.AgentFailed,
+                        c.FailureEvent.Phase, failureReason,
                         completedAt: c.FailureEvent.Timestamp,
                         earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
                     _logger.LogWarning("{SessionPrefix} Status: Failed - {FailureReason} (transitioned={Transitioned})", sessionPrefix, failureReason, statusTransitioned);
@@ -502,7 +507,8 @@ namespace AutopilotMonitor.Functions.Services
             {
                 failureReason = c.EspFailureEvent.Message ?? "ESP failure (backend fallback)";
                 statusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Failed, c.EspFailureEvent.Phase, failureReason,
+                    request.TenantId, request.SessionId, SessionStatus.Failed, VerdictPaths.AgentEspFailureFallback,
+                    c.EspFailureEvent.Phase, failureReason,
                     completedAt: c.EspFailureEvent.Timestamp,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
                 _logger.LogWarning("{SessionPrefix} Status: Failed via esp_failure fallback - {FailureReason} (transitioned={Transitioned})",
@@ -511,7 +517,8 @@ namespace AutopilotMonitor.Functions.Services
             else if (c.GatherCompletionEvent != null)
             {
                 await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Succeeded, c.GatherCompletionEvent.Phase,
+                    request.TenantId, request.SessionId, SessionStatus.Succeeded, VerdictPaths.AgentGatherComplete,
+                    c.GatherCompletionEvent.Phase,
                     completedAt: c.GatherCompletionEvent.Timestamp,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp);
                 _logger.LogInformation("{SessionPrefix} Status: Succeeded (gather_rules)", sessionPrefix);
@@ -519,7 +526,8 @@ namespace AutopilotMonitor.Functions.Services
             else if (c.WhiteGloveEvent != null)
             {
                 whiteGloveStatusTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Pending, EnrollmentPhase.AppsDevice,
+                    request.TenantId, request.SessionId, SessionStatus.Pending, VerdictPaths.AgentWhiteGlovePending,
+                    EnrollmentPhase.AppsDevice,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                     isPreProvisioned: true, isUserDriven: false);
 
@@ -540,7 +548,7 @@ namespace AutopilotMonitor.Functions.Services
                         _logger.LogWarning("{SessionPrefix} WhiteGlove UpdateSessionStatusAsync failed, attempting unconditional fallback for IsPreProvisioned + Status", sessionPrefix);
                         try
                         {
-                            await _sessionRepo.SetSessionPreProvisionedAsync(request.TenantId, request.SessionId, true, SessionStatus.Pending, isUserDriven: false);
+                            await _sessionRepo.SetSessionPreProvisionedAsync(request.TenantId, request.SessionId, true, SessionStatus.Pending, isUserDriven: false, verdictPath: VerdictPaths.AgentWhiteGlovePending);
                             whiteGloveStatusTransitioned = true;
                             _logger.LogInformation("{SessionPrefix} WhiteGlove fallback succeeded: IsPreProvisioned + Status=Pending set via unconditional merge", sessionPrefix);
                         }
@@ -580,7 +588,8 @@ namespace AutopilotMonitor.Functions.Services
                 if (currentSession?.Status == SessionStatus.Pending)
                 {
                     await _sessionRepo.UpdateSessionStatusAsync(
-                        request.TenantId, request.SessionId, SessionStatus.InProgress, c.WhiteGloveResumedEvent.Phase,
+                        request.TenantId, request.SessionId, SessionStatus.InProgress, VerdictPaths.AgentWhiteGloveResumed,
+                        c.WhiteGloveResumedEvent.Phase,
                         earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                         isUserDriven: true, resumedAt: c.WhiteGloveResumedEvent.Timestamp);
                     _logger.LogInformation("{SessionPrefix} Status: InProgress (WhiteGlove Part 2 resumed, IsUserDriven=true)", sessionPrefix);
@@ -626,7 +635,7 @@ namespace AutopilotMonitor.Functions.Services
 
                 var stalledReason = "Agent reported stall after 60min without progress (stall_probe)";
                 var stalledTransitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                    request.TenantId, request.SessionId, SessionStatus.Stalled,
+                    request.TenantId, request.SessionId, SessionStatus.Stalled, VerdictPaths.AgentStallProbe,
                     earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                     stalledAt: c.SessionStalledEvent.Timestamp, failureReason: stalledReason);
                 if (stalledTransitioned)
@@ -649,7 +658,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (currentStatus == SessionStatus.Stalled)
                 {
                     var healed = await _sessionRepo.UpdateSessionStatusAsync(
-                        request.TenantId, request.SessionId, SessionStatus.InProgress,
+                        request.TenantId, request.SessionId, SessionStatus.InProgress, VerdictPaths.AgentStallHeal,
                         earliestEventTimestamp: c.EarliestEventTimestamp, latestEventTimestamp: c.LatestEventTimestamp,
                         clearStalledAt: true, clearFailureReason: true);
                     if (healed)

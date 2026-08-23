@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             => _storage.GetAllSessionStatsAsync(tenantIdFilter, days, allowedTenantIds);
 
         public async Task<bool> UpdateSessionStatusAsync(
-            string tenantId, string sessionId, SessionStatus status,
+            string tenantId, string sessionId, SessionStatus status, string verdictPath,
             EnrollmentPhase? currentPhase = null, string? failureReason = null,
             DateTime? completedAt = null, DateTime? earliestEventTimestamp = null,
             DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null,
@@ -68,7 +68,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string? failureSnapshotJson = null, bool allowTerminalReclassification = false,
             bool espSoftFailure = false, string? completionSource = null)
         {
-            var transitioned = await _storage.UpdateSessionStatusAsync(tenantId, sessionId, status,
+            var transitioned = await _storage.UpdateSessionStatusAsync(tenantId, sessionId, status, verdictPath,
                 currentPhase, failureReason, completedAt, earliestEventTimestamp,
                 latestEventTimestamp, isPreProvisioned, isUserDriven, resumedAt,
                 stalledAt, clearStalledAt, clearFailureReason, failureSource, adminMarkedAction,
@@ -142,8 +142,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             => _storage.UpdateSessionDiagnosticsBlobAsync(tenantId, sessionId, blobName, destination);
 
         public Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned,
-            SessionStatus? status = null, bool? isUserDriven = null)
-            => _storage.SetSessionPreProvisionedAsync(tenantId, sessionId, isPreProvisioned, status, isUserDriven);
+            SessionStatus? status = null, bool? isUserDriven = null, string? verdictPath = null)
+            => _storage.SetSessionPreProvisionedAsync(tenantId, sessionId, isPreProvisioned, status, isUserDriven, verdictPath);
 
         public Task UpdateSessionGeoAsync(string tenantId, string sessionId,
             string? country, string? region, string? city, string? loc)

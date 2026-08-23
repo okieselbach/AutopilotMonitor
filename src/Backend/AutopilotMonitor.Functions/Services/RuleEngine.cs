@@ -311,7 +311,7 @@ namespace AutopilotMonitor.Functions.Services
                 // DurationSeconds. Letting UpdateSessionStatusAsync fall back to LastEventAt
                 // anchors duration on when the session actually went silent.
                 await _sessionRepo.UpdateSessionStatusAsync(
-                    tenantId, sessionId, SessionStatus.Failed,
+                    tenantId, sessionId, SessionStatus.Failed, VerdictPaths.Compose(VerdictPaths.OriginRule, rule.RuleId),
                     failureReason: failureReason,
                     failureSource: failureSource);
 

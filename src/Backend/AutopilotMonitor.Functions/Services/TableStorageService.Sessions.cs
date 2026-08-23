@@ -209,6 +209,16 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(adminMarkedAction))
                 indexEntity["AdminMarkedAction"] = adminMarkedAction;
 
+            // Verdict calibration attribution (docs/backend/verdict-calibration.md): the aggregate
+            // sweep reads these off the session row, and the index mirror must not drop them on a
+            // StartedAt-shift full upsert.
+            foreach (var col in new[] { "VerdictPath", "PriorStatus", "PriorVerdictPath" })
+            {
+                var val = sessionEntity.GetString(col);
+                if (!string.IsNullOrEmpty(val))
+                    indexEntity[col] = val;
+            }
+
             var durationSeconds = sessionEntity.GetInt32("DurationSeconds");
             if (durationSeconds.HasValue)
                 indexEntity["DurationSeconds"] = durationSeconds.Value;
@@ -492,6 +502,12 @@ namespace AutopilotMonitor.Functions.Services
                 // race the in-flight cascade. Empty/null is fine on first registration.
                 string? existingDeletionState = null;
                 string? existingPendingDeletionManifestId = null;
+                // Verdict calibration: a fresh row's status comes from registration itself; a
+                // re-registration preserves the path that produced the (non-terminal) status it
+                // keeps, and the prior-verdict pair, so the Replace never blanks the attribution.
+                string verdictPath = VerdictPaths.RegisterNew;
+                string? priorStatus = null;
+                string? priorVerdictPath = null;
 
                 try
                 {
@@ -544,6 +560,9 @@ namespace AutopilotMonitor.Functions.Services
                     existingIndexRowKey = existingEntity.GetString("IndexRowKey");
                     existingDeletionState = existingEntity.GetString("DeletionState");
                     existingPendingDeletionManifestId = existingEntity.GetString("PendingDeletionManifestId");
+                    verdictPath = existingEntity.GetString("VerdictPath") ?? verdictPath;
+                    priorStatus = existingEntity.GetString("PriorStatus");
+                    priorVerdictPath = existingEntity.GetString("PriorVerdictPath");
 
                     // Guard: never regress a terminal status (Succeeded/Failed) back to InProgress.
                     // StoreSessionAsync uses UpsertEntity (Replace mode) which overwrites all fields.
@@ -561,6 +580,7 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         _logger.LogInformation($"Session {registration.SessionId} resuming from Pending (WhiteGlove Part 2)");
                         status = SessionStatus.InProgress.ToString();
+                        verdictPath = VerdictPaths.RegisterWhiteGloveResume;
                         // Store ResumedAt as fallback if whiteglove_resumed event hasn't set it yet
                         if (!resumedAt.HasValue)
                             resumedAt = registration.StartedAt;
@@ -617,6 +637,12 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (!string.IsNullOrWhiteSpace(reconcileReason))
                     entity["ReconcileReason"] = reconcileReason;
+
+                entity["VerdictPath"] = verdictPath;
+                if (!string.IsNullOrWhiteSpace(priorStatus))
+                    entity["PriorStatus"] = priorStatus;
+                if (!string.IsNullOrWhiteSpace(priorVerdictPath))
+                    entity["PriorVerdictPath"] = priorVerdictPath;
 
                 // Latest non-Unknown validation wins: a Bootstrap-registered session that later
                 // re-registers under cert auth upgrades to the cert-path validator; an Unknown
@@ -691,7 +717,7 @@ namespace AutopilotMonitor.Functions.Services
                                 // fresh-read window isn't reverted by the Replace below (see guard).
                                 "Status", "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason",
                                 "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
-                                "EspSoftFailure", "CompletionSource",
+                                "EspSoftFailure", "CompletionSource", "VerdictPath", "PriorStatus", "PriorVerdictPath",
                             });
                         freshEtag = freshResponse.Value.ETag;
                         freshEntity = freshResponse.Value;
@@ -731,7 +757,7 @@ namespace AutopilotMonitor.Functions.Services
                         || freshStatus == SessionStatus.Incomplete.ToString())
                     {
                         entity["Status"] = freshStatus;
-                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds", "EspSoftFailure", "CompletionSource" })
+                        foreach (var col in new[] { "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason", "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds", "EspSoftFailure", "CompletionSource", "VerdictPath", "PriorStatus", "PriorVerdictPath" })
                         {
                             if (freshEntity!.TryGetValue(col, out var val) && val is not null)
                                 entity[col] = val;
@@ -1709,10 +1735,53 @@ namespace AutopilotMonitor.Functions.Services
                 : null;
         }
 
-        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null, bool allowTerminalReclassification = false, bool espSoftFailure = false, string? completionSource = null)
+        /// <summary>
+        /// Decides whether a status write overrides a prior VERDICT and must therefore preserve
+        /// it in <c>PriorStatus</c>/<c>PriorVerdictPath</c> — the correction stream the verdict
+        /// calibration aggregate counts (admin mark, late agent completion upgrading a sweep
+        /// Incomplete, retro-reclassification). Only a prior Succeeded/Failed/Incomplete/
+        /// AwaitingUser counts as a verdict; a stall marker healing back to InProgress is not a
+        /// correction. Same-status writes (AwaitingUser refresh) keep the original prior. Null =
+        /// nothing to preserve. Static + pure so the matrix is unit-testable without Table Storage.
+        /// </summary>
+        internal static (string PriorStatus, string PriorVerdictPath)? ComputePriorVerdict(
+            string? existingStatus, string? existingVerdictPath, SessionStatus incoming)
+        {
+            if (string.IsNullOrEmpty(existingStatus) || string.IsNullOrEmpty(existingVerdictPath))
+                return null;
+            if (existingStatus == incoming.ToString())
+                return null;
+
+            bool existingIsVerdict = existingStatus == SessionStatus.Succeeded.ToString()
+                || existingStatus == SessionStatus.Failed.ToString()
+                || existingStatus == SessionStatus.Incomplete.ToString()
+                || existingStatus == SessionStatus.AwaitingUser.ToString();
+            return existingIsVerdict ? (existingStatus!, existingVerdictPath!) : null;
+        }
+
+        /// <summary>
+        /// Stamps <c>VerdictPath</c> (always — every status write declares its origin, unlike
+        /// FailureSource which is Failed-only) and the prior-verdict pair when
+        /// <see cref="ComputePriorVerdict"/> says the write overrides one. Shared by the normal and
+        /// the ETag-exhaustion force path so both stay in lock-step.
+        /// </summary>
+        private static void ApplyVerdictPath(TableEntity update, TableEntity existing, SessionStatus status, string verdictPath)
+        {
+            update["VerdictPath"] = verdictPath;
+            var prior = ComputePriorVerdict(existing.GetString("Status"), existing.GetString("VerdictPath"), status);
+            if (prior.HasValue)
+            {
+                update["PriorStatus"] = prior.Value.PriorStatus;
+                update["PriorVerdictPath"] = prior.Value.PriorVerdictPath;
+            }
+        }
+
+        public async Task<bool> UpdateSessionStatusAsync(string tenantId, string sessionId, SessionStatus status, string verdictPath, EnrollmentPhase? currentPhase = null, string? failureReason = null, DateTime? completedAt = null, DateTime? earliestEventTimestamp = null, DateTime? latestEventTimestamp = null, bool? isPreProvisioned = null, bool? isUserDriven = null, DateTime? resumedAt = null, DateTime? stalledAt = null, bool clearStalledAt = false, bool clearFailureReason = false, string? failureSource = null, string? adminMarkedAction = null, string? failureSnapshotJson = null, bool allowTerminalReclassification = false, bool espSoftFailure = false, string? completionSource = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+            if (string.IsNullOrWhiteSpace(verdictPath))
+                throw new ArgumentException("Every status write must declare its VerdictPath (see VerdictPaths)", nameof(verdictPath));
 
             const int maxRetries = 5;
             int retryCount = 0;
@@ -1792,6 +1861,7 @@ namespace AutopilotMonitor.Functions.Services
                     }
 
                     update["Status"] = status.ToString();
+                    ApplyVerdictPath(update, session, status, verdictPath);
 
                     // Update current phase if provided.
                     if (currentPhase.HasValue)
@@ -2080,6 +2150,7 @@ namespace AutopilotMonitor.Functions.Services
                             var forceUpdate = new TableEntity(tenantId, sessionId);
 
                             forceUpdate["Status"] = status.ToString();
+                            ApplyVerdictPath(forceUpdate, freshSession, status, verdictPath);
 
                             if (currentPhase.HasValue)
                                 forceUpdate["CurrentPhase"] = (int)currentPhase.Value;
@@ -2833,10 +2904,12 @@ namespace AutopilotMonitor.Functions.Services
         /// unconditional Merge-mode write. Uses ETag.All to bypass optimistic-concurrency conflicts,
         /// making this suitable as a last-resort fallback when ETag-based updates have been exhausted.
         /// </summary>
-        public async Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned, SessionStatus? status = null, bool? isUserDriven = null)
+        public async Task SetSessionPreProvisionedAsync(string tenantId, string sessionId, bool isPreProvisioned, SessionStatus? status = null, bool? isUserDriven = null, string? verdictPath = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+            if (status.HasValue && string.IsNullOrWhiteSpace(verdictPath))
+                throw new ArgumentException("A status write must declare its VerdictPath (see VerdictPaths)", nameof(verdictPath));
 
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
 
@@ -2848,6 +2921,7 @@ namespace AutopilotMonitor.Functions.Services
             if (status.HasValue)
             {
                 update["Status"] = status.Value.ToString();
+                update["VerdictPath"] = verdictPath!;
             }
 
             if (isUserDriven.HasValue)
@@ -3162,6 +3236,9 @@ namespace AutopilotMonitor.Functions.Services
                 EspSoftFailure = entity.GetBoolean("EspSoftFailure") ?? false,
                 CompletionSource = entity.GetString("CompletionSource") ?? string.Empty,
                 AdminMarkedAction = entity.GetString("AdminMarkedAction"),
+                VerdictPath = entity.GetString("VerdictPath"),
+                PriorStatus = entity.GetString("PriorStatus"),
+                PriorVerdictPath = entity.GetString("PriorVerdictPath"),
                 ValidatedBy = entity.GetString("ValidatedBy") ?? string.Empty,
                 PendingActionsJson = entity.GetString("PendingActionsJson") ?? string.Empty,
                 PendingActionsQueuedAt = SafeGetDateTime(entity, "PendingActionsQueuedAt"),

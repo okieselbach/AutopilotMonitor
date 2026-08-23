@@ -114,7 +114,7 @@ namespace AutopilotMonitor.Functions.Services
                         var events = await _sessionRepo.GetSessionEventsAsync(tenantId, session.SessionId, maxResults: 1000);
                         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
                         var effectiveStart = session.ResumedAt ?? session.StartedAt;
-                        var (target, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                        var (target, reason, rule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                             rollup, effectiveStart, now, graceHours, session.LastEventAt,
                             isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
                             isSelfDeployingProfile: session.IsSelfDeployingProfile);
@@ -145,7 +145,7 @@ namespace AutopilotMonitor.Functions.Services
                         }
 
                         var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                            tenantId, session.SessionId, target,
+                            tenantId, session.SessionId, target, VerdictPaths.Compose(VerdictPaths.OriginRetro, rule),
                             failureReason: reason,
                             failureSource: target == SessionStatus.Incomplete ? "legacy_timeout_retro_reconcile" : null,
                             allowTerminalReclassification: true);
@@ -215,7 +215,7 @@ namespace AutopilotMonitor.Functions.Services
                         var events = await _sessionRepo.GetSessionEventsAsync(tenantId, session.SessionId, maxResults: 1000);
                         var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
                         var effectiveStart = session.ResumedAt ?? session.StartedAt;
-                        var (target, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                        var (target, reason, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                             rollup, effectiveStart, now, graceHours, session.LastEventAt,
                             isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
                             isSelfDeployingProfile: session.IsSelfDeployingProfile);
@@ -240,7 +240,7 @@ namespace AutopilotMonitor.Functions.Services
                         // reconcile gate (no terminal-reclassification override needed); the storage
                         // layer additionally refuses admin-marked rows.
                         var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                            tenantId, session.SessionId, SessionStatus.Succeeded,
+                            tenantId, session.SessionId, SessionStatus.Succeeded, VerdictPaths.RetroSelfDeployingReconcile,
                             failureReason: reason);
                         if (transitioned)
                         {
@@ -314,7 +314,7 @@ namespace AutopilotMonitor.Functions.Services
 
                         // Pending is non-terminal — the standard transition guard covers this write.
                         var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
-                            tenantId, pending.SessionId, SessionStatus.Incomplete,
+                            tenantId, pending.SessionId, SessionStatus.Incomplete, VerdictPaths.RetroSuperseded,
                             failureReason: reason, failureSource: "superseded_by_reregistration");
                         if (transitioned) { result.Changed++; result.ToIncomplete++; }
                         else result.Skipped++;

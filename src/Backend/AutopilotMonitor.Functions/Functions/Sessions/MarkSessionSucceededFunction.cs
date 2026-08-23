@@ -49,6 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     tenantId,
                     sessionId,
                     SessionStatus.Succeeded,
+                    VerdictPaths.ManualSucceeded,
                     currentPhase: null, // Keep current phase
                     failureReason: "Manually marked as succeeded by administrator",
                     adminMarkedAction: "Succeeded"
