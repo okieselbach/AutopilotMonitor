@@ -45,9 +45,11 @@ interface DiagnosticsPathRowProps {
 }
 
 /**
- * One diagnostics path on ONE line: path (truncated, full value in the tooltip), description,
- * guard verdict, context pills, subfolder control, remove. Long lists stay scannable and the
- * add-row above them stays within reach.
+ * One diagnostics path per row. From `sm` up everything sits on ONE line — path (truncated,
+ * full value in the tooltip), description, guard verdict, context pills, subfolder control,
+ * remove — so long lists stay scannable and the add-row above them stays within reach.
+ * Below `sm` the path owns the first line(s) and wraps in full (a phone cannot hover a
+ * tooltip, and a path cut to "C:\…" is useless); badges and controls flow onto the next line.
  */
 export function DiagnosticsPathRow({
   path,
@@ -62,8 +64,11 @@ export function DiagnosticsPathRow({
   pathClassName = "text-gray-700 dark:text-gray-200",
 }: DiagnosticsPathRowProps) {
   return (
-    <div className={`flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1 ${className}`}>
-      <span className={`min-w-0 flex-1 truncate font-mono text-xs ${pathClassName}`} title={title ?? path}>
+    <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-2.5 py-1 sm:flex-nowrap ${className}`}>
+      <span
+        className={`min-w-0 basis-full break-all font-mono text-xs sm:flex-1 sm:basis-auto sm:truncate sm:break-normal ${pathClassName}`}
+        title={title ?? path}
+      >
         {path}
       </span>
       {description && (

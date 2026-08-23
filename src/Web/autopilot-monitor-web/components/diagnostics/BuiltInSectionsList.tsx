@@ -90,10 +90,7 @@ export function BuiltInSectionsList({ sections, loading = false, realmJoinWatche
                 pills={
                   <>
                     {display.patternSummary && (
-                      // Secondary detail: hidden on narrow screens so the path keeps its width.
-                      <ContextPill title={display.patternTitle} className="hidden sm:inline-flex">
-                        {display.patternSummary}
-                      </ContextPill>
+                      <ContextPill title={display.patternTitle}>{display.patternSummary}</ContextPill>
                     )}
                     {condition && (
                       <ContextPill title={condition.title}>
