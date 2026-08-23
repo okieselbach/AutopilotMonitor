@@ -10,6 +10,7 @@ export function SectionAgentSettings() {
     enablePerformanceCollector, setEnablePerformanceCollector,
     performanceCollectorInterval, setPerformanceCollectorInterval,
     helloWaitTimeoutSeconds, setHelloWaitTimeoutSeconds,
+    enableRealmJoinWatcher, setEnableRealmJoinWatcher,
     selfDestructOnComplete, setSelfDestructOnComplete,
     keepLogFile, setKeepLogFile,
     rebootOnComplete, setRebootOnComplete,
@@ -17,6 +18,7 @@ export function SectionAgentSettings() {
     enableGeoLocation, setEnableGeoLocation,
     enableTimezoneAutoSet, setEnableTimezoneAutoSet,
     enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet,
+    keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
     enableImeMatchLog, setEnableImeMatchLog,
     enableGatherRuleDebugLog, setEnableGatherRuleDebugLog,
     logLevel, setLogLevel,
@@ -39,6 +41,8 @@ export function SectionAgentSettings() {
         setPerformanceCollectorInterval={setPerformanceCollectorInterval}
         helloWaitTimeoutSeconds={helloWaitTimeoutSeconds}
         setHelloWaitTimeoutSeconds={setHelloWaitTimeoutSeconds}
+        enableRealmJoinWatcher={enableRealmJoinWatcher}
+        setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
         selfDestructOnComplete={selfDestructOnComplete}
         setSelfDestructOnComplete={setSelfDestructOnComplete}
         keepLogFile={keepLogFile}
@@ -53,6 +57,8 @@ export function SectionAgentSettings() {
         setEnableTimezoneAutoSet={setEnableTimezoneAutoSet}
         enableDoGroupIdAutoSet={enableDoGroupIdAutoSet}
         setEnableDoGroupIdAutoSet={setEnableDoGroupIdAutoSet}
+        keepAwakeDuringUserEsp={keepAwakeDuringUserEsp}
+        setKeepAwakeDuringUserEsp={setKeepAwakeDuringUserEsp}
         enableImeMatchLog={enableImeMatchLog}
         setEnableImeMatchLog={setEnableImeMatchLog}
         enableGatherRuleDebugLog={enableGatherRuleDebugLog}

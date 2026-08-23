@@ -12,8 +12,6 @@ export function SectionAgentAnalyzers() {
     newAllowedAccount, setNewAllowedAccount,
     enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
     enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
-    enableRealmJoinWatcher, setEnableRealmJoinWatcher,
-    keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
     enableConsoleBypassDetection, setEnableConsoleBypassDetection,
     handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
     savingSection,
@@ -33,10 +31,6 @@ export function SectionAgentAnalyzers() {
         setEnableSoftwareInventoryAnalyzer={setEnableSoftwareInventoryAnalyzer}
         enableIntegrityBypassAnalyzer={enableIntegrityBypassAnalyzer}
         setEnableIntegrityBypassAnalyzer={setEnableIntegrityBypassAnalyzer}
-        enableRealmJoinWatcher={enableRealmJoinWatcher}
-        setEnableRealmJoinWatcher={setEnableRealmJoinWatcher}
-        keepAwakeDuringUserEsp={keepAwakeDuringUserEsp}
-        setKeepAwakeDuringUserEsp={setKeepAwakeDuringUserEsp}
         enableConsoleBypassDetection={enableConsoleBypassDetection}
         setEnableConsoleBypassDetection={setEnableConsoleBypassDetection}
         onSave={handleSaveAgentAnalyzers}

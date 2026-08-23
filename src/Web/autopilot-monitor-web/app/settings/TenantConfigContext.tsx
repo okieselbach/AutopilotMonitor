@@ -191,6 +191,8 @@ interface TenantConfigContextValue {
   setEnableTimezoneAutoSet: (v: boolean) => void;
   enableDoGroupIdAutoSet: boolean;
   setEnableDoGroupIdAutoSet: (v: boolean) => void;
+  keepAwakeDuringUserEsp: boolean;
+  setKeepAwakeDuringUserEsp: (v: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (v: boolean) => void;
   enableGatherRuleDebugLog: boolean;
@@ -207,6 +209,8 @@ interface TenantConfigContextValue {
   setEnrollmentSummaryBrandingImageUrl: (v: string) => void;
   enrollmentSummaryLaunchRetrySeconds: number;
   setEnrollmentSummaryLaunchRetrySeconds: (v: number) => void;
+  enableRealmJoinWatcher: boolean;
+  setEnableRealmJoinWatcher: (v: boolean) => void;
   handleSaveAgentSettings: () => void;
   handleResetAgentSettings: () => void;
 
@@ -221,10 +225,6 @@ interface TenantConfigContextValue {
   setEnableSoftwareInventoryAnalyzer: (v: boolean) => void;
   enableIntegrityBypassAnalyzer: boolean;
   setEnableIntegrityBypassAnalyzer: (v: boolean) => void;
-  enableRealmJoinWatcher: boolean;
-  setEnableRealmJoinWatcher: (v: boolean) => void;
-  keepAwakeDuringUserEsp: boolean;
-  setKeepAwakeDuringUserEsp: (v: boolean) => void;
   enableConsoleBypassDetection: boolean;
   setEnableConsoleBypassDetection: (v: boolean) => void;
   handleSaveAgentAnalyzers: () => void;
@@ -421,6 +421,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds] = useState(60);
   const [enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl] = useState("");
   const [enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds] = useState(120);
+  const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
+  const [keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp] = useState(false);
 
   // Notification channels
   const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([]);
@@ -455,8 +457,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [newAllowedAccount, setNewAllowedAccount] = useState("");
   const [enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer] = useState(false);
   const [enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer] = useState(true);
-  const [enableRealmJoinWatcher, setEnableRealmJoinWatcher] = useState(false);
-  const [keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp] = useState(false);
   const [enableConsoleBypassDetection, setEnableConsoleBypassDetection] = useState(true);
 
   // Unrestricted mode
@@ -558,6 +558,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setEnrollmentSummaryTimeoutSeconds(data.enrollmentSummaryTimeoutSeconds ?? 60);
         setEnrollmentSummaryBrandingImageUrl(data.enrollmentSummaryBrandingImageUrl ?? "");
         setEnrollmentSummaryLaunchRetrySeconds(data.enrollmentSummaryLaunchRetrySeconds ?? 120);
+        setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
+        setKeepAwakeDuringUserEsp(data.keepAwakeDuringUserEsp ?? false);
         // Notification channels (auto-migrates from the legacy single-webhook fields)
         setNotificationChannels(channelsFromConfig(data));
         // SLA Targets
@@ -587,8 +589,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
         setEnableSoftwareInventoryAnalyzer(data.enableSoftwareInventoryAnalyzer ?? false);
         setEnableIntegrityBypassAnalyzer(data.enableIntegrityBypassAnalyzer ?? true);
-        setEnableRealmJoinWatcher(data.enableRealmJoinWatcher ?? false);
-        setKeepAwakeDuringUserEsp(data.keepAwakeDuringUserEsp ?? false);
         setEnableConsoleBypassDetection(data.enableConsoleBypassDetection ?? true);
         setUnrestrictedMode(data.unrestrictedMode ?? false);
 
@@ -768,6 +768,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         enrollmentSummaryTimeoutSeconds,
         enrollmentSummaryBrandingImageUrl: enrollmentSummaryBrandingImageUrl || undefined,
         enrollmentSummaryLaunchRetrySeconds,
+        enableRealmJoinWatcher,
+        keepAwakeDuringUserEsp,
         // Notification channels are the authoritative config; the legacy single-webhook
         // fields are cleared on save so deleting the last channel can't resurrect a zombie
         // webhook via the backend's legacy-synthesis fallback.
@@ -794,8 +796,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         localAdminAllowedAccountsJson: localAdminAllowedAccounts.length > 0 ? JSON.stringify(localAdminAllowedAccounts) : "",
         enableSoftwareInventoryAnalyzer,
         enableIntegrityBypassAnalyzer,
-        enableRealmJoinWatcher,
-        keepAwakeDuringUserEsp,
         enableConsoleBypassDetection,
         unrestrictedMode: unrestrictedModeValue,
       };
@@ -865,14 +865,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
+    enableRealmJoinWatcher, keepAwakeDuringUserEsp,
     notificationChannels,
     slaTargetSuccessRate, slaTargetMaxDurationMinutes, slaTargetAppInstallSuccessRate,
     slaNotifyOnSuccessRateBreach, slaSuccessRateNotifyThreshold, slaNotifyOnDurationBreach,
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination, tenantDiagPaths,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, enableSoftwareInventoryAnalyzer,
-    enableIntegrityBypassAnalyzer, enableRealmJoinWatcher, keepAwakeDuringUserEsp,
-    enableConsoleBypassDetection, unrestrictedMode,
+    enableIntegrityBypassAnalyzer, enableConsoleBypassDetection, unrestrictedMode,
   ]);
 
   // -----------------------------------------------------------------------
@@ -1260,6 +1260,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setEnrollmentSummaryTimeoutSeconds(config.enrollmentSummaryTimeoutSeconds ?? 60);
     setEnrollmentSummaryBrandingImageUrl(config.enrollmentSummaryBrandingImageUrl ?? "");
     setEnrollmentSummaryLaunchRetrySeconds(config.enrollmentSummaryLaunchRetrySeconds ?? 120);
+    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
+    setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
   }, [config]);
 
   const handleSaveAgentAnalyzers = useCallback(() => saveConfiguration("agentAnalyzers"), [saveConfiguration]);
@@ -1272,8 +1274,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setNewAllowedAccount("");
     setEnableSoftwareInventoryAnalyzer(config.enableSoftwareInventoryAnalyzer ?? false);
     setEnableIntegrityBypassAnalyzer(config.enableIntegrityBypassAnalyzer ?? true);
-    setEnableRealmJoinWatcher(config.enableRealmJoinWatcher ?? false);
-    setKeepAwakeDuringUserEsp(config.keepAwakeDuringUserEsp ?? false);
     setEnableConsoleBypassDetection(config.enableConsoleBypassDetection ?? true);
   }, [config]);
 
@@ -1711,6 +1711,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       enrollmentSummaryTimeoutSeconds, setEnrollmentSummaryTimeoutSeconds,
       enrollmentSummaryBrandingImageUrl, setEnrollmentSummaryBrandingImageUrl,
       enrollmentSummaryLaunchRetrySeconds, setEnrollmentSummaryLaunchRetrySeconds,
+      enableRealmJoinWatcher, setEnableRealmJoinWatcher,
+      keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
       handleSaveAgentSettings, handleResetAgentSettings,
 
       // Agent analyzers
@@ -1719,8 +1721,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       newAllowedAccount, setNewAllowedAccount,
       enableSoftwareInventoryAnalyzer, setEnableSoftwareInventoryAnalyzer,
       enableIntegrityBypassAnalyzer, setEnableIntegrityBypassAnalyzer,
-      enableRealmJoinWatcher, setEnableRealmJoinWatcher,
-      keepAwakeDuringUserEsp, setKeepAwakeDuringUserEsp,
       enableConsoleBypassDetection, setEnableConsoleBypassDetection,
       handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
 
@@ -1796,10 +1796,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
+    enableRealmJoinWatcher, keepAwakeDuringUserEsp,
     handleSaveAgentSettings, handleResetAgentSettings,
     enableLocalAdminAnalyzer, localAdminAllowedAccounts, newAllowedAccount,
-    enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableRealmJoinWatcher,
-    keepAwakeDuringUserEsp, enableConsoleBypassDetection,
+    enableSoftwareInventoryAnalyzer, enableIntegrityBypassAnalyzer, enableConsoleBypassDetection,
     handleSaveAgentAnalyzers, handleResetAgentAnalyzers,
     unrestrictedMode, handleSaveUnrestrictedMode,
     notificationChannels, testingChannelId, testChannelResult,

@@ -10,6 +10,8 @@ interface AgentSettingsSectionProps {
   setPerformanceCollectorInterval: (value: number) => void;
   helloWaitTimeoutSeconds: number;
   setHelloWaitTimeoutSeconds: (value: number) => void;
+  enableRealmJoinWatcher: boolean;
+  setEnableRealmJoinWatcher: (value: boolean) => void;
   selfDestructOnComplete: boolean;
   setSelfDestructOnComplete: (value: boolean) => void;
   keepLogFile: boolean;
@@ -24,6 +26,8 @@ interface AgentSettingsSectionProps {
   setEnableTimezoneAutoSet: (value: boolean) => void;
   enableDoGroupIdAutoSet: boolean;
   setEnableDoGroupIdAutoSet: (value: boolean) => void;
+  keepAwakeDuringUserEsp: boolean;
+  setKeepAwakeDuringUserEsp: (value: boolean) => void;
   enableImeMatchLog: boolean;
   setEnableImeMatchLog: (value: boolean) => void;
   enableGatherRuleDebugLog: boolean;
@@ -54,6 +58,8 @@ export default function AgentSettingsSection({
   setPerformanceCollectorInterval,
   helloWaitTimeoutSeconds,
   setHelloWaitTimeoutSeconds,
+  enableRealmJoinWatcher,
+  setEnableRealmJoinWatcher,
   selfDestructOnComplete,
   setSelfDestructOnComplete,
   keepLogFile,
@@ -68,6 +74,8 @@ export default function AgentSettingsSection({
   setEnableTimezoneAutoSet,
   enableDoGroupIdAutoSet,
   setEnableDoGroupIdAutoSet,
+  keepAwakeDuringUserEsp,
+  setKeepAwakeDuringUserEsp,
   enableImeMatchLog,
   setEnableImeMatchLog,
   enableGatherRuleDebugLog,
@@ -206,6 +214,18 @@ export default function AgentSettingsSection({
             </button>
           </div>
 
+          {/* Keep Awake During User-ESP */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
+            <div>
+              <p className="font-medium text-gray-900">Keep Awake During User-ESP</p>
+              <p className="text-sm text-gray-500">Hold the device awake (system and display) during the User-ESP (Account Setup) phase so idle standby or sleep cannot stall app installs and account provisioning. Reboots are unaffected; the hold is released once the phase completes.</p>
+            </div>
+            <button onClick={() => setKeepAwakeDuringUserEsp(!keepAwakeDuringUserEsp)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${keepAwakeDuringUserEsp ? 'bg-violet-500' : 'bg-gray-300'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${keepAwakeDuringUserEsp ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
           {/* IME Match Log */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-violet-200 transition-colors">
             <div>
@@ -336,8 +356,6 @@ export default function AgentSettingsSection({
           )}
           </div>
           </ReadOnlyFieldset>
-
-          {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
         </div>
       </div>
 
@@ -391,6 +409,20 @@ export default function AgentSettingsSection({
             </button>
           </div>
 
+          {/* RealmJoin Watcher */}
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-emerald-200 transition-colors">
+            <div className="flex-1">
+              <p className="font-medium text-gray-900">RealmJoin Watcher</p>
+              <p className="text-sm text-gray-500 mt-1">Tracks RealmJoin deployment state during provisioning — deployment phase, per-package start and completion, and the RealmJoin completion gate. Off by default; enable only for tenants that provision devices with RealmJoin, elsewhere it produces no signal.</p>
+            </div>
+            <button
+              onClick={() => setEnableRealmJoinWatcher(!enableRealmJoinWatcher)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableRealmJoinWatcher ? 'bg-emerald-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableRealmJoinWatcher ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
           {/* Hello Wait Timeout */}
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-emerald-200 transition-colors">
             <div className="flex-1">
@@ -419,6 +451,10 @@ export default function AgentSettingsSection({
 
           </div>
           </ReadOnlyFieldset>
+
+          {/* One Save/Reset bar for both cards: Agent Parameters and Agent Collectors are one
+              section (agentSettings) and are saved together. */}
+          {!readOnly && <SaveResetBar onSave={onSave} onReset={onReset} saving={saving} />}
         </div>
       </div>
     </>

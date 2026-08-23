@@ -33,14 +33,15 @@ const EXPECTED_OWNED_FIELDS = [
   "contactEmail",
   // agentSettings
   "enablePerformanceCollector", "performanceCollectorIntervalSeconds", "helloWaitTimeoutSeconds",
+  "enableRealmJoinWatcher",
   "selfDestructOnComplete", "keepLogFile", "rebootOnComplete", "rebootDelaySeconds",
-  "enableGeoLocation", "enableTimezoneAutoSet", "enableDoGroupIdAutoSet", "enableImeMatchLog", "enableGatherRuleDebugLog",
+  "enableGeoLocation", "enableTimezoneAutoSet", "enableDoGroupIdAutoSet", "keepAwakeDuringUserEsp",
+  "enableImeMatchLog", "enableGatherRuleDebugLog",
   "logLevel", "showScriptOutput", "showEnrollmentSummary", "enrollmentSummaryTimeoutSeconds",
   "enrollmentSummaryBrandingImageUrl", "enrollmentSummaryLaunchRetrySeconds",
   // agentAnalyzers
   "enableLocalAdminAnalyzer", "localAdminAllowedAccountsJson", "enableSoftwareInventoryAnalyzer",
-  "enableIntegrityBypassAnalyzer", "enableRealmJoinWatcher", "keepAwakeDuringUserEsp",
-  "enableConsoleBypassDetection",
+  "enableIntegrityBypassAnalyzer", "enableConsoleBypassDetection",
   // diagnostics
   "diagnosticsBlobSasUrl", "diagnosticsUploadMode", "diagnosticsUploadDestination", "diagnosticsLogPathsJson",
   // unrestrictedMode
