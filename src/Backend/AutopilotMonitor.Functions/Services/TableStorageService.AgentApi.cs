@@ -245,67 +245,121 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Upserts CVE index entries so sessions can be searched by CVE identifier.
         /// PartitionKey = {tenantId}_{cveId}, RowKey = sessionId
-        /// Uses individual parallel upserts (not batch transactions) because PK differs per CVE.
+        /// One CVE commonly appears under several findings of the same report (e.g. one
+        /// Remote Desktop CVE across 14 installed RD components), so occurrences are merged
+        /// per CVE first — otherwise concurrent upserts race on the same entity and the
+        /// winner is arbitrary. Writes go out with bounded parallelism (PK differs per CVE,
+        /// so batch transactions are not an option). Per-entity failures are counted, not
+        /// fatal — the index is a search aid, the report itself is stored separately.
         /// </summary>
         public async Task UpsertCveIndexEntriesAsync(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
         {
             try
             {
+                var entities = BuildCveIndexEntities(tenantId, sessionId, findings);
+                if (entities.Count == 0) return;
+
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.CveIndex);
-                var tasks = new List<Task>();
+                var failed = 0;
 
-                foreach (var finding in findings)
-                {
-                    var softwareName = finding.TryGetValue("softwareName", out var sn) ? sn?.ToString() ?? "" : "";
-                    var overallRisk = finding.TryGetValue("riskLevel", out var rl) ? rl?.ToString() ?? "" : "";
-
-                    if (!finding.TryGetValue("vulnerabilities", out var vulnsObj) || vulnsObj == null) continue;
-                    if (vulnsObj is not System.Collections.IEnumerable vulnList) continue;
-
-                    foreach (var vulnObj in vulnList)
+                await Parallel.ForEachAsync(
+                    entities,
+                    new ParallelOptions { MaxDegreeOfParallelism = 8 },
+                    async (entity, ct) =>
                     {
-                        Dictionary<string, object>? vuln = null;
-                        if (vulnObj is Dictionary<string, object> vd)
-                            vuln = vd;
-
-                        if (vuln == null) continue;
-
-                        var cveId = vuln.TryGetValue("cveId", out var cid) ? cid?.ToString() : null;
-                        if (string.IsNullOrEmpty(cveId)) continue;
-
-                        var partitionKey = $"{tenantId}_{cveId}";
-                        double cvssScore = 0;
-                        try { if (vuln.TryGetValue("cvssScore", out var cs) && cs != null) cvssScore = Convert.ToDouble(cs); } catch { }
-
-                        var cvssSeverity = vuln.TryGetValue("cvssSeverity", out var csvs) ? csvs?.ToString() ?? "" : "";
-                        bool isKev = false;
-                        try { if (vuln.TryGetValue("isKev", out var ik) && ik is bool ikb) isKev = ikb; } catch { }
-
-                        var entity = new TableEntity(partitionKey, sessionId)
+                        try
                         {
-                            ["SessionId"] = sessionId,
-                            ["TenantId"] = tenantId,
-                            ["CveId"] = cveId,
-                            ["SoftwareName"] = softwareName,
-                            ["CvssScore"] = cvssScore,
-                            ["CvssSeverity"] = cvssSeverity,
-                            ["IsKev"] = isKev,
-                            ["OverallRisk"] = overallRisk,
-                            ["DetectedAt"] = DateTime.UtcNow,
-                        };
+                            await tableClient.UpsertEntityAsync(entity, cancellationToken: ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            Interlocked.Increment(ref failed);
+                            _logger.LogWarning(ex, "Failed to upsert CveIndex entry {CveId} for session {SessionId}",
+                                entity.GetString("CveId"), sessionId);
+                        }
+                    });
 
-                        tasks.Add(tableClient.UpsertEntityAsync(entity));
-                    }
-                }
-
-                if (tasks.Count > 0)
-                    await Task.WhenAll(tasks);
+                if (failed > 0)
+                    _logger.LogWarning("CveIndex upsert for session {SessionId}: {Failed}/{Total} entries failed",
+                        sessionId, failed, entities.Count);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to upsert CveIndex entries for session {SessionId}", sessionId);
             }
         }
+
+        /// <summary>
+        /// Collapses report findings to one entity per CVE. Merge rule: the occurrence with the
+        /// highest CVSS score supplies score/severity/software name (ties keep report order),
+        /// IsKev is OR-ed, OverallRisk is the highest risk level seen across occurrences.
+        /// </summary>
+        internal static List<TableEntity> BuildCveIndexEntities(string tenantId, string sessionId, List<Dictionary<string, object>> findings)
+        {
+            var byCve = new Dictionary<string, TableEntity>(StringComparer.OrdinalIgnoreCase);
+            var now = DateTime.UtcNow;
+
+            foreach (var finding in findings)
+            {
+                var softwareName = finding.TryGetValue("softwareName", out var sn) ? sn?.ToString() ?? "" : "";
+                var overallRisk = finding.TryGetValue("riskLevel", out var rl) ? rl?.ToString() ?? "" : "";
+
+                if (!finding.TryGetValue("vulnerabilities", out var vulnsObj) || vulnsObj == null) continue;
+                if (vulnsObj is not System.Collections.IEnumerable vulnList) continue;
+
+                foreach (var vulnObj in vulnList)
+                {
+                    if (vulnObj is not Dictionary<string, object> vuln) continue;
+
+                    var cveId = vuln.TryGetValue("cveId", out var cid) ? cid?.ToString() : null;
+                    if (string.IsNullOrEmpty(cveId)) continue;
+
+                    double cvssScore = 0;
+                    try { if (vuln.TryGetValue("cvssScore", out var cs) && cs != null) cvssScore = Convert.ToDouble(cs); } catch { }
+
+                    var cvssSeverity = vuln.TryGetValue("cvssSeverity", out var csvs) ? csvs?.ToString() ?? "" : "";
+                    var isKev = vuln.TryGetValue("isKev", out var ik) && ik is bool ikb && ikb;
+
+                    if (byCve.TryGetValue(cveId, out var existing))
+                    {
+                        if (cvssScore > existing.GetDouble("CvssScore"))
+                        {
+                            existing["CvssScore"] = cvssScore;
+                            existing["CvssSeverity"] = cvssSeverity;
+                            existing["SoftwareName"] = softwareName;
+                        }
+                        existing["IsKev"] = existing.GetBoolean("IsKev") == true || isKev;
+                        if (RiskRank(overallRisk) > RiskRank(existing.GetString("OverallRisk")))
+                            existing["OverallRisk"] = overallRisk;
+                        continue;
+                    }
+
+                    byCve[cveId] = new TableEntity($"{tenantId}_{cveId}", sessionId)
+                    {
+                        ["SessionId"] = sessionId,
+                        ["TenantId"] = tenantId,
+                        ["CveId"] = cveId,
+                        ["SoftwareName"] = softwareName,
+                        ["CvssScore"] = cvssScore,
+                        ["CvssSeverity"] = cvssSeverity,
+                        ["IsKev"] = isKev,
+                        ["OverallRisk"] = overallRisk,
+                        ["DetectedAt"] = now,
+                    };
+                }
+            }
+
+            return byCve.Values.ToList();
+        }
+
+        private static int RiskRank(string? risk) => risk?.ToLowerInvariant() switch
+        {
+            "critical" => 4,
+            "high" => 3,
+            "medium" => 2,
+            "low" => 1,
+            _ => 0,
+        };
 
         // ===== SEARCH METHODS =====
 
