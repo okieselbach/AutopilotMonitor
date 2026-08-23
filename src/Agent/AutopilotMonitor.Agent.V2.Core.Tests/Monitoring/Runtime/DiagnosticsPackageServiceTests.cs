@@ -1,9 +1,11 @@
 #nullable enable
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
@@ -46,7 +48,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
                 Directory.CreateDirectory(SpoolFolder);
             }
 
-            public DiagnosticsPackageService Build(System.Action<AgentConfiguration>? mutateConfig = null)
+            public DiagnosticsPackageService Build(
+                System.Action<AgentConfiguration>? mutateConfig = null,
+                IReadOnlyDictionary<string, string>? sectionFolderOverrides = null,
+                System.Func<bool>? devicePreparationProbe = null)
             {
                 // BackendApiClient is required by the public ctor but BuildArchiveBytes
                 // never touches it — construct with a throwaway HttpClient. Tests only
@@ -71,7 +76,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
                     imeLogFolderOverride: ImeTmp.Path,
                     agentStateFolderOverride: StateFolder,
                     agentSpoolFolderOverride: SpoolFolder,
-                    agentDataFolderOverride: DataFolder);
+                    agentDataFolderOverride: DataFolder,
+                    sectionFolderOverrides: sectionFolderOverrides,
+                    devicePreparationProbe: devicePreparationProbe);
             }
 
             public void Dispose()
@@ -285,6 +292,185 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             Assert.Contains("sessioninfo.txt", entries);
             Assert.DoesNotContain(entries, e => e.StartsWith("AgentState/"));
             Assert.DoesNotContain(entries, e => e.StartsWith("AgentSpool/"));
+        }
+
+        // ===================================================== built-in catalog gates ====
+        // The RealmJoin sections ride behind the tenant's RealmJoin Watcher toggle, the
+        // Device Preparation bootstrapper event log behind the deterministic WDP marker.
+        // Every conditional section is skipped WITH a manifest line, never silently.
+
+        /// <summary>RealmJoin system-side folders redirected to temp (user-side goes via UserProfileResolver).</summary>
+        private sealed class RealmJoinRig : System.IDisposable
+        {
+            public TempDirectory WindowsLogs { get; } = new TempDirectory();
+            public TempDirectory Choco { get; } = new TempDirectory();
+            public TempDirectory UserProfile { get; } = new TempDirectory();
+            public string PackagesFolder => Path.Combine(WindowsLogs.Path, "RealmJoin");
+
+            public RealmJoinRig()
+            {
+                File.WriteAllText(Path.Combine(WindowsLogs.Path, "realmjoin.log"), "rj");
+                File.WriteAllText(Path.Combine(WindowsLogs.Path, "realmjoin2.log"), "rj2");
+                var pkg = Path.Combine(PackagesFolder, "Packages", "generic-7zip");
+                Directory.CreateDirectory(pkg);
+                File.WriteAllText(Path.Combine(pkg, "install.log"), "pkg");
+                var choco = Path.Combine(Choco.Path, "generic-7zip");
+                Directory.CreateDirectory(choco);
+                File.WriteAllText(Path.Combine(choco, "2026-06-30_install.log"), "choco");
+                var userRj = Path.Combine(UserProfile.Path, "AppData", "Local", "RealmJoin");
+                Directory.CreateDirectory(Path.Combine(userRj, "Logs", "generic-office"));
+                File.WriteAllText(Path.Combine(userRj, "tray.log"), "tray");
+                File.WriteAllText(Path.Combine(userRj, "config.pjson"), "not a log");
+                File.WriteAllText(Path.Combine(userRj, "Logs", "RjImeHost.log"), "host");
+                File.WriteAllText(Path.Combine(userRj, "Logs", "generic-office", "usersettings.log"), "pkg-user");
+            }
+
+            public IReadOnlyDictionary<string, string> Overrides => new Dictionary<string, string>
+            {
+                ["RealmJoinWindows"] = WindowsLogs.Path,
+                ["RealmJoinPackages"] = PackagesFolder,
+                ["RealmJoinChoco"] = Choco.Path,
+            };
+
+            public void Dispose()
+            {
+                WindowsLogs.Dispose();
+                Choco.Dispose();
+                UserProfile.Dispose();
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_skips_realmjoin_sections_when_watcher_disabled()
+        {
+            using var rig = new Rig();
+            using var rj = new RealmJoinRig();
+            UserProfileResolver.SetForTesting(rj.UserProfile.Path);
+            try
+            {
+                var bytes = rig.Build(sectionFolderOverrides: rj.Overrides).BuildArchiveBytes(enrollmentSucceeded: true);
+
+                var entries = ZipEntryNames(bytes);
+                Assert.DoesNotContain(entries, e => e.StartsWith("RealmJoinLogs/"));
+                var manifest = ReadZipEntryText(bytes, "package-manifest.txt")!;
+                Assert.Contains("SCENARIO: devicePreparation=False realmJoinWatcher=False", manifest);
+                Assert.Contains("BUILT-IN SKIPPED (RealmJoin Watcher disabled): RealmJoinWindows", manifest);
+                Assert.Contains("BUILT-IN SKIPPED (RealmJoin Watcher disabled): RealmJoinUserLogs", manifest);
+            }
+            finally
+            {
+                UserProfileResolver.Reset();
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_includes_realmjoin_sections_when_watcher_enabled()
+        {
+            using var rig = new Rig();
+            using var rj = new RealmJoinRig();
+            UserProfileResolver.SetForTesting(rj.UserProfile.Path);
+            try
+            {
+                var bytes = rig.Build(cfg => cfg.EnableRealmJoinWatcher = true, rj.Overrides)
+                    .BuildArchiveBytes(enrollmentSucceeded: false);
+
+                var entries = ZipEntryNames(bytes);
+                // ZIP layout mirrors the disk layout: flat client logs + package tree under
+                // Windows/, tray logs + per-user Logs tree under User/.
+                Assert.Contains("RealmJoinLogs/Windows/realmjoin.log", entries);
+                Assert.Contains("RealmJoinLogs/Windows/realmjoin2.log", entries);
+                Assert.Contains("RealmJoinLogs/Windows/RealmJoin/Packages/generic-7zip/install.log", entries);
+                Assert.Contains("RealmJoinLogs/Choco/generic-7zip/2026-06-30_install.log", entries);
+                Assert.Contains("RealmJoinLogs/User/tray.log", entries);
+                Assert.Contains("RealmJoinLogs/User/Logs/RjImeHost.log", entries);
+                Assert.Contains("RealmJoinLogs/User/Logs/generic-office/usersettings.log", entries);
+                // Only tray*.log is collected from the user RealmJoin root — config stays out.
+                Assert.DoesNotContain(entries, e => e.EndsWith("config.pjson"));
+                var manifest = ReadZipEntryText(bytes, "package-manifest.txt")!;
+                Assert.Contains("BUILT-IN: RealmJoinUserLogs -> folder=", manifest);
+                Assert.DoesNotContain("BUILT-IN SKIPPED (RealmJoin Watcher disabled)", manifest);
+            }
+            finally
+            {
+                UserProfileResolver.Reset();
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_skips_realmjoin_user_sections_without_user_session()
+        {
+            using var rig = new Rig();
+            using var rj = new RealmJoinRig();
+            // Token present, no interactive user detected → user-profile sections skip with a
+            // manifest line; the system-side sections are unaffected.
+            UserProfileResolver.SetForTesting(null!);
+            try
+            {
+                var bytes = rig.Build(cfg => cfg.EnableRealmJoinWatcher = true, rj.Overrides)
+                    .BuildArchiveBytes(enrollmentSucceeded: true);
+
+                var entries = ZipEntryNames(bytes);
+                Assert.Contains("RealmJoinLogs/Windows/realmjoin.log", entries);
+                Assert.DoesNotContain(entries, e => e.StartsWith("RealmJoinLogs/User"));
+                var manifest = ReadZipEntryText(bytes, "package-manifest.txt")!;
+                Assert.Contains("BUILT-IN SKIPPED (no user session for token): RealmJoinUserTray", manifest);
+                Assert.Contains("BUILT-IN SKIPPED (no user session for token): RealmJoinUserLogs", manifest);
+            }
+            finally
+            {
+                UserProfileResolver.Reset();
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_collects_bootstrapper_event_log_only_on_device_preparation()
+        {
+            using var rig = new Rig();
+            using var winevt = new TempDirectory();
+            // Synthetic evtx: no registered channel claims the file, so the export falls
+            // back to a raw copy — the point here is the scenario gate, not wevtutil.
+            File.WriteAllBytes(Path.Combine(winevt.Path, "BootstrapperAgentServiceLogProvider.evtx"), new byte[] { 1, 2, 3 });
+            var overrides = new Dictionary<string, string> { ["ImeBootstrapperEventLog"] = winevt.Path };
+
+            var classic = rig.Build(sectionFolderOverrides: overrides, devicePreparationProbe: () => false)
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+            Assert.DoesNotContain("ImeLogs/BootstrapperAgentServiceLogProvider.evtx", ZipEntryNames(classic));
+            Assert.Contains("BUILT-IN SKIPPED (not a Device Preparation enrollment): ImeBootstrapperEventLog",
+                ReadZipEntryText(classic, "package-manifest.txt"));
+
+            var wdp = rig.Build(sectionFolderOverrides: overrides, devicePreparationProbe: () => true)
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+            Assert.Contains("ImeLogs/BootstrapperAgentServiceLogProvider.evtx", ZipEntryNames(wdp));
+            Assert.Contains("SCENARIO: devicePreparation=True", ReadZipEntryText(wdp, "package-manifest.txt"));
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_treats_failing_device_preparation_probe_as_classic()
+        {
+            using var rig = new Rig();
+            var bytes = rig.Build(devicePreparationProbe: () => throw new System.InvalidOperationException("registry boom"))
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var manifest = ReadZipEntryText(bytes, "package-manifest.txt")!;
+            Assert.Contains("SCENARIO PROBE FAILED (treated as Classic): registry boom", manifest);
+            Assert.Contains("BUILT-IN SKIPPED (not a Device Preparation enrollment): ImeBootstrapperEventLog", manifest);
+            Assert.Contains("sessioninfo.txt", ZipEntryNames(bytes)); // archive still built
+        }
+
+        [Theory]
+        [InlineData(DiagnosticsSectionCondition.Always, false, false, true)]
+        [InlineData(DiagnosticsSectionCondition.RealmJoinWatcher, false, true, false)]
+        [InlineData(DiagnosticsSectionCondition.RealmJoinWatcher, true, false, true)]
+        [InlineData(DiagnosticsSectionCondition.DevicePreparation, true, false, false)]
+        [InlineData(DiagnosticsSectionCondition.DevicePreparation, false, true, true)]
+        [InlineData((DiagnosticsSectionCondition)999, true, true, false)]
+        public void IsSectionActive_gates_on_condition(DiagnosticsSectionCondition condition, bool watcher, bool wdp, bool expected)
+        {
+            var section = new DiagnosticsBuiltInSection("X", "X", @"C:\X", new[] { "*.log" }, false, "x", condition);
+            var cfg = Cfg();
+            cfg.EnableRealmJoinWatcher = watcher;
+
+            Assert.Equal(expected, DiagnosticsPackageService.IsSectionActive(section, cfg, wdp));
         }
 
         private static string[] ZipEntryNames(byte[] zipBytes)

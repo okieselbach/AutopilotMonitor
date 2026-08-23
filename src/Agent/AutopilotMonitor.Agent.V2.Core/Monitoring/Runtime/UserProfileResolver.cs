@@ -20,7 +20,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
     /// </summary>
     public static class UserProfileResolver
     {
-        public const string Token = "%LOGGED_ON_USER_PROFILE%";
+        // Spelled once, in Shared: the built-in diagnostics catalog uses the same token.
+        public const string Token = Shared.Models.DiagnosticsBuiltInSections.UserProfileToken;
 
         private static readonly object Lock = new object();
         private static bool _resolved;

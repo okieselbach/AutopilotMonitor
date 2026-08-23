@@ -101,6 +101,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             agentConfig.DiagnosticsUploadEnabled = remoteConfig.DiagnosticsUploadEnabled;
             agentConfig.DiagnosticsUploadMode = remoteConfig.DiagnosticsUploadMode;
             agentConfig.DiagnosticsLogPaths = remoteConfig.DiagnosticsLogPaths ?? new List<DiagnosticsLogPath>();
+            // The diagnostics package gates its RealmJoin sections on the tenant's watcher
+            // toggle but never sees the remote response — mirror the one Analyzers knob here.
+            // The remaining Analyzers flags flow untouched to DefaultComponentFactory.
+            agentConfig.EnableRealmJoinWatcher = remoteConfig.Analyzers?.EnableRealmJoinWatcher ?? false;
 
             agentConfig.SendTraceEvents = remoteConfig.SendTraceEvents;
 

@@ -31,6 +31,12 @@ item in `AutopilotMonitor.Agent.V2.Core.csproj`) and regenerated into the portal
 | `IsCommandAllowed` | `allowedCommands` | **exact** match, trimmed — never prefix |
 | `IsEventLogChannelAllowed` | `eventLogChannels` | prefix, boundary `/` or end |
 
+`DiagnosticsPathGuards.IsDiagnosticsPathAllowed` (allowlist `diagnosticsPathPrefixes`, a C#
+literal mirrored in the JSON) applies the same hard blocks and the same user-profile
+exception to **admin-configured diagnostics paths** only. The diagnostics package's built-in
+sections are reviewed code and never pass through it — see
+[Diagnostics Package](../agent/diagnostics-package.md).
+
 **Hard blocks live in code, not in the JSON**, so a parse error cannot lift them — on a
 parse failure the allowlists fall back to empty and everything is blocked (fail-closed),
 but the hard blocks must hold regardless of configuration:

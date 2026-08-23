@@ -369,6 +369,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         }
 
         [Fact]
+        public void Merge_mirrors_analyzers_realmjoin_watcher_onto_agent_config()
+        {
+            // The diagnostics package gates its RealmJoin sections on this flag but never
+            // sees the remote response — the merger carries the one Analyzers knob over.
+            var agent = NewAgentConfig();
+            var remote = FullRemote();
+            remote.Analyzers = new AnalyzerConfiguration { EnableRealmJoinWatcher = true };
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.True(agent.EnableRealmJoinWatcher);
+        }
+
+        [Fact]
+        public void Merge_clears_realmjoin_watcher_when_remote_analyzers_missing()
+        {
+            var agent = NewAgentConfig();
+            agent.EnableRealmJoinWatcher = true;   // stale cached true must not survive
+            var remote = FullRemote();
+            remote.Analyzers = null!;
+
+            RemoteConfigMerger.Merge(agent, remote);
+
+            Assert.False(agent.EnableRealmJoinWatcher);
+        }
+
+        [Fact]
         public void Merge_replaces_diagnostics_log_paths_with_empty_list_when_remote_null()
         {
             var agent = NewAgentConfig();

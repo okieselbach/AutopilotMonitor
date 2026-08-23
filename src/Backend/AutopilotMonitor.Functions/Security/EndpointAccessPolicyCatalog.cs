@@ -282,6 +282,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "audit/tpm-pss-unsupported", EndpointPolicy.MemberRead),
         new("GET",    "diagnostics/download-url",  EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("POST",   "diagnostics/download-ticket", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
+        // Platform-defined diagnostics collection (built-in catalog + global paths): read-only,
+        // no secrets, needed by every settings viewer — member tier, JWT-scoped (no tenant parameter).
+        new("GET",    "diagnostics/paths",         EndpointPolicy.MemberRead, TenantScoping.Jwt),
         new("GET",    "rules/gather",              EndpointPolicy.MemberRead),
         new("GET",    "rules/analyze",             EndpointPolicy.MemberRead),
         new("GET",    "rules/ime-log-patterns",    EndpointPolicy.MemberRead),

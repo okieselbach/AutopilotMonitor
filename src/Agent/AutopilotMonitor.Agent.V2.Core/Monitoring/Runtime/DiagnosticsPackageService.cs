@@ -10,7 +10,9 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals;
@@ -124,62 +126,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             }
         }
 
-        private readonly string _imeLogFolder;
-        private readonly string _agentLogFolder;
-        private readonly string _agentStateFolder;
-        private readonly string _agentSpoolFolder;
-        private readonly string _agentDataFolder;
+        // Built-in sections come from the Shared catalog (DiagnosticsBuiltInSections.All) — the
+        // same list the backend serves to the portal, so what administrators see is exactly
+        // what this service collects. Test seam: section id → folder; production leaves the
+        // map empty and every section resolves from the catalog's (unexpanded) source folder.
+        private readonly IReadOnlyDictionary<string, string> _sectionFolderOverrides;
 
-        private static readonly string DefaultImeLogFolder =
-            Environment.ExpandEnvironmentVariables(@"%ProgramData%\Microsoft\IntuneManagementExtension\Logs");
-
-        private static readonly string DefaultAgentLogFolder =
-            Environment.ExpandEnvironmentVariables(Constants.LogDirectory);
-
-        private static readonly string DefaultAgentStateFolder =
-            Environment.ExpandEnvironmentVariables(Constants.StateDirectory);
-
-        private static readonly string DefaultAgentSpoolFolder =
-            Environment.ExpandEnvironmentVariables(Constants.SpoolDirectory);
-
-        private static readonly string DefaultAgentDataFolder =
-            Environment.ExpandEnvironmentVariables(@"%ProgramData%\AutopilotMonitor");
-
-        /// <summary>
-        /// File extensions collected from built-in log folders (Agent + IME).
-        /// Covers standard logs, structured data, traces, event logs, and diagnostics archives.
-        /// </summary>
-        private static readonly string[] LogFilePatterns = new[]
-        {
-            "*.log", "*.txt", "*.json", "*.jsonl",
-            "*.etl", "*.evtx", "*.xml", "*.csv", "*.cab"
-        };
-
-        /// <summary>
-        /// Patterns collected from the agent state folder. Adds completion markers on top of
-        /// the standard log patterns so files like <c>enrollment-complete.marker</c> and
-        /// <c>whiteglove-backfill-state.json</c> reach the diagnostics archive.
-        /// </summary>
-        private static readonly string[] StateFilePatterns = new[]
-        {
-            "*.log", "*.txt", "*.json", "*.jsonl",
-            "*.etl", "*.evtx", "*.xml", "*.csv", "*.cab",
-            "*.complete", "*.marker"
-        };
-
-        /// <summary>
-        /// Marker patterns from the top-level data directory. Kept tight on purpose: only
-        /// completion/exit markers, no session.id / bootstrap.json (those are config, not
-        /// forensic state).
-        /// </summary>
-        private static readonly string[] RootMarkerPatterns = new[] { "*.complete", "*.marker" };
-
-        /// <summary>
-        /// Telemetry spool: only the JSON-shaped files. The spool folder may also contain
-        /// quarantine subfolders, so subfolders are excluded to keep the archive focused
-        /// on what is actually pending upload.
-        /// </summary>
-        private static readonly string[] SpoolFilePatterns = new[] { "*.jsonl", "*.json" };
+        // Scenario oracle for DiagnosticsSectionCondition.DevicePreparation. Production reads
+        // the deterministic WDP registry marker (the same gate every other WDP switch uses);
+        // tests inject a constant so they never touch the registry.
+        private readonly Func<bool> _devicePreparationProbe;
 
         public DiagnosticsPackageService(AgentConfiguration configuration, AgentLogger logger, BackendApiClient apiClient)
             : this(configuration, logger, apiClient, null, null, null, null, null)
@@ -188,7 +144,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         // Test seam: allows xUnit fixtures to redirect log/state/spool/data folders to a
         // temp dir without touching real %ProgramData% paths. Production callers always go
-        // through the public ctor.
+        // through the public ctor. The five named overrides map onto the catalog's section
+        // ids; sectionFolderOverrides covers every other section (RealmJoin*, ImeBootstrapper…).
         internal DiagnosticsPackageService(
             AgentConfiguration configuration,
             AgentLogger logger,
@@ -197,18 +154,38 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             string imeLogFolderOverride,
             string agentStateFolderOverride,
             string agentSpoolFolderOverride,
-            string agentDataFolderOverride)
+            string agentDataFolderOverride,
+            IReadOnlyDictionary<string, string> sectionFolderOverrides = null,
+            Func<bool> devicePreparationProbe = null)
         {
             _configuration = configuration;
             _logger = logger;
             _apiClient = apiClient;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
-            _agentLogFolder = agentLogFolderOverride ?? DefaultAgentLogFolder;
-            _imeLogFolder = imeLogFolderOverride ?? DefaultImeLogFolder;
-            _agentStateFolder = agentStateFolderOverride ?? DefaultAgentStateFolder;
-            _agentSpoolFolder = agentSpoolFolderOverride ?? DefaultAgentSpoolFolder;
-            _agentDataFolder = agentDataFolderOverride ?? DefaultAgentDataFolder;
+            var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+            void Map(string sectionId, string folder)
+            {
+                if (folder != null) overrides[sectionId] = folder;
+            }
+            Map("AgentLogs", agentLogFolderOverride);
+            Map("ImeLogs", imeLogFolderOverride);
+            Map("AgentState", agentStateFolderOverride);
+            Map("AgentSpool", agentSpoolFolderOverride);
+            Map("AgentMarkers", agentDataFolderOverride);
+            if (sectionFolderOverrides != null)
+            {
+                foreach (var kv in sectionFolderOverrides)
+                    overrides[kv.Key] = kv.Value;
+            }
+            _sectionFolderOverrides = overrides;
+
+            // Tests that pass folder overrides but no probe must stay registry-free: a seam
+            // caller gets "not WDP" by default, the production ctor gets the real marker.
+            _devicePreparationProbe = devicePreparationProbe
+                ?? (overrides.Count == 0
+                    ? (Func<bool>)EnrollmentRegistryDetector.IsDeterministicDevicePreparation
+                    : () => false);
         }
 
         /// <summary>
@@ -370,33 +347,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     // 1. sessioninfo.txt — informational metadata, not subject to caps.
                     AddSessionInfo(archive, enrollmentSucceeded);
 
-                    // 2. Agent logs
-                    foreach (var pattern in LogFilePatterns)
-                        AddLogFiles(archive, _agentLogFolder, "AgentLogs", pattern, tracker);
+                    // 2. Built-in sections — ONE catalog shared with the backend (the portal
+                    //    shows exactly this list): agent logs, IME logs (+ the Device Preparation
+                    //    bootstrapper event log on WDP), agent state (recursive: `.quarantine`
+                    //    and `.part1-<utc>/` buckets ride along), telemetry spool, top-level
+                    //    markers, and the RealmJoin logs behind the tenant's watcher toggle.
+                    //    The scenario probe is a registry read — evaluate it once per build.
+                    var isDevicePreparation = ProbeDevicePreparation();
+                    ManifestLine($"SCENARIO: devicePreparation={isDevicePreparation} realmJoinWatcher={_configuration.EnableRealmJoinWatcher}");
+                    foreach (var section in DiagnosticsBuiltInSections.All)
+                        AddBuiltInSection(archive, section, tracker, isDevicePreparation);
 
-                    // 3. IME logs (all relevant files in the IME log folder)
-                    foreach (var pattern in LogFilePatterns)
-                        AddLogFiles(archive, _imeLogFolder, "ImeLogs", pattern, tracker);
-
-                    // 4. Agent state: snapshot, journal, signal-log, ime-tracker-state,
-                    //    enrollment-complete.marker, final-status.json, whiteglove-backfill-state.json.
-                    //    Recursive to include `.quarantine` subfolders AND `.part1-<utc>/` buckets
-                    //    that StateArchiver creates on WG Part-2 boot — both ride along under
-                    //    AgentState/ via the same recursive walk.
-                    foreach (var pattern in StateFilePatterns)
-                        AddLogFiles(archive, _agentStateFolder, "AgentState", pattern, tracker, includeSubfolders: true);
-
-                    // 5. Telemetry spool — pending uploads + upload cursor (forensic: what didn't ship?)
-                    foreach (var pattern in SpoolFilePatterns)
-                        AddLogFiles(archive, _agentSpoolFolder, "AgentSpool", pattern, tracker, includeSubfolders: false);
-
-                    // 6. Top-level markers (whiteglove.complete, clean-exit marker) — Part-1/Part-2
-                    //    bridge + ghost-restart guard. Top-directory only to avoid re-zipping
-                    //    State/Spool/Logs/Agent which already have their own sections.
-                    foreach (var pattern in RootMarkerPatterns)
-                        AddLogFiles(archive, _agentDataFolder, "AgentMarkers", pattern, tracker, includeSubfolders: false);
-
-                    // 7. Configured additional log paths (global + tenant, validated by guards)
+                    // 3. Configured additional log paths (global + tenant, validated by guards)
                     foreach (var entry in _configuration.DiagnosticsLogPaths ?? new System.Collections.Generic.List<Shared.Models.DiagnosticsLogPath>())
                     {
                         // Resolve %LOGGED_ON_USER_PROFILE% token and get profile path for guard exception
@@ -445,6 +407,81 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
                 return ms.ToArray();
             }
+        }
+
+        private bool ProbeDevicePreparation()
+        {
+            try
+            {
+                return _devicePreparationProbe();
+            }
+            catch (Exception ex)
+            {
+                // Fail toward Classic like every other WDP gate: the evtx export is skipped,
+                // never the whole package.
+                _logger.Warning($"Device Preparation probe failed — treating as Classic: {ex.Message}");
+                ManifestLine($"SCENARIO PROBE FAILED (treated as Classic): {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure gate: is this built-in section collected under the given configuration and
+        /// enrollment scenario? Unknown conditions (a newer Shared catalog than this agent)
+        /// fail closed.
+        /// </summary>
+        internal static bool IsSectionActive(DiagnosticsBuiltInSection section, AgentConfiguration configuration, bool isDevicePreparation)
+        {
+            switch (section.Condition)
+            {
+                case DiagnosticsSectionCondition.Always:
+                    return true;
+                case DiagnosticsSectionCondition.RealmJoinWatcher:
+                    return configuration.EnableRealmJoinWatcher;
+                case DiagnosticsSectionCondition.DevicePreparation:
+                    return isDevicePreparation;
+                default:
+                    return false;
+            }
+        }
+
+        private static string DescribeInactiveCondition(DiagnosticsSectionCondition condition)
+        {
+            switch (condition)
+            {
+                case DiagnosticsSectionCondition.RealmJoinWatcher:
+                    return "RealmJoin Watcher disabled";
+                case DiagnosticsSectionCondition.DevicePreparation:
+                    return "not a Device Preparation enrollment";
+                default:
+                    return $"unknown condition {condition}";
+            }
+        }
+
+        private void AddBuiltInSection(ZipArchive archive, DiagnosticsBuiltInSection section, BudgetTracker tracker, bool isDevicePreparation)
+        {
+            if (!IsSectionActive(section, _configuration, isDevicePreparation))
+            {
+                ManifestLine($"BUILT-IN SKIPPED ({DescribeInactiveCondition(section.Condition)}): {section.Id}");
+                return;
+            }
+
+            // Override (test seam) or catalog source folder with %ProgramData% /
+            // %LOGGED_ON_USER_PROFILE% expanded; null means the token is present but no
+            // interactive user has been detected yet — same skip as configured paths.
+            var folder = _sectionFolderOverrides.TryGetValue(section.Id, out var overrideFolder)
+                ? overrideFolder
+                : UserProfileResolver.ExpandCustomTokens(section.SourceFolder);
+            if (folder == null)
+            {
+                _logger.Warning($"Built-in diagnostics section skipped (no user session for token): {section.Id}");
+                ManifestLine($"BUILT-IN SKIPPED (no user session for token): {section.Id} '{section.SourceFolder}'");
+                return;
+            }
+
+            ManifestLine($"BUILT-IN: {section.Id} -> folder='{folder}' zip='{section.ZipFolder}' recursive={section.IncludeSubfolders}");
+            foreach (var pattern in section.Patterns)
+                AddLogFiles(archive, folder, section.ZipFolder, pattern, tracker, section.IncludeSubfolders);
         }
 
         private void AddSessionInfo(ZipArchive archive, bool? enrollmentSucceeded)

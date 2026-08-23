@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -30,6 +31,44 @@ public class GetAgentConfigFunctionTests
     {
         var actual = GetAgentConfigFunction.ParseAgentMajor(agentVersion);
         Assert.Equal(expectedMajor, actual);
+    }
+
+    // ── MergeDiagnosticsLogPaths — global ∪ tenant without duplicate ZIP entries ──────────
+
+    private static DiagnosticsLogPath P(string path, string description = "") =>
+        new() { Path = path, Description = description };
+
+    [Fact]
+    public void MergeDiagnosticsLogPaths_GlobalFirst_OrderPreserved_DuplicatesDroppedCaseInsensitively()
+    {
+        var global = new[] { P(@"C:\Windows\Panther\setupact.log", "global"), P(@"C:\Windows\Logs\DISM\dism.log") };
+        var tenant = new[]
+        {
+            P(@"c:\windows\panther\SETUPACT.LOG", "tenant copy"),   // same path, different case → dropped
+            P(@"  C:\Windows\Logs\DISM\dism.log  "),                 // trimmed duplicate → dropped
+            P(@"C:\Windows\SetupDiag\*.log", "tenant"),
+        };
+
+        var merged = GetAgentConfigFunction.MergeDiagnosticsLogPaths(global, tenant);
+
+        Assert.Equal(new[]
+        {
+            @"C:\Windows\Panther\setupact.log",
+            @"C:\Windows\Logs\DISM\dism.log",
+            @"C:\Windows\SetupDiag\*.log",
+        }, merged.Select(p => p.Path));
+        Assert.Equal("global", merged[0].Description);   // first occurrence (global) wins
+    }
+
+    [Fact]
+    public void MergeDiagnosticsLogPaths_DropsBlankEntries()
+    {
+        var merged = GetAgentConfigFunction.MergeDiagnosticsLogPaths(
+            new[] { P(""), P("   "), P(@"C:\Install\Log\*.log") },
+            new DiagnosticsLogPath[] { null!, P(@"C:\Install\Log\*.log") });
+
+        Assert.Single(merged);
+        Assert.Equal(@"C:\Install\Log\*.log", merged[0].Path);
     }
 
     [Theory]

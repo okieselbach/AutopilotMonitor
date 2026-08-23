@@ -386,6 +386,8 @@ export const api = {
   diagnostics: {
     downloadUrl: (tenantId: string, blobName: string) =>
       `${API_BASE_URL}/api/diagnostics/download-url${qs({ tenantId, blobName })}`,
+    /** GET — built-in collection catalog + platform-wide global paths (MemberRead, JWT-scoped). */
+    paths: () => `${API_BASE_URL}/api/diagnostics/paths`,
   },
 
   // ── Progress ──────────────────────────────────────────────────────────────

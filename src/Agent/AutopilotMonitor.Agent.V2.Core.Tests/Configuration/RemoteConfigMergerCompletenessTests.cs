@@ -53,6 +53,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             // Merge reads two Collectors knobs (AgentMaxLifetimeMinutes, HelloWaitTimeoutSeconds);
             // the remaining CollectorConfiguration flags flow untouched to DefaultComponentFactory.
             nameof(AgentConfigResponse.Collectors),
+            // Merge reads one Analyzers knob (EnableRealmJoinWatcher → diagnostics RealmJoin sections);
+            // the remaining flags flow untouched to DefaultComponentFactory + AgentAnalyzerManager.
+            nameof(AgentConfigResponse.Analyzers),
         };
 
         /// <summary>
@@ -70,8 +73,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             nameof(AgentConfigResponse.ImeLogPatterns),
             // Passed by AgentRuntimeHost into IComponentFactory.CreateCollectorHosts → ImeLogHost sealing re-emit.
             nameof(AgentConfigResponse.WhiteGloveSealingPatternIds),
-            // Consumed by DefaultComponentFactory (RealmJoin/KeepAwake/ConsoleBypass host gates) + AgentAnalyzerManager.
-            nameof(AgentConfigResponse.Analyzers),
             // Self-update ZIP integrity second trust channel — BinaryIntegrityVerifier / Program update path.
             nameof(AgentConfigResponse.LatestAgentSha256),
             // Running-EXE integrity verification — BinaryIntegrityVerifier post-config check.

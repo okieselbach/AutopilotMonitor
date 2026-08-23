@@ -192,6 +192,21 @@ public class EndpointPolicyCatalogCompletenessTests
     }
 
     /// <summary>
+    /// The built-in diagnostics catalog + global paths are platform-wide, secret-free data that
+    /// every settings viewer needs (what is collected from the tenant's devices). Member tier,
+    /// JWT-scoped — an upgrade to a global tier would hide it from tenant admins again.
+    /// </summary>
+    [Fact]
+    public void DiagnosticsPaths_IsMemberReadJwtScoped()
+    {
+        var entry = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/diagnostics/paths");
+
+        Assert.NotNull(entry);
+        Assert.Equal(EndpointPolicy.MemberRead, entry.Policy);
+        Assert.Equal(TenantScoping.Jwt, entry.TenantScoping);
+    }
+
+    /// <summary>
     /// Unregistered routes must return null (fail-closed).
     /// </summary>
     [Theory]

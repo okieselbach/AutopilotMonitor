@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { DiagnosticsLogPath } from "../types";
+import type { DiagnosticsBuiltInSection } from "@/types/diagnostics";
 import { validateDiagnosticsPath } from "@/utils/guardValidation";
 import { ValidationIndicator } from "@/components/ValidationIndicator";
+import { BuiltInSectionsList } from "@/components/diagnostics/BuiltInSectionsList";
+import { ContextPill, DiagnosticsPathRow } from "@/components/diagnostics/DiagnosticsPathRow";
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { parseSasExpiry } from "./diagnosticsSasExpiry";
@@ -23,6 +26,11 @@ interface DiagnosticsSectionProps {
   tenantDiagPaths: DiagnosticsLogPath[];
   setTenantDiagPaths: (value: DiagnosticsLogPath[]) => void;
   globalDiagPaths: DiagnosticsLogPath[];
+  /** Sections compiled into the agent (GET /api/diagnostics/paths) — read-only, collapsed. */
+  builtInSections: DiagnosticsBuiltInSection[];
+  builtInLoading: boolean;
+  /** The tenant's PERSISTED RealmJoin Watcher toggle — drives the on/off state of the RealmJoin rows. */
+  realmJoinWatcherEnabled: boolean;
   newDiagPath: string;
   setNewDiagPath: (value: string) => void;
   newDiagDesc: string;
@@ -45,6 +53,9 @@ export default function DiagnosticsSection({
   tenantDiagPaths,
   setTenantDiagPaths,
   globalDiagPaths,
+  builtInSections,
+  builtInLoading,
+  realmJoinWatcherEnabled,
   newDiagPath,
   setNewDiagPath,
   newDiagDesc,
@@ -66,6 +77,15 @@ export default function DiagnosticsSection({
     () => newDiagPath.trim() ? validateDiagnosticsPath(newDiagPath, unrestrictedMode) : null,
     [newDiagPath, unrestrictedMode]
   );
+
+  const addTenantPath = () => {
+    const p = newDiagPath.trim().replace(/^["']+|["']+$/g, "");
+    if (!p) return;
+    setTenantDiagPaths([...tenantDiagPaths, { path: p, description: newDiagDesc.trim(), isBuiltIn: false, includeSubfolders: newDiagSubfolders }]);
+    setNewDiagPath("");
+    setNewDiagDesc("");
+    setNewDiagSubfolders(false);
+  };
 
   return (
     <div id="diagnostics" className="bg-white rounded-lg shadow">
@@ -250,85 +270,46 @@ export default function DiagnosticsSection({
         <div className="p-4 rounded-lg border border-gray-200">
           <p className="font-medium text-gray-900 mb-1">Additional Log Paths</p>
           <p className="text-sm text-gray-500 mb-3">
-            Extra log files or wildcards included in the diagnostics ZIP. Global paths (set by your platform admin) are always included and shown below as read-only.
+            Extra log files or wildcards included in the diagnostics ZIP, on top of the built-in collection and the platform-wide paths shown read-only below.
           </p>
+
+          {/* Built-in sections (read-only, collapsed; header carries the RealmJoin state) */}
+          <BuiltInSectionsList
+            sections={builtInSections}
+            loading={builtInLoading}
+            realmJoinWatcherEnabled={realmJoinWatcherEnabled}
+          />
 
           {/* Global paths (read-only) */}
           {globalDiagPaths.length > 0 && (
             <div className="mb-3">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Global (platform-wide)</p>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {globalDiagPaths.map((entry, idx) => (
-                  <div key={idx} className="flex items-start justify-between bg-gray-100 border border-gray-300 rounded-lg px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-mono text-xs text-gray-700 break-all">{entry.path}</p>
-                        <ValidationIndicator result={validateDiagnosticsPath(entry.path, false)} />
-                        {entry.includeSubfolders && (
-                          <span className="text-xs bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">+subfolders</span>
-                        )}
-                      </div>
-                      {entry.description && <p className="text-xs text-gray-500 mt-0.5">{entry.description}</p>}
-                    </div>
-                    <span className="ml-2 flex-shrink-0 text-gray-400 bg-gray-200 rounded-full px-1.5 py-0.5 text-xs">global</span>
-                  </div>
+                  <DiagnosticsPathRow
+                    key={`${entry.path}-${idx}`}
+                    path={entry.path}
+                    description={entry.description}
+                    includeSubfolders={entry.includeSubfolders || false}
+                    validation={validateDiagnosticsPath(entry.path, false)}
+                    className="bg-gray-100 border-gray-300"
+                    pathClassName="text-gray-700"
+                    pills={<ContextPill title="Set by the platform administrator for all tenants">global</ContextPill>}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Tenant paths */}
-          {tenantDiagPaths.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Your paths</p>
-              <div className="space-y-1.5">
-                {tenantDiagPaths.map((entry, idx) => (
-                  <div key={idx} className="flex items-start justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-mono text-xs text-amber-900 break-all">{entry.path}</p>
-                        <ValidationIndicator result={validateDiagnosticsPath(entry.path, unrestrictedMode)} />
-                        {entry.includeSubfolders && (
-                          <span className="text-xs bg-amber-200 text-amber-700 rounded-full px-1.5 py-0.5">+subfolders</span>
-                        )}
-                      </div>
-                      {entry.description && <p className="text-xs text-amber-600 mt-0.5">{entry.description}</p>}
-                      <label className="flex items-center gap-1.5 mt-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={entry.includeSubfolders || false}
-                          onChange={() => {
-                            const updated = [...tenantDiagPaths];
-                            updated[idx] = { ...entry, includeSubfolders: !entry.includeSubfolders };
-                            setTenantDiagPaths(updated);
-                          }}
-                          className="w-3.5 h-3.5 rounded border-amber-400 text-green-600 focus:ring-green-500"
-                        />
-                        <span className="text-xs text-amber-600">Include subfolders</span>
-                      </label>
-                    </div>
-                    <button
-                      onClick={() => setTenantDiagPaths(tenantDiagPaths.filter((_, i) => i !== idx))}
-                      className="ml-2 flex-shrink-0 text-amber-400 hover:text-red-600 transition-colors"
-                      title="Remove"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Add new tenant path */}
-          <div className="flex flex-col sm:flex-row gap-2 mt-2">
+          {/* Tenant paths — add-row first so a long list never pushes the input out of reach */}
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Your paths</p>
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               placeholder="Path or wildcard (e.g. C:\Windows\Panther\*.log)"
               value={newDiagPath}
               onChange={(e) => setNewDiagPath(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTenantPath(); } }}
               className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 font-mono"
             />
             <input
@@ -336,38 +317,54 @@ export default function DiagnosticsSection({
               placeholder="Description (optional)"
               value={newDiagDesc}
               onChange={(e) => setNewDiagDesc(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTenantPath(); } }}
               className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
             />
+            <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-gray-500 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={newDiagSubfolders}
+                onChange={() => setNewDiagSubfolders(!newDiagSubfolders)}
+                className="w-3.5 h-3.5 rounded border-gray-400 text-green-600 focus:ring-green-500"
+              />
+              subfolders
+            </label>
             <button
-              onClick={() => {
-                const p = newDiagPath.trim().replace(/^["']+|["']+$/g, "");
-                if (!p) return;
-                setTenantDiagPaths([...tenantDiagPaths, { path: p, description: newDiagDesc.trim(), isBuiltIn: false, includeSubfolders: newDiagSubfolders }]);
-                setNewDiagPath("");
-                setNewDiagDesc("");
-                setNewDiagSubfolders(false);
-              }}
+              onClick={addTenantPath}
               disabled={!newDiagPath.trim()}
               className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               Add
             </button>
           </div>
-          <label className="flex items-center gap-1.5 mt-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={newDiagSubfolders}
-              onChange={() => setNewDiagSubfolders(!newDiagSubfolders)}
-              className="w-3.5 h-3.5 rounded border-gray-400 text-green-600 focus:ring-green-500"
-            />
-            <span className="text-xs text-gray-500">Include subfolders</span>
-          </label>
           <div className="flex items-center gap-2 mt-2">
             <p className="text-xs text-gray-400">
               Paths are validated on the agent against an allowlist of safe prefixes. Wildcards are only allowed in the last segment.
             </p>
             <ValidationIndicator result={newPathValidation} />
           </div>
+
+          {tenantDiagPaths.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {tenantDiagPaths.map((entry, idx) => (
+                <DiagnosticsPathRow
+                  key={`${entry.path}-${idx}`}
+                  path={entry.path}
+                  description={entry.description}
+                  includeSubfolders={entry.includeSubfolders || false}
+                  validation={validateDiagnosticsPath(entry.path, unrestrictedMode)}
+                  className="bg-amber-50 border-amber-200"
+                  pathClassName="text-amber-900"
+                  onToggleSubfolders={() => {
+                    const updated = [...tenantDiagPaths];
+                    updated[idx] = { ...entry, includeSubfolders: !entry.includeSubfolders };
+                    setTenantDiagPaths(updated);
+                  }}
+                  onRemove={() => setTenantDiagPaths(tenantDiagPaths.filter((_, i) => i !== idx))}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         </div>

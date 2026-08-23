@@ -275,7 +275,6 @@ interface TenantConfigContextValue {
   setDiagnosticsUploadDestination: (v: string) => void;
   tenantDiagPaths: DiagnosticsLogPath[];
   setTenantDiagPaths: (v: DiagnosticsLogPath[]) => void;
-  globalDiagPaths: DiagnosticsLogPath[];
   newDiagPath: string;
   setNewDiagPath: (v: string) => void;
   newDiagDesc: string;
@@ -447,7 +446,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Hosted requires an explicit admin click (no silent flip).
   const [diagnosticsUploadDestination, setDiagnosticsUploadDestination] = useState("CustomerSas");
   const [tenantDiagPaths, setTenantDiagPaths] = useState<DiagnosticsLogPath[]>([]);
-  const [globalDiagPaths, setGlobalDiagPaths] = useState<DiagnosticsLogPath[]>([]);
   const [newDiagPath, setNewDiagPath] = useState("");
   const [newDiagDesc, setNewDiagDesc] = useState("");
 
@@ -699,25 +697,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     void run();
   }, [tenantId, editionInfo.edition, config?.bootstrapTokenEnabled, fetchBootstrapSessions]);
 
-  // -----------------------------------------------------------------------
-  // Fetch global diagnostics paths (global-admin only)
-  // -----------------------------------------------------------------------
-  useEffect(() => {
-    if (!user?.isGlobalAdmin) return;
-    const fetchGlobalDiagPaths = async () => {
-      try {
-        const res = await authenticatedFetch(api.globalConfig.get(), getAccessToken);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.diagnosticsGlobalLogPathsJson) {
-          setGlobalDiagPaths(JSON.parse(data.diagnosticsGlobalLogPathsJson));
-        }
-      } catch {
-        // Non-fatal
-      }
-    };
-    fetchGlobalDiagPaths();
-  }, [user?.isGlobalAdmin, getAccessToken]);
+  // Built-in sections + global diagnostics paths are read-only context for every role and
+  // live in useDiagnosticsPathsCatalog (GET /api/diagnostics/paths), not in this provider.
 
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
@@ -1750,7 +1731,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       diagnosticsUploadMode, setDiagnosticsUploadMode,
       diagnosticsUploadDestination, setDiagnosticsUploadDestination,
       tenantDiagPaths, setTenantDiagPaths,
-      globalDiagPaths,
       newDiagPath, setNewDiagPath,
       newDiagDesc, setNewDiagDesc,
       handleSaveDiagnostics, handleResetDiagnostics,
@@ -1809,7 +1789,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     slaNotifyOnAppInstallBreach, slaNotifyOnConsecutiveFailures, slaConsecutiveFailureThreshold,
     handleSaveSlaTargets, handleResetSlaTargets,
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination,
-    tenantDiagPaths, globalDiagPaths, newDiagPath, newDiagDesc,
+    tenantDiagPaths, newDiagPath, newDiagDesc,
     handleSaveDiagnostics, handleResetDiagnostics,
     admins, loadingAdmins, newAdminEmail, newMemberRole, addingAdmin, removingAdmin, togglingAdmin,
     adminSearchQuery, currentAdminPage,

@@ -263,6 +263,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         public bool UnrestrictedMode { get; set; } = false;
 
         /// <summary>
+        /// Mirror of <c>AnalyzerConfiguration.EnableRealmJoinWatcher</c> (remote, per tenant).
+        /// Gates the RealmJoin built-in sections of the diagnostics package — the package
+        /// service only sees this configuration, not the remote response. The RealmJoin host
+        /// itself keeps reading the remote Analyzers block. Default: false.
+        /// </summary>
+        public bool EnableRealmJoinWatcher { get; set; } = false;
+
+        /// <summary>
         /// Sanitized command-line arguments for the agent_started event.
         /// Secrets (e.g. bootstrap token) are redacted before assignment.
         /// </summary>

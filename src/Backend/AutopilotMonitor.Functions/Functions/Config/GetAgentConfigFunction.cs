@@ -143,6 +143,23 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
+        /// Global ∪ tenant diagnostics paths: global first, order preserved, blank paths dropped,
+        /// duplicates (trimmed, case-insensitive) collapsed onto the first occurrence. The agent
+        /// keys ZIP entries on the path, so a path present in both lists would otherwise produce
+        /// duplicate entry names inside the archive.
+        /// </summary>
+        internal static List<DiagnosticsLogPath> MergeDiagnosticsLogPaths(
+            IEnumerable<DiagnosticsLogPath> global,
+            IEnumerable<DiagnosticsLogPath> tenant)
+        {
+            return global.Concat(tenant)
+                .Where(p => !string.IsNullOrWhiteSpace(p?.Path))
+                .GroupBy(p => p.Path.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        /// <summary>
         /// Returns the (ZipSha256, ExeSha256) pair appropriate for the calling agent.
         /// Reads the X-Agent-Version header, parses the major, and dispatches to the
         /// corresponding per-line field set on <see cref="AdminConfiguration"/> via
@@ -242,10 +259,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
             // Get active IME log patterns for this tenant (from Table Storage)
             var imeLogPatterns = await _imeLogPatternService.GetActivePatternsForTenantAsync(tenantId);
 
-            // Merge global + tenant-specific diagnostics log paths
-            var globalDiagPaths = adminConfig.GetDiagnosticsGlobalLogPaths();
-            var tenantDiagPaths = tenantConfig.GetDiagnosticsLogPaths();
-            var diagLogPaths = globalDiagPaths.Concat(tenantDiagPaths).ToList();
+            // Merge global + tenant-specific diagnostics log paths (the built-in sections are
+            // compiled into the agent — DiagnosticsBuiltInSections — and never travel here)
+            var diagLogPaths = MergeDiagnosticsLogPaths(
+                adminConfig.GetDiagnosticsGlobalLogPaths(), tenantConfig.GetDiagnosticsLogPaths());
 
             // Select per-line hash oracle from the X-Agent-Version header (parametric per major).
             // The wire response keeps generic field names (LatestAgentSha256 / LatestAgentExeSha256)
