@@ -70,6 +70,25 @@ public class VerdictCalibrationRadarTests
     }
 
     [Fact]
+    public void Agent_and_registration_paths_never_share_alert_but_still_feed_the_silence_group()
+    {
+        // Workflow mix, not classifier drift: a WhiteGlove rollout week doubles the pending share.
+        var wg = Horizon(w => new[] { ("agent:whiteglove_pending", "Pending", w ? 6 : 1), ("agent:complete", "Succeeded", w ? 14 : 19) });
+        Assert.DoesNotContain(VerdictCalibrationRadar.Evaluate(wg, Target), f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        var reg = Horizon(w => new[] { ("register:superseded", "Incomplete", w ? 6 : 1), ("agent:complete", "Succeeded", w ? 14 : 19) });
+        Assert.DoesNotContain(VerdictCalibrationRadar.Evaluate(reg, Target), f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        // Backend-decided paths stay eligible.
+        Assert.True(VerdictCalibrationRadar.IsShareRegressionEligible("sweep:r6"));
+        Assert.True(VerdictCalibrationRadar.IsShareRegressionEligible("rule:ANALYZE-ESP-001"));
+        Assert.True(VerdictCalibrationRadar.IsShareRegressionEligible("manual:failed"));
+        Assert.False(VerdictCalibrationRadar.IsShareRegressionEligible("agent:complete_soft"));
+
+        // An episode opened by the earlier, broader gate re-arms on the next pass regardless of numbers.
+        var stale = new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.ShareRegression, VerdictPath = "agent:whiteglove_pending", Status = "Pending" };
+        Assert.True(VerdictCalibrationRadar.ShouldReArm(stale, wg, Target));
+    }
+
+    [Fact]
     public void Derived_legacy_paths_never_alert()
     {
         var rows = Horizon(w => new[] { ("legacy:r6", "Incomplete", w ? 10 : 1), ("agent:complete", "Succeeded", w ? 10 : 19) });

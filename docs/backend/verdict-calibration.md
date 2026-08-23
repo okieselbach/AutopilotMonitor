@@ -116,7 +116,7 @@ and `global`):
 
 | Kind | Signal | Re-arm |
 | --- | --- | --- |
-| `share_regression` | one path's share of all sessions doubled (legacy paths excluded) | share < 1.5× baseline, or the path stops occurring |
+| `share_regression` | one **backend-decided** path's share of all sessions doubled (`sweep`/`maxlife`/`late`/`retro`/`rule`/`manual`/`ingest`; `agent:*` and `register:*` mirror customer workflow mix — first prod pass fired on `agent:whiteglove_pending` rollout weeks — and `legacy:*` is derived, all excluded) | share < 1.5× baseline, the path stops occurring, or the path is no longer eligible |
 | `silence_share_regression` | the `sweep:*` + `maxlife:*` share doubled — the backend had to decide more often because the agent went silent (a liveness signal, not a classifier one) | same |
 | `evidence_gap` | absolute: `r6` (pure fallthrough) decides ≥ 20 % of the window's classifier verdicts, ≥ 20 verdicts | < 15 % or < 20 verdicts |
 

@@ -39,8 +39,13 @@ public class VerdictCalibrationFinding
 /// window's classifier verdicts. The evidence the other rules need is not arriving.</item>
 /// </list>
 /// Derived (<c>legacy:*</c>) paths are excluded from all three — pre-instrumentation attribution
-/// is too weak to alert on. Re-arm mirrors the rule radar: share back under 1.5× baseline or the
-/// path stops occurring; the evidence gap re-arms under 15 %.
+/// is too weak to alert on. Agent-declared paths (<c>agent:*</c>, <c>register:*</c>) are excluded
+/// from the per-path share regression: their share tracks the customer's workflow mix (a
+/// WhiteGlove rollout week doubles <c>agent:whiteglove_pending</c>; a Continue-Anyway tenant
+/// lives on <c>agent:complete_soft</c>) — real signals, but not about the BACKEND classifier
+/// this radar calibrates. First production pass (2026-08-23) fired exactly those three. Re-arm
+/// mirrors the rule radar: share back under 1.5× baseline or the path stops occurring; the
+/// evidence gap re-arms under 15 %.
 /// </summary>
 public static class VerdictCalibrationRadar
 {
@@ -62,6 +67,19 @@ public static class VerdictCalibrationRadar
 
     private const string LegacyOrigin = "legacy";
 
+    /// <summary>
+    /// True when a path is eligible for the per-path share regression: backend-decided paths only
+    /// (sweep / maxlife / late / retro / rule / manual / ingest). Agent-declared and registration
+    /// paths mirror customer workflow, legacy paths are derived.
+    /// </summary>
+    public static bool IsShareRegressionEligible(string path)
+    {
+        var origin = VerdictPaths.Origin(path);
+        return origin != LegacyOrigin
+            && origin != "agent"
+            && origin != "register";
+    }
+
     public static List<VerdictCalibrationFinding> Evaluate(IReadOnlyList<VerdictCalibrationDailyAggregate> tenantRows, DateTime targetDateUtc)
     {
         var findings = new List<VerdictCalibrationFinding>();
@@ -72,7 +90,7 @@ public static class VerdictCalibrationRadar
         // 1. Per-path share regression.
         foreach (var pair in horizon.Paths)
         {
-            if (VerdictPaths.Origin(pair.Key.Path) == LegacyOrigin) continue;
+            if (!IsShareRegressionEligible(pair.Key.Path)) continue;
             var f = TryShareRegression(VerdictCalibrationAlertKinds.ShareRegression, pair.Key.Path, pair.Key.Status,
                 pair.Value.WindowHits, horizon.WindowSessions, pair.Value.BaselineHits, horizon.BaselineSessions, windowStart, windowEnd);
             if (f != null) findings.Add(f);
@@ -117,9 +135,12 @@ public static class VerdictCalibrationRadar
             .ToList();
     }
 
-    /// <summary>True when an ACTIVE alert may re-arm given the current horizon sums.</summary>
+    /// <summary>True when an ACTIVE alert may re-arm given the current horizon sums (or when its path is no longer eligible — episodes from an earlier, broader gate clear themselves).</summary>
     public static bool ShouldReArm(VerdictCalibrationAlert alert, IReadOnlyList<VerdictCalibrationDailyAggregate> tenantRows, DateTime targetDateUtc)
     {
+        if (alert.Kind == VerdictCalibrationAlertKinds.ShareRegression && !IsShareRegressionEligible(alert.VerdictPath))
+            return true;
+
         var horizon = Summarize(tenantRows, targetDateUtc);
         switch (alert.Kind)
         {
