@@ -275,55 +275,57 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
           </div>
         ) : (
           <>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("appName")}>App {sortIndicator("appName")}</th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("totalInstalls")}>Installs {sortIndicator("totalInstalls")}</th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("succeeded")}>Succeeded {sortIndicator("succeeded")}</th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failed")}>Failed {sortIndicator("failed")}</th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failureRate")}>Failure Rate {sortIndicator("failureRate")}</th>
-                <th
-                  className="px-4 py-3 cursor-pointer select-none text-right"
-                  onClick={() => toggleSort("avgDurationSeconds")}
-                  title="Average duration of the final install attempt. IME evaluation passes and time queued behind other apps are not counted."
-                >
-                  Avg Install Time {sortIndicator("avgDurationSeconds")}
-                </th>
-                <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("trend")}>Trend {sortIndicator("trend")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {pageRows.map((row) => (
-                <tr key={row.appName} onClick={() => openApp(row.appName)} className="hover:bg-gray-50 cursor-pointer text-sm">
-                  <td className="px-4 py-3 text-gray-900">
-                    <span className="font-medium">{row.appName}</span>
-                    {appTypeBadge(row.appType)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-700">{row.totalInstalls}</td>
-                  <td className="px-4 py-3 text-right text-emerald-700">
-                    {row.succeeded}
-                    {row.skipped > 0 && (
-                      <span
-                        className="ml-1 text-xs text-gray-400 dark:text-gray-500"
-                        title={`${row.skipped} skipped (not applicable) — excluded from failure rate and durations`}
-                      >
-                        +{row.skipped}s
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-700">{row.failed}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={row.failureRate >= 20 ? "text-red-700 font-semibold" : row.failureRate >= 5 ? "text-amber-700" : "text-gray-700"}>
-                      {row.failureRate.toFixed(1)}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-700">{formatDuration(row.avgDurationSeconds, "—")}</td>
-                  <td className="px-4 py-3 text-right">{trendBadge(row)}</td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("appName")}>App {sortIndicator("appName")}</th>
+                  <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("totalInstalls")}>Installs {sortIndicator("totalInstalls")}</th>
+                  <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("succeeded")}>Succeeded {sortIndicator("succeeded")}</th>
+                  <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failed")}>Failed {sortIndicator("failed")}</th>
+                  <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("failureRate")}>Failure Rate {sortIndicator("failureRate")}</th>
+                  <th
+                    className="px-4 py-3 cursor-pointer select-none text-right"
+                    onClick={() => toggleSort("avgDurationSeconds")}
+                    title="Average duration of the final install attempt. IME evaluation passes and time queued behind other apps are not counted."
+                  >
+                    Avg Install Time {sortIndicator("avgDurationSeconds")}
+                  </th>
+                  <th className="px-4 py-3 cursor-pointer select-none text-right" onClick={() => toggleSort("trend")}>Trend {sortIndicator("trend")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {pageRows.map((row) => (
+                  <tr key={row.appName} onClick={() => openApp(row.appName)} className="hover:bg-gray-50 cursor-pointer text-sm">
+                    <td className="px-4 py-3 text-gray-900">
+                      <span className="font-medium">{row.appName}</span>
+                      {appTypeBadge(row.appType)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">{row.totalInstalls}</td>
+                    <td className="px-4 py-3 text-right text-emerald-700">
+                      {row.succeeded}
+                      {row.skipped > 0 && (
+                        <span
+                          className="ml-1 text-xs text-gray-400 dark:text-gray-500"
+                          title={`${row.skipped} skipped (not applicable) — excluded from failure rate and durations`}
+                        >
+                          +{row.skipped}s
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-700">{row.failed}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={row.failureRate >= 20 ? "text-red-700 font-semibold" : row.failureRate >= 5 ? "text-amber-700" : "text-gray-700"}>
+                        {row.failureRate.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">{formatDuration(row.avgDurationSeconds, "—")}</td>
+                    <td className="px-4 py-3 text-right">{trendBadge(row)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           {pageCount > 1 && (
             <div className="flex items-center justify-between px-4 py-3 text-sm text-gray-600 border-t border-gray-200">
               <span>{filteredAndSorted.length} apps · page {page + 1} of {pageCount}</span>
