@@ -18,6 +18,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "AppHomingFlippedWithEntraRoles",
   ],
   Maintenance: [
+    // Verdict-calibration drift radar (operator-only classifier diagnostics): a verdict path's
+    // session share doubled over its 28d baseline, the silence share doubled, or the r6
+    // fallthrough decides ≥20% of classifier verdicts. Warning-tier, once per episode
+    // (tracker-deduped). Dual-register per memory feedback_ops_event_types_dual_register.
+    "VerdictCalibrationDrift",
     "MaintenanceCompleted",
     "MaintenanceFailed",
     // Soft watchdog (Warning): a maintenance run completed but exceeded the 10min threshold and is

@@ -641,6 +641,40 @@ namespace AutopilotMonitor.Functions.Services
                     lift,
                 });
 
+        /// <summary>
+        /// Verdict-calibration drift radar (docs/backend/verdict-calibration.md): a verdict
+        /// path's share of sessions doubled over its 28d baseline, the silence share
+        /// (sweep+maxlife — agent went quiet, backend had to decide) doubled, or the pure
+        /// fallthrough rule r6 decides ≥20 % of classifier verdicts. Operator-only diagnostic —
+        /// there is deliberately NO tenant bell. Fired ONCE per (kind, path, status) episode
+        /// (tracker-deduped). Dual-registered in the web OPS_EVENT_TYPES catalog
+        /// (memory: feedback_ops_event_types_dual_register).
+        /// </summary>
+        public Task RecordVerdictCalibrationDriftAsync(
+            string tenantId, string kind, string verdictPath, string status,
+            int windowHitCount, int windowSessionCount, double windowRatePct,
+            int baselineHitCount, int baselineSessionCount, double baselineRatePct,
+            double? lift, string? dimensionSummary)
+            => WriteAsync(OpsEventCategory.Maintenance, "VerdictCalibrationDrift", OpsEventSeverity.Warning,
+                $"Verdict calibration [{kind}] {verdictPath}/{status}: {windowHitCount}/{windowSessionCount} ({windowRatePct}%) over 7d " +
+                $"vs {baselineRatePct}% baseline ({baselineHitCount}/{baselineSessionCount} over 28d)" +
+                (lift.HasValue ? $" — lift {lift.Value}x" : string.Empty) +
+                (string.IsNullOrEmpty(dimensionSummary) ? string.Empty : $". {dimensionSummary}"),
+                tenantId, "System.Maintenance",
+                new
+                {
+                    kind,
+                    verdictPath,
+                    status,
+                    windowHitCount,
+                    windowSessionCount,
+                    windowRatePct,
+                    baselineHitCount,
+                    baselineSessionCount,
+                    baselineRatePct,
+                    lift,
+                });
+
         // ── Agent ──────────────────────────────────────────────────────────────
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)

@@ -21,11 +21,16 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
     {
         private readonly ILogger<GetVerdictCalibrationFunction> _logger;
         private readonly IMetricsRepository _metricsRepo;
+        private readonly IHardwareRejectionNotificationTracker _tracker;
 
-        public GetVerdictCalibrationFunction(ILogger<GetVerdictCalibrationFunction> logger, IMetricsRepository metricsRepo)
+        public GetVerdictCalibrationFunction(
+            ILogger<GetVerdictCalibrationFunction> logger,
+            IMetricsRepository metricsRepo,
+            IHardwareRejectionNotificationTracker tracker)
         {
             _logger = logger;
             _metricsRepo = metricsRepo;
+            _tracker = tracker;
         }
 
         [Function("GetVerdictCalibration")]
@@ -55,9 +60,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var readDays = Math.Max(days, VerdictCalibrationResponse.TrendHorizonDays);
                 var daily = await _metricsRepo.GetVerdictCalibrationAggregatesAsync(
                     partition, VerdictCalibrationResponse.InclusiveWindowStart(today, readDays), today);
+                // Active drift episodes of this partition (tracker keyspace; fail-soft empty).
+                var alerts = await _tracker.GetVerdictCalibrationAlertsAsync(partition);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(VerdictCalibrationResponse.Build(daily, partition, today, days));
+                await response.WriteAsJsonAsync(VerdictCalibrationResponse.Build(daily, partition, today, days, alerts));
                 return response;
             }
             catch (Exception ex)
@@ -118,7 +125,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// <summary>Minimum eligible sessions before a re-enrollment rate is stated (truthfulness: no rate on n&lt;20).</summary>
         internal const int MinEligibleForRate = 20;
 
-        internal static object Build(IReadOnlyList<VerdictCalibrationDailyAggregate> daily, string partition, DateTime today, int days)
+        internal static object Build(
+            IReadOnlyList<VerdictCalibrationDailyAggregate> daily, string partition, DateTime today, int days,
+            IReadOnlyList<VerdictCalibrationAlert>? alerts = null)
         {
             var windowStart = Key(InclusiveWindowStart(today, days));
             var trendWindowStart = Key(InclusiveWindowStart(today, TrendWindowDays));
@@ -209,7 +218,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 totals = new { sessions, terminal, derived, days = daily.Count(d => string.CompareOrdinal(d.Date, windowStart) >= 0) },
                 trend = new { windowDays = TrendWindowDays, baselineDays = TrendBaselineDays, windowSessions = trendSessions, baselineSessions },
                 paths = list,
-                alerts = Array.Empty<object>(),
+                // Wording contract shared with the rule radar: a dimension is correlated, not causal.
+                alerts = (alerts ?? Array.Empty<VerdictCalibrationAlert>())
+                    .OrderByDescending(a => a.FirstNotifiedAt)
+                    .ToList(),
             };
         }
 

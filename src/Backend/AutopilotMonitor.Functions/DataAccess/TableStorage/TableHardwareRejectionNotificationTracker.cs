@@ -422,6 +422,152 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             };
         }
 
+        // ===== VERDICT CALIBRATION DRIFT (docs/backend/verdict-calibration.md) =====
+
+        internal const string VerdictCalibrationRowKeyPrefix = "verdictcalibration|";
+
+        internal static string BuildVerdictCalibrationRowKey(string kind, string verdictPath, string status)
+        {
+            // Paths are a closed vocabulary plus rule ids (ANALYZE-...), statuses are enum names and
+            // the group marker "*" - none contain table-key-hostile characters, but sanitize anyway.
+            var k = SanitizeTableKey((kind ?? string.Empty).Trim().ToLowerInvariant());
+            var p = SanitizeTableKey((verdictPath ?? string.Empty).Trim().ToLowerInvariant());
+            var s = SanitizeTableKey((status ?? string.Empty).Trim().ToLowerInvariant());
+            return $"{VerdictCalibrationRowKeyPrefix}{k}|{p}|{s}";
+        }
+
+        public async Task<bool> TryRegisterVerdictCalibrationAlertAsync(string tenantId, VerdictCalibrationAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(alert?.Kind) || string.IsNullOrWhiteSpace(alert?.VerdictPath))
+                return false;
+            try
+            {
+                await _table.AddEntityAsync(BuildVerdictCalibrationEntity(tenantId, alert!));
+                _logger.LogInformation(
+                    "VerdictCalibration tracker registered: tenant={TenantId} kind={Kind} path={Path}", tenantId, alert!.Kind, alert.VerdictPath);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                return false; // episode already active - one ops event per episode
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "VerdictCalibration tracker failed: tenant={TenantId} kind={Kind} path={Path}", tenantId, alert!.Kind, alert.VerdictPath);
+                return false; // fail closed - never double-fire
+            }
+        }
+
+        public async Task RefreshVerdictCalibrationAlertAsync(string tenantId, VerdictCalibrationAlert alert)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(alert?.Kind) || string.IsNullOrWhiteSpace(alert?.VerdictPath))
+                return;
+            try
+            {
+                await _table.UpsertEntityAsync(BuildVerdictCalibrationEntity(tenantId, alert!), TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "VerdictCalibration tracker refresh failed: tenant={TenantId} kind={Kind} path={Path}", tenantId, alert!.Kind, alert.VerdictPath);
+            }
+        }
+
+        public async Task DeleteVerdictCalibrationAlertAsync(string tenantId, string kind, string verdictPath, string status)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(kind) || string.IsNullOrWhiteSpace(verdictPath))
+                return;
+            try
+            {
+                await _table.DeleteEntityAsync(tenantId.ToLowerInvariant(), BuildVerdictCalibrationRowKey(kind, verdictPath, status));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // already gone - idempotent
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "VerdictCalibration tracker delete failed: tenant={TenantId} kind={Kind} path={Path}", tenantId, kind, verdictPath);
+            }
+        }
+
+        public async Task<List<VerdictCalibrationAlert>> GetVerdictCalibrationAlertsAsync(string tenantId)
+        {
+            var results = new List<VerdictCalibrationAlert>();
+            if (string.IsNullOrWhiteSpace(tenantId)) return results;
+            try
+            {
+                var partitionKey = tenantId.ToLowerInvariant();
+                // '}' sorts directly after '|' - prefix range over "verdictcalibration|...".
+                var filter = $"PartitionKey eq '{partitionKey}' and RowKey ge '{VerdictCalibrationRowKeyPrefix}' and RowKey lt 'verdictcalibration}}'";
+                await foreach (var entity in _table.QueryAsync<TableEntity>(filter: filter))
+                {
+                    results.Add(MapToVerdictCalibrationAlert(entity));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "VerdictCalibration tracker list failed for tenant {TenantId}", tenantId);
+            }
+            return results;
+        }
+
+        // internal static: pinned by round-trip unit tests (table-storage-serialization rule).
+        internal static TableEntity BuildVerdictCalibrationEntity(string tenantId, VerdictCalibrationAlert alert)
+        {
+            var entity = new TableEntity(tenantId.ToLowerInvariant(), BuildVerdictCalibrationRowKey(alert.Kind, alert.VerdictPath, alert.Status))
+            {
+                ["TenantId"] = tenantId,
+                ["Kind"] = alert.Kind,
+                ["VerdictPath"] = alert.VerdictPath,
+                ["Status"] = alert.Status ?? string.Empty,
+                ["WindowHitCount"] = alert.WindowHitCount,
+                ["WindowSessionCount"] = alert.WindowSessionCount,
+                ["BaselineHitCount"] = alert.BaselineHitCount,
+                ["BaselineSessionCount"] = alert.BaselineSessionCount,
+                ["WindowRatePct"] = alert.WindowRatePct,
+                ["BaselineRatePct"] = alert.BaselineRatePct,
+                ["WindowStartDate"] = alert.WindowStartDate ?? string.Empty,
+                ["WindowEndDate"] = alert.WindowEndDate ?? string.Empty,
+                ["FirstNotifiedAt"] = alert.FirstNotifiedAt,
+                ["LastEvaluatedAt"] = alert.LastEvaluatedAt,
+            };
+            if (alert.Lift.HasValue)
+                entity["Lift"] = alert.Lift.Value;
+            if (alert.Dimension != null)
+                entity["DimensionJson"] = JsonSerializer.Serialize(alert.Dimension);
+            return entity;
+        }
+
+        internal static VerdictCalibrationAlert MapToVerdictCalibrationAlert(TableEntity entity)
+        {
+            RuleRegressionDimension? dimension = null;
+            var dimensionJson = entity.GetString("DimensionJson");
+            if (!string.IsNullOrEmpty(dimensionJson))
+            {
+                try { dimension = JsonSerializer.Deserialize<RuleRegressionDimension>(dimensionJson!); }
+                catch (JsonException) { dimension = null; }
+            }
+            return new VerdictCalibrationAlert
+            {
+                TenantId = entity.GetString("TenantId") ?? entity.PartitionKey,
+                Kind = entity.GetString("Kind") ?? string.Empty,
+                VerdictPath = entity.GetString("VerdictPath") ?? string.Empty,
+                Status = entity.GetString("Status") ?? string.Empty,
+                WindowHitCount = entity.GetInt32("WindowHitCount") ?? 0,
+                WindowSessionCount = entity.GetInt32("WindowSessionCount") ?? 0,
+                BaselineHitCount = entity.GetInt32("BaselineHitCount") ?? 0,
+                BaselineSessionCount = entity.GetInt32("BaselineSessionCount") ?? 0,
+                WindowRatePct = entity.GetDouble("WindowRatePct") ?? 0,
+                BaselineRatePct = entity.GetDouble("BaselineRatePct") ?? 0,
+                Lift = entity.GetDouble("Lift"),
+                WindowStartDate = entity.GetString("WindowStartDate") ?? string.Empty,
+                WindowEndDate = entity.GetString("WindowEndDate") ?? string.Empty,
+                Dimension = dimension,
+                FirstNotifiedAt = entity.GetDateTimeOffset("FirstNotifiedAt")?.UtcDateTime ?? DateTime.MinValue,
+                LastEvaluatedAt = entity.GetDateTimeOffset("LastEvaluatedAt")?.UtcDateTime ?? DateTime.MinValue,
+            };
+        }
+
         internal const string AppVersionRegressionRowKeyPrefix = "appversionregression|";
 
         /// <summary>

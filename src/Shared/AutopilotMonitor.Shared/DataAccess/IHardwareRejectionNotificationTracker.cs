@@ -55,6 +55,20 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Active regression episodes of one tenant (RowKey-prefix scan; empty on failure — fail-soft reads).</summary>
         Task<List<RuleRegressionAlert>> GetRuleRegressionsAsync(string tenantId);
 
+        // --- Verdict-calibration drift (RowKey "verdictcalibration|{kind}|{path}|{status}") ---
+
+        /// <summary>Atomically opens a verdict-calibration episode; true = this pass owns it (fires the ops event once). Fail-closed.</summary>
+        Task<bool> TryRegisterVerdictCalibrationAlertAsync(string tenantId, VerdictCalibrationAlert alert);
+
+        /// <summary>Refreshes an active episode's numbers; FirstNotifiedAt carried unchanged. Fail-soft.</summary>
+        Task RefreshVerdictCalibrationAlertAsync(string tenantId, VerdictCalibrationAlert alert);
+
+        /// <summary>Closes an episode (re-armed). 404-tolerant.</summary>
+        Task DeleteVerdictCalibrationAlertAsync(string tenantId, string kind, string verdictPath, string status);
+
+        /// <summary>Active verdict-calibration episodes of one tenant partition ("global" allowed); empty on failure.</summary>
+        Task<List<VerdictCalibrationAlert>> GetVerdictCalibrationAlertsAsync(string tenantId);
+
         // --- App-version duration regressions (RowKey "appversionregression|{app}|{version}") ---
 
         /// <summary>

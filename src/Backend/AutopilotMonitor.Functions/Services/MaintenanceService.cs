@@ -162,6 +162,9 @@ namespace AutopilotMonitor.Functions.Services
                 // window, AFTER the device-journey sweep so the re-enrollment proxy reads
                 // freshly merged chains. Fail-soft internally.
                 await SweepVerdictCalibrationAsync();
+                // Verdict-calibration drift radar over the rows the sweep just refreshed; anchored
+                // on yesterday like the rule radar (whole days only). Fail-soft.
+                await RunVerdictCalibrationRadarAsync(DateTime.UtcNow.Date.AddDays(-1));
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
                 // work has independent cadence + kill-switch + OpsEvent watchdogs. The non-session
@@ -237,6 +240,7 @@ namespace AutopilotMonitor.Functions.Services
                 await SweepTimeAttributionAsync();
                 await SweepDeviceJourneysAsync();
                 await SweepVerdictCalibrationAsync();
+                await RunVerdictCalibrationRadarAsync(dateToAggregate);
 
                 if (!aggregateOnly)
                 {

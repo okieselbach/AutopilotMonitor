@@ -28,6 +28,60 @@ export interface VerdictCalibrationPath {
   lift: number | null;
 }
 
+export interface VerdictCalibrationDimension {
+  dimension: string;
+  value: string;
+  hitCount: number;
+  hitSharePct: number;
+  allSharePct: number;
+  lift: number;
+}
+
+/** One ACTIVE drift episode (mirrors VerdictCalibrationAlert). */
+export interface VerdictCalibrationAlert {
+  tenantId: string;
+  kind: "share_regression" | "silence_share_regression" | "evidence_gap" | string;
+  verdictPath: string;
+  status: string;
+  windowHitCount: number;
+  windowSessionCount: number;
+  baselineHitCount: number;
+  baselineSessionCount: number;
+  windowRatePct: number;
+  baselineRatePct: number;
+  lift: number | null;
+  windowStartDate: string;
+  windowEndDate: string;
+  dimension: VerdictCalibrationDimension | null;
+  firstNotifiedAt: string;
+  lastEvaluatedAt: string;
+}
+
+export const ALERT_KIND_LABELS: Record<string, string> = {
+  share_regression: "Share regression",
+  silence_share_regression: "Silence share regression (agent liveness)",
+  evidence_gap: "Evidence gap (r6 fallthrough)",
+};
+
+/** One-line alert summary; the dimension clause keeps the rule-radar wording contract. */
+export function describeAlert(a: VerdictCalibrationAlert): string {
+  const base =
+    `${a.windowHitCount} of ${a.windowSessionCount} (${a.windowRatePct.toFixed(1)}%) over 7d vs ` +
+    `${a.baselineRatePct.toFixed(1)}% baseline (${a.baselineHitCount} of ${a.baselineSessionCount} over 28d)` +
+    (a.lift != null ? ` — lift ${a.lift.toFixed(1)}×` : "");
+  if (!a.dimension) return base;
+  return `${base}. ${a.dimension.value} carries ${a.dimension.hitSharePct.toFixed(0)}% of hits vs ${a.dimension.allSharePct.toFixed(0)}% of all sessions — correlated, not necessarily causal.`;
+}
+
+/** Index active per-path alerts by "path|status" for the matrix pill. */
+export function alertsByPath(alerts: VerdictCalibrationAlert[]): Map<string, VerdictCalibrationAlert> {
+  const map = new Map<string, VerdictCalibrationAlert>();
+  for (const a of alerts) {
+    if (a.kind === "share_regression") map.set(`${a.verdictPath}|${a.status}`, a);
+  }
+  return map;
+}
+
 export interface VerdictCalibrationResponse {
   success: boolean;
   tenantId: string;
@@ -39,7 +93,7 @@ export interface VerdictCalibrationResponse {
   totals: { sessions: number; terminal: number; derived: number; days: number };
   trend: { windowDays: number; baselineDays: number; windowSessions: number; baselineSessions: number };
   paths: VerdictCalibrationPath[];
-  alerts: unknown[];
+  alerts: VerdictCalibrationAlert[];
 }
 
 /** The `origin` half of a verdict path (`sweep` for `sweep:r6`); the whole string without a colon. */

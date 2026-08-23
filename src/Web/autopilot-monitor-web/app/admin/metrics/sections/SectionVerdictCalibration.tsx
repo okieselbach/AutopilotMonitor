@@ -9,9 +9,13 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import {
+  ALERT_KIND_LABELS,
   VERDICT_PATH_ORIGIN_LABELS,
+  alertsByPath,
+  describeAlert,
   groupPathsByOrigin,
   trendGlyph,
+  type VerdictCalibrationAlert,
   type VerdictCalibrationPath,
   type VerdictCalibrationResponse,
 } from "./verdictCalibrationLogic";
@@ -67,6 +71,7 @@ export function SectionVerdictCalibration() {
   }, [fetchData, dateRange, selectedTenantId, scopeInitialized]);
 
   const groups = data ? groupPathsByOrigin(data.paths) : [];
+  const pathAlerts = alertsByPath(data?.alerts ?? []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -108,6 +113,21 @@ export function SectionVerdictCalibration() {
         </div>
       )}
 
+      {data && data.alerts.length > 0 && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-gray-900">Active drift episodes</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Fired once per episode as a VerdictCalibrationDrift ops event; cleared when the share re-arms. Dimensions are
+            correlated, not necessarily causal.
+          </p>
+          <ul className="divide-y divide-gray-100">
+            {data.alerts.map((a) => (
+              <AlertRow key={`${a.kind}|${a.verdictPath}|${a.status}`} alert={a} />
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="bg-white shadow rounded-lg p-6">
         {loading && !data ? (
           <p className="text-sm text-gray-500">Loading…</p>
@@ -138,7 +158,7 @@ export function SectionVerdictCalibration() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {groups.map((group) => (
-                  <GroupRows key={group.origin} origin={group.origin} rows={group.rows} />
+                  <GroupRows key={group.origin} origin={group.origin} rows={group.rows} alerts={pathAlerts} />
                 ))}
               </tbody>
             </table>
@@ -165,7 +185,21 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
   );
 }
 
-function GroupRows({ origin, rows }: { origin: string; rows: VerdictCalibrationPath[] }) {
+function AlertRow({ alert }: { alert: VerdictCalibrationAlert }) {
+  return (
+    <li className="py-2 text-sm">
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 mr-2">
+        ↑ {ALERT_KIND_LABELS[alert.kind] ?? alert.kind}
+      </span>
+      <span className="font-mono text-xs text-gray-800">{alert.verdictPath}</span>
+      {alert.status !== "*" && <span className="text-gray-500"> / {alert.status}</span>}
+      <span className="text-gray-600"> — {describeAlert(alert)}</span>
+      <span className="text-xs text-gray-400"> · since {new Date(alert.firstNotifiedAt).toLocaleDateString()}</span>
+    </li>
+  );
+}
+
+function GroupRows({ origin, rows, alerts }: { origin: string; rows: VerdictCalibrationPath[]; alerts: Map<string, VerdictCalibrationAlert> }) {
   return (
     <>
       <tr className="bg-gray-50">
@@ -174,19 +208,27 @@ function GroupRows({ origin, rows }: { origin: string; rows: VerdictCalibrationP
         </td>
       </tr>
       {rows.map((row) => (
-        <PathRow key={`${row.verdictPath}|${row.status}`} row={row} />
+        <PathRow key={`${row.verdictPath}|${row.status}`} row={row} alert={alerts.get(`${row.verdictPath}|${row.status}`)} />
       ))}
     </>
   );
 }
 
-function PathRow({ row }: { row: VerdictCalibrationPath }) {
+function PathRow({ row, alert }: { row: VerdictCalibrationPath; alert?: VerdictCalibrationAlert }) {
   const trend = trendGlyph(row);
   const overridden = row.overriddenByAdmin + row.overriddenByLateCompletion + row.overriddenOther;
   return (
     <tr>
       <td className="px-3 py-2 font-mono text-xs text-gray-800 whitespace-nowrap">
         {row.verdictPath}
+        {alert && (
+          <span
+            className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800"
+            title={describeAlert(alert)}
+          >
+            ↑ Drift
+          </span>
+        )}
         {row.derivedCount > 0 && (
           <span
             className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200"
