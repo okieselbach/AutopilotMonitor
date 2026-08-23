@@ -49,9 +49,14 @@ public static class EmailTemplates
         <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
           <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
             <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
-              <div style=""width:0; height:20px; border-left:34px solid #ffffff; border-top:13px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
-              <div style=""width:0; height:0; border-right:4px solid #33b161; border-bottom:33px solid transparent; border-left:0; border-top:0; margin:-33px 0 0 30px; display:block; font-size:0; line-height:0;""></div>
-              <div style=""width:0; height:0; border-right:34px solid transparent; border-bottom:2px solid #33b161; border-left:0; border-top:0; margin:-2px 0 0 0; display:block; font-size:0; line-height:0;""></div>
+              <!-- brand mark, 34x33, three non-overlapping rows (Outlook ignores negative margins and
+                   paints transparent td borders white, so: div triangles + one white td only) -->
+              <div style=""width:0; height:0; border-left:31px solid #ffffff; border-top:13px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div>
+              <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;""><tr>
+                <td width=""31"" height=""18"" bgcolor=""#ffffff"" style=""width:31px; height:18px; padding:0; font-size:0; line-height:0; background-color:#ffffff;""></td>
+                <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:0; border-left:3px solid #ffffff; border-top:18px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
+              </tr></table>
+              <div style=""width:0; height:0; border-right:34px solid #ffffff; border-bottom:2px solid transparent; border-left:0; border-top:0; display:block; font-size:0; line-height:0;""></div>
             </td>
             <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"">Autopilot Monitor</td>
           </tr></table>
@@ -140,9 +145,14 @@ public static class EmailTemplates
         <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
           <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
             <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
-              <div style=""width:0; height:20px; border-left:34px solid #ffffff; border-top:13px solid transparent; border-bottom:0; border-right:0; display:block; font-size:0; line-height:0;""></div>
-              <div style=""width:0; height:0; border-right:4px solid #33b161; border-bottom:33px solid transparent; border-left:0; border-top:0; margin:-33px 0 0 30px; display:block; font-size:0; line-height:0;""></div>
-              <div style=""width:0; height:0; border-right:34px solid transparent; border-bottom:2px solid #33b161; border-left:0; border-top:0; margin:-2px 0 0 0; display:block; font-size:0; line-height:0;""></div>
+              <!-- brand mark, 34x33, three non-overlapping rows (Outlook ignores negative margins and
+                   paints transparent td borders white, so: div triangles + one white td only) -->
+              <div style=""width:0; height:0; border-left:31px solid #ffffff; border-top:13px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div>
+              <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;""><tr>
+                <td width=""31"" height=""18"" bgcolor=""#ffffff"" style=""width:31px; height:18px; padding:0; font-size:0; line-height:0; background-color:#ffffff;""></td>
+                <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:0; border-left:3px solid #ffffff; border-top:18px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
+              </tr></table>
+              <div style=""width:0; height:0; border-right:34px solid #ffffff; border-bottom:2px solid transparent; border-left:0; border-top:0; display:block; font-size:0; line-height:0;""></div>
             </td>
             <td valign=""middle"" style=""color:#ffffff; font-size:22px; font-weight:600; letter-spacing:-0.2px; line-height:1; white-space:nowrap; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"">Autopilot Monitor</td>
           </tr></table>
