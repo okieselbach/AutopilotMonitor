@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.Channel;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -139,6 +140,15 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 
             if (caughtException != null)
                 requestTelemetry.Properties["ExceptionType"] = caughtException.GetType().Name;
+
+            // Bypass the worker's adaptive sampling for this item. The SDK sampling processor
+            // passes through any item whose SamplingPercentage is already set, so this is the
+            // per-item opt-out that host.json "excludedTypes" (host process only) cannot provide.
+            // Live-verified 2026-08-23 BEFORE this change: worker request rows carried
+            // ItemCount 2-5 on weekdays (~30% of individual requests missing), so count()-based
+            // queries undercounted. This copy is the single canonical request record — the host
+            // duplicate is dropped by a workspace DCR transformation on AppRequests.
+            ((ISupportSampling)requestTelemetry).SamplingPercentage = 100;
 
             try
             {

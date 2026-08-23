@@ -17,8 +17,14 @@ namespace AutopilotMonitor.Functions.Telemetry;
 /// - Only <see cref="DependencyTelemetry"/> is considered; requests, traces, exceptions,
 ///   metrics and all NON-storage dependencies (HTTP, Microsoft Graph, SQL, SignalR, ...) pass
 ///   through untouched.
-/// - FAILED storage calls are KEPT (Success == false): they are rare and are real signal for
-///   troubleshooting throttling / transient faults, so the noise reduction does not blind us.
+/// - FAILED storage calls are KEPT (Success == false) EXCEPT the expected-outcome status codes
+///   404 (point-read miss), 412 (ETag precondition) and 409 (insert conflict): those are normal
+///   control flow for this backend (index lookups, optimistic concurrency, idempotent inserts).
+///   Live-verified 2026-08-23: 100% of the remaining "failed" storage rows were 404/412/409
+///   (~540 MB/week, two rows per call: InProc span + HTTP span). Throttling (429), 5xx, auth
+///   failures and timeouts stay — they are the real signal.
+/// - Successful Azure SignalR REST management calls (group add/remove per connection, ~470 MB/week)
+///   are dropped for the same reason; failed SignalR calls are kept.
 ///
 /// Registered in Program.cs via AddApplicationInsightsTelemetryProcessor so it runs inside the
 /// isolated worker's telemetry pipeline, where the app's own Azure SDK dependencies are tracked.
@@ -46,6 +52,12 @@ public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
         "InProc | Microsoft.Storage",  // Azure.Storage.Queues + Azure.Storage.Blobs
     };
 
+    // Azure SignalR Service REST endpoint (group membership management per connection).
+    private const string SignalRServiceSuffix = ".service.signalr.net";
+
+    // Expected storage outcomes that are normal control flow, not failures worth billing.
+    private static readonly string[] ExpectedStorageStatusCodes = { "404", "412", "409" };
+
     private readonly ITelemetryProcessor _next;
 
     public StorageDependencyFilterProcessor(ITelemetryProcessor next) => _next = next;
@@ -68,16 +80,49 @@ public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
             return false;
         }
 
-        // Keep failures — rare, high-value diagnostic signal. Only successful storage chatter is noise.
-        if (dependency.Success == false)
-        {
-            return false;
-        }
-
-        return IsStorageEndpoint(dependency.Target)
+        var isStorage = IsStorageEndpoint(dependency.Target)
             || IsStorageEndpoint(dependency.Data)
             || IsStorageInProcType(dependency.Type);
+
+        if (isStorage)
+        {
+            // Successful storage chatter is noise; so are expected 404/412/409 outcomes.
+            // Every other failure (429, 5xx, auth, timeout) is kept.
+            return dependency.Success != false || IsExpectedStorageOutcome(dependency);
+        }
+
+        // SignalR REST management calls: keep only failures.
+        return dependency.Success != false && IsSignalRService(dependency.Target);
     }
+
+    private static bool IsExpectedStorageOutcome(DependencyTelemetry dependency)
+    {
+        // HTTP-shaped rows ("Azure table") carry the status in ResultCode; the Azure SDK InProc
+        // span has no ResultCode, only the exception text in Properties["Error"]
+        // ("...Status: 404 (Not Found)...").
+        var code = dependency.ResultCode;
+        if (!string.IsNullOrEmpty(code))
+        {
+            return Array.IndexOf(ExpectedStorageStatusCodes, code) >= 0;
+        }
+
+        if (dependency.Properties.TryGetValue("Error", out var error) && !string.IsNullOrEmpty(error))
+        {
+            foreach (var expected in ExpectedStorageStatusCodes)
+            {
+                if (error.Contains("Status: " + expected + " (", System.StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSignalRService(string? target)
+        => !string.IsNullOrEmpty(target)
+           && target.EndsWith(SignalRServiceSuffix, System.StringComparison.OrdinalIgnoreCase);
 
     private static bool IsStorageInProcType(string? type)
     {

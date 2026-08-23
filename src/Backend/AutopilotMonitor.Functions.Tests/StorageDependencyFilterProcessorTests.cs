@@ -48,11 +48,74 @@ public class StorageDependencyFilterProcessorTests
         Assert.Empty(next.Received);
     }
 
-    [Fact]
-    public void FailedStorageDependency_IsKept()
+    [Theory]
+    [InlineData("429")]
+    [InlineData("500")]
+    [InlineData("503")]
+    [InlineData("403")]
+    [InlineData("")] // unknown outcome (timeout/network) — keep
+    public void FailedStorageDependency_IsKept(string resultCode)
     {
         var (processor, next) = Build();
         var dep = Dep("myacct.queue.core.windows.net", success: false);
+        dep.ResultCode = resultCode;
+        processor.Process(dep);
+        Assert.Same(dep, Assert.Single(next.Received));
+    }
+
+    // Expected outcomes (point-read miss, ETag precondition, insert conflict) are normal control
+    // flow — live-verified as 100% of the remaining "failed" storage rows. Dropped.
+    [Theory]
+    [InlineData("404")]
+    [InlineData("412")]
+    [InlineData("409")]
+    public void ExpectedStorageOutcome_HttpShape_IsDropped(string resultCode)
+    {
+        var (processor, next) = Build();
+        var dep = Dep("myacct.table.core.windows.net", success: false);
+        dep.ResultCode = resultCode;
+        processor.Process(dep);
+        Assert.Empty(next.Received);
+    }
+
+    [Theory]
+    [InlineData("Azure.RequestFailedException: The specified resource does not exist.\nRequestId:x\nStatus: 404 (Not Found)\nErrorCode: ResourceNotFound")]
+    [InlineData("Azure.RequestFailedException: The update condition specified in the request was not satisfied.\nStatus: 412 (Precondition Failed)\nErrorCode: UpdateConditionNotSatisfied")]
+    [InlineData("Azure.RequestFailedException: The specified entity already exists.\nStatus: 409 (Conflict)\nErrorCode: EntityAlreadyExists")]
+    public void ExpectedStorageOutcome_InProcShape_IsDropped(string error)
+    {
+        // InProc spans have no ResultCode — only the exception text in Properties["Error"].
+        var (processor, next) = Build();
+        var dep = Dep(target: "TableClient.GetEntity", success: false, type: "InProc | Microsoft.Tables");
+        dep.Properties["Error"] = error;
+        processor.Process(dep);
+        Assert.Empty(next.Received);
+    }
+
+    [Fact]
+    public void ThrottledInProcStorageDependency_IsKept()
+    {
+        var (processor, next) = Build();
+        var dep = Dep(target: "TableClient.SubmitTransaction", success: false, type: "InProc | Microsoft.Tables");
+        dep.Properties["Error"] = "Azure.RequestFailedException: Too many requests.\nStatus: 429 (Too Many Requests)\nErrorCode: ServerBusy";
+        processor.Process(dep);
+        Assert.Same(dep, Assert.Single(next.Received));
+    }
+
+    [Fact]
+    public void SuccessfulSignalRRestCall_IsDropped()
+    {
+        var (processor, next) = Build();
+        processor.Process(Dep("autopilotmonitor-eu.service.signalr.net", success: true, data: "POST /api/hubs/autopilotmonitor/groups/t-x/connections/y", type: "HTTP"));
+        Assert.Empty(next.Received);
+    }
+
+    [Fact]
+    public void FailedSignalRRestCall_IsKept()
+    {
+        var (processor, next) = Build();
+        var dep = Dep("autopilotmonitor-eu.service.signalr.net", success: false, type: "HTTP");
+        dep.ResultCode = "500";
         processor.Process(dep);
         Assert.Same(dep, Assert.Single(next.Received));
     }

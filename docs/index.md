@@ -45,6 +45,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Backend
 
+* [Telemetry Ingest Shaping](backend/telemetry-ingest-shaping.md) - One canonical App Insights request record (worker copy with tenant context, per-item sampling bypass; host HTTP duplicate dropped by a workspace transformation DCR), expected storage outcomes 404/412/409 and successful SignalR REST calls filtered in the worker, and the count()/sum(itemCount) query rules that follow.
 * [Table Schema Sentinel](backend/table-schema-sentinel.md) - Startup no longer issues one CreateTableIfNotExists per table: a SHA-256 over TableNames.All in AdminConfiguration gates the full pass (derived, never hand-maintained), the SessionsIndex backfill runs only after a full pass behind a conditional-insert claim, and daily maintenance repairs out-of-band deletions.
 * [Business Timestamps](backend/business-timestamps.md) - Why the Azure Tables system Timestamp is never authoritative (migrations reset it), and the OccurredUtc + RowKey-decode compensation for AuditLogs/OpsEvents/Events after the 2026-07-18 migration.
 * [Send-Time Frame Separation](backend/send-time-frame-separation.md) - One device-clock send timestamp per upload batch (X-Send-Time-Utc → SentAt on Events) splits ReceivedAt − OccurredUtc into pure spool delay and pure device-vs-server clock offset; the clock_skew condition measures SentAt batches directly (spool-immune), the CMTrace tripwire deliberately stays on its differential math.

@@ -71,6 +71,10 @@ builder.Services
 // unchanged host duplicate). The host request item is emitted by the HOST process and cannot be
 // dropped from worker code or by host.json "Host.Results" level. Re-attempt only with a mechanism
 // verified against the isolated-worker telemetry pipeline — do not re-add the manual chain.
+// 2026-08-23: solved differently — RequestTelemetryMiddleware sets SamplingPercentage=100 on its
+// own item (per-item sampling bypass), and the host duplicate is removed by a workspace DCR
+// transformation on AppRequests (keeps rows with Properties.Source=='WorkerMiddleware' plus
+// non-HTTP host rows with empty Url, i.e. timer/queue invocations). See docs/backend/telemetry-ingest-shaping.md.
 
 // Drop successful Azure Storage dependencies (Table/Queue/Blob) from the worker telemetry
 // pipeline to curb AppDependencies ingestion cost — this backend is storage-I/O heavy and those
