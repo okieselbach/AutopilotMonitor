@@ -476,6 +476,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   // The number a user actually waits for on a cold start, minus the platform's
   // own activation (pod scheduling, container start), which is not visible here.
   console.error(`[boot ${bootMark()}] Autopilot-Monitor MCP Server listening on port ${PORT} — ready to serve.`);
+  // Same number as a structured line so it is a trend, not prose: queryable in
+  // ContainerAppConsoleLogs_CL next to the tool_call lines (see telemetry.ts),
+  // e.g. `| where Log_s startswith '{"type":"boot"'`. Always on — one line per start.
+  console.error(JSON.stringify({
+    type: 'boot',
+    readyMs: Math.round(process.uptime() * 1000),
+    version: SERVER_VERSION,
+    commit: BUILD_COMMIT,
+    docsCommit: DOCS_COMMIT,
+    timestamp: new Date().toISOString(),
+  }));
 });
 
 // --- Graceful shutdown ---

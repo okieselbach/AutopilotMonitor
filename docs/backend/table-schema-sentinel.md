@@ -36,6 +36,22 @@ timestamp: 2026-08-23
 
 A table deleted out-of-band (cleanup skill, portal, tests) is not noticed at startup anymore. `IStorageInitializer.EnsureAllAsync` runs as the first step of the daily timer maintenance (`MaintenanceService.RunAllAsync`), recreating it within 24h. Storage helpers are fail-soft in the meantime.
 
+## Measuring it
+
+`StartupTelemetryService` (hosted service) emits two App Insights metrics on `IHostApplicationLifetime.ApplicationStarted` - i.e. after every hosted service finished `StartAsync`:
+
+* `BackendStartupMs` - process start (`Process.StartTime`) to host ready; includes runtime, DI and all hosted services.
+* `BackendTableInitMs` - the `InitializeTablesAsync` slice alone (`TableStorageService.LastInitialization`).
+
+Dimensions: `version`, `commit`, `tableInitFullPass`, `instance`. Metrics bypass adaptive sampling and the worker log level, so they arrive even though Information traces do not. The MCP server logs the same idea as one `{"type":"boot","readyMs":…}` stderr line per start (ContainerAppConsoleLogs_CL, see `.claude/commands/mcp-telemetry.md`).
+
+```kusto
+customMetrics
+| where name in ("BackendStartupMs", "BackendTableInitMs")
+| summarize p50 = percentile(value, 50), p95 = percentile(value, 95), n = count()
+  by name, version = tostring(customDimensions.version), fullPass = tostring(customDimensions.tableInitFullPass)
+```
+
 # Examples
 
 * Deploy that adds a table: first cold start after the deploy runs the full pass once (log: "Table schema sentinel missing or stale"), every later start logs "Table schema sentinel matches (...)".
@@ -46,4 +62,6 @@ A table deleted out-of-band (cleanup skill, portal, tests) is not noticed at sta
 * `src/Backend/AutopilotMonitor.Functions/Services/TableStorageService.cs` - sentinel, `InitializeTablesAsync`, `EnsureAllTablesAsync`, `TryClaimSessionIndexBackfillAsync`
 * `src/Backend/AutopilotMonitor.Functions/Services/TableInitializerService.cs` - startup gating
 * `src/Backend/AutopilotMonitor.Functions/Services/MaintenanceService.cs` - daily `EnsureAllTablesAsync`
-* `src/Backend/AutopilotMonitor.Functions.Tests/TableSchemaSentinelTests.cs`
+* `src/Backend/AutopilotMonitor.Functions/Services/StartupTelemetryService.cs` - `BackendStartupMs` / `BackendTableInitMs`
+* `src/McpServer/autopilot-monitor-mcp/src/index.ts` - `{"type":"boot"}` line
+* `src/Backend/AutopilotMonitor.Functions.Tests/TableSchemaSentinelTests.cs`, `StartupTelemetryServiceTests.cs`

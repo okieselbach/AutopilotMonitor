@@ -2,6 +2,7 @@
 
 ## 2026-08-23
 
+* **Update**: `backend/table-schema-sentinel.md` — "Measuring it": `StartupTelemetryService` emits `BackendStartupMs` (process start → ApplicationStarted) and `BackendTableInitMs` as App Insights custom metrics with version/commit/fullPass dimensions; the MCP server writes one `{"type":"boot","readyMs"}` stderr line per start (query in `.claude/commands/mcp-telemetry.md` §A2).
 * **New**: `backend/table-schema-sentinel.md` — startup table initialization gated by a schema sentinel (SHA-256 over `TableNames.All` in `AdminConfiguration`/`SchemaSentinel`/`tables`): matching sentinel ⇒ zero `CreateTableIfNotExists` calls on a cold start, missing/stale ⇒ one full pass + sentinel rewrite. SessionsIndex startup backfill only after a full pass, `IsSessionIndexEmptyAsync` no longer treats errors as "empty", conditional-insert claim so one scaled-out instance backfills. Daily maintenance runs `IStorageInitializer.EnsureAllAsync` to repair out-of-band table deletions.
 * **Update**: `backend/verdict-calibration.md` — MCP `get_verdict_calibration` response shaping: per-row trend denominators dropped, explicit nulls, `minSharePct` / `top` with an `omitted` report.
 * **Update**: `backend/verdict-calibration.md` — share-regression radar restricted to backend-decided paths; agent-declared/registration paths (customer workflow mix) and derived legacy paths no longer alert, stale episodes re-arm themselves.

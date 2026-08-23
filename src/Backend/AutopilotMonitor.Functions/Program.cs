@@ -226,6 +226,7 @@ builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Offboardin
 // no AddHostedService call needed. DI for its dependencies comes from the singletons above.
 
 builder.Services.AddHostedService<TableInitializerService>(); // Initialize all tables at startup
+builder.Services.AddHostedService<StartupTelemetryService>();  // BackendStartupMs / BackendTableInitMs metrics on ApplicationStarted
 
 // Data Access Layer — repository interfaces backed by Table Storage.
 // To switch to Cosmos DB: replace AddTableStorageDataAccess() with AddCosmosDataAccess().

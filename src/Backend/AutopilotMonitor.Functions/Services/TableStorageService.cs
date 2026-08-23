@@ -93,6 +93,10 @@ namespace AutopilotMonitor.Functions.Services
         internal const string SchemaSentinelHashProperty = "TableSchemaHash";
         internal const string SessionIndexBackfillClaimRowKey = "sessionIndexBackfill";
 
+        /// <summary>Outcome of the last <see cref="InitializeTablesAsync"/> call, read by StartupTelemetryService.</summary>
+        public readonly record struct InitializationSnapshot(double DurationMs, bool FullPassRan);
+        public InitializationSnapshot LastInitialization { get; private set; }
+
         /// <summary>
         /// Deterministic hash over the table registry (ordinal-sorted, so declaration order is irrelevant).
         /// </summary>
@@ -125,6 +129,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (_tablesInitialized) return false;
             }
 
+            var initStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var expectedHash = ComputeTableSchemaHash(Constants.TableNames.All);
 
             if (await SchemaSentinelMatchesAsync(expectedHash))
@@ -132,6 +137,7 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogInformation("Table schema sentinel matches ({HashPrefix}) — skipping table creation pass",
                     expectedHash.Substring(0, 12));
                 lock (_initLock) { _tablesInitialized = true; }
+                LastInitialization = new InitializationSnapshot(initStopwatch.Elapsed.TotalMilliseconds, FullPassRan: false);
                 return false;
             }
 
@@ -147,6 +153,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _tablesInitialized = failCount == 0;
             }
+            LastInitialization = new InitializationSnapshot(initStopwatch.Elapsed.TotalMilliseconds, FullPassRan: true);
             return true;
         }
 
