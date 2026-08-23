@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Functions.Services;
 /// <summary>
 /// Hosted service that initializes all Azure Table Storage tables at application startup.
 /// This ensures all tables exist before any requests are processed.
-/// Also performs a one-time backfill of the SessionsIndex table if it is empty.
+/// Also performs a one-time backfill of the SessionsIndex table on fresh storage (see StartAsync).
 /// </summary>
 public class TableInitializerService : IHostedService
 {
@@ -23,12 +23,13 @@ public class TableInitializerService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("TableInitializerService starting - initializing all Azure Table Storage tables");
+        _logger.LogInformation("TableInitializerService starting");
 
+        var fullPassRan = false;
         try
         {
-            await _tableStorageService.InitializeTablesAsync();
-            _logger.LogInformation("TableInitializerService completed - all tables ready");
+            fullPassRan = await _tableStorageService.InitializeTablesAsync();
+            _logger.LogInformation("TableInitializerService completed - all tables ready (fullPass={FullPass})", fullPassRan);
         }
         catch (Exception ex)
         {
@@ -37,10 +38,15 @@ public class TableInitializerService : IHostedService
             // Individual operations will fail gracefully with appropriate error messages
         }
 
-        // One-time backfill: if SessionsIndex is empty, copy all sessions from Sessions table
+        // One-time backfill: SessionsIndex can only be empty on fresh storage, which is exactly
+        // when the schema sentinel was missing and the full pass ran. Skipped on the fast path,
+        // and guarded by a conditional-insert claim so only one scaled-out instance scans.
+        if (!fullPassRan) return;
+
         try
         {
-            if (await _tableStorageService.IsSessionIndexEmptyAsync())
+            if (await _tableStorageService.IsSessionIndexEmptyAsync()
+                && await _tableStorageService.TryClaimSessionIndexBackfillAsync())
             {
                 _logger.LogInformation("SessionsIndex table is empty — starting startup backfill");
                 var count = await _tableStorageService.BackfillSessionIndexAsync();

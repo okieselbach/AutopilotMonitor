@@ -1148,8 +1148,10 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to check if session index is empty");
-                return true; // Assume empty on error → trigger backfill
+                // A transient read error must NOT trigger a full Sessions scan with serial upserts.
+                // The manual maintenance backfill remains the safety net.
+                _logger.LogWarning(ex, "Failed to check if session index is empty — skipping startup backfill");
+                return false;
             }
         }
 

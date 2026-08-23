@@ -45,6 +45,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # Backend
 
+* [Table Schema Sentinel](backend/table-schema-sentinel.md) - Startup no longer issues one CreateTableIfNotExists per table: a SHA-256 over TableNames.All in AdminConfiguration gates the full pass (derived, never hand-maintained), the SessionsIndex backfill runs only after a full pass behind a conditional-insert claim, and daily maintenance repairs out-of-band deletions.
 * [Business Timestamps](backend/business-timestamps.md) - Why the Azure Tables system Timestamp is never authoritative (migrations reset it), and the OccurredUtc + RowKey-decode compensation for AuditLogs/OpsEvents/Events after the 2026-07-18 migration.
 * [Send-Time Frame Separation](backend/send-time-frame-separation.md) - One device-clock send timestamp per upload batch (X-Send-Time-Utc → SentAt on Events) splits ReceivedAt − OccurredUtc into pure spool delay and pure device-vs-server clock offset; the clock_skew condition measures SentAt batches directly (spool-immune), the CMTrace tripwire deliberately stays on its differential math.
 * [OOBE Bootstrap go-Code Flow](backend/oobe-bootstrap-go-flow.md) - The bootstrap short-code lifecycle (portal-created session → `irm go.autopilotmonitor.com/CODE | iex` at Shift+F10 → GetBootstrapScriptFunction), the always-HTTP-200 text/plain contract, the two-line injection defense (GUID/URL/expiry validator + single-quoted PS literals, golden-pinned against the legacy TS template), and the per-IP rate-limit story behind Front Door.

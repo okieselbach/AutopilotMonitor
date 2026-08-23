@@ -69,6 +69,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IConfiguration _configuration;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly PreviewWhitelistService _previewWhitelistService;
+        private readonly IStorageInitializer _storageInitializer;
         private readonly ILogger<MaintenanceService> _logger;
 
         private const string PlatformStatsAliasFileName = "platform-stats.json";
@@ -101,6 +102,7 @@ namespace AutopilotMonitor.Functions.Services
             IConfiguration configuration,
             IHttpClientFactory httpClientFactory,
             PreviewWhitelistService previewWhitelistService,
+            IStorageInitializer storageInitializer,
             ILogger<MaintenanceService> logger)
         {
             _maintenanceRepo = maintenanceRepo;
@@ -128,7 +130,20 @@ namespace AutopilotMonitor.Functions.Services
             _configuration = configuration;
             _httpClientFactory = httpClientFactory;
             _previewWhitelistService = previewWhitelistService;
+            _storageInitializer = storageInitializer;
             _logger = logger;
+        }
+
+        private async Task EnsureAllTablesAsync()
+        {
+            try
+            {
+                await _storageInitializer.EnsureAllAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Daily table existence pass failed");
+            }
         }
 
         /// <summary>
@@ -141,6 +156,10 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Startup only point-reads the table schema sentinel (see
+                // TableStorageService.InitializeTablesAsync); this daily full pass is what
+                // recreates a table that was deleted out-of-band. Cheap (idempotent creates).
+                await EnsureAllTablesAsync();
                 await MarkStalledSessionsAsTimedOutAsync();
                 await DetectExcessiveEventSessionsAsync();
                 await AggregateMetricsWithCatchUpAsync();

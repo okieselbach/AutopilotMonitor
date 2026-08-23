@@ -2,6 +2,7 @@
 
 ## 2026-08-23
 
+* **New**: `backend/table-schema-sentinel.md` — startup table initialization gated by a schema sentinel (SHA-256 over `TableNames.All` in `AdminConfiguration`/`SchemaSentinel`/`tables`): matching sentinel ⇒ zero `CreateTableIfNotExists` calls on a cold start, missing/stale ⇒ one full pass + sentinel rewrite. SessionsIndex startup backfill only after a full pass, `IsSessionIndexEmptyAsync` no longer treats errors as "empty", conditional-insert claim so one scaled-out instance backfills. Daily maintenance runs `IStorageInitializer.EnsureAllAsync` to repair out-of-band table deletions.
 * **Update**: `backend/verdict-calibration.md` — MCP `get_verdict_calibration` response shaping: per-row trend denominators dropped, explicit nulls, `minSharePct` / `top` with an `omitted` report.
 * **Update**: `backend/verdict-calibration.md` — share-regression radar restricted to backend-decided paths; agent-declared/registration paths (customer workflow mix) and derived legacy paths no longer alert, stale episodes re-arm themselves.
 * **Update**: `backend/time-attribution.md`, `backend/device-journeys.md`, `backend/verdict-calibration.md` — the rolling maintenance sweeps (time attribution, device journeys, verdict calibration, calibration-radar discovery) now share ONE projected 35-day cross-tenant Sessions scan per tick (`LoadSweepWindowSessionsAsync` + `MaintenanceSweepSessionProjection`, pinned by `MaintenanceSweepProjectionEquivalenceTests`) instead of four full-table drains; each sweep slices its own window by StartedAt.

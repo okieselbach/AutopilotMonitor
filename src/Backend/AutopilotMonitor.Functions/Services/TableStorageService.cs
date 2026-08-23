@@ -78,25 +78,85 @@ namespace AutopilotMonitor.Functions.Services
             return _tableServiceClient.GetTableClient(tableName);
         }
 
+        // ===== TABLE SCHEMA SENTINEL =====
+        //
+        // A cold start used to issue one CreateTableIfNotExists per table (each a Create POST
+        // whose 409 is swallowed). The sentinel row in AdminConfiguration stores a hash derived
+        // from Constants.TableNames.All; when it matches, startup is a single point-read.
+        // Adding a table to TableNames.All changes the hash, so the next start runs the full
+        // pass once and rewrites the sentinel — no manually maintained version to forget.
+        // Gap: a table deleted by hand is not noticed until the daily maintenance full pass
+        // (EnsureAllTablesAsync) recreates it.
+
+        internal const string SchemaSentinelPartitionKey = "SchemaSentinel";
+        internal const string SchemaSentinelRowKey = "tables";
+        internal const string SchemaSentinelHashProperty = "TableSchemaHash";
+        internal const string SessionIndexBackfillClaimRowKey = "sessionIndexBackfill";
+
+        /// <summary>
+        /// Deterministic hash over the table registry (ordinal-sorted, so declaration order is irrelevant).
+        /// </summary>
+        internal static string ComputeTableSchemaHash(IEnumerable<string> tableNames)
+        {
+            var joined = string.Join("\n", tableNames.OrderBy(n => n, StringComparer.Ordinal));
+            var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(joined));
+            return Convert.ToHexString(bytes);
+        }
+
         /// <summary>
         /// Initializes all Azure Table Storage tables.
-        /// This method is idempotent and safe to call multiple times.
-        /// Should be called at application startup.
+        /// Fast path: the schema sentinel matches the current table registry → no table calls.
+        /// Slow path (sentinel missing, stale, or unreadable): CreateTableIfNotExists for every
+        /// table, then the sentinel is (re)written. Idempotent and safe under scale-out — two
+        /// instances that both see a stale sentinel simply both run the idempotent full pass.
+        /// Returns true when the full pass ran (callers use this to gate one-time work such as
+        /// the SessionsIndex backfill, which can only be needed on fresh storage).
         /// </summary>
-        public async Task InitializeTablesAsync()
+        public async Task<bool> InitializeTablesAsync()
         {
             if (_tablesInitialized)
             {
                 _logger.LogDebug("Tables already initialized, skipping");
-                return;
+                return false;
             }
 
             lock (_initLock)
             {
-                if (_tablesInitialized) return;
+                if (_tablesInitialized) return false;
             }
 
-            _logger.LogInformation("Initializing Azure Table Storage tables...");
+            var expectedHash = ComputeTableSchemaHash(Constants.TableNames.All);
+
+            if (await SchemaSentinelMatchesAsync(expectedHash))
+            {
+                _logger.LogInformation("Table schema sentinel matches ({HashPrefix}) — skipping table creation pass",
+                    expectedHash.Substring(0, 12));
+                lock (_initLock) { _tablesInitialized = true; }
+                return false;
+            }
+
+            _logger.LogInformation("Table schema sentinel missing or stale — initializing Azure Table Storage tables...");
+            var failCount = await EnsureAllTablesAsync();
+
+            if (failCount == 0)
+            {
+                await WriteSchemaSentinelAsync(expectedHash);
+            }
+
+            lock (_initLock)
+            {
+                _tablesInitialized = failCount == 0;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Unconditional full pass: CreateTableIfNotExists for every table in the registry.
+        /// Used by the startup slow path and by daily maintenance (recreates manually deleted tables).
+        /// Returns the number of tables that failed to initialize.
+        /// </summary>
+        public async Task<int> EnsureAllTablesAsync()
+        {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var successCount = 0;
             var failCount = 0;
@@ -126,9 +186,74 @@ namespace AutopilotMonitor.Functions.Services
             // CPE mapping seed is imported via Admin UI "Re-Seed Mappings" button
             // (pulls from GitHub, not embedded resource). No auto-import at startup.
 
-            lock (_initLock)
+            return failCount;
+        }
+
+        private async Task<bool> SchemaSentinelMatchesAsync(string expectedHash)
+        {
+            try
             {
-                _tablesInitialized = failCount == 0;
+                var table = _tableServiceClient.GetTableClient(Constants.TableNames.AdminConfiguration);
+                var response = await table.GetEntityIfExistsAsync<TableEntity>(
+                    SchemaSentinelPartitionKey, SchemaSentinelRowKey, select: new[] { SchemaSentinelHashProperty });
+                if (!response.HasValue) return false;
+                return string.Equals(response.Value!.GetString(SchemaSentinelHashProperty), expectedHash, StringComparison.Ordinal);
+            }
+            catch (Exception ex)
+            {
+                // Table missing (fresh storage) or transient error — fall back to the full pass.
+                _logger.LogInformation(ex, "Table schema sentinel not readable — running full table initialization");
+                return false;
+            }
+        }
+
+        private async Task WriteSchemaSentinelAsync(string hash)
+        {
+            try
+            {
+                var table = _tableServiceClient.GetTableClient(Constants.TableNames.AdminConfiguration);
+                var entity = new TableEntity(SchemaSentinelPartitionKey, SchemaSentinelRowKey)
+                {
+                    [SchemaSentinelHashProperty] = hash,
+                    ["TableCount"] = Constants.TableNames.All.Length,
+                    ["UpdatedUtc"] = DateTime.UtcNow
+                };
+                await table.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: the next start simply runs the full pass again.
+                _logger.LogWarning(ex, "Failed to write table schema sentinel");
+            }
+        }
+
+        /// <summary>
+        /// Scale-out guard for the one-time SessionsIndex backfill: a conditional insert that
+        /// only one instance can win. Returns true for the winner. A lost race (409) or any
+        /// error yields false — the manual maintenance backfill remains the safety net.
+        /// </summary>
+        public async Task<bool> TryClaimSessionIndexBackfillAsync()
+        {
+            try
+            {
+                var table = _tableServiceClient.GetTableClient(Constants.TableNames.AdminConfiguration);
+                var entity = new TableEntity(SchemaSentinelPartitionKey, SessionIndexBackfillClaimRowKey)
+                {
+                    ["ClaimedUtc"] = DateTime.UtcNow,
+                    ["Instance"] = Environment.MachineName
+                };
+                await table.AddEntityAsync(entity);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                _logger.LogInformation("SessionsIndex backfill already claimed by another instance");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to claim SessionsIndex backfill");
+                return false;
             }
         }
 

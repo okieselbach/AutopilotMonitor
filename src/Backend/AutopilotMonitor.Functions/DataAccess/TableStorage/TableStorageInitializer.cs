@@ -18,5 +18,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task InitializeAsync()
             => _storage.InitializeTablesAsync();
+
+        public Task EnsureAllAsync()
+            => _storage.EnsureAllTablesAsync();
     }
 }
