@@ -159,5 +159,17 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate)
             => _storage.DeleteDeviceJourneyAggregatesOlderThanAsync(cutoffDate);
+
+        public Task<bool> SaveVerdictCalibrationAggregateAsync(VerdictCalibrationDailyAggregate aggregate)
+            => _storage.SaveVerdictCalibrationAggregateAsync(aggregate);
+
+        public Task<List<VerdictCalibrationDailyAggregate>> GetVerdictCalibrationAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate)
+            => _storage.GetVerdictCalibrationAggregatesAsync(tenantId, startDate, endDate);
+
+        public Task DeleteVerdictCalibrationAggregateAsync(string tenantId, string dateKey)
+            => _storage.DeleteVerdictCalibrationAggregateAsync(tenantId, dateKey);
+
+        public Task<int> DeleteVerdictCalibrationAggregatesOlderThanAsync(DateTime cutoffDate)
+            => _storage.DeleteVerdictCalibrationAggregatesOlderThanAsync(cutoffDate);
     }
 }

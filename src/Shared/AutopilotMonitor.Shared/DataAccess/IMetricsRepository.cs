@@ -128,6 +128,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>Deletes one daily FTR row — the sweep's stale-bucket reconcile.</summary>
         Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey);
         Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate);
+
+        // --- Verdict calibration (docs/backend/verdict-calibration.md) ---
+        Task<bool> SaveVerdictCalibrationAggregateAsync(VerdictCalibrationDailyAggregate aggregate);
+        /// <summary>Daily verdict-path rows of one tenant partition ("global" allowed), inclusive date range; counts are additive across days.</summary>
+        Task<List<VerdictCalibrationDailyAggregate>> GetVerdictCalibrationAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);
+        /// <summary>Deletes one daily row — the sweep's stale-bucket reconcile.</summary>
+        Task DeleteVerdictCalibrationAggregateAsync(string tenantId, string dateKey);
+        Task<int> DeleteVerdictCalibrationAggregatesOlderThanAsync(DateTime cutoffDate);
     }
 
     /// <summary>

@@ -158,6 +158,10 @@ namespace AutopilotMonitor.Functions.Services
                 // F2 PR4: device-history chain heal (incl. deleted-session ref cleanup) + daily
                 // FTR aggregates over the same rolling window. Fail-soft internally.
                 await SweepDeviceJourneysAsync();
+                // Verdict calibration: per-verdict-path daily buckets over the same rolling
+                // window, AFTER the device-journey sweep so the re-enrollment proxy reads
+                // freshly merged chains. Fail-soft internally.
+                await SweepVerdictCalibrationAsync();
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
                 // work has independent cadence + kill-switch + OpsEvent watchdogs. The non-session
@@ -232,6 +236,7 @@ namespace AutopilotMonitor.Functions.Services
                 // (rolling 30d windows, cheap once converged).
                 await SweepTimeAttributionAsync();
                 await SweepDeviceJourneysAsync();
+                await SweepVerdictCalibrationAsync();
 
                 if (!aggregateOnly)
                 {

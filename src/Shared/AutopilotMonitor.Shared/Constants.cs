@@ -988,6 +988,11 @@ namespace AutopilotMonitor.Shared
             // like UsageMetrics.
             public const string DeviceHistories         = "DeviceHistories";
             public const string DeviceJourneyAggregates = "DeviceJourneyAggregates";
+            // VerdictCalibrationAggregates: PK=TenantId (or "global"), RK="{yyyy-MM-dd}" — daily
+            // per-verdict-path buckets (count, derived, re-enrolled-within-7d, overridden-by-admin/
+            // late-completion) the operator calibration matrix + drift radar read
+            // (docs/backend/verdict-calibration.md). Additive across days; 180d retention; regenerable.
+            public const string VerdictCalibrationAggregates = "VerdictCalibrationAggregates";
 
             // Configuration tables
             public const string TenantConfiguration = "TenantConfiguration";
@@ -1198,6 +1203,7 @@ namespace AutopilotMonitor.Shared
                 TimeAttributionAggregates,
                 DeviceHistories,
                 DeviceJourneyAggregates,
+                VerdictCalibrationAggregates,
                 TenantConfiguration,
                 AdminConfiguration,
                 GlobalAdmins,

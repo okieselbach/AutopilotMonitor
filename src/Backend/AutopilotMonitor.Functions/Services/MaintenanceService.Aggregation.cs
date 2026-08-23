@@ -1102,6 +1102,19 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex, "Failed to cleanup old device-journey aggregates");
             }
+
+            // Verdict-calibration daily aggregates: same 180d window (regenerable; the radar
+            // needs 35d, the matrix serves up to 180d).
+            try
+            {
+                var deleted = await _metricsRepo.DeleteVerdictCalibrationAggregatesOlderThanAsync(now.AddDays(-usageMetricsRetentionDays));
+                if (deleted > 0)
+                    _logger.LogInformation("Verdict-calibration aggregate cleanup: deleted {Count} rows older than {Days} days", deleted, usageMetricsRetentionDays);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup old verdict-calibration aggregates");
+            }
         }
         /// <summary>
         /// Detects and cleans up orphaned events — events stored in the Events table

@@ -136,6 +136,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     // routing to the GlobalReadOrAdmin variant — same placement as get_app_install_metrics.
     'get_time_attribution',
     'get_usage_metrics',
+    // Platform scope (GA + Global Reader): GlobalReadOrAdmin endpoint, operator-only
+    // classifier diagnostics.
+    'get_verdict_calibration',
     'get_vulnerability_summary',
     'list_blocked_devices',
     'list_session_annotations',
@@ -197,6 +200,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_platform_metrics',
     'get_tenant_config',
     'get_tenant_config_schema',
+    'get_verdict_calibration',
     'list_blocked_devices',
     'list_session_annotations',
     'list_session_reports',

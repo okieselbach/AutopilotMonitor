@@ -464,6 +464,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/fleet-health", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/time-attribution", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/device-journeys", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/metrics/verdict-calibration", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/list",           EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/analytics", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/apps/{appName}/sessions",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

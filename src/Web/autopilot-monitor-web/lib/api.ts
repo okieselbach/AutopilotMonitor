@@ -292,6 +292,10 @@ export const api = {
       `${API_BASE_URL}/api/metrics/device-journeys${qs({ days: String(days) })}`,
     globalDeviceJourneys: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/device-journeys${qs({ days: String(days), tenantId })}`,
+    // Verdict calibration matrix (operator-only; GlobalReadOrAdmin). Omit tenantId for the
+    // cross-tenant aggregate. Daily rows are additive, so the window follows days honestly.
+    globalVerdictCalibration: (days: number, tenantId?: string) =>
+      `${API_BASE_URL}/api/global/metrics/verdict-calibration${qs({ days: String(days), tenantId })}`,
     geographic: (tenantId: string, days: number, groupBy: string) =>
       `${API_BASE_URL}/api/metrics/geographic${qs({ tenantId, days: String(days), groupBy })}`,
     globalGeographic: (days: number, groupBy: string, tenantId?: string) =>

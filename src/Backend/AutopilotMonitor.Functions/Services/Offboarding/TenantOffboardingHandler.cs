@@ -83,6 +83,8 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // whole-row deletion besides chain-emptying.
             Constants.TableNames.DeviceHistories,
             Constants.TableNames.DeviceJourneyAggregates,
+            // Verdict calibration daily buckets (PK=TenantId) — regenerable from Sessions, wiped with the tenant.
+            Constants.TableNames.VerdictCalibrationAggregates,
             // Pre-write config snapshots (PK=tenantId). Wiped in the bulk phase; the
             // TenantConfiguration row itself is deleted LAST via SafeWipe (a delete, not a
             // save), so the wipe cannot re-create a snapshot afterwards. The admin-config

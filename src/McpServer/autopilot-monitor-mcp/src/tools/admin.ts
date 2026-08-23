@@ -838,6 +838,45 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     })
   );
 
+  // Tool: get_verdict_calibration — platform scope (GA + Global Reader). Operator diagnostics for
+  // the session-verdict classifier (docs/backend/verdict-calibration.md) — never a customer surface.
+  if (ga) server.registerTool(
+    'get_verdict_calibration',
+    {
+      title: 'Verdict Calibration (classifier thermometer)',
+      description:
+        'Answer "which code path produced our session verdicts, and does any of them look wrong?". Per verdict ' +
+        'path (VerdictPaths vocabulary — agent:complete, agent:failed, sweep:r5_incomplete, maxlife:r6, ' +
+        'late:r4, retro:r6, rule:<id>, manual:failed, register:superseded, legacy:* for pre-instrumentation ' +
+        'rows derived read-side): session count and share in the window, derivedCount (rows attributed by ' +
+        'derivation — weaker evidence), the 7-day re-enrollment proxy (eligible7d = terminal sessions old ' +
+        'enough to judge, reEnrolled7d = the same device registered another terminal session within 7 days; ' +
+        'reEnrollRatePct is null below 20 eligible), the correction stream attributed to the PRIOR path ' +
+        '(overriddenByAdmin / overriddenByLateCompletion / overriddenOther — a path that is frequently ' +
+        'overridden was wrong), and a 7d-vs-28d share trend (window7, baseline28, lift; lift null without ' +
+        'baseline). Read it as calibration: a Succeeded path whose re-enrollment rate sits at Failed level ' +
+        'reconciles too boldly; an Incomplete path whose rate matches the Succeeded background is too ' +
+        'cautious; a rising sweep:*/maxlife:* share is an agent-liveness signal, not a classifier one. ' +
+        'Omit tenantId for the cross-tenant aggregate, or pass tenantId to scope to one tenant. Rows come ' +
+        'from the 2-hourly maintenance sweep (computedAt); empty before its first run.',
+      inputSchema: {
+        tenantId: z.string().optional().describe('Optional — scope to one tenant. Omit for the cross-tenant aggregate.'),
+        days: z.coerce.number().int().min(1).max(180).optional()
+          .describe('Window in days (default 30, max 180 — aggregate retention). The 7d/28d trend is always today-anchored.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_verdict_calibration', args, async () => {
+      try {
+        const { tenantId, days } = args;
+        const data = await apiFetch(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_verdict_calibration', args, error);
+      }
+    })
+  );
+
   // Tool 18: list_session_reports — Global Admin only; not registered for normal users.
   if (ga) server.registerTool(
     'list_session_reports',
