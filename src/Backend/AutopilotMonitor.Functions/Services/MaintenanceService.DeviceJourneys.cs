@@ -36,7 +36,7 @@ namespace AutopilotMonitor.Functions.Services
         /// per window device per tick — same order as the F1 sweep; negligible at current fleet
         /// size (the scaling lever is gating the per-device RMW on new terminal sessions).
         /// </summary>
-        private async Task SweepDeviceJourneysAsync()
+        private async Task SweepDeviceJourneysAsync(IReadOnlyList<SessionSummary> sweepWindow)
         {
             try
             {
@@ -84,7 +84,7 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 // ---- Phase 2: merge the window's terminal sessions into their device chains. ----
-                var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(windowStart, windowEnd);
+                var sessions = SliceSweepWindow(sweepWindow, windowStart);
                 var excludedSessions = new List<SessionSummary>();
                 var byDevice = new Dictionary<(string TenantId, string SerialKey), List<SessionSummary>>();
 

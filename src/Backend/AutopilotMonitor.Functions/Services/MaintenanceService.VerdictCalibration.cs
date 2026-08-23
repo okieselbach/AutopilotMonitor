@@ -29,12 +29,12 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Recomputes the verdict-calibration rows for the rolling window — idempotent per
-        /// (tenant × StartedAt date) plus "global" mirror rows. Reads the window's sessions (one
-        /// cross-partition scan, same as the F1/F2 sweeps) and each window tenant's device
-        /// histories (one partition scan per tenant) for the re-enrollment proxy. Stale date rows
-        /// a run did not regenerate are deleted so window sums never serve ghost counts.
+        /// (tenant × StartedAt date) plus "global" mirror rows. Slices the tick's shared window
+        /// scan (no own drain) and reads each window tenant's device histories (one partition
+        /// scan per tenant) for the re-enrollment proxy. Stale date rows a run did not regenerate
+        /// are deleted so window sums never serve ghost counts.
         /// </summary>
-        private async Task SweepVerdictCalibrationAsync()
+        private async Task SweepVerdictCalibrationAsync(IReadOnlyList<SessionSummary> sweepWindow)
         {
             try
             {
@@ -50,7 +50,7 @@ namespace AutopilotMonitor.Functions.Services
                 var windowStart = today.AddDays(-VerdictCalibrationSweepDays);
                 var windowEnd = today.AddDays(1);
 
-                var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(windowStart, windowEnd);
+                var sessions = SliceSweepWindow(sweepWindow, windowStart);
 
                 var historiesByTenant = new Dictionary<string, List<DeviceHistory>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var tenantId in sessions.Select(s => s.TenantId).Distinct(StringComparer.OrdinalIgnoreCase))

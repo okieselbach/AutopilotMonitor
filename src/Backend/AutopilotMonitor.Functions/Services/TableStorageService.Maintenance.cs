@@ -595,6 +595,36 @@ namespace AutopilotMonitor.Functions.Services
         public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
             => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, GeoMetricsSessionProjection);
 
+        /// <summary>
+        /// Columns the rolling maintenance sweeps consume from the SHARED window scan (one
+        /// cross-tenant drain per tick feeds the time-attribution, device-journey and
+        /// verdict-calibration sweeps plus the calibration radar's tenant discovery — see
+        /// MaintenanceService.LoadSweepWindowSessionsAsync). Union of the three sweeps' reads:
+        /// identity/device (SerialNumber, Manufacturer, Model), status + timestamps, the
+        /// enrollment-class inputs, DurationSeconds/EventCount, the deletion-cascade marker,
+        /// the verdict attribution (VerdictPath/Prior*) and the legacy-derivation inputs
+        /// (FailureReason/ReconcileReason/FailureSource/AdminMarkedAction/EspSoftFailure).
+        /// Drops the wide row's FailureSnapshotJson, geo, OS and diagnostics columns. internal so
+        /// MaintenanceSweepProjectionEquivalenceTests derives its keep-set from this exact array.
+        /// </summary>
+        internal static readonly string[] MaintenanceSweepSessionProjection =
+        {
+            "PartitionKey", "RowKey", "StartedAt", "CompletedAt", "LastEventAt", "Status",
+            "DurationSeconds", "EventCount", "DeletionState",
+            "SerialNumber", "Manufacturer", "Model",
+            "EnrollmentType", "IsPreProvisioned", "IsSelfDeployingProfile", "IsUserDriven", "ResumedAt",
+            "AdminMarkedAction", "VerdictPath", "PriorStatus", "PriorVerdictPath",
+            "FailureReason", "ReconcileReason", "FailureSource", "EspSoftFailure",
+        };
+
+        /// <summary>
+        /// Column-projected cross-tenant date-range query backing the shared maintenance sweep
+        /// window. Same filter semantics as <see cref="GetSessionsByDateRangeAsync"/>; only
+        /// <see cref="MaintenanceSweepSessionProjection"/> is transferred.
+        /// </summary>
+        public Task<List<SessionSummary>> GetMaintenanceWindowSessionsAsync(DateTime startDate, DateTime endDate)
+            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId: null, MaintenanceSweepSessionProjection);
+
         private async Task<List<SessionSummary>> QuerySessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId, string[]? select)
         {
             if (!string.IsNullOrEmpty(tenantId))

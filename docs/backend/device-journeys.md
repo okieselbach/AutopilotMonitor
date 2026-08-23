@@ -78,7 +78,8 @@ Durations shown for attempts are the sessions' authoritative `DurationSeconds` v
   completed journeys, first-time-right count, attempt histogram, junk-serial exclusion
   count, `JourneyVersion`. A journey buckets on the StartedAt date of its completing
   success session (the platform's StartedAt-date convention; late terminals converge via
-  the sweep). All counts are **additive**, so a window rate is the ratio of summed daily
+  the sweep, which slices the tick's shared projected window scan — see
+  `time-attribution.md`). All counts are **additive**, so a window rate is the ratio of summed daily
   rows — there is no rolling-window row (unlike the median-based time-attribution
   aggregates, which cannot merge). 180-day retention. Rows exist below the ≥20 UI gate
   on purpose (the UI needs the n for "insufficient data (n=…)").

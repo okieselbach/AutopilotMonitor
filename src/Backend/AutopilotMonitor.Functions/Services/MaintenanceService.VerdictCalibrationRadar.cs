@@ -28,7 +28,7 @@ namespace AutopilotMonitor.Functions.Services
         /// the local ones). Anchored on <paramref name="targetDate"/> (timer path: yesterday —
         /// whole days only). Idempotent per anchor via the tracker dedup; fail-soft per partition.
         /// </summary>
-        private async Task RunVerdictCalibrationRadarAsync(DateTime targetDate)
+        private async Task RunVerdictCalibrationRadarAsync(DateTime targetDate, IReadOnlyList<SessionSummary> sweepWindow)
         {
             try
             {
@@ -41,9 +41,9 @@ namespace AutopilotMonitor.Functions.Services
                 var sw = Stopwatch.StartNew();
                 var horizonStart = targetDate.Date.AddDays(-(VerdictCalibrationRadar.WindowDays - 1 + VerdictCalibrationRadar.BaselineDays));
 
-                // The global rows enumerate every partition's dates; tenants are discovered from
-                // the window's sessions (the calibration sweep wrote a row per tenant it saw).
-                var tenantIds = (await _maintenanceRepo.GetSessionsByDateRangeAsync(horizonStart, targetDate.Date.AddDays(1)))
+                // Tenants are discovered from the tick's shared window scan (the calibration
+                // sweep wrote a row per tenant it saw) — no own drain.
+                var tenantIds = sweepWindow
                     .Select(s => s.TenantId)
                     .Where(t => !string.IsNullOrEmpty(t))
                     .Distinct(StringComparer.OrdinalIgnoreCase)

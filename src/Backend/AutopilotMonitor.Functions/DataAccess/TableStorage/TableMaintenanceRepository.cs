@@ -60,6 +60,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
             => _storage.GetUsageWindowSessionsAsync(startDate, endDate, tenantId);
 
+        public Task<List<SessionSummary>> GetMaintenanceWindowSessionsAsync(DateTime startDate, DateTime endDate)
+            => _storage.GetMaintenanceWindowSessionsAsync(startDate, endDate);
+
         public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
             => _storage.GetGeoWindowSessionsAsync(startDate, endDate, tenantId);
 

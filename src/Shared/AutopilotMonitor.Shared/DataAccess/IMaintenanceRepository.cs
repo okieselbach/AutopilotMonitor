@@ -80,6 +80,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Fields outside the projection come back as defaults — callers must not read them.
         /// </summary>
         Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
+        /// <summary>
+        /// Column-projected cross-tenant variant of <see cref="GetSessionsByDateRangeAsync"/> that
+        /// the maintenance tick drains ONCE and shares across its rolling sweeps (time attribution,
+        /// device journeys, verdict calibration, calibration radar discovery). Fields outside the
+        /// projection come back as defaults — sweeps must not read them.
+        /// </summary>
+        Task<List<SessionSummary>> GetMaintenanceWindowSessionsAsync(DateTime startDate, DateTime endDate);
         Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime);
         Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff);
 

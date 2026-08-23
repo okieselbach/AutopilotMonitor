@@ -84,7 +84,10 @@ Buckets[], ComputedAt }` with one bucket per (VerdictPath, Status):
 
 `MaintenanceService.SweepVerdictCalibrationAsync` (2-hourly, after the device-journey sweep
 so the chains are fresh; manual maintenance parity; kill switch
-`VerdictCalibrationSweepDisabled`) recomputes the rolling 30-day window whole (Replace),
+`VerdictCalibrationSweepDisabled`) slices the tick's shared projected window scan
+(`LoadSweepWindowSessionsAsync` — one 35-day cross-tenant drain feeds the time-attribution,
+device-journey and calibration sweeps plus the radar's tenant discovery; the StartedAt-only
+filter is a full-table read, so never per sweep), recomputes the rolling 30-day window whole (Replace),
 deletes stale date rows it did not regenerate, and the unbounded-tables cleanup applies the
 180-day retention. Sessions inside a deletion cascade are skipped; the table is regenerable
 and is wiped with the tenant on offboarding.

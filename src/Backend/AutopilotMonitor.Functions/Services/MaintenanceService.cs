@@ -151,20 +151,24 @@ namespace AutopilotMonitor.Functions.Services
                 // App-version duration regression radar: same episode/tracker pattern over the
                 // install summaries (trailing 35d horizon loaded internally). Fail-soft.
                 await RunAppVersionRegressionRadarAsync();
+                // ONE projected cross-tenant window scan feeds every rolling sweep below (the
+                // StartedAt-only filter is a full-table drain in Table Storage — four of them per
+                // tick was four times the same read). Each sweep slices its own window.
+                var sweepWindow = await LoadSweepWindowSessionsAsync();
                 // F1 PR2: rolling 30d breakdown backfill + daily attribution aggregates. Owns
                 // its own window (NOT the snapshot-gated catch-up above) so late-terminating
                 // sessions still reach their StartedAt-date's aggregate. Fail-soft internally.
-                await SweepTimeAttributionAsync();
+                await SweepTimeAttributionAsync(sweepWindow);
                 // F2 PR4: device-history chain heal (incl. deleted-session ref cleanup) + daily
                 // FTR aggregates over the same rolling window. Fail-soft internally.
-                await SweepDeviceJourneysAsync();
+                await SweepDeviceJourneysAsync(sweepWindow);
                 // Verdict calibration: per-verdict-path daily buckets over the same rolling
                 // window, AFTER the device-journey sweep so the re-enrollment proxy reads
                 // freshly merged chains. Fail-soft internally.
-                await SweepVerdictCalibrationAsync();
+                await SweepVerdictCalibrationAsync(sweepWindow);
                 // Verdict-calibration drift radar over the rows the sweep just refreshed; anchored
                 // on yesterday like the rule radar (whole days only). Fail-soft.
-                await RunVerdictCalibrationRadarAsync(DateTime.UtcNow.Date.AddDays(-1));
+                await RunVerdictCalibrationRadarAsync(DateTime.UtcNow.Date.AddDays(-1), sweepWindow);
                 // Plan §5 PR6 / §16 R14: session retention fanout extracted out of the 2h timer
                 // into the dedicated 12h SessionDeletionMaintenanceFunction so cascade-lifecycle
                 // work has independent cadence + kill-switch + OpsEvent watchdogs. The non-session
@@ -207,6 +211,33 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Shared sweep window: the longest horizon any rolling sweep needs — the calibration
+        /// radar's 7d window + 28d baseline anchored on YESTERDAY (= 35 days back from today) —
+        /// drained once per tick with the maintenance projection. Sweeps with a shorter window
+        /// slice it by StartedAt (<see cref="SliceSweepWindow"/>). Fail-soft: an empty list makes
+        /// every sweep a no-op rather than failing the tick.
+        /// </summary>
+        internal const int SweepWindowDays = Helpers.VerdictCalibrationRadar.WindowDays + Helpers.VerdictCalibrationRadar.BaselineDays;
+
+        private async Task<List<SessionSummary>> LoadSweepWindowSessionsAsync()
+        {
+            try
+            {
+                var today = DateTime.UtcNow.Date;
+                return await _maintenanceRepo.GetMaintenanceWindowSessionsAsync(today.AddDays(-SweepWindowDays), today.AddDays(1));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Sweep window load failed — rolling sweeps skip this tick (non-fatal)");
+                return new List<SessionSummary>();
+            }
+        }
+
+        /// <summary>Sessions of the shared window that started at or after <paramref name="windowStart"/> (UTC).</summary>
+        internal static List<SessionSummary> SliceSweepWindow(IReadOnlyList<SessionSummary> window, DateTime windowStart)
+            => window.Where(s => s.StartedAt >= windowStart).ToList();
+
+        /// <summary>
         /// Manually triggered maintenance with flexible date selection
         /// </summary>
         public async Task<MaintenanceResult> RunManualAsync(DateTime? targetDate = null, bool aggregateOnly = false, string triggeredBy = "Unknown")
@@ -237,10 +268,11 @@ namespace AutopilotMonitor.Functions.Services
                 // Timer-path parity: manual maintenance also refreshes the attribution
                 // breakdowns + daily aggregates and the device-history/FTR rollups
                 // (rolling 30d windows, cheap once converged).
-                await SweepTimeAttributionAsync();
-                await SweepDeviceJourneysAsync();
-                await SweepVerdictCalibrationAsync();
-                await RunVerdictCalibrationRadarAsync(dateToAggregate);
+                var sweepWindow = await LoadSweepWindowSessionsAsync();
+                await SweepTimeAttributionAsync(sweepWindow);
+                await SweepDeviceJourneysAsync(sweepWindow);
+                await SweepVerdictCalibrationAsync(sweepWindow);
+                await RunVerdictCalibrationRadarAsync(dateToAggregate, sweepWindow);
 
                 if (!aggregateOnly)
                 {

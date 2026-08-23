@@ -289,14 +289,13 @@ namespace AutopilotMonitor.Functions.Services
         /// Sessions with a deletion cascade in flight are skipped so the sweep cannot write a
         /// breakdown row after the session's deletion manifest was snapshotted.
         /// </summary>
-        private async Task SweepTimeAttributionAsync()
+        private async Task SweepTimeAttributionAsync(IReadOnlyList<SessionSummary> sweepWindow)
         {
             try
             {
                 var sw = Stopwatch.StartNew();
                 var today = DateTime.UtcNow.Date;
-                var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(
-                    today.AddDays(-TimeAttributionSweepDays), today.AddDays(1));
+                var sessions = SliceSweepWindow(sweepWindow, today.AddDays(-TimeAttributionSweepDays));
 
                 var pairs = new List<(SessionSummary Session, SessionTimeBreakdown Breakdown)>();
                 var missing = new List<SessionSummary>();

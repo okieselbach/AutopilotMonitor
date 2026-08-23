@@ -105,6 +105,11 @@ the partition).
 * Self-healing 30-day maintenance sweep (2h tick): backfills missing breakdowns, folds
   late-terminating sessions into their StartedAt-date aggregates, and enforces version
   purity — a stale-version row whose events aged out counts as missing, never mixed.
+  Reads the tick's **shared window scan** (`MaintenanceService.LoadSweepWindowSessionsAsync`,
+  one projected 35-day cross-tenant drain via `MaintenanceSweepSessionProjection` that
+  also feeds the device-journey and verdict-calibration sweeps) — the StartedAt-only
+  filter is a full-table read in Table Storage, so it is done once per tick, not once per
+  sweep; `MaintenanceSweepProjectionEquivalenceTests` pins the column set.
 * `TimeAttributionAggregates` (PK = TenantId or `global`, RK = `{yyyy-MM-dd}|{class}` and
   `rolling30|{class}`): per enrollment class (`user_driven`, `whiteglove`, `self_deploying`,
   `device_preparation` — never mixed) median/p75/p90 per segment over the fixed six-segment
