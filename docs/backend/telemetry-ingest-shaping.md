@@ -36,7 +36,9 @@ Why two mechanisms:
 
 * successful Azure Storage calls (Table/Queue/Blob) in both shapes — the HTTP shape (`Azure table`, target `*.table.core.windows.net`) and the Azure SDK ActivitySource shape (`InProc | Microsoft.Tables`, `InProc | Microsoft.Storage`);
 * storage calls with an **expected outcome**: `404` (point-read miss — EventTypeIndex, BlockedDevices lookups), `412` (ETag precondition), `409` (idempotent insert conflict). HTTP-shape rows carry the code in `ResultCode`; InProc rows only in `Properties["Error"]` (`Status: 404 (`). Before this filter these were 100 % of the remaining "failed" storage rows (~540 MB/week, two rows per call);
-* successful Azure SignalR Service REST calls (`*.service.signalr.net` — group add/remove per connection, ~470 MB/week).
+* successful Azure SignalR Service REST calls the worker makes itself (`*.service.signalr.net`).
+
+The bulk of SignalR REST traffic (group add/remove per connection, ~470 MB/week) is emitted by the **host** process for the SignalR output binding (`SDKVersion rdddsc:*`) and never passes the worker pipeline — live-verified after the 2026-08-23 deploy (worker rows: 0, host rows: ~560/h). Those are removed by the second data flow of the same workspace transformation: `AppDependencies | where not(Success == true and Target endswith '.service.signalr.net')`.
 
 Everything else passes: storage 429/5xx/auth/timeouts, failed SignalR calls, all HTTP/Graph/NVD/MSRC dependencies, the worker's own `InProc Invoke` span, and every non-dependency item.
 

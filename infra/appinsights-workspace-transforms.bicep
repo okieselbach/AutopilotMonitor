@@ -1,6 +1,9 @@
 // Autopilot-Monitor — Log Analytics workspace transformation (ingestion-time filter)
 //
-// Drops the redundant HOST-side HTTP request record from AppRequests so that exactly one
+// Two ingestion-time filters. (2) Successful Azure SignalR REST dependencies emitted by the
+// HOST process for the SignalR output binding (SDKVersion rdddsc:*) — the worker-side
+// StorageDependencyFilterProcessor never sees those. Failed SignalR calls are kept.
+// (1) Drops the redundant HOST-side HTTP request record from AppRequests so that exactly one
 // canonical request row remains: the worker-side copy emitted by RequestTelemetryMiddleware
 // (Properties.Source == 'WorkerMiddleware', carries TenantId/UserId/CorrelationId and is
 // sampling-exempt per item). Non-HTTP host invocations (timer/queue triggers) have an empty
@@ -56,6 +59,14 @@ resource transforms 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
         streams: [ 'Microsoft-Table-AppRequests' ]
         destinations: [ 'ws' ]
         transformKql: 'source | where tostring(Properties.Source) == \'WorkerMiddleware\' or isempty(Url)'
+      }
+      {
+        // Successful Azure SignalR REST calls (group add/remove per connection) are emitted by
+        // the HOST process for the SignalR output binding (SDKVersion rdddsc:*), so the worker's
+        // StorageDependencyFilterProcessor never sees them. Failed SignalR calls are kept.
+        streams: [ 'Microsoft-Table-AppDependencies' ]
+        destinations: [ 'ws' ]
+        transformKql: 'source | where not(Success == true and Target endswith \'.service.signalr.net\')'
       }
     ]
   }
