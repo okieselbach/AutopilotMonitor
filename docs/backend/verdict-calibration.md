@@ -100,7 +100,11 @@ and is wiped with the tenant on offboarding.
   20 eligible**, the three override counters, a today-anchored 7d-vs-28d share trend
   (`window7`, `baseline28`, `lift` null without baseline) — plus totals, the trend basis and
   the active `alerts[]`. Empty but well-formed before the first sweep.
-* MCP `get_verdict_calibration` (platform scope: GA + Global Reader).
+* MCP `get_verdict_calibration` (platform scope: GA + Global Reader). Same endpoint, LLM-shaped in
+  `verdict-calibration-shape.ts`: per-row `window7.sessions` / `baseline28.sessions` are dropped (the
+  denominators live once in `trend`), `reEnrollRatePct` / `lift` are always present (`null` = withheld),
+  and `minSharePct` / `top` trim the one-session tail — rows carrying overrides are never trimmed and
+  everything dropped is reported in `omitted`. The wire shape the admin page consumes is untouched.
 * Portal: Global Admin → Metrics → Verdict Calibration (`/admin/metrics/verdict-calibration`):
   matrix grouped by origin, status pill, `derived n` gray pill, trend glyph (arrow only from
   5 window hits and lift ≥ 2 / ≤ 0.5), re-enrollment rate or `— (n=…)`, overrides
@@ -154,6 +158,7 @@ Kill switch `VerdictCalibrationRadarDisabled`.
 * `src/Backend/AutopilotMonitor.Functions/Functions/Metrics/GetVerdictCalibrationFunction.cs`
 * `src/Backend/AutopilotMonitor.Functions/Helpers/VerdictCalibrationRadar.cs`, `Services/MaintenanceService.VerdictCalibrationRadar.cs`
 * `src/McpServer/autopilot-monitor-mcp/src/tools/admin.ts` — `get_verdict_calibration`
+* `src/McpServer/autopilot-monitor-mcp/src/verdict-calibration-shape.ts` — LLM-facing response shaping (`minSharePct` / `top`, explicit nulls)
 * `src/Web/autopilot-monitor-web/app/admin/metrics/sections/SectionVerdictCalibration.tsx`
 * Tests: `VerdictPathTests`, `VerdictCalibrationTests`, `VerdictCalibrationRadarTests`
 * Related: [Silent-Session Classification](silent-session-classification.md), [Device Journeys](device-journeys.md), [Rule Regression Radar](rule-regression-radar.md)

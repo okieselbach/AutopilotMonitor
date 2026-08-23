@@ -5,6 +5,7 @@ import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
+import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 
 /**
  * Non-sensitive tenant fields safe to surface to the model. Keep-list (not
@@ -854,23 +855,31 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'reEnrollRatePct is null below 20 eligible), the correction stream attributed to the PRIOR path ' +
         '(overriddenByAdmin / overriddenByLateCompletion / overriddenOther — a path that is frequently ' +
         'overridden was wrong), and a 7d-vs-28d share trend (window7, baseline28, lift; lift null without ' +
-        'baseline). Read it as calibration: a Succeeded path whose re-enrollment rate sits at Failed level ' +
-        'reconciles too boldly; an Incomplete path whose rate matches the Succeeded background is too ' +
-        'cautious; a rising sweep:*/maxlife:* share is an agent-liveness signal, not a classifier one. ' +
-        'Omit tenantId for the cross-tenant aggregate, or pass tenantId to scope to one tenant. Rows come ' +
-        'from the 2-hourly maintenance sweep (computedAt); empty before its first run.',
+        'baseline; window/baseline denominators are the single `trend.windowSessions` / `trend.baselineSessions`). ' +
+        'reEnrollRatePct and lift are always present — null means withheld, not missing. Read it as calibration: ' +
+        'a Succeeded path whose re-enrollment rate sits at Failed level reconciles too boldly; an Incomplete ' +
+        'path whose rate matches the Succeeded background is too cautious; a rising sweep:*/maxlife:* share ' +
+        'is an agent-liveness signal, not a classifier one. Omit tenantId for the cross-tenant aggregate, or ' +
+        'pass tenantId to scope to one tenant. minSharePct / top trim the long tail of one-session paths ' +
+        '(rows carrying overrides are never trimmed); what was dropped is reported in `omitted`, totals and ' +
+        'trend always cover the full window. Rows come from the 2-hourly maintenance sweep (computedAt); ' +
+        'empty before its first run.',
       inputSchema: {
         tenantId: z.string().optional().describe('Optional — scope to one tenant. Omit for the cross-tenant aggregate.'),
         days: z.coerce.number().int().min(1).max(180).optional()
           .describe('Window in days (default 30, max 180 — aggregate retention). The 7d/28d trend is always today-anchored.'),
+        minSharePct: z.coerce.number().min(0).max(100).optional()
+          .describe('Drop paths whose share of the window is below this percentage (e.g. 1). Paths with overrides are always kept.'),
+        top: z.coerce.number().int().min(1).max(100).optional()
+          .describe('Keep only the N largest paths by session count. Paths with overrides are always kept.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_verdict_calibration', args, async () => {
       try {
-        const { tenantId, days } = args;
+        const { tenantId, days, minSharePct, top } = args;
         const data = await apiFetch(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`);
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+        return toolResultText(shapeVerdictCalibration(data, { minSharePct, top }), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_verdict_calibration', args, error);
       }
