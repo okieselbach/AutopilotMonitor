@@ -190,15 +190,7 @@ export default function AgentAnalyzersSection({
 
         {/* ── Software Inventory & Vulnerability Analyzer ── */}
         <div>
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Software Inventory & Vulnerability Analyzer</h3>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
-              Experimental
-            </span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-              Pre-Release
-            </span>
-          </div>
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Software Inventory & Vulnerability Analyzer</h3>
           <p className="text-sm text-gray-500 mb-4">
             Collects installed software from the Windows registry at enrollment start and completion.
             Produces a normalized inventory snapshot, detects software installed during enrollment (delta detection),
