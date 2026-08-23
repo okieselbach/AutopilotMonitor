@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.DecisionCore.Signals;
 
@@ -11,8 +12,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
     internal sealed class FakeSignalIngressSink : ISignalIngressSink
     {
         private readonly List<PostedSignal> _posted = new List<PostedSignal>();
+        private readonly object _gate = new object();
 
-        public IReadOnlyList<PostedSignal> Posted => _posted;
+        /// <summary>
+        /// Snapshot, not the live list: producers post from timer / worker threads (e.g. the
+        /// parked-dwell tripwire) while tests poll this in a SpinWait loop. Enumerating the live
+        /// list across an Add throws "Collection was modified" — a rare CI-only failure
+        /// (run 32644425162) with no assertion text.
+        /// </summary>
+        public IReadOnlyList<PostedSignal> Posted
+        {
+            get { lock (_gate) return _posted.ToArray(); }
+        }
 
         /// <summary>When non-null, <see cref="Post"/> throws instead of capturing.</summary>
         public Exception? ThrowOnPost { get; set; }
@@ -27,7 +38,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             object? typedPayload = null)
         {
             if (ThrowOnPost != null) throw ThrowOnPost;
-            _posted.Add(new PostedSignal(kind, occurredAtUtc, sourceOrigin, evidence, payload, kindSchemaVersion, typedPayload));
+            lock (_gate)
+                _posted.Add(new PostedSignal(kind, occurredAtUtc, sourceOrigin, evidence, payload, kindSchemaVersion, typedPayload));
         }
 
         internal sealed class PostedSignal
