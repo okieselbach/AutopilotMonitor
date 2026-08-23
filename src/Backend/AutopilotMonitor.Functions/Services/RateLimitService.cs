@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Caching.Memory;
@@ -17,10 +16,37 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ILogger<RateLimitService> _logger;
         private readonly TimeSpan _windowDuration;
 
-        // Dedicated lock objects per device to avoid race conditions when cache evicts the request history list.
-        // Using the list itself as a lock target is unsafe because cache eviction can create a new list instance,
-        // causing different threads to lock on different objects.
-        private readonly ConcurrentDictionary<string, object> _locks = new();
+        // The request history and its lock travel together in one cache entry. Whoever observes the
+        // same list observes the same lock, so two threads can never mutate one list under different
+        // locks. A thread holding an already-evicted bucket only mutates a discarded list, which is
+        // harmless at the expiry boundary. A separate per-key lock dictionary is deliberately NOT
+        // used: its eviction-callback cleanup raced with lock re-creation and leaked on replaced entries.
+        private sealed class RequestBucket
+        {
+            public readonly List<DateTime> History = new();
+            public readonly object Sync = new();
+        }
+
+        // IMemoryCache.GetOrCreate is not atomic: two first-time callers can each create a bucket and
+        // the loser would count its request into a discarded list. Creation is serialized here
+        // (cheap: only cache misses take it); the hot path is a lock-free TryGetValue.
+        private readonly object _createLock = new();
+
+        private RequestBucket GetOrCreateBucket(string cacheKey)
+        {
+            if (_cache.TryGetValue(cacheKey, out RequestBucket? existing) && existing != null)
+                return existing;
+
+            lock (_createLock)
+            {
+                return _cache.GetOrCreate(cacheKey, entry =>
+                {
+                    entry.SlidingExpiration = _windowDuration;
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
+                    return new RequestBucket();
+                })!;
+            }
+        }
 
         public RateLimitService(IMemoryCache cache, ILogger<RateLimitService> logger)
         {
@@ -56,18 +82,14 @@ namespace AutopilotMonitor.Functions.Services
             var cacheKey = $"ratelimit_{deviceThumbprint}";
             var now = DateTime.UtcNow;
 
-            // Get or create request history for this device
-            var lockObj = _locks.GetOrAdd(cacheKey, _ => new object());
-            var requestHistory = _cache.GetOrCreate(cacheKey, entry =>
-            {
-                entry.SlidingExpiration = _windowDuration;
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
-                entry.RegisterPostEvictionCallback((key, _, _, _) => _locks.TryRemove((string)key, out _));
-                return new List<DateTime>();
-            })!;
+            // Get or create request history for this device. The bucket is mutated in place; the
+            // cache lookup itself refreshes the sliding expiration, so no re-Set is needed.
+            var bucket = GetOrCreateBucket(cacheKey);
 
-            lock (lockObj)
+            lock (bucket.Sync)
             {
+                var requestHistory = bucket.History;
+
                 // Remove requests outside the sliding window
                 var windowStart = now.Subtract(_windowDuration);
                 requestHistory.RemoveAll(timestamp => timestamp < windowStart);
@@ -103,13 +125,6 @@ namespace AutopilotMonitor.Functions.Services
 
                 // Add current request to history
                 requestHistory.Add(now);
-
-                // Update cache
-                _cache.Set(cacheKey, requestHistory, new MemoryCacheEntryOptions
-                {
-                    SlidingExpiration = _windowDuration,
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1)
-                });
 
                 return new RateLimitResult
                 {

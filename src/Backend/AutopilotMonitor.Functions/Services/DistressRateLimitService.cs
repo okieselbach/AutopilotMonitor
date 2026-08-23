@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Caching.Memory;
@@ -21,8 +20,15 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IMemoryCache _cache;
         private readonly ILogger<DistressRateLimitService> _logger;
 
-        // Per-key locks (same proven pattern as RateLimitService)
-        private readonly ConcurrentDictionary<string, object> _locks = new();
+        // History + lock in one cache entry (same pattern as RateLimitService): same list ⇒ same lock.
+        private sealed class RequestBucket
+        {
+            public readonly List<DateTime> History = new();
+            public readonly object Sync = new();
+        }
+
+        // Serializes bucket creation (GetOrCreate is not atomic); hot path is a lock-free TryGetValue.
+        private readonly object _createLock = new();
 
         // Layer 1: Per-IP
         private const int MaxPerIp = 5;
@@ -91,17 +97,12 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         private bool CheckSlidingWindow(string cacheKey, int maxRequests, TimeSpan window, DateTime now)
         {
-            var lockObj = _locks.GetOrAdd(cacheKey, _ => new object());
-            var history = _cache.GetOrCreate(cacheKey, entry =>
-            {
-                entry.SlidingExpiration = window;
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2);
-                entry.RegisterPostEvictionCallback((key, _, _, _) => _locks.TryRemove((string)key, out _));
-                return new List<DateTime>();
-            })!;
+            var bucket = GetOrCreateBucket(cacheKey, window);
 
-            lock (lockObj)
+            lock (bucket.Sync)
             {
+                var history = bucket.History;
+
                 // Remove entries outside the window
                 var windowStart = now.Subtract(window);
                 history.RemoveAll(ts => ts < windowStart);
@@ -113,13 +114,23 @@ namespace AutopilotMonitor.Functions.Services
 
                 history.Add(now);
 
-                _cache.Set(cacheKey, history, new MemoryCacheEntryOptions
-                {
-                    SlidingExpiration = window,
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2)
-                });
-
                 return true;
+            }
+        }
+
+        private RequestBucket GetOrCreateBucket(string cacheKey, TimeSpan window)
+        {
+            if (_cache.TryGetValue(cacheKey, out RequestBucket? existing) && existing != null)
+                return existing;
+
+            lock (_createLock)
+            {
+                return _cache.GetOrCreate(cacheKey, entry =>
+                {
+                    entry.SlidingExpiration = window;
+                    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2);
+                    return new RequestBucket();
+                })!;
             }
         }
 
