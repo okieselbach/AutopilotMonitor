@@ -40,20 +40,23 @@ public static class EmailTemplates
         <!-- Header: image-free. Base for every client: solid bgcolor band, text wordmark, brand mark
              drawn with CSS borders (trapezoid + a green wedge for the slanted right edge; must stay
              <div>s — Outlook paints transparent <td> borders white). Progressive enhancement where
-             supported (Apple/iOS Mail, most of Gmail): three layered half-plane gradients form the
-             facets and clip-path cuts the slanted bottom edge; Outlook shows a flat band instead.
+             supported: ONE linear-gradient (hex colours, % stops — the only form Outlook web/iOS
+             renders; multiple layers or rgba stops are dropped) forms the facets, and clip-path cuts
+             the slanted bottom edge (Apple Mail only). No bgcolor inside the mark: Outlook dark mode
+             inverts cell backgrounds but leaves border colours alone.
              Geometry is the approved reference (scratch header-render.html): facets
              light right of (40%,0)->(70%,100%), dark right of (55%,0)->(85%,100%) and left of
-             (78%,0)->(100%,60%). Change only against a side-by-side render. -->
+             (78%,0)->(100%,60%) — the last one is dropped for the single-gradient constraint.
+             Change only against a side-by-side render. -->
         <tr>
-        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
+        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(39.8deg, #33b161 0%, #33b161 53.8%, #3cbb6a 53.8%, #3cbb6a 65.4%, #2ea85a 65.4%, #2ea85a 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
           <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
             <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
               <!-- brand mark, 34x33, three non-overlapping rows (Outlook ignores negative margins and
                    paints transparent td borders white, so: div triangles + one white td only) -->
               <div style=""width:0; height:0; border-left:31px solid #ffffff; border-top:13px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div>
               <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;""><tr>
-                <td width=""31"" height=""18"" bgcolor=""#ffffff"" style=""width:31px; height:18px; padding:0; font-size:0; line-height:0; background-color:#ffffff;""></td>
+                <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:18px; border-left:31px solid #ffffff; border-top:0; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
                 <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:0; border-left:3px solid #ffffff; border-top:18px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
               </tr></table>
               <div style=""width:0; height:0; border-right:34px solid #ffffff; border-bottom:2px solid transparent; border-left:0; border-top:0; display:block; font-size:0; line-height:0;""></div>
@@ -136,20 +139,23 @@ public static class EmailTemplates
         <!-- Header: image-free. Base for every client: solid bgcolor band, text wordmark, brand mark
              drawn with CSS borders (trapezoid + a green wedge for the slanted right edge; must stay
              <div>s — Outlook paints transparent <td> borders white). Progressive enhancement where
-             supported (Apple/iOS Mail, most of Gmail): three layered half-plane gradients form the
-             facets and clip-path cuts the slanted bottom edge; Outlook shows a flat band instead.
+             supported: ONE linear-gradient (hex colours, % stops — the only form Outlook web/iOS
+             renders; multiple layers or rgba stops are dropped) forms the facets, and clip-path cuts
+             the slanted bottom edge (Apple Mail only). No bgcolor inside the mark: Outlook dark mode
+             inverts cell backgrounds but leaves border colours alone.
              Geometry is the approved reference (scratch header-render.html): facets
              light right of (40%,0)->(70%,100%), dark right of (55%,0)->(85%,100%) and left of
-             (78%,0)->(100%,60%). Change only against a side-by-side render. -->
+             (78%,0)->(100%,60%) — the last one is dropped for the single-gradient constraint.
+             Change only against a side-by-side render. -->
         <tr>
-        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(34.3deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 387.6px, #3cbb6a 387.6px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 326.5px, #2ea85a 326.5px), linear-gradient(39.8deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 268.9px, #3cbb6a 268.9px); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
+        <td bgcolor=""#33b161"" style=""background-color:#33b161; background-image:linear-gradient(39.8deg, #33b161 0%, #33b161 53.8%, #3cbb6a 53.8%, #3cbb6a 65.4%, #2ea85a 65.4%, #2ea85a 100%); clip-path:polygon(0 0, 100% 0, 100% 100%, 0 82%); padding:28px 32px 52px; line-height:0; font-size:0;"">
           <table cellpadding=""0"" cellspacing=""0"" border=""0""><tr>
             <td valign=""middle"" style=""padding:0 12px 0 0; line-height:0; font-size:0;"">
               <!-- brand mark, 34x33, three non-overlapping rows (Outlook ignores negative margins and
                    paints transparent td borders white, so: div triangles + one white td only) -->
               <div style=""width:0; height:0; border-left:31px solid #ffffff; border-top:13px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div>
               <table cellpadding=""0"" cellspacing=""0"" border=""0"" style=""border-collapse:collapse;""><tr>
-                <td width=""31"" height=""18"" bgcolor=""#ffffff"" style=""width:31px; height:18px; padding:0; font-size:0; line-height:0; background-color:#ffffff;""></td>
+                <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:18px; border-left:31px solid #ffffff; border-top:0; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
                 <td style=""padding:0; font-size:0; line-height:0;""><div style=""width:0; height:0; border-left:3px solid #ffffff; border-top:18px solid transparent; border-right:0; border-bottom:0; display:block; font-size:0; line-height:0;""></div></td>
               </tr></table>
               <div style=""width:0; height:0; border-right:34px solid #ffffff; border-bottom:2px solid transparent; border-left:0; border-top:0; display:block; font-size:0; line-height:0;""></div>
