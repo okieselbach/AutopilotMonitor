@@ -459,12 +459,12 @@ function AppDetailContent() {
             >
               ← Back to all apps
             </button>
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-normal text-gray-900 inline-flex items-center">
-                  {appName}
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-normal text-gray-900 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="break-words">{appName}</span>
                   {analytics?.appType && (
-                    <span className="ml-3 px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
+                    <span className="px-2 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
                       {analytics.appType}
                     </span>
                   )}
@@ -475,7 +475,7 @@ function AppDetailContent() {
                     : ""}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <TenantScopeSelector scope={scope} allowAggregated />
                 {([7, 30, 90] as const).map((d) => (
                   <button
@@ -679,69 +679,71 @@ function AppDetailContent() {
               {/* Top failure codes table */}
               <Card title="Top Failure Codes">
                 {analytics.topFailureCodes.length > 0 ? (
-                  <table className="min-w-full text-sm">
-                    <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
-                      <tr>
-                        <th className="px-3 py-2">Code</th>
-                        <th className="px-3 py-2">Description</th>
-                        <th className="px-3 py-2">Exit Code</th>
-                        <th className="px-3 py-2 text-right">Count</th>
-                        <th className="px-3 py-2">Sample Message</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {analytics.topFailureCodes.map((row) => {
-                        const entry = getErrorCodeEntry(row.code);
-                        return (
-                          <tr key={row.code}>
-                            <td className="px-3 py-2 font-mono text-xs text-gray-900">
-                              {formatErrorCode(row.code)}
-                            </td>
-                            <td className="px-3 py-2 text-gray-700">
-                              {entry ? (
-                                <>
-                                  {entry.description}
-                                  <span
-                                    className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
-                                      entry.confidence === "high"
-                                        ? "bg-emerald-100 text-emerald-800"
-                                        : entry.confidence === "medium"
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "bg-gray-100 text-gray-700"
-                                    }`}
-                                    title={`Source: ${entry.source}`}
-                                  >
-                                    {entry.confidence}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="text-gray-400">Unknown code</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {row.exitCode != null ? (
-                                (() => {
-                                  const ec = getErrorCodeEntry(row.exitCode);
-                                  return (
-                                    <span title={ec?.description ?? ""}>
-                                      {row.exitCode}
-                                      {ec ? ` (${ec.description.slice(0, 24)}${ec.description.length > 24 ? "…" : ""})` : ""}
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
+                        <tr>
+                          <th className="px-3 py-2">Code</th>
+                          <th className="px-3 py-2">Description</th>
+                          <th className="px-3 py-2">Exit Code</th>
+                          <th className="px-3 py-2 text-right">Count</th>
+                          <th className="px-3 py-2">Sample Message</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {analytics.topFailureCodes.map((row) => {
+                          const entry = getErrorCodeEntry(row.code);
+                          return (
+                            <tr key={row.code}>
+                              <td className="px-3 py-2 font-mono text-xs text-gray-900">
+                                {formatErrorCode(row.code)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-700">
+                                {entry ? (
+                                  <>
+                                    {entry.description}
+                                    <span
+                                      className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
+                                        entry.confidence === "high"
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : entry.confidence === "medium"
+                                          ? "bg-amber-100 text-amber-800"
+                                          : "bg-gray-100 text-gray-700"
+                                      }`}
+                                      title={`Source: ${entry.source}`}
+                                    >
+                                      {entry.confidence}
                                     </span>
-                                  );
-                                })()
-                              ) : (
-                                <span className="text-gray-400">—</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-900">{row.count}</td>
-                            <td className="px-3 py-2 text-gray-500 text-xs truncate max-w-md" title={row.sampleMessage}>
-                              {row.sampleMessage || "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                  </>
+                                ) : (
+                                  <span className="text-gray-400">Unknown code</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-xs">
+                                {row.exitCode != null ? (
+                                  (() => {
+                                    const ec = getErrorCodeEntry(row.exitCode);
+                                    return (
+                                      <span title={ec?.description ?? ""}>
+                                        {row.exitCode}
+                                        {ec ? ` (${ec.description.slice(0, 24)}${ec.description.length > 24 ? "…" : ""})` : ""}
+                                      </span>
+                                    );
+                                  })()
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-900">{row.count}</td>
+                              <td className="px-3 py-2 text-gray-500 text-xs truncate max-w-md" title={row.sampleMessage}>
+                                {row.sampleMessage || "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <EmptyState text="No failures recorded" />
                 )}
@@ -750,44 +752,46 @@ function AppDetailContent() {
               {/* Device model breakdown */}
               <Card title="Device Model Correlation">
                 {analytics.deviceModelBreakdown.length > 0 ? (
-                  <table className="min-w-full text-sm">
-                    <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
-                      <tr>
-                        <th className="px-3 py-2">Manufacturer</th>
-                        <th className="px-3 py-2">Model</th>
-                        <th className="px-3 py-2 text-right">Installs</th>
-                        <th className="px-3 py-2 text-right">Failed</th>
-                        <th className="px-3 py-2 text-right">Failure Rate</th>
-                        <th className="px-3 py-2 text-right">Lift vs baseline</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {analytics.deviceModelBreakdown.map((row, i) => (
-                        <tr key={`${row.manufacturer}-${row.model}-${i}`}>
-                          <td className="px-3 py-2 text-gray-700">{row.manufacturer}</td>
-                          <td className="px-3 py-2 text-gray-900">{row.model}</td>
-                          <td className="px-3 py-2 text-right text-gray-700">{row.installs}</td>
-                          <td className="px-3 py-2 text-right text-red-700">{row.failed}</td>
-                          <td className="px-3 py-2 text-right text-gray-900">
-                            {row.failureRate.toFixed(1)}%
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                row.liftVsBaseline >= 2
-                                  ? "bg-red-100 text-red-800"
-                                  : row.liftVsBaseline >= 1.2
-                                  ? "bg-amber-100 text-amber-800"
-                                  : "bg-emerald-100 text-emerald-800"
-                              }`}
-                            >
-                              {row.liftVsBaseline.toFixed(2)}×
-                            </span>
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
+                        <tr>
+                          <th className="px-3 py-2">Manufacturer</th>
+                          <th className="px-3 py-2">Model</th>
+                          <th className="px-3 py-2 text-right">Installs</th>
+                          <th className="px-3 py-2 text-right">Failed</th>
+                          <th className="px-3 py-2 text-right">Failure Rate</th>
+                          <th className="px-3 py-2 text-right">Lift vs baseline</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {analytics.deviceModelBreakdown.map((row, i) => (
+                          <tr key={`${row.manufacturer}-${row.model}-${i}`}>
+                            <td className="px-3 py-2 text-gray-700">{row.manufacturer}</td>
+                            <td className="px-3 py-2 text-gray-900">{row.model}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.installs}</td>
+                            <td className="px-3 py-2 text-right text-red-700">{row.failed}</td>
+                            <td className="px-3 py-2 text-right text-gray-900">
+                              {row.failureRate.toFixed(1)}%
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  row.liftVsBaseline >= 2
+                                    ? "bg-red-100 text-red-800"
+                                    : row.liftVsBaseline >= 1.2
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-emerald-100 text-emerald-800"
+                                }`}
+                              >
+                                {row.liftVsBaseline.toFixed(2)}×
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <EmptyState text="Not enough installs per device model to compute correlation" />
                 )}
@@ -795,7 +799,7 @@ function AppDetailContent() {
 
               {/* Affected sessions panel */}
               <Card title="Affected Sessions">
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
                   {(["failed", "all", "succeeded"] as const).map((s) => (
                     <button
                       key={s}
@@ -868,117 +872,119 @@ function AppDetailContent() {
                   <div className="text-center text-gray-500 p-4">Loading sessions…</div>
                 ) : sessions && sessions.items.length > 0 ? (
                   <>
-                    <table className="min-w-full text-sm">
-                      <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
-                        <tr>
-                          {activeSessionColumns.map((col) => (
-                            <th
-                              key={col.key}
-                              className={`px-3 py-2 ${col.numeric ? "text-right" : ""}`}
-                            >
-                              {col.label}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {sessions.items.map((row) => {
-                          const entry = row.failureCode ? getErrorCodeEntry(row.failureCode) : null;
-                          return (
-                            <tr
-                              key={`${row.tenantId}-${row.sessionId}`}
-                              onClick={() => router.push(sessionUrl(row.sessionId))}
-                              className="hover:bg-gray-50 cursor-pointer"
-                            >
-                              {activeSessionColumns.map((col) => {
-                                switch (col.key) {
-                                  case "device":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 text-gray-900">
-                                        {row.deviceName || "—"}
-                                      </td>
-                                    );
-                                  case "tenant": {
-                                    const friendly = tenantLookup.get(row.tenantId);
-                                    return (
-                                      <td
-                                        key={col.key}
-                                        className="px-3 py-2 text-gray-700 text-xs"
-                                        title={row.tenantId}
-                                      >
-                                        {friendly || `${row.tenantId.substring(0, 8)}…`}
-                                      </td>
-                                    );
-                                  }
-                                  case "model":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 text-gray-700 text-xs">
-                                        {row.manufacturer} {row.model}
-                                      </td>
-                                    );
-                                  case "version":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 text-gray-700 font-mono text-xs">
-                                        {row.appVersion || "—"}
-                                      </td>
-                                    );
-                                  case "status":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2">
-                                        <span
-                                          className={`px-2 py-0.5 rounded text-xs ${
-                                            row.status === "Failed"
-                                              ? "bg-red-100 text-red-800"
-                                              : row.status === "Succeeded"
-                                              ? "bg-emerald-100 text-emerald-800"
-                                              : "bg-gray-100 text-gray-700"
-                                          }`}
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
+                          <tr>
+                            {activeSessionColumns.map((col) => (
+                              <th
+                                key={col.key}
+                                className={`px-3 py-2 ${col.numeric ? "text-right" : ""}`}
+                              >
+                                {col.label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {sessions.items.map((row) => {
+                            const entry = row.failureCode ? getErrorCodeEntry(row.failureCode) : null;
+                            return (
+                              <tr
+                                key={`${row.tenantId}-${row.sessionId}`}
+                                onClick={() => router.push(sessionUrl(row.sessionId))}
+                                className="hover:bg-gray-50 cursor-pointer"
+                              >
+                                {activeSessionColumns.map((col) => {
+                                  switch (col.key) {
+                                    case "device":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 text-gray-900">
+                                          {row.deviceName || "—"}
+                                        </td>
+                                      );
+                                    case "tenant": {
+                                      const friendly = tenantLookup.get(row.tenantId);
+                                      return (
+                                        <td
+                                          key={col.key}
+                                          className="px-3 py-2 text-gray-700 text-xs"
+                                          title={row.tenantId}
                                         >
-                                          {row.status}
-                                        </span>
-                                      </td>
-                                    );
-                                  case "attempts":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 text-right text-gray-700">
-                                        {row.attemptNumber || "—"}
-                                      </td>
-                                    );
-                                  case "failureCode":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 font-mono text-xs">
-                                        {row.failureCode ? (
-                                          <span title={entry?.description ?? ""}>
-                                            {formatErrorCode(row.failureCode)}
-                                          </span>
-                                        ) : (
-                                          <span className="text-gray-400">—</span>
-                                        )}
-                                      </td>
-                                    );
-                                  case "duration":
-                                    return (
-                                      <td key={col.key} className="px-3 py-2 text-right text-gray-700">
-                                        {formatDuration(row.durationSeconds)}
-                                        {(row.installPassCount ?? 0) > 1 && (
+                                          {friendly || `${row.tenantId.substring(0, 8)}…`}
+                                        </td>
+                                      );
+                                    }
+                                    case "model":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 text-gray-700 text-xs">
+                                          {row.manufacturer} {row.model}
+                                        </td>
+                                      );
+                                    case "version":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 text-gray-700 font-mono text-xs">
+                                          {row.appVersion || "—"}
+                                        </td>
+                                      );
+                                    case "status":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2">
                                           <span
-                                            className="ml-1 text-xs text-gray-400 dark:text-gray-500"
-                                            title={`Processed in ${row.installPassCount} IME passes (evaluation + install) — install time counts only the final attempt`}
+                                            className={`px-2 py-0.5 rounded text-xs ${
+                                              row.status === "Failed"
+                                                ? "bg-red-100 text-red-800"
+                                                : row.status === "Succeeded"
+                                                ? "bg-emerald-100 text-emerald-800"
+                                                : "bg-gray-100 text-gray-700"
+                                            }`}
                                           >
-                                            ×{row.installPassCount}
+                                            {row.status}
                                           </span>
-                                        )}
-                                      </td>
-                                    );
-                                  default:
-                                    return null;
-                                }
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                        </td>
+                                      );
+                                    case "attempts":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 text-right text-gray-700">
+                                          {row.attemptNumber || "—"}
+                                        </td>
+                                      );
+                                    case "failureCode":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 font-mono text-xs">
+                                          {row.failureCode ? (
+                                            <span title={entry?.description ?? ""}>
+                                              {formatErrorCode(row.failureCode)}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-400">—</span>
+                                          )}
+                                        </td>
+                                      );
+                                    case "duration":
+                                      return (
+                                        <td key={col.key} className="px-3 py-2 text-right text-gray-700">
+                                          {formatDuration(row.durationSeconds)}
+                                          {(row.installPassCount ?? 0) > 1 && (
+                                            <span
+                                              className="ml-1 text-xs text-gray-400 dark:text-gray-500"
+                                              title={`Processed in ${row.installPassCount} IME passes (evaluation + install) — install time counts only the final attempt`}
+                                            >
+                                              ×{row.installPassCount}
+                                            </span>
+                                          )}
+                                        </td>
+                                      );
+                                    default:
+                                      return null;
+                                  }
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                     {/* Pagination */}
                     {sessions.total > SESSIONS_PAGE_SIZE && (
                       <div className="flex items-center justify-between mt-3 text-xs text-gray-600">

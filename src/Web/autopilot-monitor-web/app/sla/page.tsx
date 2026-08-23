@@ -494,18 +494,18 @@ function OverallStatusBanner({ metrics }: { metrics: SlaMetricsResponse }) {
   const metCount = checks.filter(c => c.met).length;
 
   return (
-    <div className={`rounded-lg shadow p-4 mb-8 flex items-center justify-between ${
+    <div className={`rounded-lg shadow p-4 mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
       allMet
         ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
         : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
     }`}>
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center gap-3">
         {allMet ? (
-          <svg className="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-8 w-8 shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
         ) : (
-          <svg className="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-8 w-8 shrink-0 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         )}
@@ -518,19 +518,19 @@ function OverallStatusBanner({ metrics }: { metrics: SlaMetricsResponse }) {
           </span>
         </div>
       </div>
-      <div className="flex items-center space-x-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
         {checks.map((c) => (
-          <div key={c.label} className="flex items-center space-x-1.5">
+          <div key={c.label} className="flex items-center gap-1.5">
             {c.met ? (
-              <svg className="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             ) : (
-              <svg className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 shrink-0 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
               </svg>
             )}
-            <span className={`text-sm ${c.met ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+            <span className={`text-sm whitespace-nowrap ${c.met ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
               {c.label}
             </span>
           </div>

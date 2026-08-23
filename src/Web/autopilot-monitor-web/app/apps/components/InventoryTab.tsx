@@ -151,36 +151,38 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
           </div>
         ) : (
           <>
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <th className="px-4 py-3">Software</th>
-                  <th className="px-4 py-3">Version</th>
-                  <th className="px-4 py-3">Publisher</th>
-                  <th className="px-4 py-3 text-right">Sessions</th>
-                  <th className="px-4 py-3 text-right">Last seen</th>
-                  <th className="px-4 py-3 text-right">CPE</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {pageRows.map((row, idx) => (
-                  <tr key={`${row.normalizedVendor}|${row.normalizedName}|${row.normalizedVersion}|${idx}`} className="text-sm">
-                    <td className="px-4 py-3 text-gray-900 font-medium">{row.displayName || row.normalizedName}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.normalizedVersion || "—"}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.publisher || "—"}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{row.sessionCount}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{formatDate(row.lastSeenAt)}</td>
-                    <td className="px-4 py-3 text-right">
-                      {row.cpeUri ? (
-                        <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800">mapped</span>
-                      ) : (
-                        <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-800">unmatched</span>
-                      )}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3">Software</th>
+                    <th className="px-4 py-3">Version</th>
+                    <th className="px-4 py-3">Publisher</th>
+                    <th className="px-4 py-3 text-right">Sessions</th>
+                    <th className="px-4 py-3 text-right">Last seen</th>
+                    <th className="px-4 py-3 text-right">CPE</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {pageRows.map((row, idx) => (
+                    <tr key={`${row.normalizedVendor}|${row.normalizedName}|${row.normalizedVersion}|${idx}`} className="text-sm">
+                      <td className="px-4 py-3 text-gray-900 font-medium">{row.displayName || row.normalizedName}</td>
+                      <td className="px-4 py-3 text-gray-700">{row.normalizedVersion || "—"}</td>
+                      <td className="px-4 py-3 text-gray-700">{row.publisher || "—"}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{row.sessionCount}</td>
+                      <td className="px-4 py-3 text-right text-gray-500">{formatDate(row.lastSeenAt)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {row.cpeUri ? (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800">mapped</span>
+                        ) : (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-800">unmatched</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {pageCount > 1 && (
               <div className="flex items-center justify-between px-4 py-3 text-sm text-gray-600 border-t border-gray-200">
                 <span>{filtered.length} titles · page {page + 1} of {pageCount}</span>
