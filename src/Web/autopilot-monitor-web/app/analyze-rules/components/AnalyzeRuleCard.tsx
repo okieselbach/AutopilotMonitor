@@ -517,7 +517,7 @@ export default function AnalyzeRuleCard({
                     </div>
                     <p className="text-xs text-gray-600 leading-relaxed">
                       When enabled, each <span className="font-semibold">new</span> finding of this rule sends a message to the selected
-                      notification channels (Teams, Slack, webhook — configured under Settings → Notifications) with device, rule, and a
+                      notification channels (Teams, Slack, Discord, webhook — configured under Settings → Notifications) with device, rule, and a
                       direct link to the session.
                     </p>
                   </div>

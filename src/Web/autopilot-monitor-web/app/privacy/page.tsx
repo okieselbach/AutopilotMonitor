@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "11 August 2026";
+const LAST_UPDATED = "23 August 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -148,7 +148,7 @@ export default function PrivacyPage() {
           </p>
           <p className="text-gray-700">
             Further connections exist only because you configure them: your own Azure storage account for diagnostics,
-            notification channels such as Teams, Slack, or a generic webhook, and your own AI assistant if a user connects
+            notification channels such as Teams, Slack, Discord, or a generic webhook, and your own AI assistant if a user connects
             one through the MCP integration. The platform itself makes no calls to any AI or LLM provider.{" "}
             <DocsLink href={DOCS_DATA_FLOWS}>Data Flows &amp; External Services</DocsLink> maps every outbound connection
             and what it carries. The data processing agreement, available on request, is the authoritative document for

@@ -401,7 +401,7 @@ export default function NotificationsSection({
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Notifications</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Send notifications to one or more channels — Teams, Slack, or any JSON webhook (ticketing, automation, bots). Each channel picks which events it receives.
+              Send notifications to one or more channels — Teams, Slack, Discord, or any JSON webhook (ticketing, automation, bots). Each channel picks which events it receives.
             </p>
           </div>
         </div>
