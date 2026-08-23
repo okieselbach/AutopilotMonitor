@@ -35,6 +35,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         /// Query parameters:
         /// - mode: "legacy_timeouts" (default) — re-classify pre-classifier "Session timed out" Failed rows;
         ///         "pending_orphans" — resolve Pending rows superseded by a later session of the same device.
+        ///         "self_deploying_silent" — heal self-deploying (kiosk) rows parked Incomplete/AwaitingUser/Stalled
+        ///         after Device ESP provisioned to Succeeded (classifier rule 1c, 2026-08-23).
         /// - dryRun: "false" to actually write; anything else (or absent) reports only.
         /// - tenantId: optional single-tenant scope (GUID); absent = all tenants.
         /// - maxSessions: per-invocation examination cap (default 200, max 2000). Re-run to continue.
@@ -82,6 +84,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                         await _service.ReclassifyLegacyTimeoutsAsync(tenantIdScope, dryRun, maxSessions, userEmail),
                     LegacyReclassificationService.ModePendingOrphans =>
                         await _service.ResolvePendingOrphansAsync(tenantIdScope, dryRun, maxSessions, userEmail),
+                    LegacyReclassificationService.ModeSelfDeployingSilent =>
+                        await _service.ReconcileSelfDeployingSilentAsync(tenantIdScope, dryRun, maxSessions, userEmail),
                     _ => null,
                 };
 
@@ -90,7 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     var bad = req.CreateResponse(HttpStatusCode.BadRequest);
                     await bad.WriteAsJsonAsync(new
                     {
-                        error = $"Unknown mode '{mode}'. Valid: {LegacyReclassificationService.ModeLegacyTimeouts}, {LegacyReclassificationService.ModePendingOrphans}"
+                        error = $"Unknown mode '{mode}'. Valid: {LegacyReclassificationService.ModeLegacyTimeouts}, {LegacyReclassificationService.ModePendingOrphans}, {LegacyReclassificationService.ModeSelfDeployingSilent}"
                     });
                     return bad;
                 }

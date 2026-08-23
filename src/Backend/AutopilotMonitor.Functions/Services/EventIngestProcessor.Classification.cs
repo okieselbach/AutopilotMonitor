@@ -288,7 +288,8 @@ namespace AutopilotMonitor.Functions.Services
             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                 rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp,
-                isPreProvisioned: session?.IsPreProvisioned == true, resumedAt: session?.ResumedAt);
+                isPreProvisioned: session?.IsPreProvisioned == true, resumedAt: session?.ResumedAt,
+                isSelfDeployingProfile: session?.IsSelfDeployingProfile == true);
 
             // Keep the max-lifetime trigger visible: the Succeeded reasons already carry their own
             // silence-transparency clause, everything else gets the watchdog context appended.
@@ -358,7 +359,8 @@ namespace AutopilotMonitor.Functions.Services
                 var effectiveStart = session.ResumedAt ?? session.StartedAt;
                 var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                     rollup, effectiveStart, now, graceHours, session.LastEventAt ?? c.LatestEventTimestamp,
-                    isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
+                    isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
+                    isSelfDeployingProfile: session.IsSelfDeployingProfile);
 
                 if (targetStatus != SessionStatus.Succeeded)
                     return;

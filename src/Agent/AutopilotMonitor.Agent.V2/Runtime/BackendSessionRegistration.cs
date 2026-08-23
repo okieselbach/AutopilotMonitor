@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 {
     /// <summary>
     /// Phase 6 of <see cref="Program"/>'s <c>RunAgent</c>: blocking
-    /// <c>POST /api/agent/register-session</c> with 5-retry exponential backoff before the
+    /// <c>POST /api/agent/register-session</c> with link-wait + 6-retry exponential backoff before the
     /// orchestrator starts. V1 parity (MonitoringService.RegisterSessionAsync) — without
     /// this call the backend's Sessions table never gets a row for this session, so
     /// <c>IncrementSessionEventCountAsync</c> / <c>UpdateSessionStatusAsync</c> silently

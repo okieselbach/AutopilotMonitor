@@ -274,6 +274,34 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Self-deploying (kiosk / shared-device) profile gate. Such a profile has NO user phase:
+        /// Device ESP reaching all-succeeded IS the enrollment's end, and the agent's own
+        /// SelfDeploying terminal only adds a 5-min confirmation window on top of it. When the
+        /// agent goes silent after that point (reboot into the kiosk autologon, powered off and
+        /// boxed for the school term, WiFi never re-associating for the relaunch — tenant
+        /// aebdce78, 836 sessions 2026-08-17..21), "awaiting user / Account Setup" is a factual
+        /// error and the later Incomplete("Account Setup 0/5") is worse: nobody will ever sign
+        /// in, the devices are finished and in service. Demands the registration-time
+        /// registry-confirmed profile flag (CloudAssignedOobeConfig 0x20|0x40), Device Setup
+        /// all-succeeded and no explicit failure. Shared by the sweep (stage 1 + 2), the
+        /// max-lifetime ingest verdict and the retro-reclassification so one evidence rule applies.
+        /// </summary>
+        public static bool IsSelfDeployingProvisioned(in EspProvisioningRollup rollup, bool isSelfDeployingProfile)
+            => isSelfDeployingProfile
+               && rollup.DeviceSetupAllSucceeded
+               && !rollup.HasExplicitFailure;
+
+        /// <summary>
+        /// Customer-facing Succeeded-reconcile reason for <see cref="IsSelfDeployingProvisioned"/>.
+        /// Carries the silence-transparency clause like every other reconcile reason.
+        /// </summary>
+        public static string SelfDeployingReconcileReason(DateTime startedAtUtc, DateTime nowUtc, DateTime? lastEventAtUtc)
+            => AppendReconcileTiming(
+                "Reconciled: self-deploying profile — Device Setup fully provisioned (this profile has no user / Account Setup phase); " +
+                "agent went silent before confirming completion",
+                startedAtUtc, nowUtc, lastEventAtUtc);
+
+        /// <summary>
         /// Decide the honest terminal (or non-terminal) state for a timed-out session. See the
         /// decision table in the design note. Returns the target status and a human-readable
         /// reason for the Sessions row / operator UI.
@@ -291,9 +319,11 @@ namespace AutopilotMonitor.Functions.Services
         /// </param>
         /// <param name="isPreProvisioned">Session's IsPreProvisioned flag (WhiteGlove Part-2 gate input).</param>
         /// <param name="resumedAt">Session's ResumedAt — set exclusively by the whiteglove_resumed ingest.</param>
+        /// <param name="isSelfDeployingProfile">Session's IsSelfDeployingProfile flag (rule 1c gate input).</param>
         public static (SessionStatus Status, string Reason) ClassifyTimedOutSession(
             EspProvisioningRollup rollup, DateTime startedAtUtc, DateTime nowUtc, int graceHours,
-            DateTime? lastEventAtUtc = null, bool isPreProvisioned = false, DateTime? resumedAt = null)
+            DateTime? lastEventAtUtc = null, bool isPreProvisioned = false, DateTime? resumedAt = null,
+            bool isSelfDeployingProfile = false)
         {
             // 1. An explicit terminal failure event is a real failure (defensive — such a session
             //    would normally already be terminal via ingest and not reach the sweep).
@@ -317,6 +347,15 @@ namespace AutopilotMonitor.Functions.Services
                     $"Reconciled at timeout: pre-provisioning (WhiteGlove Part 1) completed — no user sign-in observed within {graceHours}h grace",
                     startedAtUtc, nowUtc, lastEventAtUtc));
             }
+
+            // 1c. Self-deploying profile with Device Setup fully provisioned: there is no user phase
+            //     to wait for, so neither AwaitingUser nor the grace window apply — the device is
+            //     done (see IsSelfDeployingProvisioned). Runs before rule 2 so the reason names the
+            //     profile instead of claiming "Account Setup completed"; real user evidence cannot
+            //     contradict it (a kiosk autologon is not a user) and an explicit failure already
+            //     returned in rule 1.
+            if (IsSelfDeployingProvisioned(rollup, isSelfDeployingProfile))
+                return (SessionStatus.Succeeded, SelfDeployingReconcileReason(startedAtUtc, nowUtc, lastEventAtUtc));
 
             // 2. Account Setup fully succeeded (or a terminal completion event) → reconcile to success.
             //    Once Part 2 has resumed, the Part-1 whiteglove_complete in the same stream no longer

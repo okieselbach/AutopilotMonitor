@@ -115,6 +115,7 @@ public class OffboardingSessionEnumeratorTests
         public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults) => throw new NotImplementedException();
+        public Task<List<SessionSummary>> GetSelfDeployingSilentSessionsAsync(string tenantId, int maxResults) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetAgentSilentSessionsAsync(string tenantId, DateTime silenceCutoff, DateTime hardCutoff) => throw new NotImplementedException();
         public Task<List<string>> GetAllTenantIdsAsync() => throw new NotImplementedException();

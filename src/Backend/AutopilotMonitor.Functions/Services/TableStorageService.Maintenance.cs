@@ -768,6 +768,39 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Self-deploying-profile sessions sitting in Incomplete / AwaitingUser / Stalled — the
+        /// shapes the pre-2026-08-23 classifier produced for a finished kiosk device whose agent
+        /// went silent after Device ESP. Candidates for the retro-reconcile; the classifier
+        /// decides per session, this is only the cheap server-side pre-filter.
+        /// </summary>
+        public async Task<List<SessionSummary>> GetSelfDeployingSilentSessionsAsync(string tenantId, int maxResults)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var filter = $"PartitionKey eq '{tenantId}' " +
+                             $"and IsSelfDeployingProfile eq true " +
+                             $"and (Status eq 'Incomplete' or Status eq 'AwaitingUser' or Status eq 'Stalled')";
+
+                var sessions = new List<SessionSummary>();
+                await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter))
+                {
+                    sessions.Add(MapToSessionSummary(entity));
+                    if (sessions.Count >= maxResults)
+                        break;
+                }
+                return sessions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get self-deploying silent sessions for tenant {tenantId}");
+                return new List<SessionSummary>();
+            }
+        }
+
+        /// <summary>
         /// Narrow projection of every session row in the tenant partition — one scan feeding the
         /// in-memory Pending-orphan matching (misclassification audit 2026-07-16). Fields outside
         /// the projection come back as defaults; callers must not read them.

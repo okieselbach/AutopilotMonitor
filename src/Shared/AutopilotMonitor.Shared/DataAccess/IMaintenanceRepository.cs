@@ -93,6 +93,14 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults);
 
         /// <summary>
+        /// Self-deploying-profile sessions parked in a non-success, non-failure state
+        /// (Incomplete / AwaitingUser / Stalled) — candidates for the one-time retro-reconcile
+        /// through <c>EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned</c> (kiosk tenant
+        /// audit 2026-08-23). Server-side filter, capped at <paramref name="maxResults"/>.
+        /// </summary>
+        Task<List<SessionSummary>> GetSelfDeployingSilentSessionsAsync(string tenantId, int maxResults);
+
+        /// <summary>
         /// Narrow projection of every session row in the tenant partition (id, status, timing,
         /// serial). Used by the Pending-orphan resolution to match superseding sessions of the
         /// same device in memory with one scan instead of one scan per Pending row.

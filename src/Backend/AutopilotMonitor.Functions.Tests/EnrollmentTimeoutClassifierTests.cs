@@ -615,4 +615,84 @@ public class EnrollmentTimeoutClassifierTests
             rollup, Start, Start.AddHours(6), 51, isPreProvisioned: true, resumedAt: null);
         Assert.Equal(SessionStatus.Succeeded, status);
     }
+
+    // -------- Self-deploying profile gate (kiosk tenant aebdce78, audit 2026-08-23) --------
+
+    private static (SessionStatus, string) ClassifySelfDeploying(
+        IReadOnlyList<EnrollmentEvent> events, double hoursSinceStart = 3, int grace = 51)
+    {
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
+        return EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, Start.AddHours(hoursSinceStart), grace,
+            lastEventAtUtc: Start.AddMinutes(4), isSelfDeployingProfile: true);
+    }
+
+    // Session 195593e2 replay: DeviceSetup 4/4 (fallback-confirmed), AccountSetup registry
+    // at 0/5 (the IME false positive — user ESP never runs on this profile), Hello disabled,
+    // SkipUser=True, then silence after the post-ESP reboot. No user will ever sign in.
+    private static readonly EnrollmentEvent[] KioskSilentStream =
+    {
+        Esp(DeviceSetup44), Esp(AccountSetup05), Esp(DeviceSetupFallback),
+        HelloPolicy(enabled: false), EspConfig(skipUser: true),
+    };
+
+    [Fact]
+    public void IsSelfDeployingProvisioned_requires_flag_device_setup_and_no_failure()
+    {
+        var provisioned = EnrollmentTimeoutClassifier.ExtractRollup(KioskSilentStream);
+        Assert.True(EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned(provisioned, isSelfDeployingProfile: true));
+        Assert.False(EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned(provisioned, isSelfDeployingProfile: false));
+
+        var beforeDeviceSetup = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Esp(AccountSetup05) });
+        Assert.False(EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned(beforeDeviceSetup, isSelfDeployingProfile: true));
+
+        var failed = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Esp(DeviceSetup44), Evt("enrollment_failed") });
+        Assert.False(EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned(failed, isSelfDeployingProfile: true));
+    }
+
+    [Fact]
+    public void Classify_self_deploying_silent_after_device_setup_reconciles_to_Succeeded_within_grace()
+    {
+        var (status, reason) = ClassifySelfDeploying(KioskSilentStream, hoursSinceStart: 3);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Contains("self-deploying profile", reason);
+        Assert.Contains("no user / Account Setup phase", reason);
+        Assert.Contains("Agent last reported 2026-07-06 15:04 UTC", reason);
+        Assert.DoesNotContain("Account Setup completed", reason);
+    }
+
+    [Fact]
+    public void Classify_self_deploying_silent_after_device_setup_reconciles_to_Succeeded_past_grace()
+    {
+        // Grace is a user-phase concept; it does not apply when there is no user phase.
+        var (status, _) = ClassifySelfDeploying(KioskSilentStream, hoursSinceStart: 60, grace: 51);
+        Assert.Equal(SessionStatus.Succeeded, status);
+    }
+
+    [Fact]
+    public void Classify_same_stream_without_self_deploying_flag_keeps_user_phase_verdicts()
+    {
+        // Guard against the gate leaking into user-driven sessions: the identical event shape
+        // on a user-driven profile is still "awaiting user" within grace / Incomplete past it.
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(KioskSilentStream);
+        var (within, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(3), 51);
+        var (past, _) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(rollup, Start, Start.AddHours(60), 51);
+        Assert.Equal(SessionStatus.AwaitingUser, within);
+        Assert.Equal(SessionStatus.Incomplete, past);
+    }
+
+    [Fact]
+    public void Classify_self_deploying_explicit_failure_stays_Failed()
+    {
+        var (status, _) = ClassifySelfDeploying(new[] { Esp(DeviceSetup44), Evt("enrollment_failed") });
+        Assert.Equal(SessionStatus.Failed, status);
+    }
+
+    [Fact]
+    public void Classify_self_deploying_silent_before_device_setup_is_Incomplete()
+    {
+        // The profile flag alone proves nothing — Device ESP must have finished.
+        var (status, _) = ClassifySelfDeploying(new[] { Esp(AccountSetup05), Evt("agent_started") });
+        Assert.Equal(SessionStatus.Incomplete, status);
+    }
 }

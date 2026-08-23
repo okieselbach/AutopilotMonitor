@@ -18,6 +18,11 @@ namespace AutopilotMonitor.Functions.Services
     /// registered a LATER session (Part 2 under a fresh session id, or re-provisioning) are
     /// resolved as Incomplete("Superseded by ..."). Forward-looking coverage lives in the
     /// registration supersede pass; this mode clears the existing backlog.</item>
+    /// <item><b>self_deploying_silent</b> — self-deploying-profile rows parked as
+    /// Incomplete / AwaitingUser / Stalled by the pre-2026-08-23 classifier (which had no
+    /// notion of a profile without a user phase) are re-run through the classifier; only a
+    /// Succeeded verdict (<see cref="EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned"/>)
+    /// is applied, everything else keeps its verdict.</item>
     /// </list>
     /// Hand-marked sessions (AdminMarkedAction) are never touched.
     /// </summary>
@@ -30,6 +35,7 @@ namespace AutopilotMonitor.Functions.Services
 
         public const string ModeLegacyTimeouts = "legacy_timeouts";
         public const string ModePendingOrphans = "pending_orphans";
+        public const string ModeSelfDeployingSilent = "self_deploying_silent";
         private const int MaxSamplesInResponse = 100;
 
         public LegacyReclassificationService(
@@ -110,7 +116,8 @@ namespace AutopilotMonitor.Functions.Services
                         var effectiveStart = session.ResumedAt ?? session.StartedAt;
                         var (target, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                             rollup, effectiveStart, now, graceHours, session.LastEventAt,
-                            isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
+                            isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
+                            isSelfDeployingProfile: session.IsSelfDeployingProfile);
 
                         if (target == SessionStatus.Failed)
                         {
@@ -156,6 +163,99 @@ namespace AutopilotMonitor.Functions.Services
                     {
                         result.Errors++;
                         _logger.LogWarning(ex, "Legacy timeout reclassification failed for session {SessionId} (tenant {TenantId})",
+                            session.SessionId, tenantId);
+                    }
+                }
+            }
+
+            await WriteAuditAsync(result, tenantIdScope, triggeredBy);
+            return result;
+        }
+
+        public async Task<ReclassificationResult> ReconcileSelfDeployingSilentAsync(
+            string? tenantIdScope, bool dryRun, int maxSessions, string triggeredBy)
+        {
+            var result = new ReclassificationResult { Mode = ModeSelfDeployingSilent, DryRun = dryRun };
+            var now = DateTime.UtcNow;
+
+            foreach (var tenantId in await ResolveTenantsAsync(tenantIdScope))
+            {
+                if (result.SessionsExamined >= maxSessions) { result.CapReached = true; break; }
+                result.TenantsExamined++;
+
+                int? tenantGraceHours = null, absoluteMaxHours = null;
+                try
+                {
+                    var config = await _configService.GetConfigurationAsync(tenantId);
+                    tenantGraceHours = config?.SessionGraceHours;
+                    absoluteMaxHours = config?.AbsoluteMaxSessionHours;
+                }
+                catch { /* defaults */ }
+                var graceHours = EnrollmentTimeoutClassifier.ResolveGraceHours(tenantGraceHours, absoluteMaxHours);
+
+                var candidates = await _maintenanceRepo.GetSelfDeployingSilentSessionsAsync(
+                    tenantId, maxSessions - result.SessionsExamined + 1);
+                if (candidates.Count > maxSessions - result.SessionsExamined)
+                {
+                    result.CapReached = true;
+                    candidates = candidates.Take(maxSessions - result.SessionsExamined).ToList();
+                }
+
+                foreach (var session in candidates)
+                {
+                    result.SessionsExamined++;
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(session.AdminMarkedAction))
+                        {
+                            result.Skipped++;
+                            continue;
+                        }
+
+                        var events = await _sessionRepo.GetSessionEventsAsync(tenantId, session.SessionId, maxResults: 1000);
+                        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
+                        var effectiveStart = session.ResumedAt ?? session.StartedAt;
+                        var (target, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+                            rollup, effectiveStart, now, graceHours, session.LastEventAt,
+                            isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
+                            isSelfDeployingProfile: session.IsSelfDeployingProfile);
+
+                        // Heal-only: a verdict other than Succeeded means the device never reached
+                        // Device ESP all-succeeded (or failed explicitly) — the existing label stands.
+                        if (target != SessionStatus.Succeeded)
+                        {
+                            result.Skipped++;
+                            continue;
+                        }
+
+                        RecordSample(result, tenantId, session, target, reason, oldStatus: session.Status.ToString());
+
+                        if (dryRun)
+                        {
+                            result.WouldChange++;
+                            continue;
+                        }
+
+                        // Succeeded may upgrade Incomplete / AwaitingUser / Stalled through the normal
+                        // reconcile gate (no terminal-reclassification override needed); the storage
+                        // layer additionally refuses admin-marked rows.
+                        var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                            tenantId, session.SessionId, SessionStatus.Succeeded,
+                            failureReason: reason);
+                        if (transitioned)
+                        {
+                            result.Changed++;
+                            result.ToSucceeded++;
+                        }
+                        else
+                        {
+                            result.Skipped++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Errors++;
+                        _logger.LogWarning(ex, "Self-deploying retro-reconcile failed for session {SessionId} (tenant {TenantId})",
                             session.SessionId, tenantId);
                     }
                 }

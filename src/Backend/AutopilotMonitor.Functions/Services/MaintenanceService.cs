@@ -350,6 +350,7 @@ namespace AutopilotMonitor.Functions.Services
 
                         int silentMarked = 0;
                         int silentAwaitingUser = 0;
+                        int silentSelfDeployingReconciled = 0;
                         foreach (var silent in silentSessions)
                         {
                             // The query is a permissive two-frame pre-filter; the decision is made
@@ -374,6 +375,18 @@ namespace AutopilotMonitor.Functions.Services
                                 continue;
                             }
 
+                            // Self-deploying profile gate (kiosk tenant aebdce78, 2026-08-23): a
+                            // silent agent after Device ESP all-succeeded is a finished device
+                            // (rebooted into the kiosk autologon / boxed), not a stall and never
+                            // "awaiting user" — reconcile to Succeeded right here instead of
+                            // routing it through Stalled → AwaitingUser → Incomplete.
+                            if (silent.IsSelfDeployingProfile
+                                && await TryReconcileSelfDeployingAsync(silent, lastContactAt, now))
+                            {
+                                silentSelfDeployingReconciled++;
+                                continue;
+                            }
+
                             var silentMinutes = (int)(now - lastContactAt).TotalMinutes;
                             await _sessionRepo.UpdateSessionStatusAsync(
                                 silent.TenantId,
@@ -384,20 +397,21 @@ namespace AutopilotMonitor.Functions.Services
                             silentMarked++;
                         }
 
-                        if (silentMarked > 0 || silentAwaitingUser > 0)
+                        if (silentMarked > 0 || silentAwaitingUser > 0 || silentSelfDeployingReconciled > 0)
                         {
                             totalSessionsMarkedStalled += silentMarked;
-                            _logger.LogInformation($"Tenant {tenantId}: Marked {silentMarked} agent-silent sessions as Stalled, {silentAwaitingUser} as AwaitingUser (WhiteGlove Part 2; silence threshold: {agentSilenceHours}h)");
+                            _logger.LogInformation($"Tenant {tenantId}: Marked {silentMarked} agent-silent sessions as Stalled, {silentAwaitingUser} as AwaitingUser (WhiteGlove Part 2), {silentSelfDeployingReconciled} reconciled to Succeeded (self-deploying; silence threshold: {agentSilenceHours}h)");
                             await _maintenanceRepo.LogAuditEntryAsync(
                                 tenantId,
                                 "SessionStalled",
                                 "Session",
-                                $"{silentMarked + silentAwaitingUser} sessions",
+                                $"{silentMarked + silentAwaitingUser + silentSelfDeployingReconciled} sessions",
                                 "System.Maintenance",
                                 new Dictionary<string, string>
                                 {
                                     { "SessionsMarkedStalled", silentMarked.ToString() },
                                     { "SessionsAwaitingUser", silentAwaitingUser.ToString() },
+                                    { "SessionsSelfDeployingReconciled", silentSelfDeployingReconciled.ToString() },
                                     { "AgentSilenceHours", agentSilenceHours.ToString() },
                                     { "SilenceCutoff", silenceCutoff.ToString("yyyy-MM-ddTHH:mm:ss") }
                                 });
@@ -470,7 +484,8 @@ namespace AutopilotMonitor.Functions.Services
                             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
                             var (targetStatus, reason) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                                 rollup, effectiveStart, now, graceHours, session.LastEventAt,
-                                isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt);
+                                isPreProvisioned: session.IsPreProvisioned, resumedAt: session.ResumedAt,
+                                isSelfDeployingProfile: session.IsSelfDeployingProfile);
 
                             // No-op if the verdict equals the current (non-terminal) state.
                             if (targetStatus == session.Status)
@@ -619,6 +634,43 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogWarning(ex,
                     $"WhiteGlove awaiting-user gate failed for session {silent.SessionId}; falling back to Stalled marker");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Applies the self-deploying gate to one agent-silent candidate (the caller pre-filters on
+        /// <see cref="SessionSummary.IsSelfDeployingProfile"/> so only those pay the event read).
+        /// When <see cref="EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned"/> confirms Device
+        /// ESP all-succeeded with no explicit failure, reconciles the session to Succeeded with the
+        /// shared honest reason. Returns true when the write happened; false (fail-soft, also on
+        /// read errors) lets the caller fall through to the normal Stalled marker.
+        /// </summary>
+        private async Task<bool> TryReconcileSelfDeployingAsync(SessionSummary silent, DateTime lastContactAt, DateTime now)
+        {
+            try
+            {
+                var events = await _sessionRepo.GetSessionEventsAsync(
+                    silent.TenantId, silent.SessionId, maxResults: 1000);
+                var rollup = EnrollmentTimeoutClassifier.ExtractRollup(events);
+                if (!EnrollmentTimeoutClassifier.IsSelfDeployingProvisioned(rollup, silent.IsSelfDeployingProfile))
+                    return false;
+
+                var transitioned = await _sessionRepo.UpdateSessionStatusAsync(
+                    silent.TenantId,
+                    silent.SessionId,
+                    SessionStatus.Succeeded,
+                    failureReason: EnrollmentTimeoutClassifier.SelfDeployingReconcileReason(
+                        silent.ResumedAt ?? silent.StartedAt, now, lastContactAt));
+                if (transitioned)
+                    _logger.LogInformation(
+                        $"Session {silent.SessionId}: self-deploying profile silent after Device Setup provisioned — reconciled to Succeeded instead of Stalled");
+                return transitioned;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    $"Self-deploying reconcile gate failed for session {silent.SessionId}; falling back to Stalled marker");
                 return false;
             }
         }

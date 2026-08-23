@@ -97,7 +97,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
-        public async Task Fails_after_five_exceptions_without_auth_error()
+        public async Task Fails_after_six_exceptions_without_auth_error()
         {
             using var tmp = new TempDirectory();
             var logger = NewLogger(tmp);
@@ -111,8 +111,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
                 backoffDelay: _ => Task.CompletedTask);
 
             Assert.Equal(SessionRegistrationOutcome.Failed, result.Outcome);
-            Assert.Equal(5, apiClient.CallCount);
-            Assert.Contains("transient attempt 5", result.ErrorMessage);
+            Assert.Equal(6, apiClient.CallCount);
+            Assert.Contains("transient attempt 6", result.ErrorMessage);
+        }
+
+        [Fact]
+        public async Task Waits_for_network_link_before_first_attempt()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var order = new System.Collections.Generic.List<string>();
+            var apiClient = new FakeApiClient(_ =>
+            {
+                order.Add("register");
+                return new RegisterSessionResponse { Success = true, SessionId = config.SessionId };
+            });
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask,
+                networkLinkWait: _ => { order.Add("link-wait"); return Task.CompletedTask; });
+
+            Assert.Equal(SessionRegistrationOutcome.Succeeded, result.Outcome);
+            Assert.Equal(new[] { "link-wait", "register" }, order);
+        }
+
+        [Fact]
+        public async Task Network_link_wait_failure_does_not_block_registration()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ =>
+                new RegisterSessionResponse { Success = true, SessionId = config.SessionId });
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                backoffDelay: _ => Task.CompletedTask,
+                networkLinkWait: _ => throw new InvalidOperationException("probe broken"));
+
+            Assert.Equal(SessionRegistrationOutcome.Succeeded, result.Outcome);
+            Assert.Equal(1, apiClient.CallCount);
         }
 
         [Fact]

@@ -72,6 +72,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults)
             => _storage.GetLegacyTimeoutFailedSessionsAsync(tenantId, maxResults);
 
+        public Task<List<SessionSummary>> GetSelfDeployingSilentSessionsAsync(string tenantId, int maxResults)
+            => _storage.GetSelfDeployingSilentSessionsAsync(tenantId, maxResults);
+
         public Task<List<SessionSummary>> GetSessionsLeanAsync(string tenantId)
             => _storage.GetSessionsLeanAsync(tenantId);
 

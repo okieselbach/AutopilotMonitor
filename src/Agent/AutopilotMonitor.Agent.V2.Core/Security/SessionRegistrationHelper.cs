@@ -1,4 +1,5 @@
 using System;
+using System.Net.NetworkInformation;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -19,7 +20,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     /// <b>Retry contract (V1 <c>MonitoringService.RegisterSessionAsync</c>):</b>
     /// </para>
     /// <list type="bullet">
-    ///   <item>5 attempts total; between attempts <c>2^attempt</c> seconds (2s, 4s, 8s, 16s).</item>
+    ///   <item>Boot-time NIC grace before the first attempt: when no network link is up yet
+    ///     (BootTrigger relaunch after a mid-enrollment reboot, Wi-Fi still associating) wait
+    ///     up to <see cref="NetworkLinkWaitMax"/> for the link-level signal. Best-effort and
+    ///     free on the normal path — a live link returns immediately.</item>
+    ///   <item>6 attempts total; between attempts <c>2^attempt</c> seconds (2s, 4s, 8s, 16s, 32s —
+    ///     ~62 s of backoff). The original V1 budget of 5 attempts / ~30 s was too short for the
+    ///     reboot-relaunch on Wi-Fi kiosks: the relaunched agent gave up and exited 7 before
+    ///     the network came back, leaving the session silent forever (tenant aebdce78,
+    ///     2026-08-23 audit). A relaunch that misses here is lost — nothing retries later.</item>
     ///   <item>On <c>response.Success == true</c> → stop immediately.</item>
     ///   <item>On <see cref="BackendAuthException"/> (401/403) → report to the
     ///     <see cref="AuthFailureTracker"/> (which fires the first-failure distress + may trip
@@ -37,15 +46,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     /// </summary>
     public static class SessionRegistrationHelper
     {
-        private const int MaxAttempts = 5;
+        private const int MaxAttempts = 6;
+
+        /// <summary>Upper bound for the pre-registration link wait (see class remarks).</summary>
+        internal static readonly TimeSpan NetworkLinkWaitMax = TimeSpan.FromSeconds(15);
 
         /// <summary>
-        /// Executes the 5-retry register-session handshake against the backend. Returns the
+        /// Executes the retrying register-session handshake against the backend. Returns the
         /// response + classified outcome. Never throws.
         /// </summary>
         /// <param name="backoffDelay">
         /// Optional delay-provider used by tests to avoid real-time waits. Production callers
         /// pass <c>null</c> → V1 parity <c>Task.Delay(2^attempt * 1000)</c> between attempts.
+        /// </param>
+        /// <param name="networkLinkWait">
+        /// Optional pre-registration link wait used by tests. Production callers pass
+        /// <c>null</c> → <see cref="WaitForNetworkLinkAsync"/> (bounded by <see cref="NetworkLinkWaitMax"/>).
         /// </param>
         public static async Task<SessionRegistrationResult> RegisterWithRetryAsync(
             BackendApiClient apiClient,
@@ -56,14 +72,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             EmergencyReporter emergencyReporter = null,
             Func<int, Task> backoffDelay = null,
             Func<Exception, Task> onTerminalTransportFailure = null,
-            (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null)
+            (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null,
+            Func<AgentLogger, Task> networkLinkWait = null)
         {
             if (apiClient == null) throw new ArgumentNullException(nameof(apiClient));
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (logger == null) throw new ArgumentNullException(nameof(logger));
 
             backoffDelay ??= DefaultBackoffDelay;
+            networkLinkWait ??= WaitForNetworkLinkAsync;
             var registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
+
+            try { await networkLinkWait(logger).ConfigureAwait(false); }
+            catch (Exception ex) { logger.Debug($"Pre-registration network wait failed ({ex.Message}) — registering anyway."); }
             string lastError = null;
             Exception lastException = null;
 
@@ -113,7 +134,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
                 if (attempt < MaxAttempts)
                 {
-                    var delaySeconds = (int)Math.Pow(2, attempt); // 2, 4, 8, 16
+                    var delaySeconds = (int)Math.Pow(2, attempt); // 2, 4, 8, 16, 32
                     logger.Info($"Retrying session registration in {delaySeconds}s");
                     await backoffDelay(attempt).ConfigureAwait(false);
                 }
@@ -142,6 +163,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>V1 parity exponential backoff: 2^attempt seconds.</summary>
         private static Task DefaultBackoffDelay(int attempt)
             => Task.Delay(((int)Math.Pow(2, attempt)) * 1000);
+
+        /// <summary>
+        /// Boot-time NIC grace (same pattern as the emergency-break reporter): polls the cheap
+        /// link-level signal once per second for at most <see cref="NetworkLinkWaitMax"/>. It
+        /// cannot prove backend reachability — the retry loop handles that — it only keeps the
+        /// first attempts from being burned into a link that is provably still down. Probe
+        /// errors end the wait, never the registration.
+        /// </summary>
+        internal static async Task WaitForNetworkLinkAsync(AgentLogger logger)
+        {
+            if (NetworkInterface.GetIsNetworkAvailable()) return;
+
+            logger?.Info($"Session registration: no network link yet — waiting up to {NetworkLinkWaitMax.TotalSeconds:F0}s.");
+            var deadline = DateTime.UtcNow + NetworkLinkWaitMax;
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(1000).ConfigureAwait(false);
+                if (NetworkInterface.GetIsNetworkAvailable())
+                {
+                    logger?.Info("Session registration: network link is up.");
+                    return;
+                }
+            }
+            logger?.Warning($"Session registration: still no network link after {NetworkLinkWaitMax.TotalSeconds:F0}s — attempting anyway.");
+        }
 
         private static SessionRegistration BuildRegistration(
             AgentConfiguration agentConfig,
@@ -194,7 +240,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <summary>401/403 from the backend — cert/token rejected. No retry was attempted.</summary>
         AuthFailed = 1,
 
-        /// <summary>All 5 attempts failed with non-auth errors (network, 5xx, malformed response).</summary>
+        /// <summary>All attempts failed with non-auth errors (network, 5xx, malformed response).</summary>
         Failed = 2,
     }
 
