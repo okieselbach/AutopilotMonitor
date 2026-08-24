@@ -69,6 +69,63 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 }
             }
 
+            var configMergeResult = ApplyFetchedConfig(agentConfig, remoteConfig, auth, agentVersion, consoleMode, logger);
+
+            return new RuntimeConfigBundle(remoteConfigService, remoteConfig, configMergeResult, pendingMigrationTarget: null);
+        }
+
+        /// <summary>
+        /// Phase 6.5 — config self-heal. When the Phase 4 fetch ran before the network link was
+        /// up (agent relaunched at boot, Wi-Fi still associating — tenant aebdce78 audit 2026-08-24:
+        /// ~50% of sessions ran on ConfigVersion=0 exactly this way), a successful session
+        /// registration has just proven the backend reachable. Retry the fetch once and apply
+        /// the live tenant config instead of stranding the whole session on cache/defaults.
+        /// <para>
+        /// Deliberately NOT re-run here: the kill-signal check (post-registration kills arrive
+        /// via the telemetry-channel control signals on every upload response) and endpoint
+        /// migration (registration already succeeded against the current base URL; a migration
+        /// signal is honoured at the next agent start). Never throws — recovery is strictly
+        /// best-effort on top of an already-degraded-but-working fallback.
+        /// </para>
+        /// </summary>
+        public static void TryRecoverAfterRegistration(
+            AgentConfiguration agentConfig,
+            BackendAuthBundle auth,
+            RuntimeConfigBundle bundle,
+            string agentVersion,
+            bool consoleMode,
+            AgentLogger logger)
+        {
+            try
+            {
+                var service = bundle?.RemoteConfigService;
+                if (service == null) return;
+
+                var recovered = service.TryRecoverConfigAsync().GetAwaiter().GetResult();
+                if (recovered == null) return;
+
+                var mergeResult = ApplyFetchedConfig(agentConfig, recovered, auth, agentVersion, consoleMode, logger);
+                bundle.ApplyRecovered(recovered, mergeResult);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Post-registration config recovery failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Applies a live-fetched config to the runtime: merge, tracker ceilings, log level,
+        /// integrity SHA + check, bootstrap-config cleanup. Shared by the Phase 4 startup path
+        /// and the post-registration recovery path so both apply identical semantics.
+        /// </summary>
+        private static RemoteConfigMergeResult ApplyFetchedConfig(
+            AgentConfiguration agentConfig,
+            AgentConfigResponse remoteConfig,
+            BackendAuthBundle auth,
+            string agentVersion,
+            bool consoleMode,
+            AgentLogger logger)
+        {
             // Project remote tenant-controlled knobs onto the runtime AgentConfiguration so that
             // downstream consumers (CleanupService, SummaryDialogLauncher, StartupEnvironmentProbes,
             // DiagnosticsPackageService, EnrollmentTerminationHandler, the logger, the watchdog)
@@ -91,7 +148,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
             TryCleanupBootstrapConfig(agentConfig, agentVersion, logger);
 
-            return new RuntimeConfigBundle(remoteConfigService, remoteConfig, configMergeResult, pendingMigrationTarget: null);
+            return configMergeResult;
         }
 
         /// <summary>
@@ -175,9 +232,20 @@ namespace AutopilotMonitor.Agent.V2.Runtime
     internal sealed class RuntimeConfigBundle
     {
         public RemoteConfigService RemoteConfigService { get; }
-        public AgentConfigResponse RemoteConfig { get; }
-        public RemoteConfigMergeResult MergeResult { get; }
+        public AgentConfigResponse RemoteConfig { get; private set; }
+        public RemoteConfigMergeResult MergeResult { get; private set; }
         public string PendingMigrationTarget { get; }
+
+        /// <summary>
+        /// Swaps in the config recovered by <see cref="AgentRuntimeConfig.TryRecoverAfterRegistration"/>
+        /// so Phase 7+8 (orchestrator, collectors, gather rules, IME patterns, the
+        /// unrestricted-mode audit) run on the live tenant config instead of the fallback.
+        /// </summary>
+        public void ApplyRecovered(AgentConfigResponse recoveredConfig, RemoteConfigMergeResult mergeResult)
+        {
+            RemoteConfig = recoveredConfig;
+            MergeResult = mergeResult;
+        }
 
         public RuntimeConfigBundle(
             RemoteConfigService remoteConfigService,

@@ -274,6 +274,15 @@ namespace AutopilotMonitor.Agent.V2
             {
                 return registration.ExitCode;
             }
+
+            // Phase 6.5 (config self-heal): when the Phase 4 fetch ran before the network link
+            // was up, registration has just proven the backend reachable — retry the fetch once
+            // so the session runs on the live tenant config instead of cache/defaults.
+            // See AgentRuntimeConfig.TryRecoverAfterRegistration for what is deliberately
+            // NOT re-run here (kill-signal check, endpoint migration).
+            Runtime.AgentRuntimeConfig.TryRecoverAfterRegistration(
+                bootstrap.AgentConfig, auth, runtimeConfig, GetAgentVersion(), consoleMode, logger);
+
             // Phase 7+8 (orchestrator + shutdown lifecycle + onIngressReady wiring +
             // initial signal posts + analyzer/probes startup + shutdown.Wait + finally)
             // is encapsulated in AgentRuntimeHost. See Runtime/AgentRuntimeHost.cs.

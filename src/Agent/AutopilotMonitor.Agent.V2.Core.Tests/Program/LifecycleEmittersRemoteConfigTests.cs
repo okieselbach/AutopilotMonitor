@@ -182,6 +182,73 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.Equal("FromCache", data["outcome"]);
         }
 
+        // ── Post-registration recovery (Phase 6.5, tenant aebdce78 audit 2026-08-24) ─
+
+        [Fact]
+        public void EmitFetchFailedIfAny_AfterRecovery_MarksRecoveredAndDemotesToInfo()
+        {
+            using var rig = new EmitterRig();
+            // Startup fetch failed (network link not up yet), then the post-registration
+            // recovery fetched ConfigVersion 39. The event must keep the original failure
+            // details AND mark the heal.
+            rig.RemoteConfig.SetFakeOutcome(
+                RemoteConfigFetchOutcome.UsedDefaults,
+                configVersion: 39, // CurrentConfig now holds the recovered config
+                attempts: 4,
+                failureType: "HttpRequestException",
+                failureMessage: "simulated dead network link",
+                recovered: true);
+
+            LifecycleEmitters.EmitRemoteConfigFetchFailedIfAny(
+                rig.Post, rig.AgentConfig, rig.RemoteConfig, rig.Logger);
+
+            var data = AssertSingleEmit(rig.Sink, expectedEventType: "remote_config_fetch_failed");
+            Assert.Equal("UsedDefaults", data["outcome"]); // startup failure record intact
+            Assert.Equal(4, data["attempts"]);
+            Assert.Equal(true, data["recovered"]);
+            Assert.Equal(39, data["recoveredConfigVersion"]);
+            Assert.Equal(nameof(EventSeverity.Info), rig.Sink.Posted[0].Payload!["severity"]);
+        }
+
+        [Fact]
+        public void EmitFetchFailedIfAny_WithoutRecovery_StaysWarning()
+        {
+            using var rig = new EmitterRig();
+            rig.RemoteConfig.SetFakeOutcome(
+                RemoteConfigFetchOutcome.UsedDefaults,
+                configVersion: 0,
+                attempts: 4,
+                failureType: "HttpRequestException",
+                failureMessage: "still down");
+
+            LifecycleEmitters.EmitRemoteConfigFetchFailedIfAny(
+                rig.Post, rig.AgentConfig, rig.RemoteConfig, rig.Logger);
+
+            var data = AssertSingleEmit(rig.Sink, expectedEventType: "remote_config_fetch_failed");
+            Assert.False(data.ContainsKey("recovered"));
+            Assert.False(data.ContainsKey("recoveredConfigVersion"));
+            Assert.Equal(nameof(EventSeverity.Warning), rig.Sink.Posted[0].Payload!["severity"]);
+        }
+
+        [Fact]
+        public void EmitAgentStarted_AfterRecovery_FlagsLiveConfig()
+        {
+            using var rig = new EmitterRig();
+            rig.RemoteConfig.SetFakeOutcome(
+                RemoteConfigFetchOutcome.UsedDefaults,
+                configVersion: 39,
+                recovered: true);
+
+            LifecycleEmitters.EmitAgentStarted(
+                rig.Post, rig.AgentConfig, rig.PreviousExit, "2.0.806", rig.RemoteConfig, rig.Logger);
+
+            var data = AssertSingleEmit(rig.Sink, expectedEventType: "agent_started");
+            Assert.Equal(39, data["configVersion"]);
+            Assert.Equal(true, data["remoteConfigFetched"]); // running on a live-fetched config
+            Assert.Equal("UsedDefaults", data["remoteConfigOutcome"]); // startup outcome stays honest
+            Assert.Equal(true, data["remoteConfigRecovered"]);
+        }
+
         // ── Helpers ─────────────────────────────────────────────────────────
 
         private static Dictionary<string, object> AssertSingleEmit(
@@ -258,8 +325,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
                 int attempts = 1,
                 string? failureType = null,
                 string? failureMessage = null,
-                int? authStatusCode = null)
+                int? authStatusCode = null,
+                bool recovered = false)
             {
+                typeof(RemoteConfigService).GetProperty(nameof(RecoveredAfterFetchFailure))?.SetValue(this, recovered);
                 // CurrentConfig is set via the protected SetConfig path — easiest:
                 // a real FetchConfigAsync replacement that just stashes a canned config.
                 typeof(RemoteConfigService).GetMethod("SetConfig",
