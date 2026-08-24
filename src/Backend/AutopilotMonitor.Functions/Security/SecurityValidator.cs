@@ -275,6 +275,12 @@ namespace AutopilotMonitor.Functions.Security
                 };
             }
 
+            // 1b. CERT-TENANT-BINDING-SHADOW — observe only, never decide.
+            // The cert chain is pinned to Microsoft's Intune roots, which every Intune tenant shares,
+            // so a valid cert alone does not prove the caller belongs to THIS tenant. Stage 1 measures
+            // how reliably the certificate's own tenant stamp matches before stage 2 enforces it.
+            ObserveCertTenantBinding(certValidation, tenantId, req, sessionId);
+
             // 2. Check rate limit (DoS protection)
             // Effective limit = per-tenant override if set, otherwise the global default.
             var rateLimitValue = await ResolveDeviceRateLimitAsync(config);
@@ -512,6 +518,71 @@ namespace AutopilotMonitor.Functions.Security
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// CERT-TENANT-BINDING-SHADOW — stage 1 observability for the client-certificate tenant
+        /// binding. Evaluates whether the tenant stamped into the agent's certificate matches the
+        /// tenant the request claims, and logs the outcome. It deliberately returns nothing and
+        /// changes no state: enforcement is stage 2, after this telemetry shows the miss rate.
+        /// </summary>
+        /// <remarks>
+        /// Volume control: outcomes that need enforcement decisions (mismatch, missing or
+        /// undecodable extension) are always logged — they are expected to be rare and each one is
+        /// individually interesting. The bulk "Match" case is logged only when the certificate was
+        /// freshly validated rather than served from the 5-minute thumbprint cache, which samples it
+        /// down to roughly one line per certificate per cache window while keeping the ratio between
+        /// numerator and denominator meaningful (both are counted per cert-window, not per request).
+        /// </remarks>
+        private void ObserveCertTenantBinding(
+            CertificateValidationResult certValidation,
+            string tenantId,
+            HttpRequestData req,
+            string? sessionId)
+        {
+            try
+            {
+                var outcome = CertTenantBinding.Evaluate(
+                    certValidation.CertTenantId,
+                    certValidation.CertTenantIdStatus,
+                    tenantId);
+
+                if (outcome == CertTenantBinding.Outcome.Match && certValidation.FromCache)
+                    return;
+
+                var agentVersion = req.Headers.Contains("X-Agent-Version")
+                    ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault() ?? "n/a"
+                    : "n/a";
+
+                // Only the cert's tenant is logged, never the raw certificate. On a mismatch this is
+                // the attacker-controlled side of the comparison and the single most useful field.
+                const string template =
+                    "AgentCertTenantBinding outcome={Outcome} enforced={Enforced} wouldReject={WouldReject} "
+                    + "tenant={TenantId} certTenant={CertTenantId} status={Status} thumbprint={Thumbprint} "
+                    + "session={SessionId} ver={AgentVersion}";
+
+                var certTenant = certValidation.CertTenantId?.ToString() ?? "n/a";
+                var wouldReject = CertTenantBinding.WouldRejectUnderEnforcement(outcome);
+
+                if (outcome == CertTenantBinding.Outcome.Match)
+                {
+                    _logger.LogInformation(template,
+                        outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
+                        certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
+                }
+                else
+                {
+                    _logger.LogWarning(template,
+                        outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
+                        certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Shadow-mode observability must never be able to fail a request that would
+                // otherwise have been accepted.
+                _logger.LogWarning(ex, "AgentCertTenantBinding observation failed for tenant {TenantId}", tenantId);
+            }
         }
 
         /// <summary>

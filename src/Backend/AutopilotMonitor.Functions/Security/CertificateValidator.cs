@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using AutopilotMonitor.Shared.Security;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Security
@@ -138,7 +139,8 @@ namespace AutopilotMonitor.Functions.Security
                     if (cached.ExpiresAt > DateTime.UtcNow)
                     {
                         logger?.LogDebug($"Certificate validation cache HIT for thumbprint {thumbprint}");
-                        return cached.Result;
+                        // Copy so FromCache is per-call state and never mutates the shared cached instance.
+                        return cached.Result.AsCacheHit();
                     }
                     else
                     {
@@ -253,6 +255,12 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
+                // 4. Extract the Entra TenantId the CA stamped into the cert (OID 1.2.840.113556.5.14).
+                // Pure function of the cert, so it is cached alongside the validation result.
+                // Read only - the tenant binding it enables is evaluated (and currently only observed)
+                // by SecurityValidator; see CertTenantBinding.
+                var (certTenantId, certTenantIdStatus) = ExtractEntraTenantId(certificate);
+
                 // All checks passed - create and cache success result
                 logger?.LogInformation($"Certificate validated successfully: Thumbprint={thumbprint}");
                 var successResult = new CertificateValidationResult
@@ -260,7 +268,9 @@ namespace AutopilotMonitor.Functions.Security
                     IsValid = true,
                     Thumbprint = thumbprint,
                     Subject = certificate.Subject,
-                    Issuer = certificate.Issuer
+                    Issuer = certificate.Issuer,
+                    CertTenantId = certTenantId,
+                    CertTenantIdStatus = certTenantIdStatus
                 };
 
                 // Cache successful validation
@@ -286,6 +296,30 @@ namespace AutopilotMonitor.Functions.Security
                     ErrorMessage = $"Certificate validation error: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// Reads the Entra TenantId the Intune MDM Device CA stamps into the client certificate
+        /// (OID <c>1.2.840.113556.5.14</c>). Never throws — a cert without the extension, or with an
+        /// undecodable one, yields the corresponding status instead of an error, because this value
+        /// is currently observed only and must never turn a valid cert into a rejected one.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately NOT OID <c>1.2.840.113556.5.6</c>: that one carries the Intune <b>Account</b>
+        /// ID, which is a different GUID from the Entra tenant ID.
+        /// </remarks>
+        private static (Guid? TenantId, CertTenantIdStatus Status) ExtractEntraTenantId(X509Certificate2 certificate)
+        {
+            var ext = certificate.Extensions
+                .OfType<X509Extension>()
+                .FirstOrDefault(e => e.Oid?.Value == MsDeviceCertificateOids.IntuneCertEntraTenantIdOid);
+
+            if (ext?.RawData == null)
+                return (null, CertTenantIdStatus.ExtensionMissing);
+
+            return MsDeviceCertificateOids.TryParseGuid(ext.RawData, out var tenantId)
+                ? (tenantId, CertTenantIdStatus.Present)
+                : (null, CertTenantIdStatus.Unparseable);
         }
 
         /// <summary>
@@ -378,5 +412,58 @@ namespace AutopilotMonitor.Functions.Security
         /// Error message if validation failed
         /// </summary>
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// Entra TenantId stamped into the certificate by the Intune MDM Device CA
+        /// (OID <c>1.2.840.113556.5.14</c>), or <c>null</c> when
+        /// <see cref="CertTenantIdStatus"/> is not <see cref="Security.CertTenantIdStatus.Present"/>.
+        /// </summary>
+        public Guid? CertTenantId { get; set; }
+
+        /// <summary>
+        /// Whether the certificate carried a decodable Entra TenantId extension.
+        /// </summary>
+        public CertTenantIdStatus CertTenantIdStatus { get; set; }
+
+        /// <summary>
+        /// True when this result was served from the 5-minute thumbprint cache rather than freshly
+        /// validated. Used to sample per-request observability down to roughly one line per
+        /// certificate per cache window.
+        /// </summary>
+        public bool FromCache { get; set; }
+
+        /// <summary>
+        /// Returns a copy of this result marked as a cache hit, so the shared cached instance is
+        /// never mutated by a caller.
+        /// </summary>
+        internal CertificateValidationResult AsCacheHit() => new()
+        {
+            IsValid = IsValid,
+            Thumbprint = Thumbprint,
+            Subject = Subject,
+            Issuer = Issuer,
+            ErrorMessage = ErrorMessage,
+            CertTenantId = CertTenantId,
+            CertTenantIdStatus = CertTenantIdStatus,
+            FromCache = true
+        };
+    }
+
+    /// <summary>
+    /// Whether a validated client certificate carried a decodable Entra TenantId extension.
+    /// </summary>
+    public enum CertTenantIdStatus
+    {
+        /// <summary>Certificate was not validated far enough to look, or validation failed.</summary>
+        NotEvaluated = 0,
+
+        /// <summary>Extension present and decoded into a GUID.</summary>
+        Present = 1,
+
+        /// <summary>Certificate carries no such extension (expected on older enrollments).</summary>
+        ExtensionMissing = 2,
+
+        /// <summary>Extension present but its value could not be decoded as a GUID.</summary>
+        Unparseable = 3
     }
 }

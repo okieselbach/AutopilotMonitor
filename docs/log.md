@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-24
+
+* **New**: `backend/client-cert-tenant-binding.md` — the agent's mTLS certificate chains to Microsoft's shared Intune roots, so certificate validation alone never proved tenant membership; tenant scoping rested entirely on the (non-secret) device serial in the downstream validators. The Intune MDM leaf carries the Entra tenant id in OID `1.2.840.113556.5.14` (nested OCTET STRING), which is NOT `…5.6` (Intune Account id, a different GUID) and NOT `…5.4` (device id, stored as 16 bare bytes) — all decoded by one shared `MsDeviceCertificateOids.TryParseGuid` now used by agent and backend. Stage 1 ships as shadow only: `CertTenantBinding.Evaluate` (pure) plus `SecurityValidator.ObserveCertTenantBinding` (returns void, swallows its own exceptions, cannot change an authorization outcome), with `Match` sampled via `CertificateValidationResult.FromCache` so the denominator survives without per-request volume. Grep marker for the stage-2 enforcement change: `CERT-TENANT-BINDING-SHADOW`.
+
 ## 2026-08-23
 
 * **New**: `backend/telemetry-ingest-shaping.md` — `RequestTelemetryMiddleware` sets `SamplingPercentage=100` on its own item (worker request rows were adaptively sampled, ItemCount 2–5 on weekdays, despite host.json `excludedTypes`), the redundant host HTTP request copy is dropped by a workspace transformation DCR (`infra/appinsights-workspace-transforms.bicep`, timer/queue rows kept), and `StorageDependencyFilterProcessor` now also drops expected storage outcomes (404/412/409, both InProc and HTTP shapes) and successful SignalR REST calls; the host-emitted SignalR binding calls (bulk of the volume, SDK `rdddsc`) are dropped by a second `AppDependencies` flow in the same DCR. Measured ≈ −1.3 GB/week.

@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using AutopilotMonitor.Agent.V2.Core.Logging;
+using AutopilotMonitor.Shared.Security;
 
 namespace AutopilotMonitor.Agent.V2.Core.Security
 {
@@ -49,8 +50,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     public static class EntraDeviceCertHelper
     {
         public const string MsOrganizationAccessIssuer = "MS-Organization-Access";
-        public const string TenantIdOid = "1.2.840.113556.1.5.284.5";
-        public const string DeviceIdOid = "1.2.840.113556.1.5.284.2";
+        public const string TenantIdOid = MsDeviceCertificateOids.EntraJoinCertTenantIdOid;
+        public const string DeviceIdOid = MsDeviceCertificateOids.EntraJoinCertDeviceIdOid;
 
         /// <summary>
         /// Reads the Entra TenantId from the MS-Organization-Access device cert.
@@ -144,57 +145,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         /// <c>1.2.840.113556.5.4</c> — verified against a live Intune MDM device cert, whose raw value is
         /// exactly 16 bytes with no <c>04 10</c> prefix.</description></item>
         /// </list>
-        /// The two forms cannot collide: a valid OCTET-STRING wrapper around 16 bytes is at least 18
-        /// bytes long, so a 16-byte payload is never a truncated wrapper even when it happens to start
-        /// with <c>0x04</c>.
+        /// A valid OCTET-STRING wrapper around 16 bytes is at least 18 bytes long, so the two forms
+        /// never collide for well-formed input. A 16-byte value is always read as the bare form —
+        /// a truncated wrapper of exactly that length is indistinguishable from it.
         /// Returns <c>null</c> on any structural mismatch — never throws.
+        /// <para>
+        /// The decoding itself lives in <see cref="MsDeviceCertificateOids.TryParseGuid"/> so the agent
+        /// and the backend's client-cert tenant binding share one implementation; this stays as the
+        /// agent-side nullable-returning façade.
+        /// </para>
         /// </summary>
-        public static Guid? ParseGuidFromExtension(byte[] raw)
-        {
-            if (raw == null) return null;
-
-            // Bare 16-byte GUID (Intune 1.2.840.113556.5.4) — no ASN.1 wrapper to strip.
-            if (raw.Length == 16) return ToGuid(raw, 0);
-
-            if (raw.Length < 2) return null;
-
-            // ASN.1 OCTET STRING tag.
-            if (raw[0] != 0x04) return null;
-
-            int contentStart;
-            int contentLen;
-
-            if (raw[1] < 0x80)
-            {
-                // short-form length
-                contentLen = raw[1];
-                contentStart = 2;
-            }
-            else
-            {
-                // long-form length: lower 7 bits = number of following length bytes.
-                int numLenBytes = raw[1] & 0x7F;
-                if (numLenBytes < 1 || numLenBytes > 4 || raw.Length < 2 + numLenBytes) return null;
-
-                contentLen = 0;
-                for (int i = 0; i < numLenBytes; i++)
-                    contentLen = (contentLen << 8) | raw[2 + i];
-
-                contentStart = 2 + numLenBytes;
-            }
-
-            if (contentLen != 16 || contentStart + 16 > raw.Length) return null;
-
-            return ToGuid(raw, contentStart);
-        }
-
-        private static Guid? ToGuid(byte[] raw, int offset)
-        {
-            var guidBytes = new byte[16];
-            Buffer.BlockCopy(raw, offset, guidBytes, 0, 16);
-
-            try { return new Guid(guidBytes); }
-            catch { return null; }
-        }
+        public static Guid? ParseGuidFromExtension(byte[] raw) =>
+            MsDeviceCertificateOids.TryParseGuid(raw, out var value) ? value : (Guid?)null;
     }
 }
