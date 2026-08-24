@@ -173,6 +173,46 @@ public class IntuneDeviceBindingValidatorTests
     }
 
     [Fact]
+    public void AsCacheHit_FlagsTheCopyAndLeavesTheCachedInstanceAlone()
+    {
+        // The cached instance is shared across every request for that device. Marking it in place
+        // would make the first (real) lookup look cached too, and the log gate would then drop the
+        // one line per lookup we actually want to keep.
+        var cached = new IntuneDeviceBindingResult
+        {
+            Outcome = IntuneDeviceBindingOutcome.Match,
+            IntuneDeviceId = DeviceId,
+            DeviceName = "TEST-DEVICE-01",
+            EnrolledDateTime = new DateTimeOffset(2026, 8, 24, 16, 51, 0, TimeSpan.Zero),
+        };
+
+        var hit = cached.AsCacheHit();
+
+        Assert.True(hit.ServedFromCache);
+        Assert.False(cached.ServedFromCache);
+        Assert.NotSame(cached, hit);
+
+        // Everything the log line reports must survive the copy.
+        Assert.Equal(cached.Outcome, hit.Outcome);
+        Assert.Equal(cached.IntuneDeviceId, hit.IntuneDeviceId);
+        Assert.Equal(cached.DeviceName, hit.DeviceName);
+        Assert.Equal(cached.EnrolledDateTime, hit.EnrolledDateTime);
+    }
+
+    [Fact]
+    public void FreshResult_IsNotFlaggedAsCached()
+    {
+        // A freshly parsed Graph response must be loggable — that is the one line per lookup.
+        var body = $$"""
+        { "id": "{{DeviceId}}", "deviceName": "TEST-DEVICE-01" }
+        """;
+
+        var result = IntuneDeviceBindingValidator.ParseManagedDeviceResponse(body, DeviceId);
+
+        Assert.False(result.ServedFromCache);
+    }
+
+    [Fact]
     public void TransientOutcome_IsNeitherValidNorDefinitive()
     {
         var result = new IntuneDeviceBindingResult { Outcome = IntuneDeviceBindingOutcome.Transient };

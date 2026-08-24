@@ -82,7 +82,7 @@ namespace AutopilotMonitor.Functions.Security
             var cacheKey = BuildCacheKey(tenantId, normalizedId);
 
             if (_cache.TryGetValue(cacheKey, out IntuneDeviceBindingResult? cached) && cached != null)
-                return cached;
+                return cached.AsCacheHit();
 
             const int maxAttempts = 2;
             IntuneDeviceBindingResult? lastTransient = null;
@@ -324,5 +324,29 @@ namespace AutopilotMonitor.Functions.Security
         public DateTimeOffset? EnrolledDateTime { get; set; }
 
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// True when this result came from the in-memory cache rather than a fresh Graph lookup.
+        /// Callers use it to log once per real lookup instead of once per request: a single
+        /// enrollment produced 136 requests but only one Graph call, so logging per request said
+        /// the same thing 136 times.
+        /// </summary>
+        public bool ServedFromCache { get; set; }
+
+        /// <summary>
+        /// Copy of this result marked as a cache hit, so the shared cached instance is never
+        /// mutated by a caller.
+        /// </summary>
+        internal IntuneDeviceBindingResult AsCacheHit() => new()
+        {
+            Outcome = Outcome,
+            IntuneDeviceId = IntuneDeviceId,
+            DeviceName = DeviceName,
+            AzureAdDeviceId = AzureAdDeviceId,
+            ManagementState = ManagementState,
+            EnrolledDateTime = EnrolledDateTime,
+            ErrorMessage = ErrorMessage,
+            ServedFromCache = true
+        };
     }
 }

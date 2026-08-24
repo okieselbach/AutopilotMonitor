@@ -129,6 +129,19 @@ Outcomes: `Match`, `NotFound`, `NoDeviceIdInCert`, `PermissionMissing`, `Transie
 `Transient` is retried and left uncached — a missing grant or a foreign device is a state, not an
 outage.
 
+Graph cost is not a concern, and that is measured rather than assumed: the first live enrollment
+produced **136 requests and exactly one Graph call**, because the 30-minute positive cache absorbs
+the rest. For comparison, the per-request Autopilot serial validator made 25 calls in the same
+window. Lengthening the positive TTL would buy nothing and would delay noticing a device that has
+been wiped or removed; shortening the 5-minute negative TTL matters more, since that is how quickly
+a device object appearing late is picked up.
+
+What the 136 requests *did* cost was log lines saying the same thing 136 times, so the shadow log is
+gated on `IntuneDeviceBindingResult.ServedFromCache`: one line per real Graph lookup. Cached repeats
+add nothing — the reported age just counts up mechanically from the same `enrolledDateTime`.
+Outcomes that are never cached (`Transient`, `NoDeviceIdInCert`) still log every time, which is the
+right behaviour for an anomaly.
+
 The open question this preview exists to answer is a race, not an attack: a device object can in
 principle appear in Intune *after* the agent's first call, and enforcing before that is understood
 would reject legitimate enrollments. Every result therefore carries `enrolledDateTime`, and the log

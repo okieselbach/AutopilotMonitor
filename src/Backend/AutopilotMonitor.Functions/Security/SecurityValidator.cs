@@ -495,6 +495,16 @@ namespace AutopilotMonitor.Functions.Security
                         TryGetIntuneDeviceIdFromCertSubject(bindingSubject, out var certDeviceId);
                         var binding = await bindingValidator.ValidateAsync(bindingTenant, certDeviceId, bindingSession);
 
+                        // One line per real Graph lookup, not per request. Measured on the first
+                        // live enrollment: 136 requests produced exactly ONE Graph call (the 30 min
+                        // positive cache did its job), so per-request logging repeated the same
+                        // finding 136 times. Cached repeats add nothing - the age just counts up
+                        // mechanically from the same enrolledDateTime. Uncached outcomes
+                        // (Transient, NoDeviceIdInCert) still log every time, which is what we want
+                        // for anomalies.
+                        if (binding.ServedFromCache)
+                            return;
+
                         // Age of the device object at request time: the discriminator between a
                         // genuine enrollment race (object created moments ago, or not yet) and a
                         // certificate that never belonged to this tenant.
