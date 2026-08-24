@@ -23,6 +23,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     /// <item><description><c>1.2.840.113556.1.5.284.2</c> → DeviceId (same encoding)</description></item>
     /// </list>
     /// <para>
+    /// The sibling <c>Microsoft Intune MDM Device CA</c> client cert (the one the agent authenticates
+    /// with, see <see cref="CertificateHelper"/>) carries a DIFFERENT OID arc that identifies the same
+    /// device from Intune's side. Observed on a live Intune-enrolled Windows 11 device:
+    /// </para>
+    /// <list type="table">
+    /// <listheader><term>OID</term><description>Meaning / encoding</description></listheader>
+    /// <item><term><c>1.2.840.113556.5.4</c></term><description>Intune DeviceId — BARE 16-byte GUID, no ASN.1 wrapper. Equals the cert's Subject CN.</description></item>
+    /// <item><term><c>1.2.840.113556.5.6</c></term><description>Intune AccountId (the Intune tenant account, NOT the Entra TenantId) — OCTET STRING GUID.</description></item>
+    /// <item><term><c>1.2.840.113556.5.14</c></term><description>Entra TenantId — OCTET STRING GUID. This is the one to compare against an Entra tenant id.</description></item>
+    /// <item><term><c>1.2.840.113556.5.11</c></term><description>Further GUID, OCTET STRING; semantics not documented by Microsoft and not verified here.</description></item>
+    /// <item><term><c>1.2.840.113556.5.15/.16/.17/.18/.19/.23</c></term><description>ASN.1 INTEGER enums (platform / enrollment flavour); semantics undocumented.</description></item>
+    /// </list>
+    /// <para>
+    /// The bare-GUID encoding of <c>1.2.840.113556.5.4</c> is why
+    /// <see cref="ParseGuidFromExtension"/> accepts an unwrapped 16-byte payload as well —
+    /// a strict OCTET-STRING parser silently returns <c>null</c> for that extension.
+    /// </para>
+    /// <para>
     /// All probes are best-effort: never throw, return <c>null</c> on miss, log a Warning
     /// with the specific failure reason (no matching cert / extension missing / ASN.1
     /// parse failed) so the agent log explains why the fallback didn't help.
@@ -88,7 +106,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                             continue;
                         }
 
-                        var guid = ParseGuidFromAsn1OctetString(ext.RawData);
+                        var guid = ParseGuidFromExtension(ext.RawData);
                         if (guid != null)
                         {
                             logger?.Info(
@@ -98,7 +116,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                         }
 
                         logger?.Warning(
-                            $"EntraDeviceCertHelper: failed to parse {label} ASN.1 OCTET STRING in cert thumbprint={cert.Thumbprint} " +
+                            $"EntraDeviceCertHelper: failed to parse {label} GUID extension in cert thumbprint={cert.Thumbprint} " +
                             $"(raw {ext.RawData.Length} bytes); trying next candidate.");
                     }
 
@@ -116,13 +134,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
         /// <summary>
         /// Parses a 16-byte MS-format binary GUID (little-endian for the first three groups,
-        /// per <see cref="Guid(byte[])"/>) wrapped in an ASN.1 OCTET STRING. Handles both
-        /// short-form (<c>04 10 ...</c>) and long-form (<c>04 81 10 ...</c>) length encoding.
+        /// per <see cref="Guid(byte[])"/>) out of a certificate extension's raw value.
+        /// Two encodings are accepted, because Microsoft uses both:
+        /// <list type="number">
+        /// <item><description>Wrapped in an ASN.1 OCTET STRING — short-form (<c>04 10 ...</c>) or
+        /// long-form (<c>04 81 10 ...</c>) length. Used by the MS-Organization-Access TenantId/DeviceId
+        /// extensions and by the Intune <c>…5.6</c> / <c>…5.14</c> extensions.</description></item>
+        /// <item><description>A bare, unwrapped 16-byte payload. Used by the Intune DeviceId extension
+        /// <c>1.2.840.113556.5.4</c> — verified against a live Intune MDM device cert, whose raw value is
+        /// exactly 16 bytes with no <c>04 10</c> prefix.</description></item>
+        /// </list>
+        /// The two forms cannot collide: a valid OCTET-STRING wrapper around 16 bytes is at least 18
+        /// bytes long, so a 16-byte payload is never a truncated wrapper even when it happens to start
+        /// with <c>0x04</c>.
         /// Returns <c>null</c> on any structural mismatch — never throws.
         /// </summary>
-        public static Guid? ParseGuidFromAsn1OctetString(byte[] raw)
+        public static Guid? ParseGuidFromExtension(byte[] raw)
         {
-            if (raw == null || raw.Length < 2) return null;
+            if (raw == null) return null;
+
+            // Bare 16-byte GUID (Intune 1.2.840.113556.5.4) — no ASN.1 wrapper to strip.
+            if (raw.Length == 16) return ToGuid(raw, 0);
+
+            if (raw.Length < 2) return null;
 
             // ASN.1 OCTET STRING tag.
             if (raw[0] != 0x04) return null;
@@ -151,8 +185,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
 
             if (contentLen != 16 || contentStart + 16 > raw.Length) return null;
 
+            return ToGuid(raw, contentStart);
+        }
+
+        private static Guid? ToGuid(byte[] raw, int offset)
+        {
             var guidBytes = new byte[16];
-            Buffer.BlockCopy(raw, contentStart, guidBytes, 0, 16);
+            Buffer.BlockCopy(raw, offset, guidBytes, 0, 16);
 
             try { return new Guid(guidBytes); }
             catch { return null; }
