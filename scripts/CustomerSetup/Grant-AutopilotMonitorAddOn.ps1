@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Grants additional Microsoft Graph application permissions to the Autopilot Monitor
@@ -28,6 +28,11 @@
         (validates Windows 365 Cloud PCs against the tenant's Cloud PC inventory --
          Cloud PCs are never Autopilot-registered, so this enables agent monitoring
          of Cloud PC first-connect enrollment)
+      - IntuneDeviceBinding     -> DeviceManagementManagedDevices.Read.All
+        (cert-to-device binding: verifies that the Intune device id carried in the
+         agent's client certificate is a device THIS tenant actually enrolled --
+         currently a Global-Admin-only preview that records telemetry and does not
+         block enrollment)
       - All                    -> every optional permission above, in one run
         (also works with -Revoke to remove all optional grants at once)
 
@@ -93,7 +98,7 @@ param(
     [string]$ClientId,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByFeatures')]
-    [ValidateSet('All', 'ScriptDisplayNames', 'W365CloudPcValidation')]
+    [ValidateSet('All', 'ScriptDisplayNames', 'W365CloudPcValidation', 'IntuneDeviceBinding')]
     [string[]]$Features,
 
     [Parameter(Mandatory = $true, ParameterSetName = 'ByPermissions')]
@@ -116,6 +121,7 @@ $ErrorActionPreference = 'Stop'
 $FeatureCatalog = @{
     'ScriptDisplayNames'    = @('DeviceManagementScripts.Read.All')
     'W365CloudPcValidation' = @('CloudPC.Read.All')
+    'IntuneDeviceBinding'   = @('DeviceManagementManagedDevices.Read.All')
 }
 
 # Translate Features -> Permissions when caller used the high-level form.

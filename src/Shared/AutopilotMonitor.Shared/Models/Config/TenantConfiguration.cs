@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -225,6 +225,18 @@ namespace AutopilotMonitor.Shared.Models
         /// CloudPC.Read.All (feature "W365CloudPcValidation" in the grant script).
         /// </summary>
         public bool ValidateCloudPcDevice { get; set; } = false;
+
+        /// <summary>
+        /// Cert-to-device binding check (Global-Admin-only preview, SHADOW mode).
+        /// Resolves the Intune managedDevice id carried in the agent client certificate's Subject
+        /// CN against this tenant's own managedDevices inventory, proving the certificate belongs
+        /// to a device the tenant actually enrolled. The result is recorded as telemetry only and
+        /// never blocks enrollment, because a device object can in principle appear later than the
+        /// agent's first call - measuring that race is the point of the shadow pass. Requires the
+        /// optional Graph permission DeviceManagementManagedDevices.Read.All (feature
+        /// "IntuneDeviceBinding" in the grant script).
+        /// </summary>
+        public bool ValidateIntuneDeviceBinding { get; set; } = false;
 
         /// <summary>
         /// Emergency bypass for agent security gate (Global Admin use only).

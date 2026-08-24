@@ -53,6 +53,7 @@ export interface TenantConfiguration {
    * permission ("W365CloudPcValidation" in Optional Graph capabilities).
    */
   validateCloudPcDevice?: boolean;
+  validateIntuneDeviceBinding?: boolean;
   allowInsecureAgentRequests?: boolean;
   /**
    * Dual app-reg window: client id of the Entra app registration this tenant is homed on.

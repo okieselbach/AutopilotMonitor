@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
@@ -34,9 +34,10 @@ namespace AutopilotMonitor.Functions.Security
             string? sessionId = null,
             BootstrapSessionService? bootstrapSessionService = null,
             DeviceAssociationValidator? deviceAssociationValidator = null,
-            CloudPcDeviceValidator? cloudPcDeviceValidator = null)
+            CloudPcDeviceValidator? cloudPcDeviceValidator = null,
+            IntuneDeviceBindingValidator? intuneDeviceBindingValidator = null)
         {
-            var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator, cloudPcDeviceValidator);
+            var validator = new SecurityValidator(configService, adminConfigService, rateLimitService, autopilotDeviceValidator, corporateIdentifierValidator, logger, bootstrapSessionService, deviceAssociationValidator, cloudPcDeviceValidator, intuneDeviceBindingValidator);
             var validation = await validator.ValidateRequestAsync(req, tenantId, sessionId);
 
             if (!validation.IsValid)

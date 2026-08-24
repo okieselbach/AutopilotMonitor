@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace AutopilotMonitor.Shared.Models.Graph
@@ -17,12 +17,19 @@ namespace AutopilotMonitor.Shared.Models.Graph
         /// <summary>Validates Windows 365 Cloud PCs via the service-side Cloud PC inventory (cert-CN bound).</summary>
         public const string FeatureW365CloudPcValidation = "W365CloudPcValidation";
 
+        /// <summary>
+        /// Verifies that the Intune managedDevice id carried in the agent's client certificate
+        /// actually exists in the tenant the request claims (cert-to-device binding).
+        /// </summary>
+        public const string FeatureIntuneDeviceBinding = "IntuneDeviceBinding";
+
         // Backed by a plain dictionary (netstandard2.0 + C# 9, no Immutable types).
         private static readonly Dictionary<string, string[]> _byFeature
             = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
             {
                 [FeatureScriptDisplayNames] = new[] { GraphAppPermissions.DeviceManagementScriptsReadAll },
                 [FeatureW365CloudPcValidation] = new[] { GraphAppPermissions.CloudPCReadAll },
+                [FeatureIntuneDeviceBinding] = new[] { GraphAppPermissions.DeviceManagementManagedDevicesReadAll },
             };
 
         /// <summary>All registered feature identifiers.</summary>

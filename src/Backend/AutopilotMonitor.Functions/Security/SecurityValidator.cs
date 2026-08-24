@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -48,6 +48,7 @@ namespace AutopilotMonitor.Functions.Security
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator? _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator? _cloudPcDeviceValidator;
+        private readonly IntuneDeviceBindingValidator? _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService? _bootstrapSessionService;
         private readonly ILogger _logger;
 
@@ -60,7 +61,8 @@ namespace AutopilotMonitor.Functions.Security
             ILogger logger,
             BootstrapSessionService? bootstrapSessionService = null,
             DeviceAssociationValidator? deviceAssociationValidator = null,
-            CloudPcDeviceValidator? cloudPcDeviceValidator = null)
+            CloudPcDeviceValidator? cloudPcDeviceValidator = null,
+            IntuneDeviceBindingValidator? intuneDeviceBindingValidator = null)
         {
             _configService = configService;
             _adminConfigService = adminConfigService;
@@ -69,6 +71,7 @@ namespace AutopilotMonitor.Functions.Security
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
+            _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _logger = logger;
         }
@@ -459,6 +462,59 @@ namespace AutopilotMonitor.Functions.Security
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "DevPrep association lookup (shadow) failed for tenant {TenantId}, serial {SerialNumber} — ignored.", capturedTenant, capturedSerial);
+                    }
+                });
+            }
+
+            // 6. CERT-DEVICE-BINDING-SHADOW - cert-to-device binding (Global-Admin-only preview).
+            // Stage 1 (CertTenantBinding) proves the certificate was issued to THIS tenant; this
+            // proves the specific device is one the tenant actually enrolled, so a certificate
+            // lifted from a decommissioned machine stops resolving. Observation only: it never
+            // touches deviceValidated or the returned result.
+            //
+            // Fire-and-forget for the same reason as the DevPrep lookup above - a cold Graph
+            // round-trip can take seconds and must never sit in the agent's request path. That
+            // rules out the request-row dimension stage 1 uses (the row is written the moment the
+            // function returns, before this task finishes), so the outcome is logged at Warning
+            // like the DevPrep shadow. Volume is bounded: only Global Admins can enable the
+            // toggle. Widening it beyond preview should move to an inline call plus the
+            // CertTenantBinding-style request dimension.
+            if (config.ValidateIntuneDeviceBinding && _intuneDeviceBindingValidator != null)
+            {
+                var bindingValidator = _intuneDeviceBindingValidator;
+                var bindingTenant = tenantId;
+                var bindingSession = sessionId;
+                var bindingSubject = certValidation.Subject;
+                var bindingThumbprint = certValidation.Thumbprint;
+                var bindingLogger = _logger;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        TryGetIntuneDeviceIdFromCertSubject(bindingSubject, out var certDeviceId);
+                        var binding = await bindingValidator.ValidateAsync(bindingTenant, certDeviceId, bindingSession);
+
+                        // Age of the device object at request time: the discriminator between a
+                        // genuine enrollment race (object created moments ago, or not yet) and a
+                        // certificate that never belonged to this tenant.
+                        var enrolledAgeSeconds = binding.EnrolledDateTime.HasValue
+                            ? (long)Math.Round((DateTimeOffset.UtcNow - binding.EnrolledDateTime.Value).TotalSeconds)
+                            : -1;
+
+                        bindingLogger.LogWarning(
+                            "AgentCertDeviceBinding outcome={Outcome} enforced={Enforced} tenant={TenantId} "
+                            + "certDeviceId={CertDeviceId} device={DeviceName} enrolledAgeSeconds={EnrolledAgeSeconds} "
+                            + "mgmtState={ManagementState} thumbprint={Thumbprint} session={SessionId} detail={Detail}",
+                            binding.Outcome, false, bindingTenant,
+                            certDeviceId ?? "n/a", binding.DeviceName ?? "n/a", enrolledAgeSeconds,
+                            binding.ManagementState ?? "n/a", bindingThumbprint ?? "n/a",
+                            bindingSession ?? "n/a", binding.ErrorMessage ?? "n/a");
+                    }
+                    catch (Exception ex)
+                    {
+                        bindingLogger.LogWarning(ex,
+                            "AgentCertDeviceBinding (shadow) failed for tenant {TenantId} - ignored.", bindingTenant);
                     }
                 });
             }

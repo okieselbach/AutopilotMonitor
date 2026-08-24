@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AutopilotMonitor.Functions.DataAccess;
@@ -424,6 +424,7 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.AutopilotDevic
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CorporateIdentifierValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.DeviceAssociationValidator>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.CloudPcDeviceValidator>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.IntuneDeviceBindingValidator>();
 
 // Graph add-on permission detection + script display-name resolution.
 // Detector parses the `roles` claim of the SP access token; Resolver fetches

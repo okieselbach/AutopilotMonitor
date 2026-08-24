@@ -13,6 +13,10 @@ interface AutopilotValidationSectionProps {
   onToggleDeviceAssociation?: (newValue: boolean) => void | Promise<void>;
   /** Render the DevPrep Device Association toggle. Gated to Global Admins by the parent. */
   showDeviceAssociationToggle?: boolean;
+  /** Cert-to-device binding - Global-Admin-only preview. Provided when `showIntuneDeviceBindingToggle=true`. */
+  validateIntuneDeviceBinding?: boolean;
+  onToggleIntuneDeviceBinding?: (v: boolean) => void | Promise<void>;
+  showIntuneDeviceBindingToggle?: boolean;
   /** Windows 365 Cloud PC validation — fallback gate for Cloud PCs (never Autopilot-registered). */
   validateCloudPcDevice?: boolean;
   /** Toggle + persist Cloud PC validation in one shot (permission comes via the Optional Graph capabilities add-on, no consent dialog). */
@@ -35,6 +39,9 @@ export default function AutopilotValidationSection({
   validateDeviceAssociation = false,
   onToggleDeviceAssociation,
   showDeviceAssociationToggle = false,
+  validateIntuneDeviceBinding = false,
+  onToggleIntuneDeviceBinding,
+  showIntuneDeviceBindingToggle = false,
   validateCloudPcDevice = false,
   onToggleCloudPc,
   autopilotConsentInProgress,
@@ -234,6 +241,35 @@ export default function AutopilotValidationSection({
               </button>
             </label>
             {!validateDeviceAssociation && renderDetectButton('device-preparation')}
+          </div>
+        )}
+
+        {/* Cert-to-device binding - GA-gated preview, shadow-mode (no enrollment block) */}
+        {showIntuneDeviceBindingToggle && onToggleIntuneDeviceBinding && (
+          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="intune-device-binding-toggle">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-gray-700 tracking-wide">Certificate Device Binding</p>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-purple-100 text-purple-800">
+                Preview · GA only
+              </span>
+            </div>
+            <label className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Enable Intune Device Binding Validation</p>
+                <p className="text-sm text-gray-500">
+                  Checks that the Intune device id in the agent{"'"}s client certificate belongs to a device this tenant actually enrolled. Currently runs in <strong>shadow mode</strong> - the result is recorded as telemetry only and does NOT block enrollment. Requires the optional <strong>DeviceManagementManagedDevices.Read.All</strong> permission - grant the{" "}
+                  <strong>IntuneDeviceBinding</strong> add-on under <em>Optional Graph capabilities</em>.
+                </p>
+              </div>
+              <button
+                onClick={() => { void onToggleIntuneDeviceBinding(!validateIntuneDeviceBinding); }}
+                disabled={saving}
+                aria-label="Toggle Intune device binding validation"
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${validateIntuneDeviceBinding ? 'bg-emerald-500' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateIntuneDeviceBinding ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </label>
           </div>
         )}
 

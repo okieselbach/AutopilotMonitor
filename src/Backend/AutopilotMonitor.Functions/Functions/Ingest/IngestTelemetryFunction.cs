@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
@@ -51,6 +51,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
+        private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
         private readonly SessionDeletionGuard _deletionGuard;
@@ -69,6 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
+            IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator,
             SessionDeletionGuard deletionGuard)
@@ -86,6 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
+            _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _killSwitchEvaluator = killSwitchEvaluator;
             _deletionGuard = deletionGuard;
@@ -116,7 +119,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     _logger,
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
-                    cloudPcDeviceValidator: _cloudPcDeviceValidator);
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator,
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator);
 
                 if (errorResponse != null) return AsOutput(errorResponse);
 

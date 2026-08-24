@@ -110,6 +110,42 @@ the extension: skip with a warning, or reject. Grep marker for every stage-2 sit
 The bootstrap-token path (`X-Bootstrap-Token`) bypasses certificate validation by design and is
 unaffected by either stage.
 
+**Stage 3 — device binding (Global-Admin-only preview).** Tenant binding proves the certificate was
+issued to this tenant; it does not prove the certificate belongs to a device the tenant still has.
+`IntuneDeviceBindingValidator` closes that by resolving the Intune managedDevice id from the
+certificate's Subject CN against the tenant's own `deviceManagement/managedDevices` inventory
+(point-GET on `managedDevices/{id}` — no OData filter to inject into, and a 404 is unambiguous).
+
+It is modelled on `CloudPcDeviceValidator` and shares its cache/retry/transient contract, with one
+important difference in how it is wired: the lookup is fire-and-forget, like the DevPrep
+association shadow, because a cold Graph round-trip can take seconds and must never sit in the
+agent's request path. That rules out the request-row dimension stage 1 uses — the row is written
+the moment the function returns, before the detached task finishes — so the outcome is logged at
+Warning instead. Volume stays bounded because only Global Admins can see the toggle
+(`user?.isGlobalAdmin === true`, the same gate as the DevPrep preview). Widening it beyond preview
+should move to an inline call plus a request dimension.
+
+Outcomes: `Match`, `NotFound`, `NoDeviceIdInCert`, `PermissionMissing`, `Transient`. Only
+`Transient` is retried and left uncached — a missing grant or a foreign device is a state, not an
+outage.
+
+The open question this preview exists to answer is a race, not an attack: a device object can in
+principle appear in Intune *after* the agent's first call, and enforcing before that is understood
+would reject legitimate enrollments. Every result therefore carries `enrolledDateTime`, and the log
+line records `enrolledAgeSeconds` — a device whose object was created seconds before the request
+looks completely different from a certificate that never belonged to the tenant. Grep marker:
+`CERT-DEVICE-BINDING-SHADOW`.
+
+Enabling it needs the optional Graph permission `DeviceManagementManagedDevices.Read.All`, granted
+per tenant with the customer script — it is not in the default-consent set:
+
+```powershell
+.\Grant-AutopilotMonitorAddOn.ps1 -ClientId "<client-id>" -Features IntuneDeviceBinding
+```
+
+`GraphFeatureCatalog` (feature `IntuneDeviceBinding`) and the script's catalog, `ValidateSet` and
+help block are pinned to each other by `GraphFeatureCatalogSyncTests`.
+
 # Examples
 
 Coverage — the question stage 2 depends on ("would enforcing lock anyone out?"):
@@ -137,6 +173,23 @@ Anything in `Mismatch` is a cross-tenant certificate; anything in `ExtensionMiss
 that stage-2 enforcement would have to make a policy decision about. Note that the trace query
 alone can never show `Match`, so it cannot tell "everything matched" apart from "nothing ran" —
 use the request-row query for that.
+
+Stage 3, including the enrollment-race measurement:
+
+```kusto
+traces
+| where message has "AgentCertDeviceBinding"
+| extend Outcome  = tostring(customDimensions.Outcome),
+         AgeSecs  = toint(customDimensions.EnrolledAgeSeconds)
+| summarize Requests = count(),
+            MinAgeSecs = min(AgeSecs),
+            P05AgeSecs = percentile(AgeSecs, 5)
+    by Outcome
+```
+
+`NotFound` is the row that decides whether this can ever become a gate. A small `MinAgeSecs` on
+`Match` means device objects are appearing only just in time — the race is real and enforcement
+would need a grace path.
 
 # Citations
 

@@ -40,6 +40,7 @@ export const SECTION_FIELD_MAP = {
       "validateCorporateIdentifier",
       "validateDeviceAssociation",
       "validateCloudPcDevice",
+      "validateIntuneDeviceBinding",
     ],
   },
   notifications: {

@@ -1,4 +1,4 @@
-using AutopilotMonitor.Shared;
+﻿using AutopilotMonitor.Shared;
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
@@ -32,6 +32,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
+        private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly WebhookNotificationService _webhookNotificationService;
         private readonly SessionDeletionGuard _deletionGuard;
@@ -48,6 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
+            IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
             WebhookNotificationService webhookNotificationService,
             SessionDeletionGuard deletionGuard)
@@ -62,6 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
+            _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _webhookNotificationService = webhookNotificationService;
             _deletionGuard = deletionGuard;
@@ -106,7 +109,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     registration.SessionId,
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
-                    cloudPcDeviceValidator: _cloudPcDeviceValidator
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator,
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator
                 );
 
                 if (errorResponse2 != null)

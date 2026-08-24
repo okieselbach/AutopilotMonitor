@@ -1,4 +1,4 @@
-namespace AutopilotMonitor.Shared.Models.Graph
+﻿namespace AutopilotMonitor.Shared.Models.Graph
 {
     /// <summary>
     /// Constant catalog of Microsoft Graph application permission names referenced by the
@@ -25,6 +25,14 @@ namespace AutopilotMonitor.Shared.Models.Graph
 
         /// <summary>Read Intune managed apps (future use — Win32 app display names not yet covered).</summary>
         public const string DeviceManagementAppsReadAll = "DeviceManagementApps.Read.All";
+
+        /// <summary>
+        /// Read Intune managed device objects (<c>deviceManagement/managedDevices</c>). Optional
+        /// add-on permission backing the Intune device-binding check, which verifies that the
+        /// managedDevice id carried in the agent's client certificate actually exists in the
+        /// tenant it claims. Not part of the default-consent set — must be granted per tenant.
+        /// </summary>
+        public const string DeviceManagementManagedDevicesReadAll = "DeviceManagementManagedDevices.Read.All";
 
         /// <summary>
         /// Read Windows 365 Cloud PC objects (<c>virtualEndpoint/cloudPCs</c>). Optional add-on

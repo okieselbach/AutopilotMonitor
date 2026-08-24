@@ -133,11 +133,14 @@ interface TenantConfigContextValue {
   handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
   validateCloudPcDevice: boolean;
   setValidateCloudPcDevice: (v: boolean) => void;
+  validateIntuneDeviceBinding: boolean;
+  setValidateIntuneDeviceBinding: (v: boolean) => void;
   /**
    * Toggle + persist W365 Cloud PC validation in one shot. No consent flow — the backing
    * CloudPC.Read.All permission is granted via the Optional Graph capabilities add-on script.
    */
   handleToggleCloudPcValidation: (newValue: boolean) => Promise<void>;
+  handleToggleIntuneDeviceBinding: (newValue: boolean) => Promise<void>;
   /**
    * Persist a validation-gate change immediately. The validation section has NO save bar —
    * every gate change that doesn't run the consent flow (disable, and enabling the second
@@ -394,6 +397,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [validateCorporateIdentifier, setValidateCorporateIdentifier] = useState(false);
   const [validateDeviceAssociation, setValidateDeviceAssociation] = useState(false);
   const [validateCloudPcDevice, setValidateCloudPcDevice] = useState(false);
+  const [validateIntuneDeviceBinding, setValidateIntuneDeviceBinding] = useState(false);
   const [dataRetentionDays, setDataRetentionDays] = useState(90);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(5);
 
@@ -535,6 +539,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setValidateCorporateIdentifier(data.validateCorporateIdentifier ?? false);
         setValidateDeviceAssociation(data.validateDeviceAssociation ?? false);
         setValidateCloudPcDevice(data.validateCloudPcDevice ?? false);
+        setValidateIntuneDeviceBinding(data.validateIntuneDeviceBinding ?? false);
         setDataRetentionDays(data.dataRetentionDays ?? 90);
         setSessionTimeoutHours(data.sessionTimeoutHours ?? 5);
         setEnablePerformanceCollector(data.enablePerformanceCollector ?? true);
@@ -703,7 +708,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // -----------------------------------------------------------------------
   // Save configuration (shared by all sections)
   // -----------------------------------------------------------------------
-  const saveConfiguration = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
+  const saveConfiguration = useCallback(async (sectionName: SettingsSectionName, overrides?: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean; validateCloudPcDevice?: boolean; validateIntuneDeviceBinding?: boolean; unrestrictedMode?: boolean }): Promise<boolean> => {
     // Read-only viewers (Operators) have no save affordances; this guard covers any path
     // that still reaches a save (the backend would 403 the PATCH regardless).
     if (!tenantId || !config || !canEditConfig) return false;
@@ -717,6 +722,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       const corporateIdentifierValidationValue = overrides?.validateCorporateIdentifier ?? validateCorporateIdentifier;
       const deviceAssociationValidationValue = overrides?.validateDeviceAssociation ?? validateDeviceAssociation;
       const cloudPcValidationValue = overrides?.validateCloudPcDevice ?? validateCloudPcDevice;
+      const intuneDeviceBindingValue = overrides?.validateIntuneDeviceBinding ?? validateIntuneDeviceBinding;
       const unrestrictedModeValue = overrides?.unrestrictedMode ?? unrestrictedMode;
 
       const updatedConfig: TenantConfiguration = {
@@ -728,6 +734,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         validateCorporateIdentifier: corporateIdentifierValidationValue,
         validateDeviceAssociation: deviceAssociationValidationValue,
         validateCloudPcDevice: cloudPcValidationValue,
+        validateIntuneDeviceBinding: intuneDeviceBindingValue,
         dataRetentionDays,
         sessionTimeoutHours,
         enablePerformanceCollector,
@@ -822,6 +829,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setValidateCorporateIdentifier(persisted.validateCorporateIdentifier ?? false);
       setValidateDeviceAssociation(persisted.validateDeviceAssociation ?? false);
       setValidateCloudPcDevice(persisted.validateCloudPcDevice ?? false);
+      setValidateIntuneDeviceBinding(persisted.validateIntuneDeviceBinding ?? false);
       setUnrestrictedMode(persisted.unrestrictedMode ?? false);
       trackEvent("settings_saved", { section: sectionName, fieldCount: Object.keys(patchFields).length });
       setSuccessMessage("Configuration saved successfully!");
@@ -841,7 +849,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     }
   }, [
     tenantId, config, canEditConfig, getAccessToken, addNotification,
-    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice,
+    manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
     contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
@@ -1333,6 +1341,17 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     await saveConfiguration("autopilotValidation", { validateCloudPcDevice: newValue });
   }, [saveConfiguration]);
 
+  /**
+   * Toggle the cert-to-device binding check (Global-Admin-only preview). No consent flow -
+   * DeviceManagementManagedDevices.Read.All is an Optional Graph capabilities add-on granted
+   * with the script; without it the backend records "PermissionMissing" and nothing else, and
+   * because the check runs in shadow mode it never affects an enrollment either way.
+   */
+  const handleToggleIntuneDeviceBinding = useCallback(async (newValue: boolean) => {
+    setValidateIntuneDeviceBinding(newValue);
+    await saveConfiguration("autopilotValidation", { validateIntuneDeviceBinding: newValue });
+  }, [saveConfiguration]);
+
   // -----------------------------------------------------------------------
   // Admin management handlers
   // -----------------------------------------------------------------------
@@ -1660,7 +1679,9 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       validateDeviceAssociation, setValidateDeviceAssociation,
       handleToggleDeviceAssociationValidation,
       validateCloudPcDevice, setValidateCloudPcDevice,
+      validateIntuneDeviceBinding, setValidateIntuneDeviceBinding,
       handleToggleCloudPcValidation,
+      handleToggleIntuneDeviceBinding,
       saveValidationGate,
       autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
 
@@ -1767,6 +1788,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped,
     validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     handleToggleDeviceAssociationValidation, validateCloudPcDevice, handleToggleCloudPcValidation,
+    validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,
     saveValidationGate, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
     manufacturerWhitelist, modelWhitelist, effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,
     handleSaveHardwareWhitelist, handleResetHardwareWhitelist,

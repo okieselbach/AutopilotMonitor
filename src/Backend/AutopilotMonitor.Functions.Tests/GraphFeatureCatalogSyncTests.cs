@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.Models.Graph;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -61,6 +61,18 @@ public class GraphFeatureCatalogSyncTests
         Assert.Equal(
             GraphFeatureCatalog.Features.OrderBy(f => f, StringComparer.OrdinalIgnoreCase),
             scriptFeatures.Where(f => f != "All").OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GrantScript_Help_DocumentsEveryFeature()
+    {
+        // The -Features help block is how an admin discovers what they can grant. A feature that
+        // is grantable but undocumented effectively does not exist for them.
+        var script = ReadGrantScript();
+        var help = script.Substring(0, script.IndexOf("$FeatureCatalog", StringComparison.Ordinal));
+
+        foreach (var feature in GraphFeatureCatalog.Features)
+            Assert.Contains(feature, help, StringComparison.Ordinal);
     }
 
     private static string ReadGrantScript()

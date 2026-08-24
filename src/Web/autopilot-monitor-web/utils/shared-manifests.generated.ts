@@ -87,6 +87,7 @@ export const SHARED_MANIFEST = {
       "validateCorporateIdentifier",
       "validateDeviceAssociation",
       "validateCloudPcDevice",
+      "validateIntuneDeviceBinding",
       "allowInsecureAgentRequests",
       "dataRetentionDays",
       "sessionTimeoutHours",

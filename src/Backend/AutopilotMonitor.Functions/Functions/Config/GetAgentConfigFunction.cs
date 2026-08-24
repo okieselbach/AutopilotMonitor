@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -26,6 +26,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
+        private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
 
@@ -40,6 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
+            IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator)
         {
@@ -53,6 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
+            _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
             _killSwitchEvaluator = killSwitchEvaluator;
         }
@@ -88,7 +91,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     _logger,
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
-                    cloudPcDeviceValidator: _cloudPcDeviceValidator
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator,
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator
                 );
 
                 if (errorResponse != null)

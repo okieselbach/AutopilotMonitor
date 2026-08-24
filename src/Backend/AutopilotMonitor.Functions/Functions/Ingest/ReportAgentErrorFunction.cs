@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -35,6 +35,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
         private readonly DeviceAssociationValidator _deviceAssociationValidator;
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
+        private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly TelemetryClient _telemetryClient;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly ISessionRepository _sessionRepo;
@@ -49,6 +50,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             CorporateIdentifierValidator corporateIdentifierValidator,
             DeviceAssociationValidator deviceAssociationValidator,
             CloudPcDeviceValidator cloudPcDeviceValidator,
+            IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             TelemetryClient telemetryClient,
             BootstrapSessionService bootstrapSessionService,
             ISessionRepository sessionRepo,
@@ -62,6 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _corporateIdentifierValidator = corporateIdentifierValidator;
             _deviceAssociationValidator = deviceAssociationValidator;
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
+            _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _telemetryClient = telemetryClient;
             _bootstrapSessionService = bootstrapSessionService;
             _sessionRepo = sessionRepo;
@@ -98,7 +101,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     _logger,
                     bootstrapSessionService: _bootstrapSessionService,
                     deviceAssociationValidator: _deviceAssociationValidator,
-                    cloudPcDeviceValidator: _cloudPcDeviceValidator
+                    cloudPcDeviceValidator: _cloudPcDeviceValidator,
+                    intuneDeviceBindingValidator: _intuneDeviceBindingValidator
                 );
 
                 if (errorResponse != null)

@@ -23,6 +23,7 @@ const EXPECTED_OWNED_FIELDS = [
   "manufacturerWhitelist", "modelWhitelist", "webhookNotifyOnHardwareRejection",
   // autopilotValidation
   "validateAutopilotDevice", "validateCorporateIdentifier", "validateDeviceAssociation", "validateCloudPcDevice",
+  "validateIntuneDeviceBinding",
   // notifications
   "notificationChannelsJson",
   // slaTargets

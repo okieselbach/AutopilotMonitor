@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -652,6 +652,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "ValidateCorporateIdentifier", config.ValidateCorporateIdentifier },
                 { "ValidateDeviceAssociation", config.ValidateDeviceAssociation },
                 { "ValidateCloudPcDevice", config.ValidateCloudPcDevice },
+                { "ValidateIntuneDeviceBinding", config.ValidateIntuneDeviceBinding },
                 { "AllowInsecureAgentRequests", config.AllowInsecureAgentRequests },
                 { "DataRetentionDays", config.DataRetentionDays },
                 { "SessionTimeoutHours", config.SessionTimeoutHours },
@@ -757,6 +758,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ValidateCorporateIdentifier = entity.GetBoolean("ValidateCorporateIdentifier") ?? false,
                 ValidateDeviceAssociation = entity.GetBoolean("ValidateDeviceAssociation") ?? false,
                 ValidateCloudPcDevice = entity.GetBoolean("ValidateCloudPcDevice") ?? false,
+                ValidateIntuneDeviceBinding = entity.GetBoolean("ValidateIntuneDeviceBinding") ?? false,
                 AllowInsecureAgentRequests = entity.GetBoolean("AllowInsecureAgentRequests") ?? false,
                 DataRetentionDays = entity.GetInt32("DataRetentionDays") ?? 90,
                 SessionTimeoutHours = entity.GetInt32("SessionTimeoutHours") ?? 5,

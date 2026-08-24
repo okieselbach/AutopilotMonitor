@@ -17,6 +17,8 @@ export function SectionAutopilotValidation() {
     validateDeviceAssociation,
     handleToggleDeviceAssociationValidation,
     validateCloudPcDevice,
+    validateIntuneDeviceBinding,
+    handleToggleIntuneDeviceBinding,
     handleToggleCloudPcValidation,
     saveValidationGate,
     autopilotConsentInProgress, savingSection,
@@ -42,6 +44,9 @@ export function SectionAutopilotValidation() {
   // to the web test setup (vitest.config.ts currently only matches *.test.ts, no JSX).
   // Tracked in memory/project_devprep_followups.md.
   const showDeviceAssociationToggle = user?.isGlobalAdmin === true;
+  // Same GA gate as the DevPrep preview: only the operator can turn the binding check on
+  // while its enrollment-race behaviour is still being measured.
+  const showIntuneDeviceBindingToggle = user?.isGlobalAdmin === true;
 
   // Dual app-reg window: tenants homed on the previous app registration (homedAppClientId
   // null/absent) keep working unchanged — this is a purely informational nudge, part of the
@@ -145,6 +150,9 @@ export function SectionAutopilotValidation() {
         onToggleDeviceAssociation={handleToggleDeviceAssociationValidation}
         showDeviceAssociationToggle={showDeviceAssociationToggle}
         validateCloudPcDevice={validateCloudPcDevice}
+        validateIntuneDeviceBinding={validateIntuneDeviceBinding}
+        onToggleIntuneDeviceBinding={handleToggleIntuneDeviceBinding}
+        showIntuneDeviceBindingToggle={showIntuneDeviceBindingToggle}
         onToggleCloudPc={handleToggleCloudPcValidation}
         autopilotConsentInProgress={autopilotConsentInProgress}
         saving={savingSection === "autopilotValidation"}
