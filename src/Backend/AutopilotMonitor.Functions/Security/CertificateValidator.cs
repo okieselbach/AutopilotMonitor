@@ -139,8 +139,7 @@ namespace AutopilotMonitor.Functions.Security
                     if (cached.ExpiresAt > DateTime.UtcNow)
                     {
                         logger?.LogDebug($"Certificate validation cache HIT for thumbprint {thumbprint}");
-                        // Copy so FromCache is per-call state and never mutates the shared cached instance.
-                        return cached.Result.AsCacheHit();
+                        return cached.Result;
                     }
                     else
                     {
@@ -425,28 +424,6 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         public CertTenantIdStatus CertTenantIdStatus { get; set; }
 
-        /// <summary>
-        /// True when this result was served from the 5-minute thumbprint cache rather than freshly
-        /// validated. Used to sample per-request observability down to roughly one line per
-        /// certificate per cache window.
-        /// </summary>
-        public bool FromCache { get; set; }
-
-        /// <summary>
-        /// Returns a copy of this result marked as a cache hit, so the shared cached instance is
-        /// never mutated by a caller.
-        /// </summary>
-        internal CertificateValidationResult AsCacheHit() => new()
-        {
-            IsValid = IsValid,
-            Thumbprint = Thumbprint,
-            Subject = Subject,
-            Issuer = Issuer,
-            ErrorMessage = ErrorMessage,
-            CertTenantId = CertTenantId,
-            CertTenantIdStatus = CertTenantIdStatus,
-            FromCache = true
-        };
     }
 
     /// <summary>

@@ -59,23 +59,19 @@ public class CertTenantBindingTests
     }
 
     [Fact]
-    public void ValidateCertificate_CachedResult_KeepsTenantIdAndFlagsCacheHit()
+    public void ValidateCertificate_CachedResult_KeepsTenantId()
     {
-        // FromCache is what samples the high-volume "Match" telemetry down to ~one line per cert
-        // per cache window, so it has to survive the cache and not corrupt the cached entry.
+        // The tenant id is a pure function of the cert and is cached with the validation result,
+        // so a cache hit must not silently drop it and turn every repeat request into
+        // ExtensionMissing.
         var b64 = SampleCertBase64();
 
         _ = CertificateValidator.ValidateCertificate(b64);
         var second = CertificateValidator.ValidateCertificate(b64);
-        var third = CertificateValidator.ValidateCertificate(b64);
 
-        Assert.True(second.FromCache);
+        Assert.True(second.IsValid);
+        Assert.Equal(CertTenantIdStatus.Present, second.CertTenantIdStatus);
         Assert.Equal(SampleCertTenantId, second.CertTenantId);
-
-        // The cache-hit copy must not have mutated the shared cached instance.
-        Assert.True(third.FromCache);
-        Assert.Equal(SampleCertTenantId, third.CertTenantId);
-        Assert.True(third.IsValid);
     }
 
     // ---------------------------------------------------------------- encoding
@@ -242,14 +238,43 @@ public class CertTenantBindingTests
 
         Assert.True(result.IsValid, $"Matching-tenant request rejected: {result.ErrorMessage}");
 
-        // Match is only logged on a fresh validation; the cache is process-wide and shared with the
-        // other tests here, so assert the outcome only when a line was actually emitted.
-        var observed = logger.Entries.FirstOrDefault(e => e.Message.Contains("AgentCertTenantBinding"));
-        if (observed != null)
-        {
-            Assert.Equal(LogLevel.Information, observed.Level);
-            Assert.Contains(CertTenantBinding.Outcome.Match, observed.Message);
-        }
+        // Match is deliberately NOT a trace line — worker-side LogInformation never reaches App
+        // Insights, so a Match trace would be dead code that silently costs us the denominator.
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("AgentCertTenantBinding"));
+    }
+
+    [Fact]
+    public async Task ValidateRequestAsync_StampsOutcomeOnTheRequestRow()
+    {
+        // The denominator lives here: RequestTelemetryMiddleware copies this item onto the request
+        // row, which already exists per request and is unsampled. Without it, "Match" is invisible
+        // and the shadow telemetry cannot say how often the binding held.
+        var items = new Dictionary<object, object>();
+        var validator = BuildValidator(new CapturingLogger());
+
+        var result = await validator.ValidateRequestAsync(
+            BuildRequestWithCert(SampleCertBase64(), items),
+            tenantId: SampleCertTenantId.ToString());
+
+        Assert.True(result.IsValid, $"Matching-tenant request rejected: {result.ErrorMessage}");
+        Assert.Equal(
+            CertTenantBinding.Outcome.Match,
+            Assert.Contains(CertTenantBinding.RequestItemKey, items));
+    }
+
+    [Fact]
+    public async Task ValidateRequestAsync_StampsMismatchOnTheRequestRowToo()
+    {
+        var items = new Dictionary<object, object>();
+        var validator = BuildValidator(new CapturingLogger());
+
+        await validator.ValidateRequestAsync(
+            BuildRequestWithCert(SampleCertBase64(), items),
+            tenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        Assert.Equal(
+            CertTenantBinding.Outcome.Mismatch,
+            Assert.Contains(CertTenantBinding.RequestItemKey, items));
     }
 
     // ---------------------------------------------------------------- harness
@@ -293,9 +318,12 @@ public class CertTenantBindingTests
             deviceAssociationValidator: null);
     }
 
-    private static HttpRequestData BuildRequestWithCert(string certBase64)
+    private static HttpRequestData BuildRequestWithCert(
+        string certBase64,
+        IDictionary<object, object>? items = null)
     {
         var contextMock = new Mock<Microsoft.Azure.Functions.Worker.FunctionContext>();
+        contextMock.SetupGet(c => c.Items).Returns(items ?? new Dictionary<object, object>());
         var reqMock = new Mock<HttpRequestData>(contextMock.Object);
 
         var headers = new HttpHeadersCollection

@@ -85,12 +85,22 @@ lives in `CertTenantBinding.Evaluate`; the outcome codes (`Match`, `Mismatch`, `
 `WouldRejectUnderEnforcement` records what stage 2 *would* have done, so the telemetry can be read
 without re-deriving the rule at query time.
 
-Volume control: the outcomes that inform the decision (mismatch, missing, undecodable) are always
-logged, because they are expected to be rare and each is individually interesting. The bulk `Match`
-case is logged only when the certificate was freshly validated rather than served from the 5-minute
-thumbprint cache (`CertificateValidationResult.FromCache`). Both numerator and denominator are
-therefore counted per certificate-window rather than per request, which keeps the ratio meaningful
-while cutting the volume by roughly the request-per-device factor.
+The telemetry uses two carriers, because the numerator and the denominator have very different
+costs and answer different questions:
+
+* **Every** outcome, `Match` included, is stamped onto the request row as the `CertTenantBinding`
+  dimension — `SecurityValidator` writes it into `FunctionContext.Items`
+  (`CertTenantBinding.RequestItemKey`) and `RequestTelemetryMiddleware` copies it onto the
+  `RequestTelemetry` it already emits. That row exists per request and is unsampled, so the
+  denominator costs no additional telemetry at all.
+* Outcomes that need an enforcement decision (mismatch, missing, undecodable) are **additionally**
+  logged at Warning with the full context — thumbprint, certificate tenant, session.
+
+`Match` is deliberately not a trace line. Worker-side `LogInformation` never reaches App Insights
+(the ApplicationInsightsLoggerProvider default rule is Warning+ and host-forwarding of worker logs
+is disabled), so a `Match` trace is dead code that silently costs the denominator. The first
+deployment of this feature made exactly that mistake: it emitted zero rows across 32k requests,
+which is indistinguishable from the code never running.
 
 **Stage 2 — enforce.** Once telemetry shows the `ExtensionMissing` rate is negligible, `Mismatch`
 becomes a rejection. The decision that still has to be made is the policy for certificates without
@@ -102,7 +112,18 @@ unaffected by either stage.
 
 # Examples
 
-Read the shadow telemetry:
+Coverage — the question stage 2 depends on ("would enforcing lock anyone out?"):
+
+```kusto
+requests
+| where isnotempty(customDimensions.CertTenantBinding)
+| summarize Requests = sum(itemCount)
+    by Outcome = tostring(customDimensions.CertTenantBinding),
+       Tenant  = tostring(customDimensions.TenantId)
+| order by Requests desc
+```
+
+Detail on the individually actionable ones:
 
 ```kusto
 traces
@@ -113,7 +134,9 @@ traces
 ```
 
 Anything in `Mismatch` is a cross-tenant certificate; anything in `ExtensionMissing` is a device
-that stage-2 enforcement would have to make a policy decision about.
+that stage-2 enforcement would have to make a policy decision about. Note that the trace query
+alone can never show `Match`, so it cannot tell "everything matched" apart from "nothing ran" —
+use the request-row query for that.
 
 # Citations
 

@@ -5,6 +5,7 @@ using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 
 namespace AutopilotMonitor.Functions.Middleware;
 
@@ -113,6 +114,14 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 
             if (context.Items.TryGetValue("CorrelationId", out var corrId) && corrId is string correlationId)
                 requestTelemetry.Properties["CorrelationId"] = correlationId;
+
+            // CERT-TENANT-BINDING-SHADOW — set by SecurityValidator.ObserveCertTenantBinding.
+            // Carried on the request row rather than a trace line: worker-side LogInformation never
+            // reaches App Insights (provider default rule is Warning+), so the bulk "Match" outcome
+            // would be invisible and the shadow telemetry would have no denominator. This row already
+            // exists per request and is unsampled, so the outcome costs no additional telemetry.
+            if (context.Items.TryGetValue(CertTenantBinding.RequestItemKey, out var binding) && binding is string bindingOutcome)
+                requestTelemetry.Properties["CertTenantBinding"] = bindingOutcome;
 
             var reqCtx = context.GetRequestContext();
             var tenantId = reqCtx.TenantId;

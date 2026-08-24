@@ -22,6 +22,18 @@ namespace AutopilotMonitor.Functions.Security
     public static class CertTenantBinding
     {
         /// <summary>
+        /// <see cref="Microsoft.Azure.Functions.Worker.FunctionContext"/> item key under which
+        /// <c>SecurityValidator</c> hands the outcome to <c>RequestTelemetryMiddleware</c>, which
+        /// stamps it onto the request row as the <c>CertTenantBinding</c> dimension.
+        /// </summary>
+        /// <remarks>
+        /// The request row is the carrier because worker-side <c>LogInformation</c> never reaches
+        /// App Insights (the provider's default rule is Warning+), so the bulk "Match" outcome
+        /// cannot be observed as a trace and the shadow telemetry would have no denominator.
+        /// </remarks>
+        public const string RequestItemKey = "CertTenantBinding";
+
+        /// <summary>
         /// Stable outcome codes emitted in the <c>AgentCertTenantBinding</c> structured log.
         /// Keep these strings stable — they are queried by exact match in KQL
         /// (<c>customDimensions.Outcome == "Mismatch"</c>).

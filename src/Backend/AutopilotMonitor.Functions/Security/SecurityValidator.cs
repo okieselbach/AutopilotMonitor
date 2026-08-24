@@ -527,12 +527,17 @@ namespace AutopilotMonitor.Functions.Security
         /// changes no state: enforcement is stage 2, after this telemetry shows the miss rate.
         /// </summary>
         /// <remarks>
-        /// Volume control: outcomes that need enforcement decisions (mismatch, missing or
-        /// undecodable extension) are always logged — they are expected to be rare and each one is
-        /// individually interesting. The bulk "Match" case is logged only when the certificate was
-        /// freshly validated rather than served from the 5-minute thumbprint cache, which samples it
-        /// down to roughly one line per certificate per cache window while keeping the ratio between
-        /// numerator and denominator meaningful (both are counted per cert-window, not per request).
+        /// Two carriers, because they answer different questions and have different costs:
+        /// <list type="bullet">
+        /// <item><description>Every outcome is stamped onto the request row via
+        /// <see cref="CertTenantBinding.RequestItemKey"/>. That row already exists per request and is
+        /// unsampled, so the denominator ("how many requests matched") costs no extra telemetry.
+        /// A trace line could not do this: worker-side <c>LogInformation</c> never reaches App
+        /// Insights, so the bulk "Match" case would simply be invisible.</description></item>
+        /// <item><description>Outcomes that need an enforcement decision (mismatch, missing or
+        /// undecodable extension) are additionally logged at Warning with the full context —
+        /// thumbprint, cert tenant, session — because each one is individually actionable.</description></item>
+        /// </list>
         /// </remarks>
         private void ObserveCertTenantBinding(
             CertificateValidationResult certValidation,
@@ -547,7 +552,13 @@ namespace AutopilotMonitor.Functions.Security
                     certValidation.CertTenantIdStatus,
                     tenantId);
 
-                if (outcome == CertTenantBinding.Outcome.Match && certValidation.FromCache)
+                // Denominator: rides along on the request row for every outcome, including Match.
+                var items = req.FunctionContext?.Items;
+                if (items != null)
+                    items[CertTenantBinding.RequestItemKey] = outcome;
+
+                // Everything below is the detail record for outcomes someone has to act on.
+                if (outcome == CertTenantBinding.Outcome.Match)
                     return;
 
                 var agentVersion = req.Headers.Contains("X-Agent-Version")
@@ -564,18 +575,9 @@ namespace AutopilotMonitor.Functions.Security
                 var certTenant = certValidation.CertTenantId?.ToString() ?? "n/a";
                 var wouldReject = CertTenantBinding.WouldRejectUnderEnforcement(outcome);
 
-                if (outcome == CertTenantBinding.Outcome.Match)
-                {
-                    _logger.LogInformation(template,
-                        outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
-                        certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
-                }
-                else
-                {
-                    _logger.LogWarning(template,
-                        outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
-                        certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
-                }
+                _logger.LogWarning(template,
+                    outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
+                    certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
             }
             catch (Exception ex)
             {
