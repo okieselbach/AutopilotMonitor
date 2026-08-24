@@ -1,5 +1,4 @@
 using System;
-using System.Net.NetworkInformation;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -165,29 +164,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             => Task.Delay(((int)Math.Pow(2, attempt)) * 1000);
 
         /// <summary>
-        /// Boot-time NIC grace (same pattern as the emergency-break reporter): polls the cheap
-        /// link-level signal once per second for at most <see cref="NetworkLinkWaitMax"/>. It
-        /// cannot prove backend reachability — the retry loop handles that — it only keeps the
-        /// first attempts from being burned into a link that is provably still down. Probe
+        /// Boot-time NIC grace before the first registration attempt — shared polling loop in
+        /// <see cref="NetworkLinkWait"/>, bounded by <see cref="NetworkLinkWaitMax"/>. Probe
         /// errors end the wait, never the registration.
         /// </summary>
-        internal static async Task WaitForNetworkLinkAsync(AgentLogger logger)
-        {
-            if (NetworkInterface.GetIsNetworkAvailable()) return;
-
-            logger?.Info($"Session registration: no network link yet — waiting up to {NetworkLinkWaitMax.TotalSeconds:F0}s.");
-            var deadline = DateTime.UtcNow + NetworkLinkWaitMax;
-            while (DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(1000).ConfigureAwait(false);
-                if (NetworkInterface.GetIsNetworkAvailable())
-                {
-                    logger?.Info("Session registration: network link is up.");
-                    return;
-                }
-            }
-            logger?.Warning($"Session registration: still no network link after {NetworkLinkWaitMax.TotalSeconds:F0}s — attempting anyway.");
-        }
+        internal static Task WaitForNetworkLinkAsync(AgentLogger logger)
+            => NetworkLinkWait.WaitAsync(logger, NetworkLinkWaitMax, "Session registration");
 
         private static SessionRegistration BuildRegistration(
             AgentConfiguration agentConfig,

@@ -128,6 +128,94 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal(4, svc.LastFetchAttempts);
         }
 
+        // ── Network-link gate (edu.kosh audit 2026-08-24) ───────────────────
+
+        [Fact]
+        public async Task FetchConfig_InitialFetch_WaitsForNetworkLink()
+        {
+            // The initial startup fetch must gate on the link-level signal so the retry
+            // budget isn't burned into a NIC that is provably still down (agent relaunched
+            // at boot, Wi-Fi still associating).
+            var svc = NewService(BackendBehaviour.SuccessImmediately);
+
+            await svc.FetchConfigAsync(retryOnTransientErrors: true);
+
+            Assert.Equal(1, svc.NetworkLinkWaits);
+        }
+
+        [Fact]
+        public async Task FetchConfig_RotatePath_SkipsNetworkLinkGate()
+        {
+            // rotate_config runs mid-session on a proven link and must stay latency-bounded.
+            var svc = NewService(BackendBehaviour.SuccessImmediately);
+
+            await svc.FetchConfigAsync(retryOnTransientErrors: false);
+
+            Assert.Equal(0, svc.NetworkLinkWaits);
+        }
+
+        // ── Post-registration recovery ──────────────────────────────────────
+
+        [Fact]
+        public async Task TryRecover_AfterFailedFetch_AppliesLiveConfig_KeepsFailureRecord()
+        {
+            // The core self-heal contract: registration proved the backend reachable, the
+            // recovery swaps in the live config — but the LastFetch* observability keeps
+            // describing the failed startup fetch so the wire event can report both.
+            var svc = NewService(BackendBehaviour.FailAllThenSucceed);
+            await svc.FetchConfigAsync(retryOnTransientErrors: true);
+            Assert.Equal(RemoteConfigFetchOutcome.UsedDefaults, svc.LastFetchOutcome);
+
+            var recovered = await svc.TryRecoverConfigAsync();
+
+            Assert.NotNull(recovered);
+            Assert.Equal(42, recovered.ConfigVersion);
+            Assert.Equal(42, svc.CurrentConfig.ConfigVersion);
+            Assert.True(svc.RecoveredAfterFetchFailure);
+            // Startup-failure record intact:
+            Assert.Equal(RemoteConfigFetchOutcome.UsedDefaults, svc.LastFetchOutcome);
+            Assert.Equal(1 + RemoteConfigService.InitialFetchRetryBackoff.Length, svc.LastFetchAttempts);
+            Assert.Equal(nameof(HttpRequestException), svc.LastFetchFailureType);
+        }
+
+        [Fact]
+        public async Task TryRecover_AfterSuccessfulFetch_IsNoOp()
+        {
+            var svc = NewService(BackendBehaviour.SuccessImmediately);
+            await svc.FetchConfigAsync(retryOnTransientErrors: true);
+
+            var recovered = await svc.TryRecoverConfigAsync();
+
+            Assert.Null(recovered);
+            Assert.False(svc.RecoveredAfterFetchFailure);
+        }
+
+        [Fact]
+        public async Task TryRecover_BeforeAnyFetch_IsNoOp()
+        {
+            var svc = NewService(BackendBehaviour.SuccessImmediately);
+
+            var recovered = await svc.TryRecoverConfigAsync();
+
+            Assert.Null(recovered);
+            Assert.False(svc.RecoveredAfterFetchFailure);
+        }
+
+        [Fact]
+        public async Task TryRecover_WhenBackendStillFailing_KeepsFallback_NeverThrows()
+        {
+            var svc = NewService(BackendBehaviour.AlwaysTransientFailure);
+            var fallback = await svc.FetchConfigAsync(retryOnTransientErrors: true);
+            Assert.Equal(0, fallback.ConfigVersion);
+
+            var recovered = await svc.TryRecoverConfigAsync();
+
+            Assert.Null(recovered);
+            Assert.False(svc.RecoveredAfterFetchFailure);
+            Assert.Equal(0, svc.CurrentConfig.ConfigVersion); // fallback config untouched
+            Assert.Equal(RemoteConfigFetchOutcome.UsedDefaults, svc.LastFetchOutcome);
+        }
+
         // ── Outcome state defaults ──────────────────────────────────────────
 
         [Fact]
@@ -145,6 +233,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             SuccessImmediately,
             AlwaysTransientFailure,
             FailTwiceThenSucceed,
+            /// <summary>All 4 initial attempts fail; the NEXT call (the recovery fetch) succeeds.</summary>
+            FailAllThenSucceed,
             AlwaysAuthFailure401,
             AlwaysReturnNull,
         }
@@ -177,6 +267,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 _behaviour = behaviour;
             }
 
+            /// <summary>Number of times the network-link gate seam was awaited.</summary>
+            public int NetworkLinkWaits { get; private set; }
+
             protected override Task<AgentConfigResponse> CallBackendAsync()
             {
                 _calls++;
@@ -187,6 +280,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                     case BackendBehaviour.FailTwiceThenSucceed:
                         if (_calls < 3)
                             throw new HttpRequestException("simulated cold-start timeout");
+                        return Task.FromResult(new AgentConfigResponse { ConfigVersion = 42 });
+                    case BackendBehaviour.FailAllThenSucceed:
+                        if (_calls <= 1 + RemoteConfigService.InitialFetchRetryBackoff.Length)
+                            throw new HttpRequestException("simulated dead network link");
                         return Task.FromResult(new AgentConfigResponse { ConfigVersion = 42 });
                     case BackendBehaviour.AlwaysTransientFailure:
                         throw new HttpRequestException("simulated network failure");
@@ -201,6 +298,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
 
             // Zero-delay so the suite finishes in ms instead of the live 10/30/60 s schedule.
             protected override Task DelayBetweenAttemptsAsync(TimeSpan delay) => Task.CompletedTask;
+
+            // Record + skip the real link poll so the suite is deterministic on offline CI.
+            protected override Task WaitForNetworkLinkAsync()
+            {
+                NetworkLinkWaits++;
+                return Task.CompletedTask;
+            }
 
             // In-memory + per-instance cache so a prior test's successful fetch can't
             // bleed into a later test that expects UsedDefaults.

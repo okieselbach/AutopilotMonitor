@@ -52,6 +52,7 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 // prior to this, ConfigVersion=0 was only deducible by inferring from
                 // the absence of tenant-controlled knobs in the DataJson.
                 var outcome = remoteConfigService?.LastFetchOutcome ?? RemoteConfigFetchOutcome.NotAttempted;
+                var recovered = remoteConfigService?.RecoveredAfterFetchFailure == true;
                 var configVersion = remoteConfigService?.CurrentConfig?.ConfigVersion ?? 0;
 
                 var data = new Dictionary<string, object>
@@ -66,14 +67,21 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     { "diagnosticsUploadMode", agentConfig.DiagnosticsUploadMode ?? "Off" },
                     { "previousExitType", previousExit?.ExitType ?? "unknown" },
                     { "unrestrictedMode", agentConfig.UnrestrictedMode },
+                    // remoteConfigFetched answers "is the agent running on a live-fetched
+                    // config" — true also when the post-registration recovery replaced a
+                    // failed startup fetch (remoteConfigOutcome then still names the startup
+                    // failure; remoteConfigRecovered marks the heal).
                     { "configVersion", configVersion },
-                    { "remoteConfigFetched", outcome == RemoteConfigFetchOutcome.Succeeded },
+                    { "remoteConfigFetched", outcome == RemoteConfigFetchOutcome.Succeeded || recovered },
                     { "remoteConfigOutcome", outcome.ToString() },
                     // WinRT OOBE state sampled at this start. Together with previousExitType
                     // this makes late starts provable: "completed" on a first_run means OOBE
                     // was already over when the agent arrived (e.g. IME queue blocked).
                     { "oobeStateAtAgentStart", OobeStateReader.Read() },
                 };
+
+                if (recovered)
+                    data["remoteConfigRecovered"] = true;
 
                 if (!string.IsNullOrEmpty(previousExit?.CrashExceptionType))
                     data["previousCrashException"] = previousExit.CrashExceptionType;
@@ -135,12 +143,25 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     ? $"Remote config fetch failed after {remoteConfigService.LastFetchAttempts} attempt(s); using cached config."
                     : $"Remote config fetch failed after {remoteConfigService.LastFetchAttempts} attempt(s); running with built-in defaults (ConfigVersion=0).";
 
+                // Post-registration recovery (Phase 6.5) replaced the fallback with a live
+                // fetch before this emitter ran: keep the failure details (the network-late
+                // condition is worth surfacing) but mark the heal and demote to Info — the
+                // session is NOT degraded.
+                var recovered = remoteConfigService.RecoveredAfterFetchFailure;
+                if (recovered)
+                {
+                    var recoveredVersion = remoteConfigService.CurrentConfig?.ConfigVersion ?? 0;
+                    data["recovered"] = true;
+                    data["recoveredConfigVersion"] = recoveredVersion;
+                    msg += $" Recovered after session registration (ConfigVersion={recoveredVersion}).";
+                }
+
                 post.Emit(new EnrollmentEvent
                 {
                     SessionId = agentConfig.SessionId,
                     TenantId = agentConfig.TenantId,
                     EventType = SharedConstants.EventTypes.RemoteConfigFetchFailed,
-                    Severity = EventSeverity.Warning,
+                    Severity = recovered ? EventSeverity.Info : EventSeverity.Warning,
                     Source = "Agent",
                     Phase = EnrollmentPhase.Unknown,
                     Message = msg,

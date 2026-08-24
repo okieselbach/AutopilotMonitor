@@ -43,6 +43,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         };
 
         /// <summary>
+        /// Upper bound for the pre-fetch network-link wait on the initial startup fetch.
+        /// Deliberately longer than the registration gate's 15s: the fetch runs FIRST after a
+        /// boot-time relaunch, when Wi-Fi may still be associating (802.1X, OOBE), and a fetch
+        /// burned into a dead link strands the whole session on built-in defaults — edu.kosh
+        /// audit 2026-08-24: ~50% of sessions lost their tenant config exactly this way.
+        /// </summary>
+        internal static readonly TimeSpan InitialFetchNetworkLinkWaitMax = TimeSpan.FromSeconds(60);
+
+        /// <summary>
         /// Gets the current configuration (thread-safe)
         /// </summary>
         public AgentConfigResponse CurrentConfig
@@ -75,6 +84,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
 
         /// <summary>HTTP status for auth failures (401/403), null otherwise.</summary>
         public int? LastFetchAuthStatusCode { get; private set; }
+
+        /// <summary>
+        /// True once <see cref="TryRecoverConfigAsync"/> replaced a failed startup fetch with a
+        /// live config. The <c>LastFetch*</c> properties intentionally keep describing the failed
+        /// startup fetch so the wire event can report both the original failure and the recovery.
+        /// </summary>
+        public bool RecoveredAfterFetchFailure { get; private set; }
 
         public RemoteConfigService(BackendApiClient apiClient, string tenantId, AgentLogger logger, EmergencyReporter emergencyReporter = null, DistressReporter distressReporter = null, AuthFailureTracker authFailureTracker = null)
         {
@@ -115,6 +131,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             LastFetchFailureType = null;
             LastFetchFailureMessage = null;
             LastFetchAuthStatusCode = null;
+
+            // Initial startup fetch only: give a still-associating NIC a chance to come up
+            // before the first attempt. Without this the retry budget (10/30/60s) is burned
+            // into a provably dead link — the agent starts at boot, Wi-Fi associates minutes
+            // later, and the session runs on defaults although the backend was never the
+            // problem. The rotate_config path (retryOnTransientErrors:false) runs mid-session
+            // on a proven link and must stay latency-bounded, so it skips the gate.
+            if (retryOnTransientErrors)
+            {
+                try { await WaitForNetworkLinkAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Debug($"Pre-fetch network wait failed ({ex.Message}) — fetching anyway."); }
+            }
 
             var maxAttempts = retryOnTransientErrors ? InitialFetchRetryBackoff.Length + 1 : 1;
             Exception lastException = null;
@@ -209,6 +237,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
             SetConfig(defaults);
             LastFetchOutcome = RemoteConfigFetchOutcome.UsedDefaults;
             return defaults;
+        }
+
+        /// <summary>
+        /// Single-attempt recovery fetch for a session whose startup fetch failed. Called right
+        /// after session registration succeeded — registration proves the backend is reachable,
+        /// so the config that Phase 4 could not get is one cheap call away instead of the whole
+        /// session being stranded on cache/defaults (only a manual <c>rotate_config</c> action
+        /// could rescue it before this existed).
+        /// <para>
+        /// Unlike <see cref="FetchConfigAsync"/> this does NOT reset the <c>LastFetch*</c>
+        /// observability state — those keep describing the failed startup fetch so
+        /// <c>remote_config_fetch_failed</c> can report the original failure AND the recovery.
+        /// Returns the recovered config, or null when there is nothing to recover (startup fetch
+        /// succeeded / never ran) or the recovery attempt itself failed. Never throws.
+        /// </para>
+        /// </summary>
+        public async Task<AgentConfigResponse> TryRecoverConfigAsync()
+        {
+            if (LastFetchOutcome != RemoteConfigFetchOutcome.FromCache &&
+                LastFetchOutcome != RemoteConfigFetchOutcome.UsedDefaults)
+                return null;
+
+            try
+            {
+                _logger.Info("Retrying remote config fetch after successful session registration...");
+                var config = await CallBackendAsync().ConfigureAwait(false);
+                if (config == null)
+                {
+                    _logger.Warning("Config recovery fetch returned empty response — keeping fallback config.");
+                    return null;
+                }
+
+                _logger.Info($"Remote config recovered: ConfigVersion={config.ConfigVersion}, " +
+                             $"GatherRules={config.GatherRules?.Count ?? 0}");
+                LogCollectorSettings(config.Collectors);
+                SetConfig(config);
+                CacheConfig(config);
+                _authFailureTracker?.RecordSuccess();
+                RecoveredAfterFetchFailure = true;
+                return config;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Config recovery fetch failed ({ex.Message}) — keeping fallback config.");
+                return null;
+            }
         }
 
         private void SetConfig(AgentConfigResponse config)
@@ -357,6 +431,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
         /// </summary>
         protected virtual Task DelayBetweenAttemptsAsync(TimeSpan delay)
             => Task.Delay(delay);
+
+        /// <summary>
+        /// Awaits the pre-fetch network-link gate (initial startup fetch only). Production
+        /// polls the link-level signal via <see cref="NetworkLinkWait"/> bounded by
+        /// <see cref="InitialFetchNetworkLinkWaitMax"/>; tests subclass to record the call
+        /// and return immediately.
+        /// </summary>
+        protected virtual Task WaitForNetworkLinkAsync()
+            => NetworkLinkWait.WaitAsync(_logger, InitialFetchNetworkLinkWaitMax, "Remote config fetch");
 
         public void Dispose()
         {
