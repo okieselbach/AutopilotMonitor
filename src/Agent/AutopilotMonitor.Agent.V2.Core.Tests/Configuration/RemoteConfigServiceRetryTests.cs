@@ -115,6 +115,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         }
 
         [Fact]
+        public async Task FetchConfig_DefaultsFallback_CarriesBuiltInCatalogs()
+        {
+            // A no-config/no-cache session must still get the compiled-in rule catalogs —
+            // an empty ImeLogPatterns list kills the entire IME tracking pipeline (the
+            // pre-catalog behaviour this pins against regressing to).
+            var svc = NewService(BackendBehaviour.AlwaysTransientFailure);
+
+            var result = await svc.FetchConfigAsync(retryOnTransientErrors: true);
+
+            Assert.Equal(0, result.ConfigVersion);
+            Assert.NotEmpty(result.ImeLogPatterns);
+            Assert.All(result.ImeLogPatterns, p => Assert.True(p.Enabled));
+            Assert.All(result.GatherRules, r => Assert.True(r.Enabled));
+        }
+
+        [Fact]
         public async Task FetchConfig_EmptyResponse_TreatedAsTransient()
         {
             // A backend bug that returns null instead of throwing — fall through to

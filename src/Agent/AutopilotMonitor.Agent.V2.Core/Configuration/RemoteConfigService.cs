@@ -231,9 +231,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 return cached;
             }
 
-            // Fall back to defaults
-            _logger.Info("No cached config available, using defaults (all optional collectors disabled)");
+            // Fall back to built-in defaults (collector/analyzer defaults from the shared
+            // model initializers + the compiled-in rule catalogs).
             var defaults = CreateDefaultConfig();
+            _logger.Info($"No cached config available, using built-in defaults (ConfigVersion=0, " +
+                         $"{defaults.ImeLogPatterns?.Count ?? 0} built-in IME patterns, " +
+                         $"{defaults.GatherRules?.Count ?? 0} built-in gather rules)");
             SetConfig(defaults);
             LastFetchOutcome = RemoteConfigFetchOutcome.UsedDefaults;
             return defaults;
@@ -393,6 +396,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
 
         private AgentConfigResponse CreateDefaultConfig()
         {
+            // Everything not set here falls to the shared AgentConfigResponse property
+            // initializers — the same values the backend uses as its `??` fallbacks, so the
+            // scalar knobs cannot drift. The rule catalogs are the one thing initializers
+            // cannot supply: without them the whole IME tracking pipeline is dead, so they
+            // come from the compiled-in snapshot of the served catalogs (BuiltInConfigCatalog).
             return new AgentConfigResponse
             {
                 ConfigVersion = 0,
@@ -404,8 +412,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 EnableGatherRuleDebugLog = false,
                 EnableEspContinueAnywayObservation = false,
                 Collectors = CollectorConfiguration.CreateDefault(),
-                GatherRules = new System.Collections.Generic.List<GatherRule>(),
-                ImeLogPatterns = new System.Collections.Generic.List<ImeLogPattern>()
+                GatherRules = BuiltInConfigCatalog.GetEnabledGatherRules(_logger),
+                ImeLogPatterns = BuiltInConfigCatalog.GetEnabledImeLogPatterns(_logger)
             };
         }
 

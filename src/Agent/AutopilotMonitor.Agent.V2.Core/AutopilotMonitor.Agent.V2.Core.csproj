@@ -52,6 +52,11 @@
          carries the V2 assembly namespace so GatherRuleGuards locates it under
          "AutopilotMonitor.Agent.V2.Core.Resources.guardrails.json". -->
     <EmbeddedResource Include="..\..\..\rules\guardrails.json" LogicalName="AutopilotMonitor.Agent.V2.Core.Resources.guardrails.json" />
+    <!-- Built-in fallback rule catalogs (BuiltInConfigCatalog): the SAME CI-combined
+         rules/dist artifacts the backend embeds and serves. Snapshotted per agent build so
+         the no-config/no-cache fallback still runs full IME tracking instead of nothing. -->
+    <EmbeddedResource Include="..\..\..\rules\dist\ime-log-patterns.json" LogicalName="AutopilotMonitor.Agent.V2.Core.Resources.ime-log-patterns.json" />
+    <EmbeddedResource Include="..\..\..\rules\dist\gather-rules.json" LogicalName="AutopilotMonitor.Agent.V2.Core.Resources.gather-rules.json" />
   </ItemGroup>
 
   <ItemGroup>
