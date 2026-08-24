@@ -1,4 +1,4 @@
-using AutopilotMonitor.Shared;
+﻿using AutopilotMonitor.Shared;
 using System;
 using System.Linq;
 using System.Net.Http;
@@ -63,7 +63,7 @@ namespace AutopilotMonitor.Functions.Security
 
             if (_cache.TryGetValue(cacheKey, out DeviceAssociationResult? cached) && cached != null)
             {
-                return cached;
+                return cached.AsCacheHit();
             }
 
             const int maxAttempts = 2;

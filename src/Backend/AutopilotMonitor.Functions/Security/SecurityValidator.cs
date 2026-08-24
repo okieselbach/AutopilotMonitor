@@ -453,6 +453,14 @@ namespace AutopilotMonitor.Functions.Security
                     try
                     {
                         var devPrepResult = await validator.LookupAsync(capturedTenant, capturedSerial, capturedSession);
+
+                        // One line per real Graph lookup, not per request — the same gate the
+                        // cert-device-binding shadow uses. Measured 2026-08-24: a single enrollment
+                        // produced 263 identical lines because the cache answered nearly every
+                        // request. Uncached outcomes (transient failures) still log every time.
+                        if (devPrepResult.ServedFromCache)
+                            return;
+
                         logger.LogWarning(
                             "DevPrep association lookup (shadow) for tenant {TenantId}, session {SessionId}, serial {SerialNumber}: matched={Matched}, transient={Transient}, state={State}, policy={PolicyId}",
                             capturedTenant, capturedSession ?? "<none>", capturedSerial,

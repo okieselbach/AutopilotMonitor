@@ -127,4 +127,47 @@ public class DeviceAssociationValidatorTests
         Assert.True(result.IsValid);
     }
 
+    [Fact]
+    public void AsCacheHit_FlagsTheCopyAndLeavesTheCachedInstanceAlone()
+    {
+        // The cached instance is shared across every request for that serial. Marking it in place
+        // would make the first (real) lookup look cached too, and the shadow log gate would then
+        // drop the one line per lookup that carries the finding.
+        var cached = new DeviceAssociationResult
+        {
+            IsValid = true,
+            SerialNumber = Serial,
+            AssociationState = "preassociated",
+            DevicePreparationPolicyId = "11111111-2222-3333-4444-555555555555",
+            AssignedToUserPrincipalName = "someone@example.invalid",
+            ManagedDeviceId = "66666666-7777-8888-9999-000000000000",
+        };
+
+        var hit = cached.AsCacheHit();
+
+        Assert.True(hit.ServedFromCache);
+        Assert.False(cached.ServedFromCache);
+        Assert.NotSame(cached, hit);
+
+        // Every field the shadow log reports must survive the copy.
+        Assert.Equal(cached.IsValid, hit.IsValid);
+        Assert.Equal(cached.IsTransient, hit.IsTransient);
+        Assert.Equal(cached.SerialNumber, hit.SerialNumber);
+        Assert.Equal(cached.AssociationState, hit.AssociationState);
+        Assert.Equal(cached.DevicePreparationPolicyId, hit.DevicePreparationPolicyId);
+        Assert.Equal(cached.AssignedToUserPrincipalName, hit.AssignedToUserPrincipalName);
+        Assert.Equal(cached.ManagedDeviceId, hit.ManagedDeviceId);
+    }
+
+    [Fact]
+    public void FreshlyParsedResult_IsNotFlaggedAsCached()
+    {
+        // A result straight from a Graph response must be loggable — that is the one line per lookup.
+        var body = $@"{{""value"":[{{""serialNumber"":""{Serial}"",""associationState"":""preassociated""}}]}}";
+
+        var result = DeviceAssociationValidator.ParseTenantAssociatedDevicesResponse(body, Serial);
+
+        Assert.False(result.ServedFromCache);
+    }
+
 }

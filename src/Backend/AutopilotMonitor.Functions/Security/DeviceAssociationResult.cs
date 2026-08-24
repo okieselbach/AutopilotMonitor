@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -55,5 +55,32 @@ namespace AutopilotMonitor.Functions.Security
         public string? ManagedDeviceId { get; set; }
 
         public string? ErrorMessage { get; set; }
+
+        /// <summary>
+        /// True when this result came from the in-memory cache rather than a fresh Graph lookup.
+        /// The shadow log uses it to emit one line per real lookup instead of one per request:
+        /// a single enrollment produced 263 identical lines off a handful of Graph calls.
+        /// </summary>
+        public bool ServedFromCache { get; set; }
+
+        /// <summary>
+        /// Copy of this result marked as a cache hit, so the shared cached instance is never
+        /// mutated by a caller.
+        /// </summary>
+        internal DeviceAssociationResult AsCacheHit() => new()
+        {
+            IsValid = IsValid,
+            IsTransient = IsTransient,
+            SerialNumber = SerialNumber,
+            AssociationState = AssociationState,
+            DevicePreparationPolicyId = DevicePreparationPolicyId,
+            PreAssociatedByUserPrincipalName = PreAssociatedByUserPrincipalName,
+            AssignedToUserPrincipalName = AssignedToUserPrincipalName,
+            PreAssociationDateTime = PreAssociationDateTime,
+            AssociationDateTime = AssociationDateTime,
+            ManagedDeviceId = ManagedDeviceId,
+            ErrorMessage = ErrorMessage,
+            ServedFromCache = true
+        };
     }
 }
