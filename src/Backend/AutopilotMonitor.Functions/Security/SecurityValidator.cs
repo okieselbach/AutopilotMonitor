@@ -278,11 +278,29 @@ namespace AutopilotMonitor.Functions.Security
                 };
             }
 
-            // 1b. CERT-TENANT-BINDING-SHADOW — observe only, never decide.
-            // The cert chain is pinned to Microsoft's Intune roots, which every Intune tenant shares,
-            // so a valid cert alone does not prove the caller belongs to THIS tenant. Stage 1 measures
-            // how reliably the certificate's own tenant stamp matches before stage 2 enforces it.
-            ObserveCertTenantBinding(certValidation, tenantId, req, sessionId);
+            // 1b. CERT-TENANT-BINDING — the certificate must belong to THIS tenant.
+            // The chain is pinned to Microsoft's Intune roots, which every Intune tenant shares, so a
+            // valid cert alone only proves "issued to some tenant". Without this gate an attacker
+            // with their own Intune tenant and a known serial number of the victim tenant walks
+            // straight through, because device serials are printed on the chassis.
+            var certTenantOutcome = EvaluateCertTenantBinding(certValidation, tenantId, req, sessionId);
+            if (CertTenantBinding.Rejects(certTenantOutcome))
+            {
+                LogRequestRejection("certtenant", tenantId, req, sessionId,
+                    extraReason: $"certificate belongs to tenant {certValidation.CertTenantId}",
+                    thumbprint: certValidation.Thumbprint);
+
+                return new SecurityValidationResult
+                {
+                    IsValid = false,
+                    StatusCode = HttpStatusCode.Forbidden,
+                    ErrorMessage = "Certificate does not belong to this tenant",
+                    // Deliberately does not echo which tenant the certificate belongs to: that is
+                    // the caller's own value on a genuine mismatch, and telling an attacker how the
+                    // comparison landed helps them. The full pair is in the rejection log.
+                    Details = "The client certificate was issued to a different Microsoft Entra tenant than this request targets."
+                };
+            }
 
             // 2. Check rate limit (DoS protection)
             // Effective limit = per-tenant override if set, otherwise the global default.
@@ -595,10 +613,10 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// CERT-TENANT-BINDING-SHADOW — stage 1 observability for the client-certificate tenant
-        /// binding. Evaluates whether the tenant stamped into the agent's certificate matches the
-        /// tenant the request claims, and logs the outcome. It deliberately returns nothing and
-        /// changes no state: enforcement is stage 2, after this telemetry shows the miss rate.
+        /// CERT-TENANT-BINDING — evaluates whether the tenant stamped into the agent's certificate
+        /// matches the tenant the request claims, records the outcome, and returns it so the caller
+        /// can enforce. The enforcement rule itself lives in <see cref="CertTenantBinding.Rejects"/>,
+        /// not here, so "what blocks a request" is answerable from one place.
         /// </summary>
         /// <remarks>
         /// Two carriers, because they answer different questions and have different costs:
@@ -613,15 +631,16 @@ namespace AutopilotMonitor.Functions.Security
         /// thumbprint, cert tenant, session — because each one is individually actionable.</description></item>
         /// </list>
         /// </remarks>
-        private void ObserveCertTenantBinding(
+        private string EvaluateCertTenantBinding(
             CertificateValidationResult certValidation,
             string tenantId,
             HttpRequestData req,
             string? sessionId)
         {
+            var outcome = CertTenantBinding.Outcome.Match;
             try
             {
-                var outcome = CertTenantBinding.Evaluate(
+                outcome = CertTenantBinding.Evaluate(
                     certValidation.CertTenantId,
                     certValidation.CertTenantIdStatus,
                     tenantId);
@@ -633,7 +652,7 @@ namespace AutopilotMonitor.Functions.Security
 
                 // Everything below is the detail record for outcomes someone has to act on.
                 if (outcome == CertTenantBinding.Outcome.Match)
-                    return;
+                    return outcome;
 
                 var agentVersion = req.Headers.Contains("X-Agent-Version")
                     ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault() ?? "n/a"
@@ -650,15 +669,19 @@ namespace AutopilotMonitor.Functions.Security
                 var wouldReject = CertTenantBinding.WouldRejectUnderEnforcement(outcome);
 
                 _logger.LogWarning(template,
-                    outcome, false, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
+                    outcome, true, wouldReject, tenantId, certTenant, certValidation.CertTenantIdStatus,
                     certValidation.Thumbprint ?? "n/a", sessionId ?? "n/a", agentVersion);
             }
             catch (Exception ex)
             {
-                // Shadow-mode observability must never be able to fail a request that would
-                // otherwise have been accepted.
-                _logger.LogWarning(ex, "AgentCertTenantBinding observation failed for tenant {TenantId}", tenantId);
+                // Fail open on our own bug. This gate exists to stop a cross-tenant certificate, and
+                // an exception in the evaluation is not evidence of one - turning it into a rejection
+                // would take the whole fleet down over a defect on our side.
+                _logger.LogWarning(ex, "AgentCertTenantBinding evaluation failed for tenant {TenantId} - request allowed", tenantId);
+                return CertTenantBinding.Outcome.Match;
             }
+
+            return outcome;
         }
 
         /// <summary>

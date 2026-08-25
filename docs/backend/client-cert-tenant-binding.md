@@ -77,7 +77,7 @@ Enforcing immediately would be reckless: any device population whose certificate
 extension, or whose CA behaves differently (sovereign clouds), would be locked out at once. The
 rollout therefore has staged consequences.
 
-**Stage 1 — shadow (current).** `SecurityValidator.ObserveCertTenantBinding` evaluates the binding
+**Stage 1 — shadow (completed, kept as the measurement that justified stage 2).** `SecurityValidator.ObserveCertTenantBinding` evaluates the binding
 after certificate validation and logs the outcome. It returns `void`, changes no state, and swallows
 its own exceptions, so it cannot fail a request that would otherwise be accepted. The pure comparison
 lives in `CertTenantBinding.Evaluate`; the outcome codes (`Match`, `Mismatch`, `ExtensionMissing`,
@@ -102,10 +102,29 @@ is disabled), so a `Match` trace is dead code that silently costs the denominato
 deployment of this feature made exactly that mistake: it emitted zero rows across 32k requests,
 which is indistinguishable from the code never running.
 
-**Stage 2 — enforce.** Once telemetry shows the `ExtensionMissing` rate is negligible, `Mismatch`
-becomes a rejection. The decision that still has to be made is the policy for certificates without
-the extension: skip with a warning, or reject. Grep marker for every stage-2 site:
-`CERT-TENANT-BINDING-SHADOW`.
+**Stage 2 — enforced since 2026-08-25.** `Mismatch` returns 403 and is recorded through the shared
+`LogRequestRejection` path (`stage=certtenant`) so it lands in the same KQL raster as every other
+rejection reason. The switch was made against measured data: 35,684 requests across 32 tenants,
+every one a `Match`, with the Warning channel independently verified to be carrying other traffic so
+the zero could not be a telemetry artefact.
+
+The rule lives in one place, `CertTenantBinding.Rejects`, and only `Mismatch` blocks. Everything
+else means "cannot tell" and is deliberately tolerated:
+
+* `ExtensionMissing` — the sample only covers devices active in the measurement window, so older
+  certificates or a sovereign-cloud CA could still lack the extension. Rejecting on absence would
+  lock those devices out for something they cannot control. **This is the one to tighten later**,
+  once the `ExtensionMissing` rate is provably zero across a wider window; a test pins the current
+  tolerance so removing it has to be a deliberate decision rather than a drive-by edit.
+* `Unparseable` — a decoder or encoding surprise is our problem, not the device's.
+* `RequestTenantNotAGuid` — nothing to compare against, and such a request fails the tenant lookup
+  in §0 long before reaching this point.
+
+The evaluation fails open on its own exception: this gate exists to stop a cross-tenant certificate,
+and a defect on our side is not evidence of one. The 403 body deliberately does not echo which
+tenant the certificate belongs to — that pair is in the rejection log, not in the response.
+
+Grep marker for every site involved: `CERT-TENANT-BINDING`.
 
 The bootstrap-token path (`X-Bootstrap-Token`) bypasses certificate validation by design and is
 unaffected by either stage.

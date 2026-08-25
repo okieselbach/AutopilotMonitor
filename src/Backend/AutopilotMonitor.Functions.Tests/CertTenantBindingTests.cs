@@ -13,18 +13,21 @@ using Moq;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// CERT-TENANT-BINDING-SHADOW — stage 1 coverage.
+/// CERT-TENANT-BINDING — enforced since 2026-08-25.
 ///
 /// The agent authenticates with the Intune MDM device certificate, whose chain is pinned to
 /// Microsoft's Intune roots. Those roots are shared by every Intune tenant, so a valid chain alone
 /// does not prove the caller belongs to the tenant it claims. The CA stamps the Entra tenant id
 /// into OID 1.2.840.113556.5.14, which lets the backend bind the two.
 ///
-/// These tests pin three things:
+/// These tests pin four things:
 ///   - the tenant id is actually extracted from a REAL field certificate (not a synthetic fixture),
+///     because if Microsoft ever changes that stamp, enforcement locks out the whole fleet,
 ///   - the pure comparison covers every outcome the telemetry can report,
-///   - shadow mode observes without deciding: a cross-tenant certificate must still pass the
-///     certificate stage in stage 1, or we would be enforcing before we measured.
+///   - the enforcement rule rejects Mismatch and ONLY Mismatch — ExtensionMissing is tolerated on
+///     purpose, and that tolerance has its own test so removing it has to be a decision,
+///   - a rejected request still carries its telemetry and does not leak the certificate's tenant
+///     back to the caller.
 /// </summary>
 public class CertTenantBindingTests
 {
@@ -200,13 +203,58 @@ public class CertTenantBindingTests
         Assert.False(CertTenantBinding.WouldRejectUnderEnforcement(outcome));
     }
 
-    // ---------------------------------------------------------------- shadow mode
+    // ---------------------------------------------------------------- enforcement rule
 
     [Fact]
-    public async Task ValidateRequestAsync_ForeignTenantCert_IsObservedButNotRejected()
+    public void Rejects_OnlyMismatch()
     {
-        // Stage 1 contract: a cross-tenant certificate is logged and still passes the certificate
-        // stage. If this test ever fails, enforcement was switched on without the telemetry review.
+        // Mismatch is the only outcome that is evidence of a foreign certificate. The rest mean
+        // "cannot tell", and rejecting on those would cost legitimate devices their enrollment for
+        // something outside their control.
+        Assert.True(CertTenantBinding.Rejects(CertTenantBinding.Outcome.Mismatch));
+
+        Assert.False(CertTenantBinding.Rejects(CertTenantBinding.Outcome.Match));
+        Assert.False(CertTenantBinding.Rejects(CertTenantBinding.Outcome.ExtensionMissing));
+        Assert.False(CertTenantBinding.Rejects(CertTenantBinding.Outcome.Unparseable));
+        Assert.False(CertTenantBinding.Rejects(CertTenantBinding.Outcome.RequestTenantNotAGuid));
+    }
+
+    [Fact]
+    public void Rejects_ExtensionMissingIsDeliberatelyTolerated()
+    {
+        // Pinned on its own because it is the one that is expected to tighten later: certificates
+        // predating the extension, or a sovereign-cloud CA, must not be locked out today. Changing
+        // this is a decision, and this test is where that decision has to be made explicitly.
+        Assert.False(CertTenantBinding.Rejects(CertTenantBinding.Outcome.ExtensionMissing));
+    }
+
+    [Fact]
+    public void Rejects_AgreesWithTheTelemetryField()
+    {
+        // WouldRejectUnderEnforcement is what the log line reports. If the two ever diverge, the
+        // telemetry stops describing what actually happened.
+        foreach (var outcome in new[]
+                 {
+                     CertTenantBinding.Outcome.Match,
+                     CertTenantBinding.Outcome.Mismatch,
+                     CertTenantBinding.Outcome.ExtensionMissing,
+                     CertTenantBinding.Outcome.Unparseable,
+                     CertTenantBinding.Outcome.RequestTenantNotAGuid,
+                 })
+        {
+            Assert.Equal(CertTenantBinding.Rejects(outcome),
+                         CertTenantBinding.WouldRejectUnderEnforcement(outcome));
+        }
+    }
+
+    // ---------------------------------------------------------------- end-to-end
+
+    [Fact]
+    public async Task ValidateRequestAsync_ForeignTenantCert_IsRejected()
+    {
+        // The attack this whole feature exists for: a valid Intune certificate from the attacker's
+        // own tenant, replayed against a victim tenant whose device serial they know. Serials are
+        // printed on the chassis, so before this gate that was the entire barrier.
         var logger = new CapturingLogger();
         var validator = BuildValidator(logger);
 
@@ -214,16 +262,40 @@ public class CertTenantBindingTests
             BuildRequestWithCert(SampleCertBase64()),
             tenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
-        // Deliberately accepted: stage 1 measures, it does not enforce. This assertion is the one
-        // that must be inverted (to a 403) when stage 2 turns enforcement on.
-        Assert.True(result.IsValid, $"Shadow mode changed the outcome: {result.ErrorMessage} / {result.Details}");
-        Assert.NotEqual(HttpStatusCode.Unauthorized, result.StatusCode);
+        Assert.False(result.IsValid);
+        Assert.Equal(HttpStatusCode.Forbidden, result.StatusCode);
+
+        // The response must not reveal which tenant the certificate actually belongs to.
+        Assert.DoesNotContain(SampleCertTenantId.ToString(), result.Details ?? "", StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(SampleCertTenantId.ToString(), result.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
 
         var observed = Assert.Single(logger.Entries, e => e.Message.Contains("AgentCertTenantBinding"));
         Assert.Equal(LogLevel.Warning, observed.Level);
         Assert.Contains(CertTenantBinding.Outcome.Mismatch, observed.Message);
-        Assert.Contains("enforced=False", observed.Message);
+        Assert.Contains("enforced=True", observed.Message);
         Assert.Contains("wouldReject=True", observed.Message);
+
+        // The rejection must also land in the shared rejection log, so it shows up in the same KQL
+        // raster as every other reason a request was turned away.
+        Assert.Contains(logger.Entries, e => e.Message.Contains("AgentRequestRejected")
+                                             && e.Message.Contains("stage=certtenant"));
+    }
+
+    [Fact]
+    public async Task ValidateRequestAsync_MismatchStillStampsTheRequestRow()
+    {
+        // Enforcement must not cost us the telemetry: a blocked request is exactly the one an
+        // operator will go looking for afterwards.
+        var items = new Dictionary<object, object>();
+        var validator = BuildValidator(new CapturingLogger());
+
+        await validator.ValidateRequestAsync(
+            BuildRequestWithCert(SampleCertBase64(), items),
+            tenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        Assert.Equal(
+            CertTenantBinding.Outcome.Mismatch,
+            Assert.Contains(CertTenantBinding.RequestItemKey, items));
     }
 
     [Fact]

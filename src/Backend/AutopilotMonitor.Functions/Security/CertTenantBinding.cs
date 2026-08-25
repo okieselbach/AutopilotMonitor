@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -14,10 +14,15 @@ namespace AutopilotMonitor.Functions.Security
     /// </para>
     /// </summary>
     /// <remarks>
-    /// SHADOW MODE (stage 1): the outcome is observed and logged only — it never changes an
-    /// authorization decision. Enforcement is stage 2, once telemetry shows how many field
-    /// certificates actually carry the extension. Grep marker for the stage-2 change:
-    /// <c>CERT-TENANT-BINDING-SHADOW</c>.
+    /// ENFORCED since 2026-08-25 (stage 2): a <see cref="Outcome.Mismatch"/> is rejected with 403.
+    /// It shipped as shadow-only first and was switched on against measured data — 35,684 requests
+    /// across 32 tenants, every one of them a Match, with the Warning channel verified to be
+    /// carrying other traffic so the zero was not a telemetry artefact.
+    /// <para>
+    /// <see cref="Rejects"/> is the whole rule and the only thing that blocks; the outcome is still
+    /// recorded on every request. Grep marker for the sites involved:
+    /// <c>CERT-TENANT-BINDING</c>.
+    /// </para>
     /// </remarks>
     public static class CertTenantBinding
     {
@@ -83,11 +88,36 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// Whether an outcome would block the request once stage-2 enforcement is switched on.
-        /// Nothing consumes this for authorization yet — it exists so the shadow telemetry can be
-        /// read as "would this have been rejected?" without re-deriving the rule at query time.
+        /// Whether an outcome blocks the request. This is the enforcement rule, in one place.
         /// </summary>
-        public static bool WouldRejectUnderEnforcement(string outcome) =>
-            outcome == Outcome.Mismatch;
+        /// <remarks>
+        /// Only <see cref="Outcome.Mismatch"/> rejects, and only Mismatch is actual evidence of the
+        /// attack: a certificate the Intune CA issued to a different tenant than the one the request
+        /// claims. Everything else means "cannot tell" and must not cost a legitimate device its
+        /// enrollment:
+        /// <list type="bullet">
+        /// <item><description><see cref="Outcome.ExtensionMissing"/> — the certificate carries no
+        /// tenant stamp. Measured at 0 of 35,684 requests across 32 tenants before enforcement was
+        /// switched on, but that sample only covers devices that were active in the window; older
+        /// certificates or a sovereign-cloud CA could still lack it. Rejecting on absence would lock
+        /// those devices out for something they cannot control.
+        /// <para>
+        /// FUTURE TIGHTENING: once the fleet is provably all-5.14 (watch the ExtensionMissing rate
+        /// in the telemetry below), this can become a rejection too. That is a deliberate follow-up
+        /// decision, not an oversight.
+        /// </para></description></item>
+        /// <item><description><see cref="Outcome.Unparseable"/> — extension present but undecodable.
+        /// Same reasoning: a decoder or encoding surprise is our problem, not the device's.</description></item>
+        /// <item><description><see cref="Outcome.RequestTenantNotAGuid"/> — nothing to compare
+        /// against. A non-GUID tenant fails the tenant lookup in §0 long before this point anyway.</description></item>
+        /// </list>
+        /// </remarks>
+        public static bool Rejects(string outcome) => outcome == Outcome.Mismatch;
+
+        /// <summary>
+        /// Retained name for the telemetry field that records what the rule decided. Identical to
+        /// <see cref="Rejects"/> — kept so KQL written during the shadow phase keeps working.
+        /// </summary>
+        public static bool WouldRejectUnderEnforcement(string outcome) => Rejects(outcome);
     }
 }
