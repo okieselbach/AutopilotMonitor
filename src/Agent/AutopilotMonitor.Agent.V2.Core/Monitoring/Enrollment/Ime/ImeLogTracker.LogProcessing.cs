@@ -387,6 +387,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         OnUserSessionCompleted?.Invoke();
                         break;
 
+                    case "usersessionzeroapps":
+                        // IME found no targeted user apps — its zero-app branch skips the
+                        // "Completed user session" line, so this is the equivalent evidence.
+                        HandleUserSessionZeroApps();
+                        break;
+
                     case "updatestateinstalled":
                         if (!string.IsNullOrEmpty(id))
                             UpdateStateWithCallback(id, AppInstallationState.Installed);

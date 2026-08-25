@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 
@@ -172,7 +173,7 @@ public class BuiltInRulesTests
             "policiesDiscovered", "ignoreCompletedApp", "imeAgentVersion",
             "espTrackStatus", "updateName", "updateWin32AppState",
             "cancelStuckAndSetCurrent", "imeSessionChange", "imeImpersonation", "imeTokenFailure",
-            "enrollmentCompleted", "updateDoTelemetry", "scriptStarted",
+            "enrollmentCompleted", "userSessionZeroApps", "updateDoTelemetry", "scriptStarted",
             "scriptContext", "scriptExitCode", "scriptOutput", "scriptCompleted",
             "resetPlatformScriptContext",
             "healthScriptResult", "healthScriptDetectionResult",
@@ -200,5 +201,39 @@ public class BuiltInRulesTests
             Assert.True(validCategories.Contains(pattern.Category),
                 $"Pattern {pattern.PatternId} has invalid category '{pattern.Category}'");
         }
+    }
+
+    /// <summary>
+    /// Sessions 81daa77f / 75d6ae8e (2026-08-25). IME writes this line and then returns before
+    /// its "Completed user session" statement, so on a device with no user-targeted Win32 apps
+    /// it is the ONLY evidence that user-phase enforcement finished. The exact wording is
+    /// pinned here against the real IME line (verified against decompiled IME 1.104.102.0,
+    /// ApplicationPoller and AppWorkloadAbstraction) because a silent drift would bring back
+    /// the 30-min esp_exit_without_completion_evidence false positive with no test failing.
+    /// </summary>
+    [Fact]
+    public void BuiltInImeLogPatterns_ZeroUserAppsPattern_MatchesTheRealImeLine()
+    {
+        var pattern = Assert.Single(
+            BuiltInImeLogPatterns.GetAll(),
+            p => p.PatternId == "IME-USER-SESSION-ZERO-APPS");
+
+        Assert.Equal("userSessionZeroApps", pattern.Action);
+        Assert.Equal("always", pattern.Category);
+
+        var regex = new Regex(pattern.Pattern, RegexOptions.CultureInvariant);
+
+        var real = "[Win32App] Get 0 apps for user session 1, user id = 4a1ba5db-44ed-4e69-8477-47ed88e76020";
+        var match = regex.Match(real);
+        Assert.True(match.Success, "zero-app user session line must match");
+        Assert.Equal("1", match.Groups["sessionId"].Value);
+        Assert.Equal("4a1ba5db-44ed-4e69-8477-47ed88e76020", match.Groups["userId"].Value);
+
+        // Must not swallow a session that DOES have apps — that would fabricate completion
+        // evidence while enforcement is still running.
+        Assert.DoesNotMatch(regex,
+            "[Win32App] Get 3 apps for user session 1, user id = 4a1ba5db-44ed-4e69-8477-47ed88e76020");
+        Assert.DoesNotMatch(regex,
+            "[Win32App] Get 10 apps for user session 1, user id = 4a1ba5db-44ed-4e69-8477-47ed88e76020");
     }
 }

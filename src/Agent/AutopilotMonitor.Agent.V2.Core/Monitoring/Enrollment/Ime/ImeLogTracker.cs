@@ -129,6 +129,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private CancellationTokenSource _cts;
         private bool _allAppsCompletedFired;
 
+        // Sticky: IME enumerated a user session and reported ZERO targeted Win32 apps
+        // (IME-USER-SESSION-ZERO-APPS). IME's zero-app branch returns before it writes the
+        // "Completed user session" line, so on a device with no user-targeted apps that line
+        // never appears and every user-phase completion probe would starve forever. This flag
+        // IS the user-phase completion evidence for that shape. Set only while the user ESP
+        // phase is active, or replayed on the transition into it.
+        private bool _userSessionZeroAppsObserved;
+
         // State persistence: saves tracker state to disk so agent restart continues
         // from the exact log position without re-parsing or re-building ignore lists.
         private readonly ImeTrackerStatePersistence _statePersistence;
@@ -342,6 +350,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// Test-only seam: marks the zero-targeted-apps user session as observed without driving
+        /// the IME-USER-SESSION-ZERO-APPS pattern through a log line. The pattern-to-flag path
+        /// itself is covered end-to-end by <c>ImeLogTrackerZeroUserAppsTests</c>.
+        /// </summary>
+        internal void SeedUserSessionZeroAppsForTesting()
+        {
+            _userSessionZeroAppsObserved = true;
+        }
+
+        /// <summary>
         /// Returns a deduped union of phase-snapshotted apps plus the live
         /// <see cref="PackageStates"/> (current phase). Live entries win on Id collision.
         /// Used by the termination summary path so that DeviceSetup apps cleared from
@@ -395,11 +413,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         {
             try
             {
-                if (!string.Equals(_lastEspPhaseDetected, "AccountSetup", StringComparison.OrdinalIgnoreCase))
+                if (!IsUserEspPhaseActive)
                     return false;
 
                 var apps = new List<AppPackageState>(_packageStates);
-                if (apps.Count == 0) return false;
+
+                // Zero user-targeted apps is the MOST settled state there is, but the
+                // conservative "at least one required app" rule below reads it as "not
+                // settled" and starves the AccountSetup synthesis. Only an explicit IME
+                // observation lifts that — never a merely empty list, which also means
+                // "phase just cleared" or "apps not surfaced yet".
+                if (apps.Count == 0)
+                    return _userSessionZeroAppsObserved;
 
                 var sawRequired = false;
                 foreach (var pkg in apps)
@@ -746,6 +771,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             _currentPhaseOrder = state.CurrentPhaseOrder;
             _lastEspPhaseDetected = state.LastEspPhaseDetected;
             _allAppsCompletedFired = state.AllAppsCompletedFired;
+            _userSessionZeroAppsObserved = state.UserSessionZeroAppsObserved;
             _logPhaseIsCurrentPhase = state.LogPhaseIsCurrentPhase;
 
             // Restore seen app IDs
@@ -861,6 +887,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 CurrentPhaseOrder = _currentPhaseOrder,
                 LastEspPhaseDetected = _lastEspPhaseDetected,
                 AllAppsCompletedFired = _allAppsCompletedFired,
+                UserSessionZeroAppsObserved = _userSessionZeroAppsObserved,
                 LogPhaseIsCurrentPhase = _logPhaseIsCurrentPhase,
                 SeenAppIds = _seenAppIds.ToList(),
                 IgnoreList = _packageStates.IgnoreList.ToList(),

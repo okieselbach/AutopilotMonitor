@@ -1042,6 +1042,56 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// </summary>
         internal string LastEspPhaseDetected => _lastEspPhaseDetected;
 
+        /// <summary>
+        /// True while the user-scope ESP phase is the tracker's current phase. Every user-phase
+        /// probe and the zero-apps evidence gate on this — outside AccountSetup the IME lines
+        /// belong to the device phase or the pre-sign-in (defaultuser0) frame.
+        /// </summary>
+        private bool IsUserEspPhaseActive =>
+            string.Equals(_lastEspPhaseDetected, "AccountSetup", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True once IME reported zero targeted Win32 apps for a user session while the user ESP
+        /// phase was active. Read by the adapter to label the evidence behind
+        /// <c>ime_user_session_completed</c>.
+        /// </summary>
+        internal bool UserSessionZeroAppsObserved => _userSessionZeroAppsObserved;
+
+        /// <summary>
+        /// IME-USER-SESSION-ZERO-APPS: IME enumerated the user session and found no targeted
+        /// Win32 apps. Its zero-app branch then <c>continue</c>s past the "Completed user
+        /// session" log statement, so this line is the only completion evidence such a device
+        /// ever produces — and IME itself treats the same condition as finished
+        /// (<c>ProviderResult.ProvisioningComplete</c> in the user check-in path, and an ESP
+        /// lock-in with an empty application list in the poller path).
+        /// <para>
+        /// Deliberately routed through <see cref="OnUserSessionCompleted"/> rather than a
+        /// separate callback: downstream this IS a completed user session, and the adapter's
+        /// pending-apps deferral plus its fire-once flag then apply unchanged.
+        /// </para>
+        /// <para>
+        /// Phase guard: firing before AccountSetup would burn the adapter's fire-once flag on a
+        /// pre-sign-in timestamp that <c>IsImeUserSessionGenuine</c> can never accept. The
+        /// observation is remembered instead and replayed by
+        /// <see cref="HandleEspPhaseDetected"/> on the transition into the user phase.
+        /// </para>
+        /// </summary>
+        private void HandleUserSessionZeroApps()
+        {
+            _userSessionZeroAppsObserved = true;
+
+            if (!IsUserEspPhaseActive)
+            {
+                _logger.Debug(
+                    "ImeLogTracker: zero-app user session observed before the user ESP phase " +
+                    $"(current phase: {_lastEspPhaseDetected ?? "(none)"}) - deferring until AccountSetup");
+                return;
+            }
+
+            _logger.Info("ImeLogTracker: user session enumerated with zero targeted apps - treating as user session completed");
+            OnUserSessionCompleted?.Invoke();
+        }
+
         private void HandleEspPhaseDetected(string espPhaseString)
         {
             // Validate phase and get its ordinal for forward-only enforcement
@@ -1120,6 +1170,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             ActivatePatterns(logPhaseIsCurrentPhase);
 
             OnEspPhaseChanged?.Invoke(espPhaseString);
+
+            // Replay a zero-app user session observed before this phase was known. IME logs its
+            // check-in lines independently of when the agent first parses the ESP phase marker,
+            // so the evidence can legitimately arrive first; without this the only completion
+            // evidence a zero-app device produces would be dropped on the floor.
+            if (isFirstOrChangedPhase && IsUserEspPhaseActive && _userSessionZeroAppsObserved)
+            {
+                _logger.Info("ImeLogTracker: replaying zero-app user session evidence observed before the user ESP phase");
+                OnUserSessionCompleted?.Invoke();
+            }
         }
 
         private void HandleEspTrackStatus(Match match)

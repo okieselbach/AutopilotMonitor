@@ -128,6 +128,15 @@ user-ESP Install-intent apps are still pending (IME logs "Completed user session
 *pass*, not once per session — sessions 14690fc2/6cb01530). The reducer stays free of
 app-pending guards; adapters sanitize evidence before it becomes a signal.
 
+**Zero user-targeted apps** (sessions 81daa77f/75d6ae8e): IME never writes its
+"Completed user session" line at all when the user has no assigned apps — its zero-app
+branch returns first — so fact 3 was unreachable by construction and every such device
+fell through to the backstop. `IME-USER-SESSION-ZERO-APPS` reads the line IME *does*
+write there and posts the same signal, guarded to the AccountSetup phase. The event
+carries an `evidence` field (`zero_user_apps_enumerated` vs `user_session_completed`)
+naming which observation carried the completion. See
+[zero-user-apps-completion-gate.md](zero-user-apps-completion-gate.md).
+
 ## Completion attempt sites and sequence
 
 Completion can be attempted from whichever fact arrives last: `HelloResolved`,
@@ -166,6 +175,11 @@ advisory backstop. All routes converge on `CompleteThroughFinalizingOrDefer`:
    scheduler contract) dead-ends as `realmjoin_timeout_stale_superseded_by_rearm`.
    The idle case (detected, no deployment activity ever) times out at 60 min
    unchanged, and phase 200/210 activity never extends.
+   A closed gate also outranks the 30-minute `AdvisoryCompletion` backstop: that
+   handler re-arms (trigger suffix `:CompletionGateHolding`) instead of failing while
+   the RealmJoin gate is closed *and* its own deadline is still armed, because the gate
+   carries a bounded resolution of its own. Before this, the shorter timer always won —
+   session 75d6ae8e was failed 2 min after its 25th successful RealmJoin package.
 2. `Finalizing` stage + ~5 s `FinalizingGrace` deadline.
 3. Grace fires → `Completed`, `EnrollmentComplete` outcome, `enrollment_complete`
    timeline event with full audit payload.

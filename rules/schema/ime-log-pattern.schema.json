@@ -63,6 +63,7 @@
             "imeImpersonation",
             "imeTokenFailure",
             "enrollmentCompleted",
+            "userSessionZeroApps",
             "updateDoTelemetry",
             "scriptStarted",
             "scriptContext",

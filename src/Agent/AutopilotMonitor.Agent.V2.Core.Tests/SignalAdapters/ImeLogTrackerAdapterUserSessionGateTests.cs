@@ -163,5 +163,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Single(f.DecisionSignals(DecisionSignalKind.ImeUserSessionCompleted));
             Assert.Single(f.InfoEvents(SharedEventTypes.ImeUserSessionCompleted));
         }
+
+        // ==================================================== zero-app evidence label ====
+
+        [Fact]
+        public void Zero_app_user_session_labels_the_evidence_on_signal_and_timeline()
+        {
+            // Sessions 81daa77f / 75d6ae8e: with no user-targeted apps IME never writes its
+            // "Completed user session" line at all, so the verdict rests on a different
+            // observation. Whoever reads the timeline later must be able to tell which.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            f.Tracker.SeedCurrentPhaseForTesting("AccountSetup");
+            f.Tracker.SeedUserSessionZeroAppsForTesting();
+
+            adapter.TriggerUserSessionCompletedFromTest();
+
+            Assert.Single(f.DecisionSignals(DecisionSignalKind.ImeUserSessionCompleted));
+            var evt = Assert.Single(f.InfoEvents(SharedEventTypes.ImeUserSessionCompleted));
+            Assert.Equal(
+                ImeLogTrackerAdapter.EvidenceZeroUserApps,
+                evt.Payload!["evidence"]);
+        }
+
+        [Fact]
+        public void Ordinary_user_session_completion_keeps_the_default_evidence_label()
+        {
+            // Mutation proof for the branch above.
+            using var f = new ImeLogTrackerAdapterFixture();
+            using var adapter = new ImeLogTrackerAdapter(f.Tracker, f.Ingress, f.Clock);
+            f.Tracker.SeedCurrentPhaseForTesting("AccountSetup");
+            AddApp(f.Tracker, "app-done", AppIntent.Install, AppInstallationState.Installed);
+
+            adapter.TriggerUserSessionCompletedFromTest();
+
+            var evt = Assert.Single(f.InfoEvents(SharedEventTypes.ImeUserSessionCompleted));
+            Assert.Equal(
+                ImeLogTrackerAdapter.EvidenceUserSessionCompleted,
+                evt.Payload!["evidence"]);
+        }
+
     }
 }

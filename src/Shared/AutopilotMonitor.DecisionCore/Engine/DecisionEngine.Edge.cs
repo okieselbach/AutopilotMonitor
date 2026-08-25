@@ -431,6 +431,16 @@ namespace AutopilotMonitor.DecisionCore.Engine
         internal static bool HasAdvisoryCompletionDeadline(DecisionState state)
             => FindAdvisoryCompletionDeadline(state) != null;
 
+        /// <summary>True when a deadline with the given name is currently armed.</summary>
+        internal static bool HasDeadline(DecisionState state, string name)
+        {
+            foreach (var d in state.Deadlines)
+            {
+                if (d.Name == name) return true;
+            }
+            return false;
+        }
+
         /// <summary>The armed <see cref="DeadlineNames.AdvisoryCompletion"/> deadline, or null.</summary>
         internal static ActiveDeadline? FindAdvisoryCompletionDeadline(DecisionState state)
         {
@@ -910,6 +920,61 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 if (neverObservedWaitingEffect != null) neverObservedEffects.Add(neverObservedWaitingEffect);
 
                 return new DecisionStep(neverObservedState, neverObservedTransition, neverObservedEffects.ToArray());
+            }
+
+            // Completion-gate guard (sessions 81daa77f / 75d6ae8e, 2026-08-25) — a completion
+            // gate that is deliberately holding this session must not be overrun by this
+            // window. The RealmJoin gate blocks completion until phase 110, and it carries its
+            // own bounded resolution: 60 min from detection, re-armed on deployment activity,
+            // hard-capped at 4 h. This 30-min window is simply shorter, so on every device
+            // whose RealmJoin first deployment outlives it the session was failed while the
+            // engine's own `completion_waiting` still read "waiting on: realmjoin_resolution"
+            // — 75d6ae8e installed 25 RealmJoin packages successfully inside the window, the
+            // last one 2 min before the failure. Re-arm and let the gate's own deadline decide.
+            //
+            // Convergent: the gate resolves itself either way (Resolved / FirstDeploymentIncomplete
+            // / Timeout all set RealmJoinFacts.Outcome, which opens RealmJoinGateOpen), after
+            // which this guard stops applying and the next fire resolves the session normally.
+            // Requiring the gate's deadline to still be armed keeps a gate that can no longer
+            // resolve itself from parking the session forever; AgentMaxLifetimeMinutes bounds
+            // it regardless.
+            if (!RealmJoinGateOpen(state) && HasDeadline(state, DeadlineNames.RealmJoinTimeout))
+            {
+                var gateRearmedDeadline = BuildAdvisoryCompletionDeadline(state, signal);
+                builder.AddDeadline(gateRearmedDeadline);
+
+                var gateTrigger = $"DeadlineFired:{DeadlineNames.AdvisoryCompletion}:CompletionGateHolding";
+                var gateRearmedState = builder.Build();
+                var gateRearmedTransition = BuildTakenTransition(
+                    before: state,
+                    signal: signal,
+                    toStage: state.Stage,
+                    nextStepIndex: nextStep,
+                    trigger: gateTrigger);
+
+                // Same deliberate dedupe bypass as the enforcement-progress re-arm: the missing
+                // set is unchanged since arming, but the new due-time is exactly what an
+                // operator debugging the session needs. Bounded to one per window.
+                var gateRearmedEffects = new[]
+                {
+                    new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: gateRearmedDeadline),
+                    new DecisionEffect(
+                        DecisionEffectKind.EmitEventTimelineEntry,
+                        parameters: new Dictionary<string, string>
+                        {
+                            ["eventType"] = SharedConstants.EventTypes.CompletionWaiting,
+                            ["source"] = "DecisionEngine",
+                            ["severity"] = "Info",
+                            ["immediateUpload"] = "false",
+                            ["message"] = "Completion resolution window re-armed: a completion gate is still holding the session",
+                            ["missingPrerequisites"] = string.Join(",", BuildMissingCompletionPrerequisites(state)),
+                            ["trigger"] = gateTrigger,
+                            ["stage"] = state.Stage.ToString(),
+                            ["resolutionDeadlineDueAtUtc"] = gateRearmedDeadline.DueAtUtc.ToString("o"),
+                        }),
+                };
+
+                return new DecisionStep(gateRearmedState, gateRearmedTransition, gateRearmedEffects);
             }
 
             // Conjunction not met — the session is failed. The two arming variants carry

@@ -109,6 +109,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public int CurrentPhaseOrder { get; set; }
         public string LastEspPhaseDetected { get; set; }
         public bool AllAppsCompletedFired { get; set; }
+
+        /// <summary>
+        /// IME reported zero targeted Win32 apps for a user session. Absent in state files
+        /// written before this field existed — deserializing to false there is correct: the
+        /// tracker simply re-observes the line on the next IME check-in.
+        /// </summary>
+        public bool UserSessionZeroAppsObserved { get; set; }
         public bool LogPhaseIsCurrentPhase { get; set; }
         public List<string> SeenAppIds { get; set; }
         public List<string> IgnoreList { get; set; }

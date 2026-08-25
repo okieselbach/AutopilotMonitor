@@ -56,6 +56,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     {
         private const string SourceLabel = "ImeLogTracker";
 
+        /// <summary>Timeline label: IME wrote its "Completed user session" line and no required user-scope app was pending.</summary>
+        internal const string EvidenceUserSessionCompleted = "user_session_completed";
+
+        /// <summary>Timeline label: IME reported zero targeted apps for the user session, so it never wrote a
+        /// "Completed user session" line at all. The user phase had nothing to enforce.</summary>
+        internal const string EvidenceZeroUserApps = "zero_user_apps_enumerated";
+
         private readonly ImeLogTracker _tracker;
         private readonly ISignalIngressSink _ingress;
         private readonly IClock _clock;
@@ -591,9 +598,24 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
 
             var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
 
+            // Which observation carried the completion. The zero-app variant matters to whoever
+            // reads the timeline later: the verdict then rests on IME reporting that this user
+            // had no targeted apps at all, not on watching enforcement finish.
+            var zeroApps = _tracker.UserSessionZeroAppsObserved;
+            var evidenceLabel = zeroApps ? EvidenceZeroUserApps : EvidenceUserSessionCompleted;
+            var summary = zeroApps
+                ? "IME enumerated the user session with zero targeted apps"
+                : "IME user session completed (no required user-scope apps pending)";
+            var message = zeroApps
+                ? "IME enumerated the user session with zero targeted apps - no user-phase enforcement to wait for"
+                : "IME user session completed";
+
             var derivationInputs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["detectionSource"] = "IME log pattern (UserSessionCompleted)",
+                ["detectionSource"] = zeroApps
+                    ? "IME log pattern (UserSessionZeroApps)"
+                    : "IME log pattern (UserSessionCompleted)",
+                ["evidence"] = evidenceLabel,
             };
             TagDerivedTimestamp(derivationInputs, derivedFromClock, rawSourceTs);
 
@@ -604,12 +626,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 evidence: new Evidence(
                     kind: EvidenceKind.Derived,
                     identifier: "ime-log-tracker-v1",
-                    summary: "IME user session completed (no required user-scope apps pending)",
+                    summary: summary,
                     derivationInputs: derivationInputs));
 
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["detectedAt"] = now.ToString("o"),
+                ["evidence"] = evidenceLabel,
             };
             var patternId = _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId))
@@ -619,12 +642,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _post.Emit(
                 eventType: SharedEventTypes.ImeUserSessionCompleted,
                 source: SourceLabel,
-                message: "IME user session completed",
+                message: message,
                 data: data,
                 occurredAtUtc: now);
 
             // PR3-D4: terminal-ish lifecycle marker — INFO so it's visible at the default level.
-            _logger?.Info($"ImeAdapter: user session completed -> posting ImeUserSessionCompleted (patternId={patternId ?? "(none)"})");
+            _logger?.Info($"ImeAdapter: user session completed ({evidenceLabel}) -> posting ImeUserSessionCompleted (patternId={patternId ?? "(none)"})");
         }
 
         /// <summary>
