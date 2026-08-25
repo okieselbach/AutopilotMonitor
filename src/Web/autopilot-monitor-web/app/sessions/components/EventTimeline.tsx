@@ -3,9 +3,15 @@
 import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
+import { buildEventSearchMatcher, parseEventSearchQuery } from "../utils/eventSearchQuery";
 import { getEnrichedOrLookup, formatErrorCode, type ErrorCodeEntry } from "@/utils/errorCodeMap";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
+
+const SEARCH_SYNTAX_HINT =
+  "Searches event type, message and source. Several terms are combined with AND. " +
+  "A leading minus hides matches, e.g. -app_install_progress. " +
+  'Quote a term to take it literally, e.g. "-1".';
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -60,14 +66,16 @@ export default function EventTimeline({
   const [searchQuery, setSearchQuery] = useState("");
   const [rawMode, setRawMode] = useState(false);
 
-  const matchesSearch = useMemo(() => {
-    if (!searchQuery.trim()) return null;
-    const q = searchQuery.toLowerCase();
-    return (event: EnrollmentEvent) =>
-      event.eventType?.toLowerCase().includes(q) ||
-      event.message?.toLowerCase().includes(q) ||
-      event.source?.toLowerCase().includes(q);
-  }, [searchQuery]);
+  // Terms are AND-ed, a leading minus excludes — see utils/eventSearchQuery.ts.
+  const matchesSearch = useMemo(() => buildEventSearchMatcher(searchQuery), [searchQuery]);
+  const excludedTerms = useMemo(() => parseEventSearchQuery(searchQuery).exclude, [searchQuery]);
+
+  // The counter has to follow the search, otherwise excluding event types leaves it
+  // reporting a number of rows the timeline no longer shows.
+  const searchVisibleCount = useMemo(
+    () => (matchesSearch ? filteredEvents.filter(matchesSearch).length : filteredEvents.length),
+    [filteredEvents, matchesSearch],
+  );
 
   const sortedBySequence = useMemo(() => {
     let filtered = events.filter(e => severityFilters.has(e.severity));
@@ -102,7 +110,8 @@ export default function EventTimeline({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search events..."
+            placeholder="Search or -exclude..."
+            title={SEARCH_SYNTAX_HINT}
             className="w-full pl-7 pr-7 py-1 text-xs border border-gray-300 rounded-full focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
           />
           {searchQuery && (
@@ -139,7 +148,15 @@ export default function EventTimeline({
               </button>
             );
           })}
-          <span className="text-xs text-gray-400">({filteredEvents.length}/{events.length})</span>
+          <span className="text-xs text-gray-400">({searchVisibleCount}/{events.length})</span>
+          {excludedTerms.length > 0 && (
+            <span
+              className="px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 border border-gray-300 text-gray-600 max-w-[16rem] truncate"
+              title={`Events matching ${excludedTerms.map(t => `"${t}"`).join(", ")} are hidden.`}
+            >
+              hiding {excludedTerms.join(", ")}
+            </span>
+          )}
           <div className="flex gap-1.5 ml-auto items-center">
             <button
               onClick={() => setRawMode(!rawMode)}
