@@ -168,7 +168,13 @@ function StatsRow({ model }: { model: NetworkModel }) {
   ];
   if (model.asleepMs > 0) items.push({ label: 'Asleep total', value: fmtDuration(model.asleepMs) });
   if (model.clockChangeCount > 0) items.push({ label: 'Clock changes', value: String(model.clockChangeCount) });
-  if (avgSignal != null) items.push({ label: 'Avg WiFi signal', value: `${avgSignal}%` });
+  if (avgSignal != null) {
+    items.push({ label: 'Avg WiFi signal', value: `${avgSignal}%` });
+  } else if (model.segments.some((s) => s.dataLimitedReason === 'location_services_off')) {
+    // Say why the stat is empty. Otherwise a fleet-wide blank reads as a product defect
+    // rather than the Windows 24H2 location gate that actually caused it.
+    items.push({ label: 'Avg WiFi signal', value: 'n/a (Location services off)' });
+  }
   if (lastCheck)
     items.push({
       label: 'Last connectivity check',

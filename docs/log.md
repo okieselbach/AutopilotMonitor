@@ -2,6 +2,11 @@
 
 ## 2026-08-26
 
+* **Update**: `agent/wifi-ssid-location-gate.md` - the network timeline now explains its blank signal too, with no agent change: `buildSegments` already merges `wifi_signal_info` into the covering WiFi segment, so `wifiDataLimitedReason` rides in with the sample. Segments that never got a sample (a mid-session reconnect emits none) inherit it - the gate is a device-level setting and cannot flip mid-enrollment - while a segment with a real reading is never overwritten. Tooltip shows `Signal: unavailable - Location services off on this device`; the "Avg WiFi signal" stat reads `n/a (Location services off)` instead of vanishing. `network_state_change` is deliberately left alone: it has never carried `signalPercent` or `radioType` (only `before_/after_wifiSsid` reaches its payload), so there is no absent field there for a reason to explain, and the SSID it does carry is unaffected by the gate. Web-only change.
+
+
+## 2026-08-26
+
 * **Update**: `agent/wifi-ssid-location-gate.md` - the gate is now surfaced instead of only logged. When the WinRT tier wins and the native tier reported `rc=5`, `wifi_signal_info` carries `wifiDataLimitedReason = "location_services_off"` and the message gains `- signal unavailable, Location services off`, so the reason is readable straight from the timeline; the portal WiFi card (`DeviceDetailsCard`) matches that literal and names the Intune setting that restores the full payload. The claim is evidence-only - any other native failure leaves the field null rather than blaming a privacy setting, with `IsLocationGateDenied` pinned at its boundaries. New `wifi_signal_info` group in the MCP `DEVICE_PROPERTIES_CATALOG` so a fleet can be sized via `search_sessions` before any policy changes. Agent release + web deploy + MCP redeploy; backend untouched (the payload is opaque DataJson).
 
 

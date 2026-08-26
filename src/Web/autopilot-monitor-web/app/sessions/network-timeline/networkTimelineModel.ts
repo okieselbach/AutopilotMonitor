@@ -46,6 +46,12 @@ export interface NetSegment {
   adapterDescription?: string;
   signalPercent?: number;
   radioType?: string;
+  /**
+   * Why signal/radio are absent, when the agent could tell — currently only
+   * 'location_services_off' (Windows 11 24H2+ gates the native WLAN API behind
+   * precise-location consent). Set from wifi_signal_info; never guessed.
+   */
+  dataLimitedReason?: string;
   hotspot?: HotspotHint;
   /** 'asleep' segments only: sleep/hibernate/modern_standby + wake details. */
   sleepKind?: string;
@@ -252,6 +258,18 @@ export function buildSegments(events: EnrollmentEvent[], t0: number, t1: number)
     if (!seg.ssid && str(data.wifiSsid)) seg.ssid = str(data.wifiSsid);
     if (typeof data.wifiSignalPercent === 'number') seg.signalPercent = data.wifiSignalPercent;
     if (str(data.wifiRadioType)) seg.radioType = str(data.wifiRadioType);
+    if (str(data.wifiDataLimitedReason)) seg.dataLimitedReason = str(data.wifiDataLimitedReason);
+  }
+
+  // The location gate is a device-level setting, not a per-connection one: it cannot flip
+  // during an enrollment. So once any sample reports it, WiFi segments that never got a
+  // sample of their own (a mid-session reconnect emits no wifi_signal_info) carry the same
+  // explanation instead of showing an unexplained blank where the signal belongs.
+  const observedLimit = segs.find((s) => s.dataLimitedReason)?.dataLimitedReason;
+  if (observedLimit) {
+    for (const seg of segs) {
+      if (seg.kind === 'wifi' && seg.signalPercent == null) seg.dataLimitedReason = observedLimit;
+    }
   }
 
   // Infer missing SSIDs from a sibling WiFi segment on the same gateway

@@ -105,6 +105,21 @@ connected interface) leaves the field null rather than blaming a privacy setting
 measure. `WifiInfoProvider.IsLocationGateDenied` is the single predicate, pinned by tests at its
 boundaries (`rc=5` yes; `rc=50`, `rc=5023`, `rc=1062` no).
 
+The network timeline reads the same field. It needs no payload of its own: `buildSegments`
+already merges every `wifi_signal_info` into the WiFi segment covering its timestamp, so the
+reason rides in with the sample. A segment that never got a sample (a mid-session reconnect emits
+no `wifi_signal_info`) inherits it — the gate is a device-level setting and cannot flip during an
+enrollment — while a segment that *did* get a real reading is never overwritten. The segment
+tooltip then reads `Signal: unavailable - Location services off on this device` where the
+percentage would be, and the "Avg WiFi signal" stat says `n/a (Location services off)` instead of
+disappearing.
+
+`network_state_change` deliberately does NOT carry the reason: that event has never carried
+`signalPercent` or `radioType` at all (`NetworkChangeDetector` collects them into its snapshot for
+change detection but only `before_/after_wifiSsid` reaches the payload), so there is no absent
+field there for a reason to explain. Adding it would ship a field nothing reads. The SSID it does
+carry is unaffected by the gate.
+
 Fleet-wide the same field is queryable through
 `search_sessions(deviceProperties: { "wifi_signal_info.wifiDataLimitedReason": "location_services_off" })`,
 which sizes how much of a fleet is affected before anyone changes a policy.

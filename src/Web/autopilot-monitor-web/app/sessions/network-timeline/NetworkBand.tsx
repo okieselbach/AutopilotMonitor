@@ -209,6 +209,9 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
                     Signal: {seg.signalPercent}%{seg.radioType ? ` (${seg.radioType})` : ''}
                   </div>
                 )}
+                {seg.signalPercent == null && seg.dataLimitedReason === 'location_services_off' && (
+                  <div>{'Signal: unavailable — Location services off on this device'}</div>
+                )}
                 {seg.adapterDescription && <div>{seg.adapterDescription}</div>}
                 {seg.kind === 'asleep' && (
                   <div>

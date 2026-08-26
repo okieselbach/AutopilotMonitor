@@ -199,3 +199,78 @@ describe('hotspot confidence', () => {
     expect(ssidOnly.confident).toBe(true);
   });
 });
+
+describe('location-gated WiFi payloads', () => {
+  it('carries the reason onto the segment that saw the sample', () => {
+    const model = buildNetworkModel(session, [
+        wifiInfo(1, 0),
+        ev(2, 'wifi_signal_info', 1 * MIN, {
+          wifiSsid: 'CorpNet',
+          wifiDataLimitedReason: 'location_services_off',
+        }),
+      ev(99, 'log_entry', 30 * MIN),
+    ])!;
+
+    const wifi = model.segments.filter((s) => s.kind === 'wifi');
+    expect(wifi.length).toBeGreaterThan(0);
+    expect(wifi[0].ssid).toBe('CorpNet');
+    expect(wifi[0].signalPercent).toBeUndefined();
+    expect(wifi[0].dataLimitedReason).toBe('location_services_off');
+  });
+
+  it('extends the reason to WiFi segments that never got their own sample', () => {
+    // A mid-session reconnect opens a new segment but emits no wifi_signal_info of its
+    // own. The gate is a device setting and cannot flip mid-enrollment, so the later
+    // segment must explain its blank signal too.
+    const model = buildNetworkModel(session, [
+        wifiInfo(1, 0),
+        ev(2, 'wifi_signal_info', 1 * MIN, {
+          wifiSsid: 'CorpNet',
+          wifiDataLimitedReason: 'location_services_off',
+        }),
+        ev(3, 'network_state_change', 5 * MIN, {
+          hasNetwork: true,
+          after_connectionType: 'WiFi',
+          after_wifiSsid: 'GuestNet',
+          after_gateway: '10.0.1.1',
+        }),
+      ev(99, 'log_entry', 30 * MIN),
+    ])!;
+
+    const wifi = model.segments.filter((s) => s.kind === 'wifi');
+    expect(wifi.length).toBe(2);
+    expect(wifi.every((s) => s.dataLimitedReason === 'location_services_off')).toBe(true);
+  });
+
+  it('never claims the gate when a signal reading actually arrived', () => {
+    const model = buildNetworkModel(session, [
+        wifiInfo(1, 0),
+        ev(2, 'wifi_signal_info', 1 * MIN, { wifiSsid: 'CorpNet', wifiSignalPercent: 80 }),
+      ev(99, 'log_entry', 30 * MIN),
+    ])!;
+
+    for (const seg of model.segments) expect(seg.dataLimitedReason).toBeUndefined();
+  });
+
+  it('leaves a segment with its own reading untouched when another was gated', () => {
+    // Defensive: the session-wide fill must only touch segments WITHOUT a reading.
+    const model = buildNetworkModel(session, [
+        wifiInfo(1, 0),
+        ev(2, 'wifi_signal_info', 1 * MIN, { wifiSsid: 'CorpNet', wifiSignalPercent: 74 }),
+        ev(3, 'network_state_change', 5 * MIN, {
+          hasNetwork: true,
+          after_connectionType: 'WiFi',
+          after_wifiSsid: 'GuestNet',
+          after_gateway: '10.0.1.1',
+        }),
+        ev(4, 'wifi_signal_info', 6 * MIN, {
+          wifiSsid: 'GuestNet',
+          wifiDataLimitedReason: 'location_services_off',
+        }),
+      ev(99, 'log_entry', 30 * MIN),
+    ])!;
+
+    const withReading = model.segments.find((s) => s.signalPercent === 74);
+    expect(withReading?.dataLimitedReason).toBeUndefined();
+  });
+});
