@@ -17,19 +17,22 @@ public class TenantApprovalService
     private readonly TenantConfigurationService _tenantConfigurationService;
     private readonly TenantAdminsService _tenantAdminsService;
     private readonly IEmailService _emailService;
+    private readonly OpsEventService _opsEventService;
 
     public TenantApprovalService(
         ILogger<TenantApprovalService> logger,
         PreviewWhitelistService previewWhitelistService,
         TenantConfigurationService tenantConfigurationService,
         TenantAdminsService tenantAdminsService,
-        IEmailService emailService)
+        IEmailService emailService,
+        OpsEventService opsEventService)
     {
         _logger = logger;
         _previewWhitelistService = previewWhitelistService;
         _tenantConfigurationService = tenantConfigurationService;
         _tenantAdminsService = tenantAdminsService;
         _emailService = emailService;
+        _opsEventService = opsEventService;
     }
 
     /// <summary>
@@ -107,26 +110,47 @@ public class TenantApprovalService
 
     /// <summary>
     /// Sends the activation welcome email exactly once per activation, no matter which
-    /// path gets there first. The address is user-provided on the activation page and is
-    /// the only reliable one (the signup admin UPN may have no mailbox), so activation and
-    /// address entry race — with auto-approve, activation usually wins. Both paths call
-    /// this AFTER their own write (approval writes the whitelist row first; the
-    /// notification-email save writes the address row first): write-then-read on both
-    /// sides guarantees at least one caller sees both halves, and the conditional
-    /// sent-marker insert guarantees at most one sends.
-    /// Best-effort and never throws; false when nothing was sent (no address yet, already
-    /// sent, or storage failure).
+    /// path gets there first. Both paths call this AFTER their own write (approval writes
+    /// the whitelist row first; the notification-email save writes the address row first):
+    /// write-then-read on both sides guarantees at least one caller sees both halves, and
+    /// the conditional sent-marker insert guarantees at most one sends.
+    /// <para>
+    /// Address resolution is activation-page address first, tenant contact address second.
+    /// The signup admin UPN is deliberately NOT a fallback: those accounts frequently have
+    /// no mailbox, and the resulting bounces cost sender reputation for every other tenant.
+    /// </para>
+    /// <para>
+    /// Best-effort and never throws; false when nothing was sent. Every outcome except the
+    /// duplicate-suppression one is recorded as an ops event — this path fails soft, so
+    /// without that record a customer onboarded without a welcome mail leaves no trace
+    /// (worker application logs below Warning never reach Application Insights).
+    /// </para>
     /// </summary>
     public virtual async Task<bool> TrySendWelcomeEmailAsync(string tenantId)
     {
+        string? domainName = null;
+        string? recipient = null;
+
         try
         {
-            var notificationEmail = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
-            if (string.IsNullOrWhiteSpace(notificationEmail))
+            var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
+            domainName = tenantConfig.DomainName;
+
+            var addressSource = "activation page";
+            recipient = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
+            if (string.IsNullOrWhiteSpace(recipient))
+            {
+                recipient = tenantConfig.ContactEmail;
+                addressSource = "tenant contact address";
+            }
+
+            if (string.IsNullOrWhiteSpace(recipient))
             {
                 _logger.LogInformation(
-                    "No notification email for tenant {TenantId} yet — welcome mail deferred to the notification-email save path",
+                    "No address for tenant {TenantId} yet — welcome mail deferred to the notification-email save path",
                     tenantId);
+                await _opsEventService.RecordWelcomeEmailSkippedAsync(tenantId, domainName,
+                    "no address entered on the activation page and no tenant contact address");
                 return false;
             }
 
@@ -139,21 +163,51 @@ public class TenantApprovalService
                 return false;
             }
 
-            var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-            _ = _emailService.SendPreviewApprovedEmailAsync(
-                    notificationEmail, tenantConfig.DomainName)
-                .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                    "Fire-and-forget welcome email failed for tenant {TenantId}", tenantId),
-                    TaskContinuationOptions.OnlyOnFaulted);
+            // Awaited rather than fire-and-forget: a discarded Task can be torn down when the
+            // function invocation ends, and its result is the only thing that distinguishes
+            // "sent" from "provider refused" for the ops event below.
+            var sent = await _emailService.SendPreviewApprovedEmailAsync(recipient, tenantConfig.DomainName);
+            if (sent)
+            {
+                _logger.LogInformation(
+                    "Welcome email sent to {Email} for tenant {TenantId}", recipient, tenantId);
+                await _opsEventService.RecordWelcomeEmailSentAsync(tenantId, domainName, recipient, addressSource);
+                return true;
+            }
 
-            _logger.LogInformation(
-                "Welcome email dispatched to {Email} for tenant {TenantId}", notificationEmail, tenantId);
-            return true;
+            // The marker means "delivered", not "attempted": leaving it behind after a refused
+            // send would suppress this tenant's welcome mail permanently, so a later address
+            // save (or the GA button) can try again.
+            await _previewWhitelistService.ClearWelcomeEmailSentMarkerAsync(tenantId);
+            await _opsEventService.RecordWelcomeEmailFailedAsync(tenantId, domainName, recipient,
+                "the email provider did not accept the message");
+            return false;
         }
         catch (Exception ex)
         {
             // Courtesy side effect — the GA "Send Welcome Email" button is the manual fallback.
             _logger.LogWarning(ex, "Failed to send welcome email for tenant {TenantId}", tenantId);
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(recipient))
+                {
+                    await _opsEventService.RecordWelcomeEmailSkippedAsync(tenantId, domainName,
+                        $"address lookup failed ({ex.GetType().Name})");
+                }
+                else
+                {
+                    await _opsEventService.RecordWelcomeEmailFailedAsync(tenantId, domainName, recipient,
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            catch (Exception opsEx)
+            {
+                // The ops event is the record of a failure, never a second source of one.
+                _logger.LogWarning(opsEx,
+                    "Could not record the welcome-email failure for tenant {TenantId}", tenantId);
+            }
+
             return false;
         }
     }

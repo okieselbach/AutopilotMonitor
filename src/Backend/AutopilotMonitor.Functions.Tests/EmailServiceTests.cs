@@ -75,11 +75,14 @@ public sealed class EmailServiceTests
     {
         var (sut, handler, logger) = Build(apiKey: "");
 
-        await sut.SendPreviewApprovedEmailAsync("it@contoso.invalid", "contoso.invalid");
+        var sent = await sut.SendPreviewApprovedEmailAsync("it@contoso.invalid", "contoso.invalid");
 
+        Assert.False(sent);
         Assert.Equal(0, handler.CallCount);
+        // Warning, not Debug: an unconfigured provider is operator misconfiguration, and worker
+        // logs below Warning never reach Application Insights — Debug made it invisible.
         Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("Email:ApiKey not configured"));
+            e => e.Level == LogLevel.Warning && e.Message.Contains("Email:ApiKey not configured"));
     }
 
     // ----- wire format -----

@@ -14,8 +14,13 @@ public interface IEmailService
     /// <summary>
     /// Sends the tenant-activation welcome email. No-op when the provider is not configured
     /// or the recipient is empty.
+    /// <para>
+    /// Returns true only when the provider accepted the message. Callers record that outcome
+    /// as an ops event: the send is best-effort, so a false here is the ONLY signal that a
+    /// customer never got their welcome mail.
+    /// </para>
     /// </summary>
-    Task SendPreviewApprovedEmailAsync(string toEmail, string domainName, CancellationToken ct = default);
+    Task<bool> SendPreviewApprovedEmailAsync(string toEmail, string domainName, CancellationToken ct = default);
 
     /// <summary>
     /// Operator test send: the effective template of <paramref name="kind"/> (or an unsaved

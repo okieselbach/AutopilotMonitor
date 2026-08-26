@@ -156,6 +156,16 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
+    /// Releases the welcome-email marker again after a send that never reached the customer.
+    /// The marker records delivery, not an attempt — keeping it after a refused send would
+    /// suppress this tenant's welcome mail forever. Fail-soft at the storage layer.
+    /// </summary>
+    public virtual async Task ClearWelcomeEmailSentMarkerAsync(string tenantId)
+    {
+        await _configRepo.ClearWelcomeEmailSentMarkerAsync(tenantId);
+    }
+
+    /// <summary>
     /// Saves (or clears) the notification email for a tenant, and seeds the tenant's
     /// contact address from it the first time one is given.
     /// <para>

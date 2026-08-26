@@ -221,15 +221,30 @@ public class PreviewWhitelistFunction
         }
 
         var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
-        await _emailService.SendPreviewApprovedEmailAsync(email, tenantConfig.DomainName);
-
-        // Explicit GA send always sends; consume the once-only marker (best-effort) so
-        // the automatic paths won't produce a duplicate afterwards.
-        try { await _previewWhitelistService.TryMarkWelcomeEmailSentAsync(tenantId); }
-        catch { /* best-effort — a failed marker write must not fail the explicit send */ }
+        var sent = await _emailService.SendPreviewApprovedEmailAsync(email, tenantConfig.DomainName);
 
         var principal = context.GetUser();
         var upn = principal?.GetUserPrincipalName();
+
+        // This endpoint is the manual fallback for a welcome mail that did not go out on its
+        // own, so it must not report a success the provider never gave. Marker and message
+        // both follow the actual outcome — a refused send stays retryable.
+        if (!sent)
+        {
+            _logger.LogWarning(
+                "Welcome email to {Email} for tenant {TenantId} was not accepted by the provider (requested by {Upn})",
+                email, tenantId, upn);
+
+            var failed = req.CreateResponse(HttpStatusCode.BadGateway);
+            await failed.WriteAsJsonAsync(new { error = "The email provider did not accept the message", email });
+            return failed;
+        }
+
+        // Explicit GA send succeeded; consume the once-only marker (best-effort) so the
+        // automatic paths won't produce a duplicate afterwards.
+        try { await _previewWhitelistService.TryMarkWelcomeEmailSentAsync(tenantId); }
+        catch { /* best-effort — a failed marker write must not fail the explicit send */ }
+
         _logger.LogInformation(
             "Welcome email sent to {Email} for tenant {TenantId} by {Upn}",
             email, tenantId, upn);

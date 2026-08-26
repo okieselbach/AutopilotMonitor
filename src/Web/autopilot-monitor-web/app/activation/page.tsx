@@ -2,13 +2,35 @@
 
 import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
 
 // The URL query string is fixed for the lifetime of a page load — nothing to subscribe to.
 const subscribeNever = () => () => {};
+
+// Which tenant already answered the address question, so a reload does not ask twice.
+// Deliberately client-side: the stored address is only readable through a Global-Admin
+// endpoint, and this is a UI courtesy — re-asking is harmless (saving is idempotent and
+// the backend's sent-marker dedupes the mail either way).
+const ADDRESS_DECIDED_KEY = "am.activation.addressDecided";
+
+const readDecidedTenant = () => {
+  try {
+    return window.sessionStorage.getItem(ADDRESS_DECIDED_KEY) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const rememberDecidedTenant = (tenantId: string) => {
+  try {
+    window.sessionStorage.setItem(ADDRESS_DECIDED_KEY, tenantId);
+  } catch {
+    // Private mode or blocked storage — the question may reappear after a reload, nothing worse.
+  }
+};
 
 export default function ActivationPage() {
   const { isAuthenticated, isLoading, user, isActivationPending, activationMessage, logout, getAccessToken, refreshUserInfo } = useAuth();
@@ -17,6 +39,7 @@ export default function ActivationPage() {
   const [notificationEmail, setNotificationEmail] = useState("");
   const [emailStatus, setEmailStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [emailError, setEmailError] = useState("");
+  const [decidedHere, setDecidedHere] = useState(false);
 
   // ?demo=1 renders the page without auth/redirects (placeholder data) so
   // the design can be reviewed locally and on SWA preview environments.
@@ -28,20 +51,40 @@ export default function ActivationPage() {
     () => false,
   );
 
-  // If the tenant is activated (e.g. activated tenant navigates here), redirect away
+  // Session-scoped answer from an earlier visit (see ADDRESS_DECIDED_KEY). Read through the
+  // same client-only store pattern as `demo` so the prerender stays stable.
+  const decidedTenant = useSyncExternalStore(subscribeNever, readDecidedTenant, () => "");
+  const addressDecided = decidedHere || (!!user?.tenantId && decidedTenant === user.tenantId);
+
+  // Whether this visit began while the tenant was still being activated. Only those visitors
+  // are asked for an address; an already-activated tenant opening /activation later is passed
+  // straight through, exactly as before.
+  const arrivedPendingRef = useRef<boolean | null>(null);
+
+  // Redirect out of the activation page — but not while the address question is still open.
   useEffect(() => {
     if (demo) return;
-    if (!isLoading && isAuthenticated && user && !isActivationPending) {
-      if (user.isTenantAdmin || user.isGlobalAdmin) {
-        router.push("/dashboard");
-      } else {
-        router.push("/progress");
-      }
-    }
+
     if (!isLoading && !isAuthenticated) {
       router.push("/");
+      return;
     }
-  }, [demo, isAuthenticated, isLoading, user, isActivationPending, router]);
+    if (isLoading || !isAuthenticated || !user) return;
+
+    // First definite auth answer decides whether this is an onboarding visit.
+    if (arrivedPendingRef.current === null) {
+      arrivedPendingRef.current = isActivationPending;
+    }
+
+    if (isActivationPending) return;
+
+    // Activation just completed. This is where the redirect used to fire unconditionally and
+    // take the only address field in the product with it, roughly 60 seconds after signup —
+    // which is why almost no tenant ever got a welcome mail. Hold until the user has answered.
+    if (arrivedPendingRef.current && !addressDecided) return;
+
+    router.push(user.isTenantAdmin || user.isGlobalAdmin ? "/dashboard" : "/progress");
+  }, [demo, isAuthenticated, isLoading, user, isActivationPending, addressDecided, router]);
 
   // Poll while activation is pending: the auto-approve worker activates the tenant
   // ~1 minute after signup. refreshUserInfo clears isActivationPending on a successful
@@ -54,6 +97,13 @@ export default function ActivationPage() {
     }, 30_000);
     return () => clearInterval(id);
   }, [demo, isLoading, isAuthenticated, isActivationPending, refreshUserInfo]);
+
+  // Both answers release the redirect. Skipping writes nothing: the backend then falls back to
+  // the tenant contact address, or records a WelcomeEmailSkipped ops event if there is none.
+  const markAddressDecided = () => {
+    if (user?.tenantId) rememberDecidedTenant(user.tenantId);
+    setDecidedHere(true);
+  };
 
   const handleSaveEmail = async () => {
     const email = notificationEmail.trim();
@@ -87,7 +137,7 @@ export default function ActivationPage() {
       }
 
       setEmailStatus("saved");
-      setTimeout(() => setEmailStatus("idle"), 5000);
+      markAddressDecided();
     } catch (err) {
       setEmailError(err instanceof Error ? err.message : "Failed to save email");
       setEmailStatus("error");
@@ -107,6 +157,8 @@ export default function ActivationPage() {
 
   const upn = user?.upn ?? "you@contoso.com";
   const tenantId = user?.tenantId ?? "00000000-0000-0000-0000-000000000000";
+  // Demo keeps the pending look so the design can be reviewed in its busiest state.
+  const activated = !demo && isAuthenticated && !isActivationPending;
 
   return (
     <div className="landing-v2 min-h-screen bg-[var(--lp-bg)] flex items-center justify-center px-6 py-12">
@@ -119,25 +171,31 @@ export default function ActivationPage() {
 
         {/* Card */}
         <div className="bg-[var(--lp-surface)] border border-[var(--lp-line)] rounded-2xl shadow-xl shadow-black/[0.06] p-8 sm:p-10">
-          <div className="w-14 h-14 bg-[var(--lp-warn-soft)] rounded-full flex items-center justify-center mx-auto mb-5">
-            <svg className="w-7 h-7 text-[var(--lp-warn)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5 ${activated ? "bg-[var(--lp-accent-soft)]" : "bg-[var(--lp-warn-soft)]"}`}>
+            <svg className={`w-7 h-7 ${activated ? "text-[var(--lp-accent-ink)]" : "text-[var(--lp-warn)]"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {activated ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              )}
             </svg>
           </div>
 
           <div className="mb-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--lp-warn-soft)] text-[var(--lp-warn)] text-xs font-bold uppercase tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--lp-warn)]" />
-              Activation in progress
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${activated ? "bg-[var(--lp-accent-soft)] text-[var(--lp-accent-ink)]" : "bg-[var(--lp-warn-soft)] text-[var(--lp-warn)]"}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${activated ? "bg-[var(--lp-accent-ink)]" : "bg-[var(--lp-warn)]"}`} />
+              {activated ? "Activated" : "Activation in progress"}
             </span>
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-[var(--lp-ink)] mb-2">
-            Activating your organization
+            {activated ? "Your organization is ready" : "Activating your organization"}
           </h1>
 
           <p className="text-[15px] text-[var(--lp-ink-soft)] mb-6 leading-relaxed">
-            {activationMessage || "Autopilot Monitor is free to use — every new organization goes through a short activation step. Your tenant is being activated."}
+            {activated
+              ? "Activation is complete. One last thing before you go in."
+              : activationMessage || "Autopilot Monitor is free to use — every new organization goes through a short activation step. Your tenant is being activated."}
           </p>
 
           <div className="bg-[var(--lp-surface-2)] border border-[var(--lp-line-soft)] rounded-xl p-3.5 mb-5">
@@ -147,45 +205,63 @@ export default function ActivationPage() {
             <p className="text-xs text-[var(--lp-ink-faint)] mt-0.5 font-mono">Tenant: {tenantId}</p>
           </div>
 
-          {/* Notification Email */}
-          <div className="text-left bg-[var(--lp-accent-soft)] border border-[var(--lp-accent-line)] rounded-xl p-4 mb-5">
-            <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Get notified when activated</p>
-            <p className="text-sm text-[var(--lp-ink-soft)] mb-3">
-              Enter your email and we&apos;ll notify you as soon as your organization is activated.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="email"
-                value={notificationEmail}
-                onChange={(e) => { setNotificationEmail(e.target.value); setEmailStatus("idle"); setEmailError(""); }}
-                placeholder="your@email.com"
-                className="flex-1 px-3 py-2 border border-[var(--lp-line)] bg-[var(--lp-surface)] rounded-lg text-sm text-[var(--lp-ink)] placeholder-[var(--lp-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--lp-accent)] focus:border-[var(--lp-accent)] transition-colors"
-                onKeyDown={(e) => { if (e.key === "Enter") handleSaveEmail(); }}
-              />
+          {/* Welcome-mail address. Asked here because this is the only moment the product has
+              the person's attention before the portal takes over — and answered here, because
+              the redirect no longer overtakes them. */}
+          {addressDecided ? (
+            <div className="text-left bg-[var(--lp-accent-soft)] border border-[var(--lp-accent-line)] rounded-xl p-4 mb-5">
+              <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">
+                {emailStatus === "saved" ? "Address saved" : "No problem"}
+              </p>
+              <p className="text-sm text-[var(--lp-ink-soft)]">
+                {activated
+                  ? "Taking you into the portal now."
+                  : "Waiting for activation to finish — this page takes you straight in when it does."}
+              </p>
+            </div>
+          ) : (
+            <div className="text-left bg-[var(--lp-accent-soft)] border border-[var(--lp-accent-line)] rounded-xl p-4 mb-5">
+              <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">Where should we send your welcome email?</p>
+              <p className="text-sm text-[var(--lp-ink-soft)] mb-3">
+                Setup instructions go to this address. It also becomes your contact address for
+                service notices — you can change it later in Settings.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={notificationEmail}
+                  onChange={(e) => { setNotificationEmail(e.target.value); setEmailStatus("idle"); setEmailError(""); }}
+                  placeholder="your@email.com"
+                  className="flex-1 px-3 py-2 border border-[var(--lp-line)] bg-[var(--lp-surface)] rounded-lg text-sm text-[var(--lp-ink)] placeholder-[var(--lp-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--lp-accent)] focus:border-[var(--lp-accent)] transition-colors"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveEmail(); }}
+                />
+                <button
+                  onClick={handleSaveEmail}
+                  disabled={emailStatus === "saving" || !notificationEmail.trim()}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-[var(--lp-accent-ink)] rounded-lg hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                >
+                  {emailStatus === "saving" ? "Saving..." : "Save address"}
+                </button>
+              </div>
+              {emailStatus === "error" && emailError && (
+                <p className="text-xs text-[var(--lp-danger)] mt-2 font-medium">{emailError}</p>
+              )}
               <button
-                onClick={handleSaveEmail}
-                disabled={emailStatus === "saving" || !notificationEmail.trim()}
-                className="px-4 py-2 text-sm font-semibold text-white bg-[var(--lp-accent-ink)] rounded-lg hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                onClick={markAddressDecided}
+                disabled={emailStatus === "saving"}
+                className="mt-3 text-xs font-medium text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink-soft)] underline disabled:opacity-50 transition-colors"
               >
-                {emailStatus === "saving" ? "Saving..." : "Notify me"}
+                {activated ? "Continue without email" : "Skip this"}
               </button>
             </div>
-            {emailStatus === "saved" && (
-              <p className="text-xs text-[var(--lp-accent-ink)] mt-2 font-medium">
-                Email saved! We&apos;ll send you a notification when your organization is activated.
-              </p>
-            )}
-            {emailStatus === "error" && emailError && (
-              <p className="text-xs text-[var(--lp-danger)] mt-2 font-medium">{emailError}</p>
-            )}
-          </div>
+          )}
 
           <div className="text-left bg-[var(--lp-surface-2)] border border-[var(--lp-line-soft)] rounded-xl p-4 mb-6">
             <p className="text-sm font-semibold text-[var(--lp-ink)] mb-1">What happens next</p>
             <p className="text-sm text-[var(--lp-ink-soft)]">
-              This page checks automatically and takes you into the portal once activation
-              completes — usually within a couple of minutes. You can also come back and sign
-              in again at any time.
+              {activated
+                ? "Your organization is active — answer the question above and this page takes you into the portal. You can also come back and sign in again at any time."
+                : "This page checks automatically and takes you into the portal once activation completes — usually within a couple of minutes. You can also come back and sign in again at any time."}
             </p>
             <p className="text-sm text-[var(--lp-ink-soft)] mt-2">
               In the meantime, you can already review the setup and configuration in the{" "}

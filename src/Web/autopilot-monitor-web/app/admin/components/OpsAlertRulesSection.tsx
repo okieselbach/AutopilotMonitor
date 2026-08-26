@@ -149,6 +149,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "TenantPlanDowngraded",
     "TenantRetentionGraceExpiring",
     "TenantRetentionGraceEnded",
+    // Activation welcome mail. The send fails soft, so these are the only record that a
+    // customer was onboarded without one: Skipped (Warning) = no address could be resolved,
+    // Failed (Error) = the provider refused an address we had, Sent (Info) = confirmation.
+    // Dual-register per memory feedback_ops_event_types_dual_register.
+    "WelcomeEmailSent",
+    "WelcomeEmailSkipped",
+    "WelcomeEmailFailed",
   ],
   Agent: [
     "BlobStorageMissing",

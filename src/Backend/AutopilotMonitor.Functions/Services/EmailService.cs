@@ -61,18 +61,18 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
     }
 
     /// <inheritdoc />
-    public async Task SendPreviewApprovedEmailAsync(string toEmail, string domainName, CancellationToken ct = default)
+    public async Task<bool> SendPreviewApprovedEmailAsync(string toEmail, string domainName, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            _logger.LogDebug("{ConfigKey} not configured — skipping preview approval email", ApiKeyConfigKey);
-            return;
+            _logger.LogWarning("{ConfigKey} not configured — skipping preview approval email", ApiKeyConfigKey);
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(toEmail))
         {
             _logger.LogDebug("No notification email set — skipping preview approval email for {Domain}", domainName);
-            return;
+            return false;
         }
 
         var sent = await SendViaMandrillAsync(
@@ -88,6 +88,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 "Preview approval email sent to {ToEmail} for domain {Domain}",
                 toEmail, domainName);
         }
+
+        return sent;
     }
 
     /// <summary>

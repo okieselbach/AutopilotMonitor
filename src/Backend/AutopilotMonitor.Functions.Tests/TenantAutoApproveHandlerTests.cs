@@ -44,15 +44,6 @@ public class TenantAutoApproveHandlerTests
             configRepo, cache, NullLogger<PreviewWhitelistService>.Instance, _tenantConfigMock.Object)
         { CallBase = false };
 
-        _approvalMock = new Mock<TenantApprovalService>(
-            NullLogger<TenantApprovalService>.Instance,
-            _previewMock.Object,
-            _tenantConfigMock.Object,
-            new Mock<TenantAdminsService>(
-                Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
-            Mock.Of<IEmailService>())
-        { CallBase = false };
-
         var opsRepo = new Mock<IOpsEventRepository>();
         opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
             .Callback<OpsEventEntry>(e => { lock (_savedOpsEvents) _savedOpsEvents.Add(e); })
@@ -65,6 +56,16 @@ public class TenantAutoApproveHandlerTests
                 NullLogger<WebhookNotificationService>.Instance),
             NullLogger<OpsAlertDispatchService>.Instance);
         var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
+
+        _approvalMock = new Mock<TenantApprovalService>(
+            NullLogger<TenantApprovalService>.Instance,
+            _previewMock.Object,
+            _tenantConfigMock.Object,
+            new Mock<TenantAdminsService>(
+                Mock.Of<IAdminRepository>(), cache, NullLogger<TenantAdminsService>.Instance).Object,
+            Mock.Of<IEmailService>(),
+            opsService)
+        { CallBase = false };
 
         _sut = new TenantAutoApproveHandler(
             NullLogger<TenantAutoApproveHandler>.Instance,

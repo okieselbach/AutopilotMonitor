@@ -501,6 +501,48 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System (auto-approve)", new { domainName, signupUpn });
         }
 
+        // ── Activation welcome mail ──
+        // The mail is a courtesy side effect that fails soft, which used to make every failure
+        // mode invisible: the "no address" and "provider rejected" branches only wrote
+        // LogInformation, and worker application logs never reach Application Insights below
+        // Warning. Between 2026-08-21 and 2026-08-26 that hid a total stop of the welcome mail.
+        // These three types are the visible record. All dual-registered in
+        // OpsAlertRulesSection.tsx OPS_EVENT_TYPES (memory feedback_ops_event_types_dual_register).
+
+        /// <summary>The provider accepted the activation welcome mail. Info-tier confirmation.</summary>
+        public Task RecordWelcomeEmailSentAsync(string tenantId, string? domainName, string toEmail, string addressSource)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailSent", OpsEventSeverity.Info,
+                $"Welcome email sent to {toEmail} for tenant {tenantLabel} (address from {addressSource})",
+                tenantId, "System.Activation", new { domainName, toEmail, addressSource });
+        }
+
+        /// <summary>
+        /// The tenant was activated but no welcome mail went out, because no address could be
+        /// resolved (neither the activation-page address nor the tenant contact address).
+        /// Warning-tier: nothing is broken technically, but a customer was onboarded in silence.
+        /// </summary>
+        public Task RecordWelcomeEmailSkippedAsync(string tenantId, string? domainName, string reason)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailSkipped", OpsEventSeverity.Warning,
+                $"No welcome email for tenant {tenantLabel} — {reason}",
+                tenantId, "System.Activation", new { domainName, reason });
+        }
+
+        /// <summary>
+        /// An address was resolved and handed to the provider, which did not accept it (or the
+        /// send threw). Error-tier: this one IS a defect — provider key, rejection or outage.
+        /// </summary>
+        public Task RecordWelcomeEmailFailedAsync(string tenantId, string? domainName, string toEmail, string reason)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailFailed", OpsEventSeverity.Error,
+                $"Welcome email to {toEmail} failed for tenant {tenantLabel} — {reason}",
+                tenantId, "System.Activation", new { domainName, toEmail, reason });
+        }
+
         // ── Tenant trial lifecycle (informational — enforcement is read-time) ──
         // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.
