@@ -15,7 +15,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
         /// <summary>
         /// Signal quality 0–100 (same semantics as the netsh "Signal" percentage). Always set
-        /// on the native WLAN API path; null only when the netsh fallback could not parse it.
+        /// on the native WLAN API path; null when the netsh fallback could not parse it, and
+        /// always null on the WinRT tier (<see cref="WinRtWifiSsidReader"/> yields SSID only).
         /// </summary>
         public int? SignalPercent { get; internal set; }
 

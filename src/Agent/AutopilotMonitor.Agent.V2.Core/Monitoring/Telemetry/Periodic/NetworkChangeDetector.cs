@@ -390,23 +390,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         }
 
         /// <summary>
-        /// Collects WiFi SSID, signal, and radio type via the native WLAN API
-        /// (<see cref="WifiInfoReader"/> — language-neutral, no process spawn).
-        /// Synchronous — needed before emitting the event.
+        /// Collects WiFi SSID, signal, and radio type via <see cref="WifiInfoProvider"/>
+        /// (native WLAN API → WinRT SSID → netsh). Synchronous — needed before emitting the event.
         /// </summary>
         private (string ssid, int? signal, string radioType) CollectWiFiInfo(Guid? interfaceGuid)
         {
             try
             {
-                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid, out var wifiDiag);
-                if (wifi == null)
-                {
-                    _logger.Debug($"NetworkChangeDetector: native WLAN API returned no WiFi info ({wifiDiag ?? "no connected WLAN interface"}) — trying netsh fallback");
-                    wifi = NetshWifiFallback.TryRead();
-                }
-
+                var wifi = WifiInfoProvider.TryRead(interfaceGuid, out var wifiDiag);
                 if (wifi != null)
                     return (wifi.Ssid, wifi.SignalPercent, wifi.RadioType);
+
+                // Warning, not Debug: reached only when the active NIC IS WiFi, and Debug is off
+                // at the default log level — which is what hid this failure in the field.
+                _logger.Warning($"NetworkChangeDetector: no WiFi info for the active WLAN adapter — {wifiDiag}");
             }
             catch (Exception ex)
             {

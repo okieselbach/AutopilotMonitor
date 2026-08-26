@@ -926,22 +926,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
             Monitoring.NetworkInterfaceLocator.FindActiveNetworkInterface();
 
         /// <summary>
-        /// Collects WiFi signal info via the native WLAN API (<see cref="WifiInfoReader"/>,
-        /// language-neutral, no process spawn) and emits a separate wifi_signal_info event.
-        /// Designed to run as fire-and-forget via Task.Run — never blocks other collection.
-        /// VMs without WiFi service simply get no event.
+        /// Collects WiFi signal info via <see cref="WifiInfoProvider"/> (native WLAN API → WinRT
+        /// SSID → netsh, all language-neutral bar the last) and emits a separate
+        /// wifi_signal_info event. Designed to run as fire-and-forget via Task.Run — never blocks
+        /// other collection. VMs without WiFi service simply get no event.
         /// </summary>
         private void CollectWiFiSignalInfo(Guid? interfaceGuid)
         {
             try
             {
-                var wifi = WifiInfoReader.TryGetCurrentConnection(interfaceGuid, out var wifiDiag);
+                var wifi = WifiInfoProvider.TryRead(interfaceGuid, out var wifiDiag);
                 if (wifi == null)
                 {
-                    _logger.Debug($"EnrollmentTracker: native WLAN API returned no WiFi info ({wifiDiag ?? "no connected WLAN interface"}) — trying netsh fallback");
-                    wifi = NetshWifiFallback.TryRead();
-                    if (wifi == null)
-                        return;
+                    // Warning, not Debug: the caller only reaches here when the active NIC IS
+                    // WiFi, so a silent miss is a real gap — and Debug is off at the default
+                    // log level, which is what made this invisible in the field.
+                    _logger.Warning($"EnrollmentTracker: no wifi_signal_info — {wifiDiag}");
+                    return;
                 }
 
                 var data = new Dictionary<string, object>();
