@@ -538,9 +538,12 @@ function SessionReportsSectionInner({
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Details</h3>
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
-                  {selectedReport.reportId}
-                </span>
+                <div className="flex items-center">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
+                    {selectedReport.reportId}
+                  </span>
+                  <CopyButton value={selectedReport.reportId} />
+                </div>
               </div>
 
               <dl className="space-y-3 text-sm">
