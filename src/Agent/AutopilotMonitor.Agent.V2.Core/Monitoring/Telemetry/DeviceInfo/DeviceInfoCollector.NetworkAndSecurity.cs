@@ -954,12 +954,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                     data["wifiRadioType"] = wifi.RadioType;
                 if (wifi.Channel.HasValue)
                     data["wifiChannel"] = wifi.Channel.Value;
+                if (wifi.DataLimitedReason != null)
+                    data["wifiDataLimitedReason"] = wifi.DataLimitedReason;
 
                 var message = wifi.Ssid != null ? $"WiFi: {wifi.Ssid}" : "WiFi signal info";
                 if (wifi.SignalPercent.HasValue)
                     message += $", Signal: {wifi.SignalPercent.Value}%";
                 if (wifi.RadioType != null)
                     message += $" ({wifi.RadioType})";
+                // Say it in the timeline too — a missing signal reads like a bug otherwise, and
+                // this is the only place an admin ever learns that a privacy setting caused it.
+                if (wifi.DataLimitedReason == WifiInfoProvider.LocationServicesOff)
+                    message += " — signal unavailable, Location services off";
 
                 EmitDeviceInfoEvent(Constants.EventTypes.WifiSignalInfo, message, data);
             }

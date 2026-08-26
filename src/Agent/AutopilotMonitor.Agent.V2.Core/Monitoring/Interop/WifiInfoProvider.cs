@@ -23,6 +23,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
     internal static class WifiInfoProvider
     {
         /// <summary>
+        /// <see cref="WifiConnectionInfo.DataLimitedReason"/> value for a payload cut down to the
+        /// SSID by the Windows 11 24H2 location gate. Travels verbatim into the
+        /// <c>wifi_signal_info</c> payload as <c>wifiDataLimitedReason</c> and is matched by the
+        /// portal's WiFi card — a published contract, so do not rename it.
+        /// </summary>
+        internal const string LocationServicesOff = "location_services_off";
+
+        /// <summary>
+        /// True when the native tier reported <c>ERROR_ACCESS_DENIED</c> — "rc=5" but not
+        /// "rc=50"/"rc=5023"; the diagnostics string ends the code with ';' or end-of-line.
+        /// That is the 24H2 location gate, not a driver or hardware fault.
+        /// Internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static bool IsLocationGateDenied(string nativeDiag)
+            => !string.IsNullOrEmpty(nativeDiag) && Regex.IsMatch(nativeDiag, @"rc=5(?!\d)");
+
+        /// <summary>
         /// Reads the current WiFi connection, walking the tiers until one yields something.
         /// <paramref name="preferredInterfaceId"/> is the adapter GUID from
         /// <c>NetworkInterface.Id</c> (tier 1 only). <paramref name="diagnostics"/> is null on
@@ -42,7 +59,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             if (ssid != null)
             {
                 diagnostics = null;
-                return new WifiConnectionInfo { Ssid = ssid };
+                return new WifiConnectionInfo
+                {
+                    Ssid = ssid,
+                    // Only claim the location gate when the native tier actually said so. Any
+                    // other native failure (no WLAN service, no connected interface) leaves this
+                    // null rather than blaming a setting we did not observe.
+                    DataLimitedReason = IsLocationGateDenied(nativeDiag) ? LocationServicesOff : null,
+                };
             }
 
             var netsh = NetshWifiFallback.TryRead();
@@ -69,8 +93,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
             text.Append("; WinRT: ").Append(string.IsNullOrEmpty(winRtDiag) ? "no SSID" : winRtDiag);
             text.Append("; netsh: no parsable output");
 
-            // "rc=5" but not "rc=50"/"rc=5023" — the diagnostics string ends the code with ';' or EOL.
-            if (!string.IsNullOrEmpty(nativeDiag) && Regex.IsMatch(nativeDiag, @"rc=5(?!\d)"))
+            if (IsLocationGateDenied(nativeDiag))
             {
                 text.Append(". rc=5 is ERROR_ACCESS_DENIED — Windows 11 24H2+ gates the current-connection "
                           + "opcode (and netsh wlan) behind precise-location consent, which is off in this image; "

@@ -25,6 +25,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Interop
 
         /// <summary>Current 802.11 channel number; null when the channel query fails.</summary>
         public int? Channel { get; internal set; }
+
+        /// <summary>
+        /// Why the payload is incomplete, when that is known — currently only
+        /// <c>location_services_off</c>: the SSID came from the ungated WinRT tier because the
+        /// native API was denied by the Windows 11 24H2 location gate, so signal, PHY and
+        /// channel have no source. Null whenever the reason is unknown; never a guess.
+        /// </summary>
+        public string DataLimitedReason { get; internal set; }
     }
 
     /// <summary>

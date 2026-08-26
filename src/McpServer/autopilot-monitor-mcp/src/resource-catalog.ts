@@ -312,6 +312,17 @@ export const DEVICE_PROPERTIES_CATALOG = {
     'network_interface_info.adapterName': { type: 'string', description: 'Network adapter name' },
     'network_interface_info.macAddress': { type: 'string', description: 'MAC address of active adapter' },
   },
+  wifi_signal_info: {
+    'wifi_signal_info.wifiSsid': { type: 'string', description: 'SSID of the WiFi network the device enrolled over' },
+    'wifi_signal_info.wifiSignalPercent': { type: 'number', description: 'WiFi signal quality 0-100. Use <=N to find weak-signal enrollments (e.g. "<=40")' },
+    'wifi_signal_info.wifiRadioType': { type: 'string', description: 'PHY generation, e.g. "802.11ac", "802.11ax", "802.11be"' },
+    'wifi_signal_info.wifiChannel': { type: 'number', description: '802.11 channel number' },
+    'wifi_signal_info.wifiDataLimitedReason': {
+      type: 'string',
+      description:
+        'Why the WiFi payload is SSID-only. Currently one value: "location_services_off" — Windows 11 24H2+ gates the native WLAN API behind precise-location consent, which is off in that device image, so signal/radio/channel could not be read. Filter on it to size how much of a fleet is affected.',
+    },
+  },
   aad_join_status: {
     'aad_join_status.joinType': { type: 'string', description: 'Azure AD join type' },
     'aad_join_status.tenantId': { type: 'string', description: 'Entra ID tenant' },

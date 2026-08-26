@@ -78,6 +78,52 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Interop
             Assert.Contains("ERROR_ACCESS_DENIED", text);
         }
 
+        // ----- IsLocationGateDenied -----------------------------------------
+        //
+        // This predicate decides whether the wifi_signal_info payload claims
+        // "location_services_off" to the operator. A false positive blames a privacy setting
+        // that is actually fine, so the boundaries are pinned exactly.
+
+        [Theory]
+        [InlineData("[guid] query(current_connection) rc=5; ")]
+        [InlineData("WlanOpenHandle rc=5")]
+        public void IsLocationGateDenied_true_only_for_error_access_denied(string nativeDiag)
+        {
+            Assert.True(WifiInfoProvider.IsLocationGateDenied(nativeDiag));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("query(current_connection) rc=50; ")]
+        [InlineData("query(current_connection) rc=5023; ")]
+        [InlineData("WlanEnumInterfaces rc=1062")]
+        [InlineData("no WLAN interfaces")]
+        [InlineData("[guid] state=wlan_interface_state_disconnected; ")]
+        public void IsLocationGateDenied_false_for_every_other_reason(string? nativeDiag)
+        {
+            Assert.False(WifiInfoProvider.IsLocationGateDenied(nativeDiag));
+        }
+
+        [Fact]
+        public void LocationServicesOff_literal_is_the_published_payload_contract()
+        {
+            // Matched verbatim by the portal's WiFi card (wifiDataLimitedReason) — renaming it
+            // silently drops the hint instead of breaking a build.
+            Assert.Equal("location_services_off", WifiInfoProvider.LocationServicesOff);
+        }
+
+        [Fact]
+        public void TryRead_never_claims_the_location_gate_on_the_native_tier()
+        {
+            // The native tier only returns when it succeeded, so a full payload must never carry
+            // a "data limited" reason.
+            var result = WifiInfoProvider.TryRead(null, out _);
+
+            if (result?.SignalPercent != null)
+                Assert.Null(result.DataLimitedReason);
+        }
+
         [Theory]
         [InlineData("query(current_connection) rc=50; ")]
         [InlineData("query(current_connection) rc=5023; ")]

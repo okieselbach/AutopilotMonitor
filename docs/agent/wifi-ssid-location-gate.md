@@ -85,6 +85,30 @@ change — the same mechanism [OobeStateReader](../../src/Agent/AutopilotMonitor
 already uses from the SYSTEM service context. Every step degrades to null rather than throwing,
 because the caller runs fire-and-forget inside `Task.Run`.
 
+# Telling the Operator
+
+A missing signal reading is indistinguishable from a bug unless the payload says why, and the
+device-level location setting is not something an admin would think to check. When tier 2 wins
+*and* the native tier reported `rc=5`, the `wifi_signal_info` payload therefore carries
+
+```
+wifiDataLimitedReason = "location_services_off"
+```
+
+and the event message gains `- signal unavailable, Location services off`, so the reason is visible
+in the timeline itself. The portal's WiFi card (`DeviceDetailsCard`) matches that literal and
+renders the explanation plus the Intune setting that fixes it. The value is a published contract —
+agent, portal and the MCP device-property catalog all match the same string.
+
+The claim is only made on observed evidence: any other native failure (no WLAN service, no
+connected interface) leaves the field null rather than blaming a privacy setting we did not
+measure. `WifiInfoProvider.IsLocationGateDenied` is the single predicate, pinned by tests at its
+boundaries (`rc=5` yes; `rc=50`, `rc=5023`, `rc=1062` no).
+
+Fleet-wide the same field is queryable through
+`search_sessions(deviceProperties: { "wifi_signal_info.wifiDataLimitedReason": "location_services_off" })`,
+which sizes how much of a fleet is affected before anyone changes a policy.
+
 Tier 2 returns the SSID alone. Signal quality, PHY type and channel have no ungated source; they
 stay null when the native tier is denied. That is deliberate — deriving a percentage from
 `ConnectionProfile.GetSignalBars()` (0–5) would fabricate precision the API does not have.

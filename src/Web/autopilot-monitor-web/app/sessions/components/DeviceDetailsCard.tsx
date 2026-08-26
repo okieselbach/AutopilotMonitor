@@ -16,7 +16,7 @@ interface OsInfoData { [key: string]: unknown; osVersion?: string; displayVersio
 interface NetworkAdaptersData { [key: string]: unknown; adapters?: unknown[] }
 interface DnsConfigData { [key: string]: unknown; dnsEntries?: unknown[] }
 interface NetworkInterfaceInfoData { [key: string]: unknown; status?: string; connectionType?: string; adapterDescription?: string; linkSpeedMbps?: number; gateways?: string }
-interface WifiSignalInfoData { [key: string]: unknown; wifiSsid?: string; wifiSignalPercent?: number; wifiRadioType?: string; wifiChannel?: number }
+interface WifiSignalInfoData { [key: string]: unknown; wifiSsid?: string; wifiSignalPercent?: number; wifiRadioType?: string; wifiChannel?: number; wifiDataLimitedReason?: string }
 interface ProxyConfigData { [key: string]: unknown; proxyType?: string; type?: string; proxyServer?: string; autoConfigUrl?: string; winHttpProxy?: string }
 interface AutopilotProfileData { [key: string]: unknown; PolicyDownloadDate?: string; AutopilotCreationDate?: string; autopilotModeLabel?: string; domainJoinMethodLabel?: string }
 interface ImeVersionData { [key: string]: unknown; version?: string; agentVersion?: string }
@@ -330,6 +330,11 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                     )}
                     {wifiSignalInfo.wifiRadioType && <DetailRow label="Radio" value={wifiSignalInfo.wifiRadioType} />}
                     {wifiSignalInfo.wifiChannel !== undefined && <DetailRow label="Channel" value={`${wifiSignalInfo.wifiChannel}`} />}
+                    {wifiSignalInfo.wifiDataLimitedReason === "location_services_off" && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        {"Signal, radio and channel are unavailable because Location services are off on this device. Since Windows 11 24H2 those Wi-Fi details require location access, and the agent runs as SYSTEM with no way to ask for it. The SSID is unaffected. To collect the full details, enable Location services via Intune (Privacy → Let Apps Access Location → Force Allow)."}
+                      </div>
+                    )}
                   </div>
                 )}
 
