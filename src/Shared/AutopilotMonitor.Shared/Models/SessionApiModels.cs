@@ -21,7 +21,7 @@ namespace AutopilotMonitor.Shared.Models
         Unknown = 0,
         AutopilotV1 = 1,           // AutopilotDeviceValidator (windowsAutopilotDeviceIdentities)
         CorporateIdentifier = 2,   // CorporateIdentifierValidator (importedDeviceIdentities)
-        DeviceAssociation = 3,     // DevPrep DeviceAssociationValidator (tenantAssociatedDevices) — future
+        DeviceAssociation = 3,     // DeviceAssociationValidator (device preparation tenantAssociatedDevices)
         Bootstrap = 4,             // Bootstrap token auth (pre-MDM OOBE)
         CloudPc = 5                // CloudPcDeviceValidator (virtualEndpoint/cloudPCs, cert-CN bound) — W365
     }
@@ -299,7 +299,7 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>
         /// Which backend device-validation path accepted this device at session registration —
         /// <see cref="ValidatorType"/> name as string: "AutopilotV1" (Autopilot S/N lookup),
-        /// "CorporateIdentifier", "DeviceAssociation" (DevPrep, future hard gate), or
+        /// "CorporateIdentifier", "DeviceAssociation" (device preparation), "CloudPc", or
         /// "Bootstrap" (pre-MDM token). Latest non-Unknown validation wins (a Bootstrap
         /// session re-registering under cert auth upgrades to the cert-path validator).
         /// Empty for sessions that predate this field or tenants with device validation off.

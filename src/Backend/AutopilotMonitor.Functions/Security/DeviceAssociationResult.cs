@@ -16,8 +16,7 @@ namespace AutopilotMonitor.Functions.Security
 
         /// <summary>
         /// True when the failure is transient and should be retried (Graph API error, token issue, network).
-        /// Transient failures are NOT cached. The caller is expected to surface 503 Retry-After
-        /// for the agent path and to log+swallow for shadow-mode paths.
+        /// Transient failures are NOT cached. The caller surfaces 503 Retry-After to the agent.
         /// </summary>
         public bool IsTransient { get; set; }
 
@@ -57,9 +56,8 @@ namespace AutopilotMonitor.Functions.Security
         public string? ErrorMessage { get; set; }
 
         /// <summary>
-        /// True when this result came from the in-memory cache rather than a fresh Graph lookup.
-        /// The shadow log uses it to emit one line per real lookup instead of one per request:
-        /// a single enrollment produced 263 identical lines off a handful of Graph calls.
+        /// True when this result came from the in-memory cache rather than a fresh Graph lookup
+        /// (kept for callers that want to log once per real lookup instead of once per request).
         /// </summary>
         public bool ServedFromCache { get; set; }
 

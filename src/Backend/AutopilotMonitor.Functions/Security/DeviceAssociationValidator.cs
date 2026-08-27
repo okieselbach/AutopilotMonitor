@@ -12,8 +12,8 @@ using Newtonsoft.Json.Linq;
 namespace AutopilotMonitor.Functions.Security
 {
     /// <summary>
-    /// Validates devices against the Windows Autopilot Device Preparation (WDP)
-    /// "Device association" Graph API (<c>tenantAssociatedDevices</c>).
+    /// Validates devices against the Windows Autopilot device preparation
+    /// "Device association" Graph API (<c>tenantAssociatedDevices</c>) — GA since 2026-08-25.
     ///
     /// Built as a near-sibling of <see cref="AutopilotDeviceValidator"/> — same DI dependencies,
     /// same retry/cache/transient contract — so the resilience guarantees are identical:
@@ -179,7 +179,7 @@ namespace AutopilotMonitor.Functions.Security
             {
                 IsValid = false,
                 SerialNumber = normalizedSerial,
-                ErrorMessage = $"Device with serial '{normalizedSerial}' is not associated for DevPrep"
+                ErrorMessage = $"Device with serial '{normalizedSerial}' is not associated with this tenant (device association)"
             };
 
             JObject? data;

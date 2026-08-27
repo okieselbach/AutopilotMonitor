@@ -15,7 +15,6 @@ export function SectionAutopilotValidation() {
     validateAutopilotDevice,
     validateCorporateIdentifier,
     validateDeviceAssociation,
-    handleToggleDeviceAssociationValidation,
     validateCloudPcDevice,
     validateIntuneDeviceBinding,
     handleToggleIntuneDeviceBinding,
@@ -37,15 +36,8 @@ export function SectionAutopilotValidation() {
       </div>
     );
   }
-  // DevPrep "Device association" is in Microsoft Private Preview — surface only to Global Admins
-  // until it ships GA. Backend always rejects writes from non-GA callers regardless of UI.
-  // TODO(devprep-followup): add vitest DOM-render test asserting toggle is hidden for
-  // non-GA users and visible for GA users. Requires adding jsdom + @testing-library/react
-  // to the web test setup (vitest.config.ts currently only matches *.test.ts, no JSX).
-  // Tracked in memory/project_devprep_followups.md.
-  const showDeviceAssociationToggle = user?.isGlobalAdmin === true;
-  // Same GA gate as the DevPrep preview: only the operator can turn the binding check on
-  // while its enrollment-race behaviour is still being measured.
+  // Cert-device binding stays Global-Admin-only: only the operator can turn the binding check
+  // on while its enrollment-race behaviour is still being measured.
   const showIntuneDeviceBindingToggle = user?.isGlobalAdmin === true;
 
   // Dual app-reg window: tenants homed on the previous app registration (homedAppClientId
@@ -147,8 +139,7 @@ export function SectionAutopilotValidation() {
         validateCorporateIdentifier={validateCorporateIdentifier}
         setValidateCorporateIdentifier={(v) => { void saveValidationGate({ validateCorporateIdentifier: v }); }}
         validateDeviceAssociation={validateDeviceAssociation}
-        onToggleDeviceAssociation={handleToggleDeviceAssociationValidation}
-        showDeviceAssociationToggle={showDeviceAssociationToggle}
+        setValidateDeviceAssociation={(v) => { void saveValidationGate({ validateDeviceAssociation: v }); }}
         validateCloudPcDevice={validateCloudPcDevice}
         validateIntuneDeviceBinding={validateIntuneDeviceBinding}
         onToggleIntuneDeviceBinding={handleToggleIntuneDeviceBinding}

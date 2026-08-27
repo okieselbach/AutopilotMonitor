@@ -130,7 +130,6 @@ interface TenantConfigContextValue {
   validateDeviceAssociation: boolean;
   setValidateDeviceAssociation: (v: boolean) => void;
   /** Toggle + persist DevPrep Device Association validation in one shot (no consent flow needed). */
-  handleToggleDeviceAssociationValidation: (newValue: boolean) => Promise<void>;
   validateCloudPcDevice: boolean;
   setValidateCloudPcDevice: (v: boolean) => void;
   validateIntuneDeviceBinding: boolean;
@@ -149,7 +148,7 @@ interface TenantConfigContextValue {
    * 2026-08-01: corporate-identifier "came back on" after every disable — the off toggle
    * had never reached the server).
    */
-  saveValidationGate: (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean }) => Promise<boolean>;
+  saveValidationGate: (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }) => Promise<boolean>;
   autopilotConsentInProgress: boolean;
   beginDeviceValidationConsentFlow: (trigger: "autopilot" | "corporate" | "device-preparation") => Promise<void>;
   /**
@@ -894,7 +893,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // PUT, explicit override values. saveConfiguration re-syncs the local gate state from the
   // server response, so the toggle reflects the persisted truth (or snaps back on failure).
   const saveValidationGate = useCallback(
-    (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean }): Promise<boolean> =>
+    (changes: { validateAutopilotDevice?: boolean; validateCorporateIdentifier?: boolean; validateDeviceAssociation?: boolean }): Promise<boolean> =>
       saveConfiguration("autopilotValidation", changes),
     [saveConfiguration],
   );
@@ -1314,21 +1313,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Persist the toggle with the new value passed explicitly. The on/off value MUST be threaded
   // through as an override rather than read from `unrestrictedMode` state: the toggle calls this
   // synchronously after setUnrestrictedMode(...), so the closed-over state is still stale at the
-  // time the PUT body is built (matches the handleToggleDeviceAssociationValidation pattern).
+  // time the PUT body is built (matches the handleToggleCloudPcValidation pattern).
   const handleSaveUnrestrictedMode = useCallback(
     (value: boolean) => saveConfiguration("unrestrictedMode", { unrestrictedMode: value }),
     [saveConfiguration],
   );
-
-  /**
-   * Toggle the DevPrep "Device association" shadow validation. No consent flow needed —
-   * the Graph permission is already covered by the existing Autopilot/Corporate validators
-   * and the result is observational (does not gate enrollment in Phase A).
-   */
-  const handleToggleDeviceAssociationValidation = useCallback(async (newValue: boolean) => {
-    setValidateDeviceAssociation(newValue);
-    await saveConfiguration("autopilotValidation", { validateDeviceAssociation: newValue });
-  }, [saveConfiguration]);
 
   /**
    * Toggle the Windows 365 Cloud PC validation fallback. No consent flow — the backing
@@ -1677,7 +1666,6 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       validateAutopilotDevice, setValidateAutopilotDevice,
       validateCorporateIdentifier, setValidateCorporateIdentifier,
       validateDeviceAssociation, setValidateDeviceAssociation,
-      handleToggleDeviceAssociationValidation,
       validateCloudPcDevice, setValidateCloudPcDevice,
       validateIntuneDeviceBinding, setValidateIntuneDeviceBinding,
       handleToggleCloudPcValidation,
@@ -1787,7 +1775,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     config, loading, canEditConfig, savingSection, error, successMessage,
     editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped,
     validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
-    handleToggleDeviceAssociationValidation, validateCloudPcDevice, handleToggleCloudPcValidation,
+    validateCloudPcDevice, handleToggleCloudPcValidation,
     validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,
     saveValidationGate, autopilotConsentInProgress, beginDeviceValidationConsentFlow, detectExistingAccess,
     manufacturerWhitelist, modelWhitelist, effectiveHwRejectionNotify, setHwRejectionNotifyWriteThrough,

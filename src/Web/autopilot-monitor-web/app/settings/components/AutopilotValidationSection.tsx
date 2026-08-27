@@ -7,12 +7,9 @@ interface AutopilotValidationSectionProps {
   setValidateAutopilotDevice: (value: boolean) => void;
   validateCorporateIdentifier: boolean;
   setValidateCorporateIdentifier: (value: boolean) => void;
-  /** DevPrep "Device association" — shadow mode during Private Preview. Provided when `showDeviceAssociationToggle=true`. */
-  validateDeviceAssociation?: boolean;
-  /** Toggle + persist DevPrep validation in one shot (no consent dialog). */
-  onToggleDeviceAssociation?: (newValue: boolean) => void | Promise<void>;
-  /** Render the DevPrep Device Association toggle. Gated to Global Admins by the parent. */
-  showDeviceAssociationToggle?: boolean;
+  /** Autopilot device preparation "Device association" — same Graph permission as the two above. */
+  validateDeviceAssociation: boolean;
+  setValidateDeviceAssociation: (value: boolean) => void;
   /** Cert-to-device binding - Global-Admin-only preview. Provided when `showIntuneDeviceBindingToggle=true`. */
   validateIntuneDeviceBinding?: boolean;
   onToggleIntuneDeviceBinding?: (v: boolean) => void | Promise<void>;
@@ -36,9 +33,8 @@ export default function AutopilotValidationSection({
   setValidateAutopilotDevice,
   validateCorporateIdentifier,
   setValidateCorporateIdentifier,
-  validateDeviceAssociation = false,
-  onToggleDeviceAssociation,
-  showDeviceAssociationToggle = false,
+  validateDeviceAssociation,
+  setValidateDeviceAssociation,
   validateIntuneDeviceBinding = false,
   onToggleIntuneDeviceBinding,
   showIntuneDeviceBindingToggle = false,
@@ -49,30 +45,39 @@ export default function AutopilotValidationSection({
   onBeginConsent,
   onDetectExistingAccess,
 }: AutopilotValidationSectionProps) {
-  const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier || validateCloudPcDevice;
-  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'cloudpc' | null>(null);
+  const anyValidationEnabled = validateAutopilotDevice || validateCorporateIdentifier || validateDeviceAssociation || validateCloudPcDevice;
+  const [disableConfirm, setDisableConfirm] = useState<'autopilot' | 'corporate' | 'device-association' | 'cloudpc' | null>(null);
+  // The three serial-based validations share one Graph permission: the first one enabled
+  // carries the admin consent, every further one is a plain persisted toggle.
+  const consentAlreadyCarried = validateAutopilotDevice || validateCorporateIdentifier || validateDeviceAssociation;
 
   const handleToggleAutopilot = () => {
     if (validateAutopilotDevice) {
       setDisableConfirm('autopilot');
+    } else if (consentAlreadyCarried) {
+      setValidateAutopilotDevice(true);
     } else {
-      if (validateCorporateIdentifier) {
-        setValidateAutopilotDevice(true);
-      } else {
-        onBeginConsent('autopilot');
-      }
+      onBeginConsent('autopilot');
     }
   };
 
   const handleToggleCorporate = () => {
     if (validateCorporateIdentifier) {
       setDisableConfirm('corporate');
+    } else if (consentAlreadyCarried) {
+      setValidateCorporateIdentifier(true);
     } else {
-      if (validateAutopilotDevice) {
-        setValidateCorporateIdentifier(true);
-      } else {
-        onBeginConsent('corporate');
-      }
+      onBeginConsent('corporate');
+    }
+  };
+
+  const handleToggleDeviceAssociation = () => {
+    if (validateDeviceAssociation) {
+      setDisableConfirm('device-association');
+    } else if (consentAlreadyCarried) {
+      setValidateDeviceAssociation(true);
+    } else {
+      onBeginConsent('device-preparation');
     }
   };
 
@@ -91,6 +96,8 @@ export default function AutopilotValidationSection({
       setValidateAutopilotDevice(false);
     } else if (disableConfirm === 'corporate') {
       setValidateCorporateIdentifier(false);
+    } else if (disableConfirm === 'device-association') {
+      setValidateDeviceAssociation(false);
     } else if (disableConfirm === 'cloudpc' && onToggleCloudPc) {
       void onToggleCloudPc(false);
     }
@@ -185,6 +192,34 @@ export default function AutopilotValidationSection({
             </button>
           </label>
           {!validateCorporateIdentifier && renderDetectButton('corporate')}
+          <label className="flex items-start justify-between gap-4" data-testid="device-association-toggle">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Enable Device Association Validation</p>
+              <p className="text-sm text-gray-500">
+                Validates devices against your tenant&apos;s Windows Autopilot{" "}
+                <a
+                  href="https://learn.microsoft.com/autopilot/device-preparation/device-association/overview"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-gray-700"
+                >
+                  device association
+                </a>{" "}
+                list (Intune: Devices → Enrollment → Device association), matched by serial number. Associated
+                devices are marked corporate-owned by Intune itself, so no corporate identifier upload is needed.
+                Same Graph permission as the two validations above.
+              </p>
+            </div>
+            <button
+              onClick={handleToggleDeviceAssociation}
+              disabled={saving || autopilotConsentInProgress}
+              aria-label="Toggle device association validation"
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${validateDeviceAssociation ? 'bg-emerald-500' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateDeviceAssociation ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </label>
+          {!validateDeviceAssociation && renderDetectButton('device-preparation')}
         </div>
 
         {/* Windows 365 Cloud PC — fallback gate for Cloud PCs; permission via the Optional Graph capabilities add-on */}
@@ -212,35 +247,6 @@ export default function AutopilotValidationSection({
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateCloudPcDevice ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </label>
-          </div>
-        )}
-
-        {/* DevPrep Device Association — Private Preview, GA-gated, shadow-mode (no enrollment block) */}
-        {showDeviceAssociationToggle && onToggleDeviceAssociation && (
-          <div className="border-t border-gray-100 pt-5 space-y-3" data-testid="devprep-association-toggle">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-gray-700 tracking-wide">Windows Autopilot Device Preparation</p>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-purple-100 text-purple-800">
-                Preview · GA only
-              </span>
-            </div>
-            <label className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Enable DevPrep Device Association Validation</p>
-                <p className="text-sm text-gray-500">
-                  Looks devices up in the WDP <code className="text-xs">tenantAssociatedDevices</code> catalog. Currently runs in <strong>shadow mode</strong> — the result is recorded as request telemetry only and does NOT block enrollment. Will become a hard gate once DevPrep ships GA.
-                </p>
-              </div>
-              <button
-                onClick={() => { void onToggleDeviceAssociation(!validateDeviceAssociation); }}
-                disabled={saving}
-                aria-label="Toggle DevPrep Device Association validation"
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${validateDeviceAssociation ? 'bg-emerald-500' : 'bg-gray-300'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${validateDeviceAssociation ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-            </label>
-            {!validateDeviceAssociation && renderDetectButton('device-preparation')}
           </div>
         )}
 
@@ -302,7 +308,8 @@ export default function AutopilotValidationSection({
                 <p className="text-sm text-amber-600 font-medium">
                   {disableConfirm === 'autopilot' ? 'Autopilot Device Validation'
                     : disableConfirm === 'corporate' ? 'Corporate Identifier Validation'
-                      : 'Windows 365 Cloud PC Validation'}
+                      : disableConfirm === 'device-association' ? 'Device Association Validation'
+                        : 'Windows 365 Cloud PC Validation'}
                 </p>
               </div>
             </div>
@@ -310,17 +317,7 @@ export default function AutopilotValidationSection({
             <p className="text-sm text-gray-700 mb-2">
               Are you sure you want to disable this validation?
             </p>
-            {disableConfirm === 'autopilot' && !validateCorporateIdentifier && !validateCloudPcDevice && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
-                This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
-              </div>
-            )}
-            {disableConfirm === 'corporate' && !validateAutopilotDevice && !validateCloudPcDevice && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
-                This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
-              </div>
-            )}
-            {disableConfirm === 'cloudpc' && !validateAutopilotDevice && !validateCorporateIdentifier && (
+            {[validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice].filter(Boolean).length === 1 && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
                 This is the last active validation. Disabling it will cause the backend to <strong>reject all agent requests</strong> for this tenant.
               </div>

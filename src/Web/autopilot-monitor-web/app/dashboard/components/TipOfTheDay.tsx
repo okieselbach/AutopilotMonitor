@@ -17,6 +17,7 @@ const tips = [
   "Check Service Announcements in the docs for external changes (e.g.\u00a0Microsoft updates) that may affect your data.",
   "Check the Intune bootstrap script (Install-AutopilotMonitor.ps1) from time to time \u2014 a newer version may be available in the repository.",
   "Spotted a session with the wrong status? Use Report Session to flag it to the team.",
+  "Using Windows Autopilot device association? Enable Device Association Validation under Settings → Enrollment Device Validation — no corporate identifier upload needed.",
 ];
 
 // One random tip index per mount, read via useSyncExternalStore: the server snapshot is

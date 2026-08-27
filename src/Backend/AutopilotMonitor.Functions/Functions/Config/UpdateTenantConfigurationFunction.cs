@@ -122,8 +122,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.EnableEspContinueAnywayObservation != existingConfig.EnableEspContinueAnywayObservation ||
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
-                        config.Disabled != existingConfig.Disabled ||
-                        config.ValidateDeviceAssociation != existingConfig.ValidateDeviceAssociation)
+                        config.Disabled != existingConfig.Disabled)
                     {
                         _logger.LogWarning(
                             "Tenant Admin {User} attempted to modify GA-only fields for tenant {TenantId}",
@@ -142,12 +141,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.Disabled = existingConfig.Disabled;
                     config.DisabledReason = existingConfig.DisabledReason;
                     config.DisabledUntil = existingConfig.DisabledUntil;
-                    // DevPrep "Device association" toggle is GA-only during Private Preview.
-                    // TODO(devprep-followup): missing xUnit test for this GA-gate — needs
-                    // UpdateTenantConfigurationFunction test harness (mock HttpRequestData +
-                    // RequestContext + TenantConfigurationService). Tracked in
-                    // memory/project_devprep_followups.md.
-                    config.ValidateDeviceAssociation = existingConfig.ValidateDeviceAssociation;
                 }
 
                 // App-reg homing is IMMUTABLE via the generic PUT — for ALL callers, GA included.

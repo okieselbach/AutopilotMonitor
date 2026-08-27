@@ -204,11 +204,11 @@ namespace AutopilotMonitor.Shared.Models
         public bool ValidateCorporateIdentifier { get; set; } = false;
 
         /// <summary>
-        /// Whether to look up devices in the Windows Autopilot Device Preparation (WDP) "Device association" catalog
-        /// via Graph (<c>tenantAssociatedDevices</c>). Currently runs in <strong>shadow mode only</strong> — the lookup
-        /// result is recorded as request-telemetry tags but does NOT block enrollment, even when the device is not
-        /// associated. Intended to be promoted to a hard gate (analogous to <see cref="ValidateAutopilotDevice"/>)
-        /// once DevPrep leaves Private Preview. Visible in the Web settings page only to Global Admins during preview.
+        /// Whether to validate devices against the Windows Autopilot device preparation "Device association"
+        /// catalog via Graph (<c>tenantAssociatedDevices</c>, serial number match). One of the accepting methods
+        /// of the device-validation gate, evaluated after the Autopilot and Corporate Identifier lookups
+        /// (see SecurityValidator). Device association is GA since 2026-08-25; associated devices are marked
+        /// corporate-owned by Intune itself, so no corporate identifier exists for them.
         /// Requires the same Graph permission as the other validators (DeviceManagementServiceConfig.Read.All).
         /// </summary>
         public bool ValidateDeviceAssociation { get; set; } = false;

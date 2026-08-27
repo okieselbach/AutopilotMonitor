@@ -135,7 +135,7 @@ namespace AutopilotMonitor.Functions.Services
             "UnrestrictedModeEnabled", "EntraAppRolesEnabled",
             "EnableEspContinueAnywayObservation",
             "CustomRateLimitRequestsPerMinute", "CustomUserRateLimitRequestsPerMinute",
-            "ValidateDeviceAssociation", "MaxNdjsonPayloadSizeMB",
+            "MaxNdjsonPayloadSizeMB",
         };
 
         /// <summary>

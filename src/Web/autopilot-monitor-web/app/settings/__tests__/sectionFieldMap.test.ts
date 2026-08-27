@@ -107,10 +107,7 @@ describe("SECTION_FIELD_MAP parity", () => {
   });
 
   it("no section owns a GA-only field a tenant admin could not save", () => {
-    // GaOnlyFields (TenantConfigPatchService), camelCased — independent copy. Exceptions
-    // are deliberate: validateDeviceAssociation is GA-gated but lives in the autopilot
-    // section whose GA-only toggles are hidden for non-GA users, so a tenant admin's
-    // diff never contains it.
+    // GaOnlyFields (TenantConfigPatchService), camelCased — independent copy.
     const gaOnly = new Set([
       "disabled", "disabledReason", "disabledUntil",
       "allowInsecureAgentRequests", "bootstrapTokenEnabled",

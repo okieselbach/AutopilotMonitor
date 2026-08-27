@@ -241,14 +241,14 @@ namespace AutopilotMonitor.Functions.Security
             // Security validation is always enforced (no longer configurable per tenant)
             // Hard gate: tenant must enable at least one device validation method before agent traffic is accepted.
             // Global Admins can set AllowInsecureAgentRequests=true in the config row for test tenants.
-            if (!config.ValidateAutopilotDevice && !config.ValidateCorporateIdentifier && !config.ValidateCloudPcDevice && !config.AllowInsecureAgentRequests)
+            if (!config.ValidateAutopilotDevice && !config.ValidateCorporateIdentifier && !config.ValidateDeviceAssociation && !config.ValidateCloudPcDevice && !config.AllowInsecureAgentRequests)
             {
                 return new SecurityValidationResult
                 {
                     IsValid = false,
                     StatusCode = HttpStatusCode.Forbidden,
                     ErrorMessage = "Device validation is required",
-                    Details = "Enable 'Autopilot Device Validation', 'Corporate Identifier Validation' or 'Windows 365 Cloud PC Validation' in Configuration before using the agent ingestion endpoints."
+                    Details = "Enable 'Autopilot Device Validation', 'Corporate Identifier Validation', 'Device Association Validation' or 'Windows 365 Cloud PC Validation' in Configuration before using the agent ingestion endpoints."
                 };
             }
 
@@ -399,6 +399,26 @@ namespace AutopilotMonitor.Functions.Security
                 }
             }
 
+            // Autopilot device preparation "Device association" (GA since 2026-08-25): the device
+            // was pre-associated to this tenant in Intune (Devices > Enrollment > Device association)
+            // and Intune marks it corporate-owned itself — no corporate identifier upload exists for
+            // it, so the two lookups above miss. Same serial-based contract and resilience as the
+            // Autopilot lookup (30/5 min cache, transient → 503 below).
+            if (!deviceValidated && config.ValidateDeviceAssociation && _deviceAssociationValidator != null)
+            {
+                var associationResult = await _deviceAssociationValidator.LookupAsync(tenantId, serialNumber, sessionId);
+                if (associationResult.IsValid)
+                {
+                    deviceValidated = true;
+                    validatedBy = ValidatorType.DeviceAssociation;
+                }
+                else
+                {
+                    deviceValidationError = CombineValidationErrors(deviceValidationError, associationResult.ErrorMessage);
+                    deviceValidationTransient |= associationResult.IsTransient;
+                }
+            }
+
             // W365 fallback: Cloud PCs are structurally never Autopilot-registered, so the serial
             // lookups above always miss for them. Identity here comes from the chain-validated
             // client certificate, NOT from spoofable headers: the Subject CN carries the Intune
@@ -421,7 +441,7 @@ namespace AutopilotMonitor.Functions.Security
                 }
             }
 
-            if ((config.ValidateAutopilotDevice || config.ValidateCorporateIdentifier || config.ValidateCloudPcDevice) && !deviceValidated)
+            if ((config.ValidateAutopilotDevice || config.ValidateCorporateIdentifier || config.ValidateDeviceAssociation || config.ValidateCloudPcDevice) && !deviceValidated)
             {
                 // Transient failures (Graph API down, token issues) → 503 Retry-After so agent retries
                 // Definitive failures (device not registered) → 403 Forbidden
@@ -453,56 +473,17 @@ namespace AutopilotMonitor.Functions.Security
                 };
             }
 
-            // 5. DevPrep "Device association" lookup (shadow mode — does NOT gate enrollment).
-            // Fire-and-forget: kicked off as a detached Task so it never adds latency to the
-            // RegisterSession/Ingest response. Graph round-trips for tenantAssociatedDevices can
-            // take 200ms–30s (504 timeouts observed), and shadow mode must never block the agent.
-            // Result is logged at Warning level so it surfaces in App Insights traces.
-            if (config.ValidateDeviceAssociation && _deviceAssociationValidator != null && !string.IsNullOrEmpty(serialNumber))
-            {
-                var validator = _deviceAssociationValidator;
-                var capturedTenant = tenantId;
-                var capturedSerial = serialNumber;
-                var capturedSession = sessionId;
-                var logger = _logger;
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        var devPrepResult = await validator.LookupAsync(capturedTenant, capturedSerial, capturedSession);
-
-                        // One line per real Graph lookup, not per request — the same gate the
-                        // cert-device-binding shadow uses. Measured 2026-08-24: a single enrollment
-                        // produced 263 identical lines because the cache answered nearly every
-                        // request. Uncached outcomes (transient failures) still log every time.
-                        if (devPrepResult.ServedFromCache)
-                            return;
-
-                        logger.LogWarning(
-                            "DevPrep association lookup (shadow) for tenant {TenantId}, session {SessionId}, serial {SerialNumber}: matched={Matched}, transient={Transient}, state={State}, policy={PolicyId}",
-                            capturedTenant, capturedSession ?? "<none>", capturedSerial,
-                            devPrepResult.IsValid, devPrepResult.IsTransient,
-                            devPrepResult.AssociationState ?? "<none>", devPrepResult.DevicePreparationPolicyId ?? "<none>");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "DevPrep association lookup (shadow) failed for tenant {TenantId}, serial {SerialNumber} — ignored.", capturedTenant, capturedSerial);
-                    }
-                });
-            }
-
-            // 6. CERT-DEVICE-BINDING-SHADOW - cert-to-device binding (Global-Admin-only preview).
+            // 5. CERT-DEVICE-BINDING-SHADOW - cert-to-device binding (Global-Admin-only preview).
             // Stage 1 (CertTenantBinding) proves the certificate was issued to THIS tenant; this
             // proves the specific device is one the tenant actually enrolled, so a certificate
             // lifted from a decommissioned machine stops resolving. Observation only: it never
             // touches deviceValidated or the returned result.
             //
-            // Fire-and-forget for the same reason as the DevPrep lookup above - a cold Graph
-            // round-trip can take seconds and must never sit in the agent's request path. That
-            // rules out the request-row dimension stage 1 uses (the row is written the moment the
-            // function returns, before this task finishes), so the outcome is logged at Warning
-            // like the DevPrep shadow. Volume is bounded: only Global Admins can enable the
+            // Fire-and-forget: a cold Graph round-trip can take seconds and an observation-only
+            // check must never sit in the agent's request path. That rules out the request-row
+            // dimension stage 1 uses (the row is written the moment the function returns, before
+            // this task finishes), so the outcome is logged at Warning instead (one line per real
+            // Graph lookup, see ServedFromCache). Volume is bounded: only Global Admins can enable the
             // toggle. Widening it beyond preview should move to an inline call plus the
             // CertTenantBinding-style request dimension.
             if (config.ValidateIntuneDeviceBinding && _intuneDeviceBindingValidator != null)
