@@ -1,0 +1,92 @@
+{
+  "$schema": "../schema/analyze-rule.schema.json",
+  "ruleId": "ANALYZE-APP-017",
+  "title": "App Install Blocked by Another Installer (0x80070652)",
+  "description": "Detects Win32 app installs that failed because the Windows Installer was busy with another installation (HRESULT 0x80070652 / MSI exit code 1618, ERROR_INSTALL_ALREADY_RUNNING). The IME retries on a fixed budget (~15-17 minutes across several attempts) and then reports the app as failed; when the app is ESP-blocking, the Device Setup Apps subcategory terminates with it.",
+  "severity": "high",
+  "category": "apps",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "baseConfidence": 70,
+  "conditions": [
+    {
+      "signal": "mutex_blocked_install",
+      "source": "event_type",
+      "eventType": "app_install_failed",
+      "dataField": "hresultFromWin32",
+      "operator": "equals",
+      "value": "-2147023278",
+      "required": true
+    },
+    {
+      "signal": "installer_exit_1618",
+      "source": "event_data",
+      "eventType": "app_install_failed",
+      "dataField": "exitCode",
+      "operator": "equals",
+      "value": "1618",
+      "required": false
+    },
+    {
+      "signal": "esp_failed_with_mutex_code",
+      "source": "event_data",
+      "eventType": "esp_failure_settle_started",
+      "dataField": "errorCode",
+      "operator": "equals",
+      "value": "0x80070652",
+      "required": false
+    }
+  ],
+  "confidenceFactors": [
+    {
+      "signal": "installer_exit_1618",
+      "condition": "exists",
+      "weight": 10
+    },
+    {
+      "signal": "esp_failed_with_mutex_code",
+      "condition": "exists",
+      "weight": 20
+    }
+  ],
+  "confidenceThreshold": 65,
+  "explanation": "App **{{appName}}** failed to install because the Windows Installer service was already busy with another installation — HRESULT **0x80070652** / MSI exit code **1618** (`ERROR_INSTALL_ALREADY_RUNNING`). Only one Windows Installer transaction can run at a time; the Intune Management Extension retried on its fixed budget (typically ~15-17 minutes across several attempts) and then reported the app as failed. If this app is required in the Enrollment Status Page, the Device Setup Apps subcategory fails with it and the enrollment terminates.\n\nThis failure is **deterministic per attempt**: as long as the competing installer keeps winning the race, a plain re-enrollment fails again at roughly the same minute mark — retrying without fixing the collision only churns devices.\n\nCommon sources of the competing installation:\n\n- The **preceding Win32 app in the install order**: its installer exits 0 (so IME moves on) but leaves a child `msiexec` transaction or post-install MSI work running. Security agents and proxy clients that chain multiple MSIs are frequent offenders.\n- **OEM factory software** installing on first boot (factory-image provisioning packages, vendor updaters) — typical on brand-new hardware batches.\n- **Microsoft 365 Apps (C2R), driver updaters or Windows servicing** running installations in parallel outside IME's control.",
+  "remediation": [
+    {
+      "title": "Identify the competing installer",
+      "steps": [
+        "In this session's timeline, note which app finished installing immediately before {{appName}} started — its installer is the prime suspect for holding the Windows Installer mutex",
+        "On a reproduction device, when the failure window is active, check for running installers: Get-Process msiexec | Select-Object Id,StartTime and the in-progress marker key HKLM\\SOFTWARE\\Microsoft\\Windows\\Installer\\InProgress",
+        "Check the Application event log for MsiInstaller events around the failure timestamp to see which product held the transaction",
+        "On factory-fresh hardware, also look for OEM first-boot installers (vendor updater services, factory provisioning packages) that run outside Intune"
+      ]
+    },
+    {
+      "title": "Serialize the install chain",
+      "steps": [
+        "Add an Intune Win32 dependency so {{appName}} depends on the app whose installer causes the collision — IME then orders them explicitly instead of racing",
+        "Alternatively, wrap the offending predecessor so its install script waits until msiexec has fully finished (poll the InProgress registry key or the _MSIExecute mutex with a bounded timeout) before exiting",
+        "If the app does not have to gate the ESP, remove it from the blocking-app list so a transient 1618 no longer terminates the enrollment; Intune retries it after the desktop"
+      ]
+    }
+  ],
+  "relatedDocs": [
+    {
+      "title": "Microsoft Learn: MsiExec.exe error messages (1618 = another installation is in progress)",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/msi/error-codes"
+    },
+    {
+      "title": "Microsoft Learn: Troubleshoot Win32 app installations in Intune",
+      "url": "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/app-management/troubleshoot-win32-app-install"
+    }
+  ],
+  "tags": [
+    "apps",
+    "msiexec",
+    "mutex",
+    "0x80070652",
+    "1618",
+    "esp"
+  ]
+}
