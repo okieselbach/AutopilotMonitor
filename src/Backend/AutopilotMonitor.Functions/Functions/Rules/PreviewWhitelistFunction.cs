@@ -133,6 +133,27 @@ public class PreviewWhitelistFunction
     }
 
     /// <summary>
+    /// GET /api/preview/notification-emails
+    /// Every stored notification address, keyed by lowercased tenant id. Global Admin +
+    /// read-only Global Reader. Exists so the tenant console can resolve an address back to
+    /// its tenant (a welcome mail shows the operator only the recipient, not who it was for)
+    /// without one point read per tenant.
+    /// </summary>
+    [Function("GetAllPreviewNotificationEmails")]
+    [Authorize]
+    public async Task<HttpResponseData> GetAllNotificationEmails(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "preview/notification-emails")] HttpRequestData req,
+        FunctionContext context)
+    {
+        // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
+        var emails = await _previewWhitelistService.GetAllNotificationEmailsAsync();
+
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteAsJsonAsync(new { count = emails.Count, emails });
+        return response;
+    }
+
+    /// <summary>
     /// PUT /api/preview/notification-email
     /// Saves the caller's notification email for the activation notice.
     /// AuthenticatedUser policy — preview-blocked users can call this.

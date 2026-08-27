@@ -610,6 +610,8 @@ export const api = {
     notificationEmail: () => `${API_BASE_URL}/api/preview/notification-email`,
     notificationEmailTenant: (tenantId: string) =>
       `${API_BASE_URL}/api/preview/notification-email/${tenantId}`,
+    /** GA/Reader: every stored notification address, keyed by lowercased tenant id. */
+    notificationEmails: () => `${API_BASE_URL}/api/preview/notification-emails`,
   },
 
   // ── Vulnerability ─────────────────────────────────────────────────────────

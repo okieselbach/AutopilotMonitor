@@ -1,5 +1,10 @@
 # Log
 
+## 2026-08-27
+
+* **Update**: `backend/tenant-activation-welcome-mail.md` - the reverse lookup. A delivery log names only the recipient, so an address had to lead back to its tenant: the tenant console's search now matches the notification and contact address as well as domain and tenant id, with the quoted exact mode unchanged. The addresses sit in `PreviewWhitelist`, not on the tenant config, so a new GA/Reader-only `GET /api/preview/notification-emails` returns them as one map (single cross-partition scan of `RowKey eq 'notification-email'`) instead of a point read per tenant; both sides join on the lowercased tenant id because the address rows carry the JWT `tid` while a config PartitionKey's casing is not guaranteed, and matching is case-insensitive because stored addresses keep the casing the user typed. The map is best-effort in the portal - a failed read costs only the search-by-address, never the tenant list - and the addresses stay out of the list rows (search key, not a column). Match rules moved into `tenantSearch.ts` with unit pins. Backend before web.
+
+
 ## 2026-08-26
 
 * **Update**: `agent/wifi-ssid-location-gate.md` - the network timeline now explains its blank signal too, with no agent change: `buildSegments` already merges `wifi_signal_info` into the covering WiFi segment, so `wifiDataLimitedReason` rides in with the sample. Segments that never got a sample (a mid-session reconnect emits none) inherit it - the gate is a device-level setting and cannot flip mid-enrollment - while a segment with a real reading is never overwritten. Tooltip shows `Signal: unavailable - Location services off on this device`; the "Avg WiFi signal" stat reads `n/a (Location services off)` instead of vanishing. `network_state_change` is deliberately left alone: it has never carried `signalPercent` or `radioType` (only `before_/after_wifiSsid` reaches its payload), so there is no absent field there for a reason to explain, and the SSID it does carry is unaffected by the gate. Web-only change.

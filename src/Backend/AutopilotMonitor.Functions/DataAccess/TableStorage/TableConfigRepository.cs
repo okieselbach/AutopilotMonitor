@@ -562,6 +562,28 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
+        public async Task<Dictionary<string, string>> GetAllNotificationEmailsAsync()
+        {
+            try
+            {
+                var emails = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                await foreach (var entity in _previewWhitelistTableClient.QueryAsync<PreviewNotificationEntity>(
+                    filter: "RowKey eq 'notification-email'"))
+                {
+                    if (!string.IsNullOrWhiteSpace(entity.Email))
+                        emails[entity.PartitionKey.ToLowerInvariant()] = entity.Email;
+                }
+
+                return emails;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading notification emails");
+                throw;
+            }
+        }
+
         public async Task SaveNotificationEmailAsync(string tenantId, string? email)
         {
             if (string.IsNullOrWhiteSpace(email))

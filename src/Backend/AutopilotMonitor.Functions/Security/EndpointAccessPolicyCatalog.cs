@@ -448,6 +448,10 @@ public static class EndpointAccessPolicyCatalog
         // Private-preview welcome-email config — platform ONBOARDING artifact, GA + read-only Reader only,
         // NOT delegated (an MSP manages active customer tenants, not the platform's preview onboarding).
         new("GET",    "preview/notification-email/{tenantId}", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam, excludeDelegated: true),
+        // Plural sibling: the cross-tenant address map behind the console's email search. Same
+        // GA/Reader-only intent as the per-tenant read above — excludeDelegated is redundant on an
+        // unscoped route but keeps the intent explicit if the route ever gains a scope.
+        new("GET",    "preview/notification-emails", EndpointPolicy.GlobalReadOrAdmin, excludeDelegated: true),
         new("POST",   "preview/send-welcome-email/{tenantId}", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         // Subset tier (like config/all): a delegated ("MSP") caller is admitted WITHOUT a named tenantId and
         // the handler bounds the aggregate to RequestContext.AllowedTenantIds (its managed subset). With a

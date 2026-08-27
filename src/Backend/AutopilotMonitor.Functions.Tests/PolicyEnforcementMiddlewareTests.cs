@@ -980,6 +980,24 @@ public class PolicyEnforcementMiddlewareTests
     }
 
     [Fact]
+    public void PreviewNotificationEmails_PluralRoute_DoesNotResolveToPerTenantEntry()
+    {
+        // The cross-tenant address map sits one character away from the per-tenant read
+        // (notification-email/{tenantId}). If the plural path ever resolved to that entry, the
+        // middleware would demand a tenantId the route does not carry — and RouteParam scoping
+        // would hand a delegated caller a rescue path into the whole map.
+        var plural = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/preview/notification-emails");
+        Assert.NotNull(plural);
+        Assert.Equal("preview/notification-emails", plural!.RouteTemplate);
+        Assert.Equal(TenantScoping.None, plural.TenantScoping);
+
+        // …and the per-tenant route is unaffected by the new sibling.
+        var single = EndpointAccessPolicyCatalog.FindPolicy("GET", "/api/preview/notification-email/tid-1");
+        Assert.NotNull(single);
+        Assert.Equal("preview/notification-email/{tenantId}", single!.RouteTemplate);
+    }
+
+    [Fact]
     public async Task GlobalReader_ExcludeDelegatedRoutes_StillAllowed()
     {
         // excludeDelegated removes ONLY the delegated rescue — the read-only Global Reader (and GA) keep
@@ -1051,6 +1069,7 @@ public class PolicyEnforcementMiddlewareTests
     [InlineData("GET", "/api/global/customs-archive/tid-1/hist-1/arc-1")]
     [InlineData("GET", "/api/global/tenants/tid-1/deletion-manifests")]
     [InlineData("GET", "/api/preview/notification-email/tid-1")]
+    [InlineData("GET", "/api/preview/notification-emails")]
     public void PlatformOperationalReads_ExcludeDelegated(string method, string path)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);

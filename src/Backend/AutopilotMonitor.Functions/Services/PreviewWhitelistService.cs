@@ -147,6 +147,16 @@ public class PreviewWhitelistService
     }
 
     /// <summary>
+    /// Every stored notification address, keyed by lowercased tenant id. Uncached: the operator
+    /// console reads this on demand to resolve an address back to its tenant, and a stale map
+    /// would silently hide a tenant that just saved one.
+    /// </summary>
+    public virtual async Task<Dictionary<string, string>> GetAllNotificationEmailsAsync()
+    {
+        return await _configRepo.GetAllNotificationEmailsAsync();
+    }
+
+    /// <summary>
     /// Consumes the once-per-activation welcome-email marker (conditional insert at the
     /// storage layer). True = this caller won and may send. Storage errors throw.
     /// </summary>

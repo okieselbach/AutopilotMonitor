@@ -93,6 +93,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<string?> GetNotificationEmailAsync(string tenantId);
         Task SaveNotificationEmailAsync(string tenantId, string? email);
 
+        /// <summary>
+        /// Every stored notification address, keyed by LOWERCASED tenant id. One cross-partition
+        /// scan instead of one point read per tenant — the operator console needs the whole set at
+        /// once to resolve "which tenant received this welcome mail?" from an address alone.
+        /// Keys are lowercased because the address rows are written from the JWT tid (lowercase)
+        /// while a config PartitionKey's casing is not guaranteed; callers join on the lowercased id.
+        /// Storage errors throw (fail-loud, like <see cref="GetPreviewWhitelistAsync"/>).
+        /// </summary>
+        Task<Dictionary<string, string>> GetAllNotificationEmailsAsync();
+
         // --- Welcome Email Sent Marker ---
         /// <summary>
         /// Conditionally inserts the once-per-activation welcome-email marker. True when this

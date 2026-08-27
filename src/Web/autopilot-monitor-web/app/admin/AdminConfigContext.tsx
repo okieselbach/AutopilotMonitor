@@ -104,6 +104,9 @@ interface AdminConfigContextValue {
   fetchTenants: () => void;
   previewApproved: Set<string>;
   setPreviewApproved: React.Dispatch<React.SetStateAction<Set<string>>>;
+  /** Welcome-mail addresses keyed by lowercased tenant id; empty when the read failed. */
+  notificationEmails: Record<string, string>;
+  setNotificationEmails: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 
   // Notifications
   error: string | null;
@@ -181,6 +184,10 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [tenants, setTenants] = useState<TenantConfiguration[]>([]);
   const [loadingTenants, setLoadingTenants] = useState(false);
   const [previewApproved, setPreviewApproved] = useState<Set<string>>(new Set());
+  // Welcome-mail addresses, keyed by LOWERCASED tenant id — they live in their own table,
+  // not on the tenant config. Loaded so the management list can be searched by address
+  // (a delivered mail names only its recipient, never the tenant).
+  const [notificationEmails, setNotificationEmails] = useState<Record<string, string>>({});
 
   // Notifications
   const [error, setError] = useState<string | null>(null);
@@ -274,9 +281,12 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     try {
       setLoadingTenants(true);
 
-      const [tenantsRes, previewRes] = await Promise.all([
+      // The address map is best-effort: it only powers the search-by-address, so a failure
+      // there must degrade that one capability, never take the tenant list down with it.
+      const [tenantsRes, previewRes, emailsRes] = await Promise.all([
         authenticatedFetch(api.config.all(), getAccessToken),
-        authenticatedFetch(api.preview.whitelist(), getAccessToken)
+        authenticatedFetch(api.preview.whitelist(), getAccessToken),
+        authenticatedFetch(api.preview.notificationEmails(), getAccessToken).catch(() => null)
       ]);
 
       if (!tenantsRes.ok) {
@@ -292,6 +302,11 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
           (previewData.tenants || []).map((t: { partitionKey: string }) => t.partitionKey)
         );
         setPreviewApproved(approvedIds);
+      }
+
+      if (emailsRes?.ok) {
+        const emailData = await emailsRes.json().catch(() => ({}));
+        setNotificationEmails(emailData.emails ?? {});
       }
     } catch (err) {
       if (err instanceof TokenExpiredError) {
@@ -555,6 +570,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       ensureAdminConfigLoaded, ensureTenantsLoaded,
       tenants, setTenants, loadingTenants, fetchTenants,
       previewApproved, setPreviewApproved,
+      notificationEmails, setNotificationEmails,
       error, setError, successMessage, setSuccessMessage,
       getAccessToken,
       handleSaveAdminConfig, handleResetAdminConfig, handleSaveDiagPaths, handleSaveOpsAlertConfig,

@@ -12,6 +12,8 @@ export function SectionTenantManagement() {
     fetchTenants,
     previewApproved,
     setPreviewApproved,
+    notificationEmails,
+    setNotificationEmails,
     setTenants,
     getAccessToken,
     setError,
@@ -27,6 +29,8 @@ export function SectionTenantManagement() {
       fetchTenants={fetchTenants}
       previewApproved={previewApproved}
       setPreviewApproved={setPreviewApproved}
+      notificationEmails={notificationEmails}
+      setNotificationEmails={setNotificationEmails}
       setTenants={setTenants}
       getAccessToken={getAccessToken}
       setError={setError}

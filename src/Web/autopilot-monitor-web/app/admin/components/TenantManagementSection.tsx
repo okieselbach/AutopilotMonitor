@@ -11,6 +11,7 @@ import { TenantAdminSection } from "./TenantAdminSection";
 import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import { matchesTenantSearch, notificationEmailFor, parseTenantSearch } from "./tenantSearch";
 
 export interface TenantConfiguration {
   tenantId: string;
@@ -74,6 +75,9 @@ export interface TenantManagementSectionProps {
   fetchTenants: () => void;
   previewApproved: Set<string>;
   setPreviewApproved: React.Dispatch<React.SetStateAction<Set<string>>>;
+  /** Welcome-mail addresses keyed by lowercased tenant id (see AdminConfigContext). */
+  notificationEmails: Record<string, string>;
+  setNotificationEmails: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setTenants: React.Dispatch<React.SetStateAction<TenantConfiguration[]>>;
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
@@ -97,6 +101,8 @@ function TenantManagementSectionInner({
   fetchTenants,
   previewApproved,
   setPreviewApproved,
+  notificationEmails,
+  setNotificationEmails,
   setTenants,
   getAccessToken,
   setError,
@@ -142,21 +148,12 @@ function TenantManagementSectionInner({
   const [sendingWelcomeEmail, setSendingWelcomeEmail] = useState(false);
   const [notificationEmail, setNotificationEmail] = useState("");
 
-  // Filter and sort tenants.
-  // Quoted queries ("microsoft.com") do an exact, case-insensitive equality
-  // match against tenantId/domainName instead of a substring match. This lets
-  // you find a tenant like "microsoft.com" that would otherwise be swallowed by
-  // every "*.onmicrosoft.com" domain in a plain substring search.
-  const rawQuery = searchQuery.trim();
-  const quotedMatch = rawQuery.match(/^"(.*)"$/);
-  const exactTerm = quotedMatch ? quotedMatch[1].toLowerCase() : null;
-  const substringTerm = searchQuery.toLowerCase();
+  // Filter and sort tenants. Matching (incl. the quoted exact mode and the two
+  // searchable addresses) lives in tenantSearch.ts.
+  const searchTerm = parseTenantSearch(searchQuery);
   const filteredTenants = tenants.filter(t => {
-    const matchesSearch = exactTerm !== null
-      ? t.tenantId.toLowerCase() === exactTerm ||
-        t.domainName.toLowerCase() === exactTerm
-      : t.tenantId.toLowerCase().includes(substringTerm) ||
-        t.domainName.toLowerCase().includes(substringTerm);
+    const matchesSearch = matchesTenantSearch(
+      t, searchTerm, notificationEmailFor(notificationEmails, t.tenantId));
     const matchesWaitlist = !showOnlyWaitlist || !previewApproved.has(t.tenantId);
     const matchesReady = !showOnlyReady || t.validateAutopilotDevice;
     return matchesSearch && matchesWaitlist && matchesReady;
@@ -389,6 +386,11 @@ function TenantManagementSectionInner({
       }
 
       const result = await response.json();
+      // The send persisted the address too — keep the search map in step so the tenant is
+      // findable by it right away instead of only after the next list refresh.
+      if (result.email) {
+        setNotificationEmails(prev => ({ ...prev, [tenantId.toLowerCase()]: result.email }));
+      }
       setSuccessMessage(`Welcome email sent to ${result.email}`);
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
@@ -498,7 +500,7 @@ function TenantManagementSectionInner({
                   </svg>
                   <input
                     type="text"
-                    placeholder={'Search by domain or tenant ID (use "..." for exact match)'}
+                    placeholder={'Search by domain, tenant ID or email (use "..." for exact match)'}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
@@ -620,7 +622,10 @@ function TenantManagementSectionInner({
                               <button
                                 onClick={async () => {
                                   setEditingTenant(tenant);
-                                  setNotificationEmail("");
+                                  // Seed from the list's address map so the field is filled
+                                  // immediately; the per-tenant read below stays authoritative.
+                                  setNotificationEmail(
+                                    notificationEmailFor(notificationEmails, tenant.tenantId) ?? "");
                                   try {
                                     const resp = await authenticatedFetch(
                                       api.preview.notificationEmailTenant(tenant.tenantId),

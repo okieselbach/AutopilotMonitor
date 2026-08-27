@@ -58,6 +58,24 @@ The Global-Admin resend endpoint (`POST /api/preview/send-welcome-email/{tenantI
 always sends (explicit intent) and consumes the marker best-effort so the automatic
 paths never duplicate afterwards.
 
+## Finding the tenant behind an address
+
+The provider's delivery log names only the recipient — never the tenant it belonged to. The
+reverse lookup is therefore part of the tenant console: its search matches `tenantId`,
+`domainName`, `ContactEmail` **and** the notification address. No other address is searchable
+(an admin UPN never receives platform mail and would only widen the PII surface of the list).
+
+The addresses live in a different table than the tenant configs the list is built from, so the
+console loads them as a map from `GET /api/preview/notification-emails` (GA + read-only Global
+Reader, `excludeDelegated`) — one cross-partition scan of `RowKey eq 'notification-email'`
+instead of a point read per tenant. Keys are lowercased on both sides of the join: the address
+rows are written from the JWT `tid` (lowercase) while a config PartitionKey's casing is not
+guaranteed. Stored addresses keep the casing the user typed, so matching is case-insensitive.
+
+The map is **best-effort** in the portal: it powers only the search-by-address, so a failed read
+degrades that one capability instead of taking the tenant list down. The addresses are not
+rendered in the list — they are a search key, and stay visible in the tenant editor.
+
 ## Mail transport
 
 Both transactional mails (welcome, post-offboarding farewell) go through the
@@ -118,3 +136,4 @@ properties `Html`, `UpdatedBy`, `UpdatedUtc`), cached 5 minutes, invalidated on 
 * `src/Backend/AutopilotMonitor.Functions/Services/EmailTemplateService.cs` — override resolution, placeholder rendering, cache
 * `src/Backend/AutopilotMonitor.Functions/Functions/Admin/EmailTemplatesFunction.cs` — GA endpoints (read / override / reset / test send)
 * `src/Web/autopilot-monitor-web/app/admin/settings/sections/SectionEmailTemplates.tsx` — portal editor, preview frame, test send
+* `src/Web/autopilot-monitor-web/app/admin/components/tenantSearch.ts` — the console's match rules (searchable fields, quoted exact mode, lowercased join)
