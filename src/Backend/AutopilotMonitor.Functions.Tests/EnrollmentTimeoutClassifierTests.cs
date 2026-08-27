@@ -394,14 +394,91 @@ public class EnrollmentTimeoutClassifierTests
     }
 
     [Fact]
-    public void Classify_agent_timeout_failed_session_classifies_honestly()
+    public void Classify_agent_timeout_terminalizes_immediately_instead_of_parking()
     {
-        // WG Part-2 shape (session 1506ce9f): DeviceSetup 4/4, no user phase, watchdog fired at
-        // 6h — honest verdict is AwaitingUser (within grace), never Failed.
+        // The watchdog firing proves the agent is gone for good — an AwaitingUser park from this
+        // state is a countdown, not a wait: all 5 observed maxlife:r5_awaiting episodes expired
+        // unhealed (calibration read 2026-08-27). Still never Failed, and late straggler
+        // telemetry can heal the Incomplete (TryLateTelemetryReconcileAsync).
         var timeout = Evt("enrollment_failed",
             data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
-        var (status, _) = Classify(new[] { Esp(DeviceSetup44), timeout }, hoursSinceStart: 6);
-        Assert.Equal(SessionStatus.AwaitingUser, status);
+        var (status, reason) = Classify(new[] { Esp(DeviceSetup44), timeout }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Incomplete, status);
+        Assert.Contains("max-lifetime watchdog", reason);
+
+        // The V2 shutdown shape carries the same fact.
+        var shutdown = Evt("agent_shutting_down",
+            data: new Dictionary<string, object> { ["reason"] = "max_lifetime" });
+        var (viaShutdown, _) = Classify(new[] { Esp(DeviceSetup44), shutdown }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Incomplete, viaShutdown);
+
+        // WhiteGlove Part 2 (rule 1b) is deliberately untouched: a sealed/powered-off device
+        // between technician and end user stays AwaitingUser — that park DOES heal
+        // (the observed maxlife:r1b_awaiting episode resolved to Succeeded).
+        var rollup = EnrollmentTimeoutClassifier.ExtractRollup(new[] { Esp(DeviceSetup44), timeout });
+        var (wgStatus, _, wgRule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
+            rollup, Start, Start.AddHours(6), 72, isPreProvisioned: true, resumedAt: Start.AddHours(1));
+        Assert.Equal(SessionStatus.AwaitingUser, wgStatus);
+        Assert.Equal(ClassifierRules.R1bWhiteGloveAwaiting, wgRule);
+    }
+
+    // -------- Rule 5a: completed (assumed) — calibration read 2026-08-27 --------
+
+    [Fact]
+    public void ExtractRollup_detects_app_failures_and_maxlife_timeout()
+    {
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("app_install_failed") }).HasAppInstallFailure);
+        var timeout = Evt("enrollment_failed", data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { timeout }).HasAgentMaxLifetimeTimeout);
+        var shutdown = Evt("agent_shutting_down", data: new Dictionary<string, object> { ["reason"] = "max_lifetime" });
+        Assert.True(EnrollmentTimeoutClassifier.ExtractRollup(new[] { shutdown }).HasAgentMaxLifetimeTimeout);
+        // Other shutdown reasons say nothing about max lifetime.
+        var ctrlC = Evt("agent_shutting_down", data: new Dictionary<string, object> { ["reason"] = "ctrl_c" });
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { ctrlC }).HasAgentMaxLifetimeTimeout);
+        // A real failure event does not raise the app flag.
+        Assert.False(EnrollmentTimeoutClassifier.ExtractRollup(new[] { Evt("enrollment_failed") }).HasAppInstallFailure);
+    }
+
+    [Fact]
+    public void Classify_desktop_without_hello_past_grace_is_assumed_complete()
+    {
+        // The healthy half of the r5 population (drill-down 2026-08-27): desktop reached, apps
+        // clean, agent died before the Hello terminal. Past the full grace "user phase still
+        // running" is no longer a possible explanation — completed (assumed), not a red Incomplete.
+        var (status, reason, rule) = ClassifyWithRule(new[]
+        {
+            Esp(DeviceSetup44), Esp(AccountSetup15), Evt("desktop_arrived"),
+        }, hoursSinceStart: 80, grace: 72);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Equal(ClassifierRules.R5DesktopAssumed, rule);
+        Assert.Contains("treating the enrollment as completed", reason);
+        Assert.Contains("Agent last reported", reason); // silence-transparency clause
+    }
+
+    [Fact]
+    public void Classify_desktop_with_app_failure_past_grace_stays_Incomplete()
+    {
+        // "Completed" must not overclaim a session whose ESP payload provably failed
+        // (drill-down session b1edc6f8: desktop reached but .NET 3.5 install failed).
+        var (status, _) = Classify(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("app_install_failed"),
+        }, hoursSinceStart: 80, grace: 72);
+        Assert.Equal(SessionStatus.Incomplete, status);
+    }
+
+    [Fact]
+    public void Classify_maxlife_with_desktop_and_clean_apps_is_assumed_complete_within_grace()
+    {
+        // Agent provably gone + desktop + clean apps: no reason to park — the assumption is as
+        // good now as it would be after the 51h grace.
+        var timeout = Evt("enrollment_failed", data: new Dictionary<string, object> { ["failureType"] = "agent_timeout" });
+        var (status, _, rule) = ClassifyWithRule(new[]
+        {
+            Esp(DeviceSetup44), Evt("desktop_arrived"), timeout,
+        }, hoursSinceStart: 6);
+        Assert.Equal(SessionStatus.Succeeded, status);
+        Assert.Equal(ClassifierRules.R5DesktopAssumed, rule);
     }
 
     [Fact]

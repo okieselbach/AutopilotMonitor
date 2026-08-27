@@ -285,6 +285,12 @@ namespace AutopilotMonitor.Functions.Services
             // Part-1 start (same anchor the maintenance sweep uses).
             var effectiveStart = session?.ResumedAt ?? session?.StartedAt ?? triggerEvent.Timestamp;
 
+            // The trigger event itself may not be persisted yet when this read runs — append it so
+            // the rollup always carries the max-lifetime fact (rule 5 skips the AwaitingUser grace
+            // on it: the agent is provably gone). The rollup folds booleans, so a stored duplicate
+            // is harmless.
+            sessionEvents.Add(triggerEvent);
+
             var rollup = EnrollmentTimeoutClassifier.ExtractRollup(sessionEvents);
             var (targetStatus, reason, rule) = EnrollmentTimeoutClassifier.ClassifyTimedOutSession(
                 rollup, effectiveStart, now, graceHours, session?.LastEventAt ?? c.LatestEventTimestamp,

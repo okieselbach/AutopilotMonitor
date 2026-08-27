@@ -89,10 +89,79 @@ public class VerdictCalibrationRadarTests
     }
 
     [Fact]
-    public void Derived_legacy_paths_never_alert()
+    public void Derived_legacy_paths_never_alert_per_path_but_feed_the_group_sums()
     {
         var rows = Horizon(w => new[] { ("legacy:r6", "Incomplete", w ? 10 : 1), ("agent:complete", "Succeeded", w ? 10 : 19) });
-        Assert.DoesNotContain(VerdictCalibrationRadar.Evaluate(rows, Target), f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        var findings = VerdictCalibrationRadar.Evaluate(rows, Target);
+        Assert.DoesNotContain(findings, f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        // Legacy continuity: the rule-shaped legacy subset counts into the silence group, so a
+        // real silence jump stays visible even when the history predates the instrumentation.
+        Assert.Contains(findings, f => f.Kind == VerdictCalibrationAlertKinds.SilenceShareRegression);
+    }
+
+    [Fact]
+    public void Share_regression_requires_an_established_baseline()
+    {
+        // The 2026-08-23 instrumentation-cutover shape: the same decisions exist only under the
+        // legacy name in the baseline and only under the new name in the window. Zero baseline
+        // hits is new vocabulary, not a regression — and the legacy continuity keeps the silence
+        // group flat across the rename (production fired a lift-124 artifact without both).
+        var rows = Horizon(w => new[]
+        {
+            ("sweep:r5_incomplete", "Incomplete", w ? 4 : 0),
+            ("legacy:r5_incomplete", "Incomplete", w ? 0 : 4),
+            ("agent:complete", "Succeeded", 16),
+        });
+        var findings = VerdictCalibrationRadar.Evaluate(rows, Target);
+        Assert.DoesNotContain(findings, f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        Assert.DoesNotContain(findings, f => f.Kind == VerdictCalibrationAlertKinds.SilenceShareRegression);
+    }
+
+    [Fact]
+    public void Share_regression_needs_ten_window_hits()
+    {
+        // 7 window hits at 5% vs an established 1.07% baseline — lift ~4.7, but verdict shares
+        // on single-digit counts are noise (a 3-hit episode survived as such, read 2026-08-27).
+        var rows = new List<VerdictCalibrationDailyAggregate>();
+        for (var i = 34; i >= 0; i--)
+        {
+            var inWindow = i < 7;
+            rows.Add(new VerdictCalibrationDailyAggregate
+            {
+                TenantId = "t", Date = Target.AddDays(-i).ToString("yyyy-MM-dd"), SessionCount = 20, TerminalSessionCount = 20,
+                Buckets =
+                {
+                    new VerdictCalibrationBucket { VerdictPath = "sweep:r6", Status = "Incomplete", Count = inWindow ? 1 : (i == 20 ? 6 : 0) },
+                    new VerdictCalibrationBucket { VerdictPath = "agent:complete", Status = "Succeeded", Count = inWindow ? 19 : 20 },
+                },
+            });
+        }
+        Assert.DoesNotContain(VerdictCalibrationRadar.Evaluate(rows, Target),
+            f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+    }
+
+    [Fact]
+    public void ReArm_clears_episodes_below_the_fire_floors()
+    {
+        // A zero-baseline episode from before the floors existed (rename artifact) clears itself
+        // even while its share is elevated…
+        var artifact = new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.ShareRegression, VerdictPath = "sweep:r5_incomplete", Status = "Incomplete" };
+        var renamed = Horizon(w => new[]
+        {
+            ("sweep:r5_incomplete", "Incomplete", w ? 4 : 0),
+            ("legacy:r5_incomplete", "Incomplete", w ? 0 : 4),
+            ("agent:complete", "Succeeded", 16),
+        });
+        Assert.True(VerdictCalibrationRadar.ShouldReArm(artifact, renamed, Target));
+
+        // …and so does one whose window has shrunk under the 10-hit floor.
+        var shrunk = new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.ShareRegression, VerdictPath = "maxlife:r5_awaiting", Status = "AwaitingUser" };
+        var tiny = Horizon(w => new[]
+        {
+            ("maxlife:r5_awaiting", "AwaitingUser", 1),
+            ("agent:complete", "Succeeded", 19),
+        });
+        Assert.True(VerdictCalibrationRadar.ShouldReArm(shrunk, tiny, Target));
     }
 
     [Fact]

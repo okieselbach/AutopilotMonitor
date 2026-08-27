@@ -60,6 +60,7 @@ public class VerdictPathTests
         Assert.Equal("sweep:r5_incomplete", path);
         Assert.Equal("sweep", VerdictPaths.Origin(path));
         Assert.True(VerdictPaths.IsClassifierPath(path));
+        Assert.True(VerdictPaths.IsClassifierPath("sweep:r5_assumed"));
         Assert.True(VerdictPaths.IsClassifierPath("maxlife:r1"));
         Assert.True(VerdictPaths.IsClassifierPath("late:r4"));
         Assert.True(VerdictPaths.IsClassifierPath("retro:r6"));
@@ -107,6 +108,7 @@ public class VerdictPathTests
         Assert.Equal(ClassifierRules.R3EmergencyBreak, RuleOf(new[] { Esp(DeviceSetup44), Evt("agent_emergency_break") }));
         Assert.Equal(ClassifierRules.R4DesktopHello, RuleOf(new[] { Esp(DeviceSetup44), Evt("desktop_arrived"), Evt("hello_provisioning_completed") }));
         Assert.Equal(ClassifierRules.R5DeviceSetupAwaiting, RuleOf(new[] { Esp(DeviceSetup44), Esp(AccountSetup15) }, hours: 6, grace: 72));
+        Assert.Equal(ClassifierRules.R5DesktopAssumed, RuleOf(new[] { Esp(DeviceSetup44), Esp(AccountSetup15), Evt("desktop_arrived") }, hours: 80, grace: 72));
         Assert.Equal(ClassifierRules.R5DeviceSetupIncomplete, RuleOf(new[] { Esp(DeviceSetup44), Esp(AccountSetup15) }, hours: 80, grace: 72));
         Assert.Equal(ClassifierRules.R6Fallthrough, RuleOf(Array.Empty<EnrollmentEvent>()));
     }

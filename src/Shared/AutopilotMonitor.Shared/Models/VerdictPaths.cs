@@ -97,6 +97,13 @@ namespace AutopilotMonitor.Shared.Models
         public const string R3EmergencyBreak = "r3";
         public const string R4DesktopHello = "r4";
         public const string R5DeviceSetupAwaiting = "r5_awaiting";
+        /// <summary>
+        /// Rule-5 grace expired (or the agent is provably gone) with a real-user desktop observed and a
+        /// clean app record — completed (assumed). Split from <see cref="R5DeviceSetupIncomplete"/> after
+        /// the 2026-08-27 calibration read: r5-Incomplete devices re-enrolled at 2.6 % (the succeeded
+        /// background), and half the sampled sessions were healthy desktops whose agent died after the work.
+        /// </summary>
+        public const string R5DesktopAssumed = "r5_assumed";
         public const string R5DeviceSetupIncomplete = "r5_incomplete";
         public const string R6Fallthrough = "r6";
     }

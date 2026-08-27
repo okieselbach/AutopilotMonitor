@@ -9,7 +9,7 @@ tags:
   - classifier
   - calibration
   - regression-radar
-timestamp: 2026-08-23T18:00:00+02:00
+timestamp: 2026-08-27T20:00:00+02:00
 ---
 
 # Verdict Calibration (classifier thermometer)
@@ -114,15 +114,18 @@ and is wiped with the tenant on offboarding.
 ## Drift radar — `VerdictCalibrationRadar`
 
 Same statistics as the [rule regression radar](rule-regression-radar.md) (7-day window vs the
-prior 28 days, ≥ 5 window hits, ≥ 20 window sessions, lift ≥ 2, `MetricsMath.
-RateIncreaseSeparated`), anchored on yesterday, over every partition with rows (each tenant
-and `global`):
+prior 28 days, ≥ 20 window sessions, lift ≥ 2, `MetricsMath.RateIncreaseSeparated`), with
+stricter floors since the first-month tuning (2026-08-27): **≥ 10 window hits** (verdict
+shares on single-digit counts are noise — a 3-hit episode survived as such), and a per-path
+share regression additionally needs **≥ 5 baseline hits** — a path with no established
+baseline is new (or renamed) vocabulary, not a regression. Anchored on yesterday, over every
+partition with rows (each tenant and `global`):
 
 | Kind | Signal | Re-arm |
 | --- | --- | --- |
-| `share_regression` | one **backend-decided** path's share of all sessions doubled (`sweep`/`maxlife`/`late`/`retro`/`rule`/`manual`/`ingest`; `agent:*` and `register:*` mirror customer workflow mix — first prod pass fired on `agent:whiteglove_pending` rollout weeks — and `legacy:*` is derived, all excluded) | share < 1.5× baseline, the path stops occurring, or the path is no longer eligible |
-| `silence_share_regression` | the `sweep:*` + `maxlife:*` share doubled — the backend had to decide more often because the agent went silent (a liveness signal, not a classifier one) | same |
-| `evidence_gap` | absolute: `r6` (pure fallthrough) decides ≥ 20 % of the window's classifier verdicts, ≥ 20 verdicts | < 15 % or < 20 verdicts |
+| `share_regression` | one **backend-decided** path's share of all sessions doubled (`sweep`/`maxlife`/`late`/`retro`/`rule`/`manual`/`ingest`; `agent:*` and `register:*` mirror customer workflow mix — first prod pass fired on `agent:whiteglove_pending` rollout weeks — and `legacy:*` is derived, all excluded per-path) | share < 1.5× baseline, the path stops occurring, the path is no longer eligible, or the current numbers fall below the fire floors |
+| `silence_share_regression` | the `sweep:*` + `maxlife:*` share doubled — the backend had to decide more often because the agent went silent (a liveness signal, not a classifier one). Rule-shaped `legacy:*` paths count into BOTH sums (window and baseline): they were the same backend decisions before the 2026-08-23 instrumentation, and without that continuity the group had a near-zero baseline by construction and fired a lift-124 rollout artifact | share < 1.5× baseline or hits stop |
+| `evidence_gap` | absolute: `r6` (pure fallthrough) decides ≥ 20 % of the window's classifier verdicts (stamped rule paths plus rule-shaped `legacy:*`, same continuity), ≥ 20 verdicts | < 15 % or < 20 verdicts |
 
 Episodes are tracker rows `verdictcalibration|{kind}|{path}|{status}` (register = `AddEntity`,
 409 = already burning, fail-closed; refresh carries `FirstNotifiedAt`; 30-day tracker
@@ -140,6 +143,15 @@ Kill switch `VerdictCalibrationRadarDisabled`.
   re-enrollment within 7 days after Succeeded 8.9 % (lab background), after Failed 24.3 %,
   after Incomplete 10.6 % — Incomplete behaves like Succeeded, so rules 5/6 are probably too
   cautious; the matrix now shows this per rule instead of per status.
+* **First real calibration read (2026-08-27, four days instrumented):** the per-rule and
+  per-tenant split resolved that hand analysis — `legacy:r5_incomplete` re-enrolled at 2.6 %
+  (the `agent:complete_soft` background), spread across tenants, while `legacy:r6`'s 29 %
+  was concentrated in one tenant that disciplinedly redoes failed enrollments (48.5 % there,
+  6.7 % elsewhere — so r6 stays untouched, it correctly flags that tenant). Consequences
+  shipped the same day: rule 5a "completed (assumed)" (see
+  [Silent-Session Classification](silent-session-classification.md)), the max-lifetime grace
+  skip, and the radar floors + legacy group continuity above — the first production month
+  had produced nine standing alerts, every one an instrumentation-rollout artifact.
 * **Correction stream:** a session swept to `sweep:r5_incomplete`, later completed by the
   agent → row `agent:complete` with `PriorVerdictPath = sweep:r5_incomplete`; the aggregate
   increments `OverriddenByLateCompletion` on the `sweep:r5_incomplete / Incomplete` bucket.

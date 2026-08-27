@@ -10,7 +10,7 @@ tags:
   - classification
   - whiteglove
   - self-deploying
-timestamp: 2026-08-23T18:00:00+02:00
+timestamp: 2026-08-27T20:00:00+02:00
 ---
 
 # Silent-Session Classification
@@ -30,7 +30,10 @@ so a session gets the same verdict regardless of which path noticed the silence 
 subcategory counts (incl. the 30s fallback-confirmed messages), `HasExplicitFailure`,
 `HasEnrollmentComplete` vs. `HasTerminalComplete` (the Part-1 `whiteglove_complete`),
 `HasAgentEmergencyBreak`, `DesktopArrived`, `HelloResolved`, `HelloPolicyDisabled`,
-`SkipUserEsp`, RealmJoin detection/resolution. Session-row flags are passed alongside:
+`SkipUserEsp`, RealmJoin detection/resolution, `HasAppInstallFailure` (any
+`app_install_failed`), and `HasAgentMaxLifetimeTimeout` (either max-lifetime shape:
+`enrollment_failed`/`agent_timeout` or `agent_shutting_down`/`max_lifetime` — the agent is
+provably gone). Session-row flags are passed alongside:
 `IsPreProvisioned` + `ResumedAt` (WhiteGlove Part 2) and `IsSelfDeployingProfile`
 (registry-confirmed `CloudAssignedOobeConfig 0x20|0x40`, set at registration).
 
@@ -44,7 +47,9 @@ subcategory counts (incl. the 30s fallback-confirmed messages), `HasExplicitFail
 | 2 | Account Setup all-succeeded, or `enrollment_complete`, or `whiteglove_complete` on a **non-resumed** session | Succeeded |
 | 3 | `HasAgentEmergencyBreak` | Incomplete immediately (agent self-destructed, nothing can arrive) |
 | 4 | `DesktopArrived` + (Hello terminal, or Hello disabled + SkipUserEsp) | Succeeded (user provably finished) |
-| 5 | Device Setup done | AwaitingUser within grace, Incomplete past grace |
+| 5 | Device Setup done + within grace + **no** max-lifetime watchdog observed | AwaitingUser |
+| 5a | Device Setup done + past grace (or watchdog observed) + `DesktopArrived` + no `app_install_failed` | **Succeeded** — completed (assumed), `r5_assumed` |
+| 5b | Device Setup done, otherwise past grace (or watchdog observed) | Incomplete |
 | 6 | otherwise | Incomplete |
 
 Grace = `ResolveGraceHours(SessionGraceHours, AbsoluteMaxSessionHours)` (~51h default),
@@ -65,7 +70,12 @@ budget on a Wi-Fi link still associating), and rule 5 labeled finished kiosks
 Incomplete turned a working rollout into a red wall. Other self-deploying tenants completed
 normally in the same window, so this is a classification gap, not a profile-wide agent bug.
 Agent-side companion fix: `SessionRegistrationHelper` now waits up to 15s for a network link
-and retries 6× (~62s backoff) instead of 5× (~30s).
+and retries 6× (~62s backoff) instead of 5× (~30s). Measured 2026-08-27 (builds
+2.0.1428/1429, both carrying the fix): the reconcile share did not move, and the backend saw
+no registration attempt from any relaunch — no success, no 4xx, zero `register:superseded`
+in the tenant — so the relaunch never reaches the network at all (device powered off after
+ESP, or the relaunch never runs). The sweep reconcile is the permanent completion path for
+this profile, not a stopgap.
 
 ## Callers (all pass both gate inputs)
 
@@ -78,13 +88,33 @@ and retries 6× (~62s backoff) instead of 5× (~30s).
 | Agent stall probe (`session_stalled`) | `EventIngestProcessor.TryMapStallToWhiteGloveAwaitingUserAsync` | Only the WG gate (1b); a stall probe on a self-deploying device with Device Setup done means the agent is alive and something else blocks — stays Stalled. |
 | Admin retro-reconcile | `LegacyReclassificationService` | Modes `legacy_timeouts`, `pending_orphans`, `self_deploying_silent` (Incomplete/AwaitingUser/Stalled rows with the profile flag, heal-only to Succeeded, admin-marked rows skipped). `POST /api/maintenance/reclassify-legacy?mode=…&dryRun=false&tenantId=…&maxSessions=…`, dry-run by default. |
 
-## Known gap (decided, not built)
+## Why rule 5a exists (calibration read 2026-08-27)
+
+The verdict-calibration matrix showed r5-Incomplete devices re-enrolling at 2.6 % within
+7 days — the succeeded background (`agent:complete_soft` sits at 2.8 %), not the ~29 %
+failure level — consistently across tenants, and half the sampled sessions were healthy
+desktops with a clean app record whose agent died before the Hello terminal (some with the
+agent's own "AccountSetup treated as complete" synthesis as the literally last event). Past
+the full grace, "the user phase is still running" is no longer a possible explanation, so
+desktop + zero `app_install_failed` + no explicit failure now reconciles to Succeeded
+("completed (assumed)") instead of a red Incomplete. Sessions without a desktop (user never
+began sign-in: battery-drained, powered off, max-lifetime) and sessions with any failed app
+stay Incomplete — "completed" must not overclaim. Rule 4 remains the IMMEDIATE reconcile
+(desktop + Hello proof); 5a only fires where waiting is over. Desktop arrival alone is still
+rejected as a live completion signal.
+
+## Closed gap: max-lifetime AwaitingUser (2026-08-27)
 
 After max-lifetime the agent writes `enrollment-complete.marker` and self-destructs, so an
-AwaitingUser verdict from that path can never heal — it is a 51h countdown to Incomplete.
-The emergency-break path (rule 3) already terminalizes immediately; max-lifetime still goes
-through the grace window by design ("user simply absent"). Revisit if customers read
-AwaitingUser as "still possible".
+AwaitingUser verdict from that path could never heal — the calibration correction stream
+confirmed it: all five observed `maxlife:r5_awaiting` episodes expired to Incomplete
+unhealed, while live-agent `sweep:r5_awaiting` parks upgraded 7 of 26 to Succeeded. Rule 5
+therefore skips the grace once `HasAgentMaxLifetimeTimeout` is in the stream and decides the
+terminal fork (5a/5b) immediately; the max-lifetime ingest appends its trigger event to the
+read stream so the fact is never missed, and late straggler telemetry still heals a terminal
+verdict via `TryLateTelemetryReconcileAsync`. WhiteGlove rule 1b deliberately keeps its
+park — sealed/boxed devices do heal (the observed `maxlife:r1b_awaiting` episode resolved to
+Succeeded).
 
 # Examples
 

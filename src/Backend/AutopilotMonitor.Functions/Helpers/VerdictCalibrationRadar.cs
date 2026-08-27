@@ -38,8 +38,10 @@ public class VerdictCalibrationFinding
 /// <item><b>evidence_gap</b> — absolute gate: the pure fallthrough rule (r6) decides ≥20 % of the
 /// window's classifier verdicts. The evidence the other rules need is not arriving.</item>
 /// </list>
-/// Derived (<c>legacy:*</c>) paths are excluded from all three — pre-instrumentation attribution
-/// is too weak to alert on. Agent-declared paths (<c>agent:*</c>, <c>register:*</c>) are excluded
+/// Derived (<c>legacy:*</c>) paths never alert per-path — pre-instrumentation attribution is too
+/// weak for that — but their rule-shaped subset DOES feed the silence and classifier-verdict
+/// group sums so the groups stay continuous across the 2026-08-23 instrumentation cutover
+/// (see <see cref="Summarize"/>). Agent-declared paths (<c>agent:*</c>, <c>register:*</c>) are excluded
 /// from the per-path share regression: their share tracks the customer's workflow mix (a
 /// WhiteGlove rollout week doubles <c>agent:whiteglove_pending</c>; a Continue-Anyway tenant
 /// lives on <c>agent:complete_soft</c>) — real signals, but not about the BACKEND classifier
@@ -51,7 +53,21 @@ public static class VerdictCalibrationRadar
 {
     public const int WindowDays = RuleRegressionRadar.WindowDays;
     public const int BaselineDays = RuleRegressionRadar.BaselineDays;
-    public const int MinWindowHits = RuleRegressionRadar.MinWindowHitSessions;
+    /// <summary>
+    /// Minimum window hits before a share finding fires or keeps its episode. Deliberately
+    /// higher than the rule radar's 5: verdict shares swing on tiny counts, and the first
+    /// production month kept a 3-hit maxlife:r5_awaiting episode alive as pure noise
+    /// (calibration read 2026-08-27).
+    /// </summary>
+    public const int MinWindowHits = 10;
+    /// <summary>
+    /// Minimum baseline hits before a PER-PATH share regression is meaningful. A path with no
+    /// established baseline cannot regress — it is new vocabulary (or a renamed path), and
+    /// alerting on it just counts the rollout: the 2026-08-23 instrumentation cut over from
+    /// legacy:* to sweep:*/register:* names and fired seven zero-baseline artifacts. The group
+    /// kinds are exempt — their baselines carry the legacy continuity (see <see cref="Summarize"/>).
+    /// </summary>
+    public const int MinBaselineHits = 5;
     public const int MinWindowSessions = RuleRegressionRadar.MinWindowSessions;
     public const double MinLift = RuleRegressionRadar.MinLift;
     public const double ReArmLiftFactor = RuleRegressionRadar.ReArmLiftFactor;
@@ -135,7 +151,7 @@ public static class VerdictCalibrationRadar
             .ToList();
     }
 
-    /// <summary>True when an ACTIVE alert may re-arm given the current horizon sums (or when its path is no longer eligible — episodes from an earlier, broader gate clear themselves).</summary>
+    /// <summary>True when an ACTIVE alert may re-arm given the current horizon sums (or when its path/numbers no longer pass the fire gates — episodes from an earlier, broader gate clear themselves).</summary>
     public static bool ShouldReArm(VerdictCalibrationAlert alert, IReadOnlyList<VerdictCalibrationDailyAggregate> tenantRows, DateTime targetDateUtc)
     {
         if (alert.Kind == VerdictCalibrationAlertKinds.ShareRegression && !IsShareRegressionEligible(alert.VerdictPath))
@@ -153,6 +169,9 @@ public static class VerdictCalibrationRadar
 
             default:
                 horizon.Paths.TryGetValue((alert.VerdictPath, alert.Status), out var sums);
+                // Below the fire floors the episode is noise-retention, not an elevated share —
+                // clear it (it re-fires only by passing the full gates again).
+                if (sums.WindowHits < MinWindowHits || sums.BaselineHits < MinBaselineHits) return true;
                 return ReArmByRate(sums.WindowHits, horizon.WindowSessions, sums.BaselineHits, horizon.BaselineSessions);
         }
     }
@@ -189,6 +208,8 @@ public static class VerdictCalibrationRadar
         if (windowHits < MinWindowHits) return null;
         if (windowSessions < MinWindowSessions) return null;
         if (baselineSessions <= 0) return null;
+        // Per-path only: no established baseline → no regression claim (new/renamed vocabulary).
+        if (kind == VerdictCalibrationAlertKinds.ShareRegression && baselineHits < MinBaselineHits) return null;
 
         var windowRate = (double)windowHits / windowSessions;
         var baselineRate = (double)baselineHits / baselineSessions;
@@ -210,6 +231,14 @@ public static class VerdictCalibrationRadar
             WindowStartDate = windowStart,
             WindowEndDate = windowEnd,
         };
+    }
+
+    /// <summary>Derived classifier-rule path (<c>legacy:r5_incomplete</c>) — same detail shape as <see cref="VerdictPaths.IsClassifierPath"/>, legacy origin.</summary>
+    private static bool IsLegacyClassifierPath(string path, string origin)
+    {
+        if (origin != LegacyOrigin) return false;
+        var detail = path.Length > origin.Length + 1 ? path.Substring(origin.Length + 1) : string.Empty;
+        return detail.Length >= 2 && detail[0] == 'r' && char.IsDigit(detail[1]);
     }
 
     internal readonly record struct PathSums(int WindowHits, int BaselineHits);
@@ -234,6 +263,16 @@ public static class VerdictCalibrationRadar
     /// question is "how often did the backend have to decide", not which rule did). Classifier
     /// verdicts = stamped rule paths (<see cref="VerdictPaths.IsClassifierPath"/>); r6 = their
     /// fallthrough subset.
+    /// Legacy continuity: derived rule-shaped paths (<c>legacy:r5_incomplete</c>, <c>legacy:r6</c>, …)
+    /// were the SAME backend decisions before the 2026-08-23 instrumentation — the derivation reads
+    /// the writers' own reason literals, which is strong enough for a group sum (though still too
+    /// weak for per-path alerting). Counting them symmetrically (window AND baseline) keeps the
+    /// silence and classifier-verdict groups continuous across the cutover; without this the groups
+    /// had a near-zero baseline by construction and fired a lift-124 artifact. Legacy rows only
+    /// exist for pre-instrumentation sessions, so the term self-deprecates as they age out.
+    /// (Non-rule legacy paths — <c>legacy:superseded</c>, <c>legacy:wg_awaiting</c>,
+    /// <c>legacy:unknown</c> — stay excluded: superseded is a registration write, unknown is
+    /// unattributable, and wg_awaiting is a negligible tail.)
     /// </summary>
     internal static Horizon Summarize(IReadOnlyList<VerdictCalibrationDailyAggregate> rows, DateTime targetDateUtc)
     {
@@ -262,11 +301,12 @@ public static class VerdictCalibrationRadar
                     : new PathSums(sums.WindowHits, sums.BaselineHits + b.Count);
 
                 var origin = VerdictPaths.Origin(b.VerdictPath);
-                if (origin == VerdictPaths.OriginSweep || origin == VerdictPaths.OriginMaxLifetime)
+                var legacyRule = IsLegacyClassifierPath(b.VerdictPath, origin);
+                if (origin == VerdictPaths.OriginSweep || origin == VerdictPaths.OriginMaxLifetime || legacyRule)
                 {
                     if (inWindow) h.SilenceWindowHits += b.Count; else h.SilenceBaselineHits += b.Count;
                 }
-                if (VerdictPaths.IsClassifierPath(b.VerdictPath))
+                if (VerdictPaths.IsClassifierPath(b.VerdictPath) || legacyRule)
                 {
                     if (inWindow) h.ClassifierWindowVerdicts += b.Count; else h.ClassifierBaselineVerdicts += b.Count;
                     if (b.VerdictPath.EndsWith(":" + ClassifierRules.R6Fallthrough, StringComparison.Ordinal))

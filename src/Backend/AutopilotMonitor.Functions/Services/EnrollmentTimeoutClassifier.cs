@@ -99,7 +99,9 @@ namespace AutopilotMonitor.Functions.Services
             bool HelloPolicyDisabled,
             bool SkipUserEsp,
             bool RealmJoinDetected,
-            bool RealmJoinResolved);
+            bool RealmJoinResolved,
+            bool HasAppInstallFailure,
+            bool HasAgentMaxLifetimeTimeout);
 
         /// <summary>
         /// Walk a session's events and distill the ESP rollup. Tolerant of missing/empty input
@@ -115,6 +117,7 @@ namespace AutopilotMonitor.Functions.Services
             int acctBestN = 0, acctBestM = 0;
             bool acctFallbackAll = false;
             bool hasFailure = false, hasComplete = false, hasEnrollmentComplete = false, hasEmergencyBreak = false;
+            bool hasAppInstallFailure = false, hasMaxLifetimeTimeout = false;
             bool desktopArrived = false, helloResolved = false;
             bool realmJoinDetected = false, realmJoinResolved = false;
             bool sawHelloPolicyEnabled = false, sawHelloPolicyDisabled = false;
@@ -134,7 +137,19 @@ namespace AutopilotMonitor.Functions.Services
                     // (misclassification audit 2026-07-16, tenant a53e67ec cluster).
                     if (!Eq(TryGetDataString(evt, "failureType") ?? string.Empty, "agent_timeout"))
                         hasFailure = true;
+                    else
+                        hasMaxLifetimeTimeout = true;
                 }
+                // The V2 watchdog shape of the same fact: the agent shut itself down at its
+                // max-lifetime cap. Either shape proves the agent is gone for good — rule 5 uses
+                // that to skip the AwaitingUser grace (a wait nothing can ever end).
+                else if (Eq(type, "agent_shutting_down"))
+                {
+                    if (Eq(TryGetDataString(evt, "reason") ?? string.Empty, "max_lifetime"))
+                        hasMaxLifetimeTimeout = true;
+                }
+                else if (Eq(type, "app_install_failed"))
+                    hasAppInstallFailure = true;
                 else if (Eq(type, "enrollment_complete") || Eq(type, "whiteglove_complete"))
                 {
                     hasComplete = true;
@@ -230,7 +245,9 @@ namespace AutopilotMonitor.Functions.Services
                 HelloPolicyDisabled: sawHelloPolicyDisabled && !sawHelloPolicyEnabled,
                 SkipUserEsp: sawSkipUserTrue && !sawSkipUserFalse,
                 RealmJoinDetected: realmJoinDetected,
-                RealmJoinResolved: realmJoinResolved);
+                RealmJoinResolved: realmJoinResolved,
+                HasAppInstallFailure: hasAppInstallFailure,
+                HasAgentMaxLifetimeTimeout: hasMaxLifetimeTimeout);
         }
 
         /// <summary>
@@ -418,7 +435,13 @@ namespace AutopilotMonitor.Functions.Services
             if (rollup.DeviceSetupAllSucceeded)
             {
                 var elapsedHours = (nowUtc - startedAtUtc).TotalHours;
-                if (elapsedHours < graceHours)
+                // The grace only buys time for a LIVE agent to come back with real evidence. Once
+                // the agent's own max-lifetime watchdog has fired it has cleaned up and exited —
+                // parking such a session AwaitingUser is a countdown, not a wait (all 5 observed
+                // maxlife:r5_awaiting episodes expired unhealed; calibration read 2026-08-27), so
+                // it skips straight to the terminal fork. Nothing is lost by deciding now: late
+                // straggler telemetry still heals a terminal verdict (TryLateTelemetryReconcileAsync).
+                if (elapsedHours < graceHours && !rollup.HasAgentMaxLifetimeTimeout)
                 {
                     var acct = rollup.AccountSetupTotal > 0
                         ? $" (Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal})"
@@ -428,11 +451,32 @@ namespace AutopilotMonitor.Functions.Services
                         ClassifierRules.R5DeviceSetupAwaiting);
                 }
 
+                // 5a. Desktop reached + clean app record → completed (assumed). Unlike rule 4 this
+                //     has no Hello terminal, so it never fires as an IMMEDIATE completion signal —
+                //     only here, after the full grace (or with the agent provably gone), where
+                //     "the user phase is still running" is no longer a possible explanation.
+                //     Calibration justified the assumption (2026-08-27 read): r5-Incomplete devices
+                //     re-enrolled at 2.6 % — the succeeded background, not the 29 % failure level —
+                //     and the sampled half with a desktop had all tracked apps terminal with none
+                //     failed. An app_install_failed anywhere disqualifies: "completed" must not
+                //     overclaim a session whose ESP payload is provably not clean.
+                if (rollup.DesktopArrived && !rollup.HasAppInstallFailure)
+                    return (SessionStatus.Succeeded, AppendReconcileTiming(
+                        "Reconciled: Device Setup fully provisioned and a real-user desktop was observed — " +
+                        "no completion, failure or app-install error before the agent went silent; treating the enrollment as completed",
+                        startedAtUtc, nowUtc, lastEventAtUtc), ClassifierRules.R5DesktopAssumed);
+
                 // "0/0" would suggest a parsed rollup that never existed — when no Account Setup
                 // rollup was ever observed, say so instead (misclassification audit 2026-07-16).
                 var acctDetail = rollup.AccountSetupTotal > 0
                     ? $"last Account Setup {rollup.AccountSetupSucceededCount}/{rollup.AccountSetupTotal}"
                     : "Account Setup progress never observed";
+                // Inside the grace the only way here is the max-lifetime short-circuit — the
+                // "within {grace}h" wording would be false, so name the watchdog instead.
+                if (elapsedHours < graceHours)
+                    return (SessionStatus.Incomplete,
+                        $"Agent max-lifetime watchdog fired — agent gone without completion after Device Setup completed ({acctDetail})",
+                        ClassifierRules.R5DeviceSetupIncomplete);
                 return (SessionStatus.Incomplete,
                     $"No completion signal within {graceHours}h grace after Device Setup completed ({acctDetail})",
                     ClassifierRules.R5DeviceSetupIncomplete);
