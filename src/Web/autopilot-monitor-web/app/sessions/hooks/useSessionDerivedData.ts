@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
+import { detectSkipUserStatusPage } from "../utils/espConfig";
 import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
 
 interface PhaseGrouping {
@@ -173,14 +174,10 @@ export function useSessionDerivedData(
   const phaseNamesMap = session?.enrollmentType === "v2" ? V2_PHASE_NAMES : V1_PHASE_NAMES;
   const phaseOrder = session?.enrollmentType === "v2" ? V2_PHASE_ORDER : V1_PHASE_ORDER;
 
-  // Detect SkipUserStatusPage from esp_config_detected event
-  const isSkipUserStatusPage = useMemo(() => {
-    if (session?.enrollmentType === "v2") return false;
-    const espConfigEvent = events.find(e => e.eventType === "esp_config_detected");
-    if (!espConfigEvent?.data) return false;
-    const val = espConfigEvent.data.skipUserStatusPage;
-    return val === true || val === "True" || val === "true";
-  }, [events, session?.enrollmentType]);
+  const isSkipUserStatusPage = useMemo(
+    () => detectSkipUserStatusPage(events, session?.enrollmentType),
+    [events, session?.enrollmentType],
+  );
 
   // Detect WhiteGlove session and find the split point
   const isWhiteGloveSession = session?.isPreProvisioned === true ||

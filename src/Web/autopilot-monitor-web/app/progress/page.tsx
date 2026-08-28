@@ -11,6 +11,7 @@ import { useProgressEvents } from "./hooks/useProgressEvents";
 import { useProgressSignalR } from "./hooks/useProgressSignalR";
 import { useProgressDerivedData } from "./hooks/useProgressDerivedData";
 import { DeviceStatusChips } from "./components/DeviceStatusChips";
+import type { PresentationKind } from "./hooks/progressLayout";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -23,15 +24,29 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-const phaseSteps = [
-  { id: 0, label: "Setup start", shortLabel: "Start" },
-  { id: 1, label: "Device preparation", shortLabel: "Preparation" },
-  { id: 2, label: "Device setup", shortLabel: "Device" },
-  { id: 3, label: "Installing apps (device)", shortLabel: "Apps (D)" },
-  { id: 4, label: "Account setup", shortLabel: "Account" },
-  { id: 5, label: "Installing apps (user)", shortLabel: "Apps (U)" },
-  { id: 6, label: "Finalizing setup", shortLabel: "Complete" },
-];
+// Presentation kind -> card styling. Only "failed" is red: a waiting pre-provisioned device,
+// a stalled device or an Incomplete verdict must not read as a failure to the end user.
+const PRESENTATION_STYLES: Record<
+  PresentationKind,
+  { header: string; title: string; bar: string; percent: string }
+> = {
+  working: { header: "bg-blue-50 border-b border-blue-100", title: "text-blue-800", bar: "bg-blue-500", percent: "text-blue-600" },
+  waiting: { header: "bg-sky-50 border-b border-sky-100", title: "text-sky-800", bar: "bg-sky-500", percent: "text-sky-600" },
+  success: { header: "bg-green-50 border-b border-green-100", title: "text-green-800", bar: "bg-green-500", percent: "text-green-600" },
+  failed: { header: "bg-red-50 border-b border-red-100", title: "text-red-800", bar: "bg-red-500", percent: "text-red-600" },
+  incomplete: { header: "bg-gray-50 border-b border-gray-200", title: "text-gray-800", bar: "bg-gray-400", percent: "text-gray-600" },
+  unsupported: { header: "bg-gray-50 border-b border-gray-200", title: "text-gray-800", bar: "bg-gray-400", percent: "text-gray-600" },
+};
+
+type StepState = "completed" | "current" | "failed" | "pending";
+
+function stepState(index: number, activeStepIndex: number, kind: PresentationKind): StepState {
+  if (index < activeStepIndex) return "completed";
+  if (index > activeStepIndex) return "pending";
+  if (kind === "failed") return "failed";
+  if (kind === "working" || kind === "waiting") return "current";
+  return "pending";
+}
 
 export default function ProgressPortalPage() {
   const { tenantId } = useTenant();
@@ -72,8 +87,27 @@ export default function ProgressPortalPage() {
     addNotification,
   });
 
-  const { appSummary, currentDownload, currentInstall, installElapsedMs, overallProgress, deviceStatus } =
-    useProgressDerivedData(events, session);
+  const {
+    appSummary,
+    currentDownload,
+    currentInstall,
+    installElapsedMs,
+    overallProgress,
+    deviceStatus,
+    steps,
+    activeStepIndex,
+    presentation,
+    scenario,
+  } = useProgressDerivedData(events, session);
+
+  const kind: PresentationKind = presentation?.kind ?? "working";
+  const styles = PRESENTATION_STYLES[kind];
+  const activeStep = steps[activeStepIndex] ?? null;
+  // Live app panel: the device is on an app step and still working on it.
+  const showAppPanel =
+    kind === "working" &&
+    activeStep?.isAppsStep === true &&
+    (appSummary !== null || currentDownload !== null || currentInstall !== null);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") searchBySerial();
@@ -222,44 +256,31 @@ export default function ProgressPortalPage() {
           )}
 
           {/* Session Found - Progress Display */}
-          {session && (
+          {session && presentation && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               {/* Status Header */}
-              <div
-                className={`px-6 py-4 ${
-                  session.status === "InProgress"
-                    ? "bg-blue-50 border-b border-blue-100"
-                    : session.status === "Succeeded"
-                    ? "bg-green-50 border-b border-green-100"
-                    : "bg-red-50 border-b border-red-100"
-                }`}
-              >
+              <div className={`px-6 py-4 ${styles.header}`}>
                 <div className="text-center">
-                  <h2
-                    className={`text-xl font-semibold ${
-                      session.status === "InProgress"
-                        ? "text-blue-800"
-                        : session.status === "Succeeded"
-                        ? "text-green-800"
-                        : "text-red-800"
-                    }`}
-                  >
-                    {session.status === "InProgress"
-                      ? "Setting up your device..."
-                      : session.status === "Succeeded"
-                      ? "Setup complete!"
-                      : "Setup encountered an issue"}
-                  </h2>
+                  <h2 className={`text-xl font-semibold ${styles.title}`}>{presentation.title}</h2>
                   <p className="text-sm text-gray-500 mt-1">
                     {session.deviceName || session.serialNumber} |{" "}
                     {session.manufacturer} {session.model}
                   </p>
-                  {/* Live chips only while in progress — on finished sessions the
+                  {scenario && (
+                    <span className="inline-block mt-1.5 px-2 py-0.5 text-xs text-gray-600 border border-gray-300 rounded-full">
+                      {scenario}
+                    </span>
+                  )}
+                  {presentation.detail && (
+                    <p className="text-sm text-gray-600 mt-2">{presentation.detail}</p>
+                  )}
+                  {/* Live chips only while working — on finished or parked sessions the
                       last-known values would masquerade as current state. */}
-                  {session.status === "InProgress" && <DeviceStatusChips status={deviceStatus} />}
+                  {kind === "working" && <DeviceStatusChips status={deviceStatus} />}
                 </div>
               </div>
 
+              {kind !== "unsupported" && (
               <div className="p-6">
                 {/* Overall Progress Bar */}
                 <div className="mb-8">
@@ -267,25 +288,13 @@ export default function ProgressPortalPage() {
                     <span className="text-sm text-gray-500">
                       Overall Progress
                     </span>
-                    <span
-                      className={`text-sm font-semibold ${
-                        session.status === "Failed"
-                          ? "text-red-600"
-                          : "text-blue-600"
-                      }`}
-                    >
+                    <span className={`text-sm font-semibold ${styles.percent}`}>
                       {Math.round(overallProgress)}%
                     </span>
                   </div>
                   <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-1000 ${
-                        session.status === "Failed"
-                          ? "bg-red-500"
-                          : session.status === "Succeeded"
-                          ? "bg-green-500"
-                          : "bg-blue-500"
-                      }`}
+                      className={`h-full rounded-full transition-all duration-1000 ${styles.bar}`}
                       style={{ width: `${overallProgress}%` }}
                     />
                   </div>
@@ -293,20 +302,12 @@ export default function ProgressPortalPage() {
 
                 {/* Phase Steps */}
                 <div className="space-y-3 mb-8">
-                  {phaseSteps.map((step) => {
-                    const effectivePhase =
-                      session.currentPhase === 99
-                        ? 3
-                        : session.currentPhase;
-                    const isCompleted =
-                      (session.status === "Succeeded" && step.id <= 6) ||
-                      step.id < effectivePhase;
-                    const isCurrent =
-                      step.id === effectivePhase &&
-                      session.status === "InProgress";
-                    const isFailed =
-                      step.id === effectivePhase &&
-                      session.status === "Failed";
+                  {steps.map((step, index) => {
+                    const state = stepState(index, activeStepIndex, kind);
+                    const isCompleted = state === "completed";
+                    const isCurrent = state === "current";
+                    const isFailed = state === "failed";
+                    const showActivity = isCurrent && kind === "working" && step.isAppsStep;
 
                     return (
                       <div key={step.id}>
@@ -370,14 +371,13 @@ export default function ProgressPortalPage() {
                               }`}
                             >
                               {step.label}
-                              {isCurrent &&
-                                (step.id === 3 || step.id === 5) &&
+                              {showActivity &&
                                 appSummary &&
                                 appSummary.total > 0 &&
                                 ` (${appSummary.installed}/${appSummary.total})`}
                             </span>
                             {/* Current activity detail below the active step */}
-                            {isCurrent && (step.id === 3 || step.id === 5) && (
+                            {showActivity && (
                               <div className="flex items-center space-x-1.5 mt-0.5">
                                 <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse flex-shrink-0" />
                                 <TruncatedLabel
@@ -399,8 +399,8 @@ export default function ProgressPortalPage() {
                   })}
                 </div>
 
-                {/* Activity Details — visible during app install phases */}
-                {session.status === "InProgress" && (session.currentPhase === 3 || session.currentPhase === 5) && (appSummary || currentDownload || currentInstall) && (
+                {/* Activity Details — visible while the device works on an app step */}
+                {showAppPanel && (
                   <div className="bg-blue-50 rounded-lg p-4 space-y-3">
                     {/* Download section */}
                     {currentDownload?.active && currentDownload.appName && (
@@ -478,7 +478,7 @@ export default function ProgressPortalPage() {
                   </div>
                 )}
 
-                {session.status === "Succeeded" && (
+                {kind === "success" && (
                   <div className="bg-green-50 rounded-lg p-4 text-center">
                     <p className="text-sm text-green-700 font-medium">
                       Your device is ready to use! Total setup time:{" "}
@@ -496,7 +496,7 @@ export default function ProgressPortalPage() {
                   </div>
                 )}
 
-                {session.status === "Failed" && (
+                {kind === "failed" && (
                   <div className="bg-red-50 rounded-lg p-4 text-center">
                     <p className="text-sm text-red-700">
                       {session.failureReason ||
@@ -505,6 +505,7 @@ export default function ProgressPortalPage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
           )}
         </div>

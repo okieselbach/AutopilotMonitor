@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { computeDeviceStatus, DeviceStatus } from "./deviceStatus";
+import { detectSkipUserStatusPage } from "@/app/sessions/utils/espConfig";
+import {
+  buildProgressSteps,
+  computeOverallProgress,
+  ProgressPresentation,
+  ProgressStep,
+  resolveActiveStepIndex,
+  resolvePresentation,
+  scenarioLabel,
+} from "./progressLayout";
 
 // Minimal structural view of the event payloads this hook reads — only fields used in a
 // typed position are declared (the agent serializes them as strings); everything else
@@ -118,6 +128,12 @@ export interface UseProgressDerivedDataReturn {
   installElapsedMs: number | null;
   overallProgress: number;
   deviceStatus: DeviceStatus;
+  /** Scenario-aware step list (see progressLayout.ts); empty without a session. */
+  steps: ProgressStep[];
+  /** Index into `steps`; equals steps.length once Succeeded. */
+  activeStepIndex: number;
+  presentation: ProgressPresentation | null;
+  scenario: string | null;
 }
 
 /**
@@ -126,7 +142,8 @@ export interface UseProgressDerivedDataReturn {
  *  - currentDownload: latest-state-per-app + most recent active app
  *  - currentInstall: app-state map driven by app_install_* events
  *  - installElapsedMs: 1s live timer while an install is active
- *  - overallProgress: phase-based 0-100% gauge
+ *  - steps / activeStepIndex / presentation: scenario-aware layout (progressLayout.ts)
+ *  - overallProgress: step-based 0-100% gauge
  */
 export function useProgressDerivedData(
   events: EnrollmentEvent[],
@@ -265,16 +282,21 @@ export function useProgressDerivedData(
       ? installTimer.elapsedMs
       : null;
 
-  const overallProgress = session
-    ? session.status === "Succeeded"
-      ? 100
-      : session.status === "Failed"
-      ? Math.min(
-          100,
-          ((session.currentPhase === 99 ? 3 : session.currentPhase) / 6) * 100,
-        )
-      : Math.min(100, (session.currentPhase / 6) * 100)
+  const steps = useMemo<ProgressStep[]>(
+    () => (session ? buildProgressSteps(session, detectSkipUserStatusPage(events, session.enrollmentType)) : []),
+    [session, events],
+  );
+
+  const hasAppActivity = appSummary !== null || currentInstall !== null || currentDownload !== null;
+  const activeStepIndex = session
+    ? resolveActiveStepIndex({ steps, session, events, hasAppActivity })
     : 0;
+  const overallProgress = session ? computeOverallProgress(session.status, activeStepIndex, steps.length) : 0;
+  const presentation = useMemo<ProgressPresentation | null>(
+    () => (session ? resolvePresentation(session, events) : null),
+    [session, events],
+  );
+  const scenario = session ? scenarioLabel(session) : null;
 
   return {
     appSummary,
@@ -283,5 +305,9 @@ export function useProgressDerivedData(
     installElapsedMs,
     overallProgress,
     deviceStatus,
+    steps,
+    activeStepIndex,
+    presentation,
+    scenario,
   };
 }

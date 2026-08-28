@@ -32,6 +32,8 @@ export interface Session {
   /** Set when the maintenance sweep first observed the agent had gone silent (2h+ no events). Surfaced in the reconcile banner so the silence window is transparent. */
   stalledAt?: string;
   isPreProvisioned?: boolean;
+  /** Pre-provisioning: when the user-side Part 2 resumed the session. Absent while the device waits for its user. */
+  resumedAt?: string;
   isHybridJoin?: boolean;
   isUserDriven?: boolean;
   /** Self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig 0x20|0x40, agent-detected at registration). */
