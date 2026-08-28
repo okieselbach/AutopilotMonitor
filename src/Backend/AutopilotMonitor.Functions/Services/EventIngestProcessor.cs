@@ -596,7 +596,7 @@ namespace AutopilotMonitor.Functions.Services
                     histogram.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"));
                 var message =
                     $"IME-derived events skewed {result.DiffMinutes:+0.0;-0.0} min vs other sources " +
-                    $"({result.GridSteps}x15min grid, residual {result.ResidualMinutes:0.0} min; " +
+                    $"({result.GridSteps}x15min grid, residual {result.ResidualMinutes:0.0} min, {result.GridConformantFraction:P0} of IME samples on grid; " +
                     $"median dIME {result.MedianImeDeltaMinutes:0.0} / dOther {result.MedianOtherDeltaMinutes:0.0} min; " +
                     $"{result.ImeSampleCount}/{result.OtherSampleCount} samples over {result.ImeBatchCount}/{result.OtherBatchCount} batches; " +
                     $"origins: {(origins.Length > 0 ? origins : "none")})";
@@ -608,6 +608,7 @@ namespace AutopilotMonitor.Functions.Services
                     diffMinutes = Math.Round(result.DiffMinutes, 2),
                     gridSteps = result.GridSteps,
                     residualMinutes = Math.Round(result.ResidualMinutes, 2),
+                    gridConformantFraction = Math.Round(result.GridConformantFraction, 3),
                     medianImeDeltaMinutes = Math.Round(result.MedianImeDeltaMinutes, 2),
                     medianOtherDeltaMinutes = Math.Round(result.MedianOtherDeltaMinutes, 2),
                     imeSampleCount = result.ImeSampleCount,

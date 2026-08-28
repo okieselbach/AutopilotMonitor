@@ -119,6 +119,53 @@ public class CmTraceSkewTripwireTests
         Assert.Null(CmTraceSkewTripwire.Evaluate(scan));
     }
 
+    [Fact]
+    public void Silent_OnBacklogReplayBurstWhoseMedianLandsOnGrid()
+    {
+        // Field case 2026-08-28 (session d832560a): the agent died on auth failures, the relaunch
+        // re-tailed the IME log and uploaded 508 lines in one burst with a continuum of ages
+        // (46…733 min, quartiles 52 / 92 / 100) — median 91 min, i.e. 6×15 by pure chance.
+        // The other side was live. The per-sample grid-conformity guard must keep this silent.
+        var scan = MakeScan(imeDeltaMinutes: 0.1, otherDeltaMinutes: 0.1, imeSamples: 100, imeBatches: 80);
+        void AddRamp(double from, double to, int count)
+        {
+            for (int i = 0; i < count; i++)
+                scan.ImeDeltaMinutes.Add(from + i * (to - from) / count);
+        }
+        AddRamp(46.0, 88.0, 125);
+        AddRamp(88.0, 100.0, 250);
+        AddRamp(100.0, 733.0, 125);
+
+        var medianIme = scan.ImeDeltaMinutes.OrderBy(v => v).ElementAt(scan.ImeDeltaMinutes.Count / 2);
+        Assert.InRange(medianIme, 88.0, 92.0); // sanity: the median really does sit near 6×15
+
+        Assert.Null(CmTraceSkewTripwire.Evaluate(scan));
+        Assert.True(CmTraceSkewTripwire.ComputeGridConformantFraction(scan.ImeDeltaMinutes, 0.1) < 0.5);
+    }
+
+    [Fact]
+    public void Fires_OnTwoWriterErasBothOnGrid()
+    {
+        // e9753578 shape: one file mixing PDT (−420) and CEST (+120) lines relative to the agent
+        // zone. Every line is individually on the grid, so the conformity guard must NOT mask it.
+        var scan = MakeScan(imeDeltaMinutes: -420.0, otherDeltaMinutes: 0.0, imeSamples: 65);
+        for (int i = 0; i < 35; i++)
+            scan.ImeDeltaMinutes.Add(120.0);
+
+        var result = CmTraceSkewTripwire.Evaluate(scan);
+        Assert.NotNull(result);
+        Assert.Equal(-28, result!.GridSteps);
+        Assert.Equal(1.0, result.GridConformantFraction, 3);
+    }
+
+    [Fact]
+    public void GridConformantFraction_CountsZeroAndAnyMultiple()
+    {
+        var deltas = new List<double> { 0.5, 15.9, -30.1, 7.5, 37.5 }; // last two are off-grid
+        Assert.Equal(0.6, CmTraceSkewTripwire.ComputeGridConformantFraction(deltas, 0.0), 3);
+        Assert.Equal(0, CmTraceSkewTripwire.ComputeGridConformantFraction(new List<double>(), 0.0));
+    }
+
     // ── Bias suppression predicate ─────────────────────────────────────────
 
     [Fact]

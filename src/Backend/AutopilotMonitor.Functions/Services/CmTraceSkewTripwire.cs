@@ -15,6 +15,12 @@ namespace AutopilotMonitor.Functions.Services
     /// mis-conversion shifts only the IME side and lands on the 15-minute offset grid.
     /// Replayed old log lines produce large OFF-grid deltas — the grid-residual test is what
     /// separates the two (field measurement 2026-08-20: without it, 48 instead of 26 true hits).
+    /// The median alone is not enough, though: when a dead/relaunched agent re-tails the IME log,
+    /// one upload burst can carry the majority of the session's IME samples with a CONTINUUM of
+    /// ages (field 2026-08-28, session d832560a: 508 of 627 samples, 46…733 min) whose median
+    /// lands on the grid by chance. A genuine zone mis-conversion shifts every line by the same
+    /// grid multiple, so the grid-conformity test is applied per sample as well: the session
+    /// only counts when the bulk of the IME deltas individually sit on the grid.
     ///
     /// Goal state: this never fires. Any hit is either a case the per-line anchoring does not
     /// cover or a detector bug — both are actionable findings, never noise to tune away.
@@ -30,6 +36,11 @@ namespace AutopilotMonitor.Functions.Services
         // ReceivedAt is stamped per upload batch, not per event; a side backed by fewer
         // distinct batches yields a batch-composition artifact, not a session property.
         internal const int MinDistinctBatchesPerSide = 3;
+        // Share of IME samples whose own delta (relative to the other side's median) must sit
+        // within ResidualToleranceMinutes of SOME grid multiple (zero included). A replay
+        // continuum hits that window only ~2·2/15 ≈ 27 % of the time by chance; a real skew,
+        // even one mixing two writer eras, hits it for essentially every line.
+        internal const double MinGridConformantFraction = 0.8;
 
         internal sealed class Result
         {
@@ -42,6 +53,7 @@ namespace AutopilotMonitor.Functions.Services
             public int OtherSampleCount { get; set; }
             public int ImeBatchCount { get; set; }
             public int OtherBatchCount { get; set; }
+            public double GridConformantFraction { get; set; }
         }
 
         /// <summary>
@@ -67,6 +79,10 @@ namespace AutopilotMonitor.Functions.Services
             if (Math.Abs(steps) < 1 || residual >= ResidualToleranceMinutes)
                 return null;
 
+            var conformant = ComputeGridConformantFraction(scan.ImeDeltaMinutes, medianOther);
+            if (conformant < MinGridConformantFraction)
+                return null;
+
             return new Result
             {
                 MedianImeDeltaMinutes = medianIme,
@@ -78,7 +94,29 @@ namespace AutopilotMonitor.Functions.Services
                 OtherSampleCount = scan.OtherDeltaMinutes.Count,
                 ImeBatchCount = scan.ImeDistinctBatchCount,
                 OtherBatchCount = scan.OtherDistinctBatchCount,
+                GridConformantFraction = conformant,
             };
+        }
+
+        /// <summary>
+        /// Fraction of samples whose delta minus <paramref name="reference"/> lies within
+        /// <see cref="ResidualToleranceMinutes"/> of any multiple of <see cref="GridMinutes"/>
+        /// (zero included).
+        /// </summary>
+        internal static double ComputeGridConformantFraction(IReadOnlyList<double> deltas, double reference)
+        {
+            if (deltas.Count == 0)
+                return 0;
+
+            int hits = 0;
+            foreach (var delta in deltas)
+            {
+                var rel = delta - reference;
+                var nearest = Math.Round(rel / GridMinutes, MidpointRounding.AwayFromZero) * GridMinutes;
+                if (Math.Abs(rel - nearest) < ResidualToleranceMinutes)
+                    hits++;
+            }
+            return (double)hits / deltas.Count;
         }
 
         /// <summary>

@@ -94,7 +94,11 @@ batch, the counter reconcile's existing event-partition scan additionally collec
 rest (`CmTraceSkewTripwire`, hooked in `EventIngestProcessor`). If
 `median(Δ_IME) − median(Δ_other)` is a clean 15-minute multiple (residual < 2 min — the
 same constants as the anchoring grid guard above) with ≥ 20 samples over ≥ 3 distinct
-upload batches per side, a `CmTraceTimeSkewRegression` ops event fires (category Agent,
+upload batches per side, and ≥ 80 % of the individual IME deltas (relative to the other
+side's median) themselves sit within 2 min of some grid multiple — added after the 2026-08-28
+soak, when relaunched agents re-tailing the IME log produced one burst holding most of a
+session's IME samples with a continuum of ages whose median hit the grid by chance (7 false
+fires in a week, 0 true) — a `CmTraceTimeSkewRegression` ops event fires (category Agent,
 warning), carrying all numbers plus the session's `sourceOffsetOrigin` histogram.
 Bias-dominated sessions are suppressed (writer-declared offsets cannot be an anchoring
 regression); `measuredWriterOffsetMinutes` is never consulted (sticky after era
