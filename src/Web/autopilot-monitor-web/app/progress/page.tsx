@@ -35,7 +35,6 @@ const PRESENTATION_STYLES: Record<
   success: { header: "bg-green-50 border-b border-green-100", title: "text-green-800", bar: "bg-green-500", percent: "text-green-600" },
   failed: { header: "bg-red-50 border-b border-red-100", title: "text-red-800", bar: "bg-red-500", percent: "text-red-600" },
   incomplete: { header: "bg-gray-50 border-b border-gray-200", title: "text-gray-800", bar: "bg-gray-400", percent: "text-gray-600" },
-  unsupported: { header: "bg-gray-50 border-b border-gray-200", title: "text-gray-800", bar: "bg-gray-400", percent: "text-gray-600" },
 };
 
 type StepState = "completed" | "current" | "failed" | "pending";
@@ -214,7 +213,7 @@ export default function ProgressPortalPage() {
                     value={serialInput}
                     onChange={(e) => setSerialInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Enter serial number or device name..."
+                    placeholder="Enter serial number or device name (Cloud PC: the name shown in the Windows App)..."
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
                   />
                 </div>
@@ -280,7 +279,6 @@ export default function ProgressPortalPage() {
                 </div>
               </div>
 
-              {kind !== "unsupported" && (
               <div className="p-6">
                 {/* Overall Progress Bar */}
                 <div className="mb-8">
@@ -505,7 +503,6 @@ export default function ProgressPortalPage() {
                   </div>
                 )}
               </div>
-              )}
             </div>
           )}
         </div>

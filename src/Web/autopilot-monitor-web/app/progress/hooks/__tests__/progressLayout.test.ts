@@ -48,6 +48,19 @@ describe("buildProgressSteps", () => {
     expect(buildProgressSteps({ ...v1, isPreProvisioned: true }, true).map((s) => s.id)).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 
+  it("Cloud PC shows only the first-connect steps the user can watch", () => {
+    const steps = buildProgressSteps({ ...v1, isCloudPc: true }, false);
+    expect(steps.map((s) => s.id)).toEqual([0, 4, 5, 6]);
+    expect(steps[0].label).toBe("First sign-in");
+    expect(steps.filter((s) => s.isAppsStep).map((s) => s.id)).toEqual([5]);
+  });
+
+  it("Cloud PC in Account Setup (phase 4, the first declared phase) sits on step 2 of 4", () => {
+    const steps = buildProgressSteps({ ...v1, isCloudPc: true }, false);
+    expect(resolveActiveStepIndex({ steps, session: { ...v1, currentPhase: 4 }, events: [], hasAppActivity: false })).toBe(1);
+    expect(resolveActiveStepIndex({ steps, session: { ...v1, currentPhase: -1 }, events: [], hasAppActivity: false })).toBe(0);
+  });
+
   it("v2 shows the Device Preparation layout with a single app step", () => {
     const steps = buildProgressSteps(v2, false);
     expect(steps.map((s) => s.id)).toEqual([0, 1, 3, 6]);
@@ -155,8 +168,9 @@ describe("resolvePresentation", () => {
     expect(resolvePresentation(parked, []).kind).toBe("working");
   });
 
-  it("Cloud PC is unsupported regardless of status", () => {
-    expect(resolvePresentation({ ...v1, status: "Succeeded", isCloudPc: true }, []).kind).toBe("unsupported");
+  it("Cloud PC follows the normal status vocabulary", () => {
+    expect(resolvePresentation({ ...v1, status: "Succeeded", isCloudPc: true }, []).kind).toBe("success");
+    expect(resolvePresentation({ ...v1, status: "InProgress", isCloudPc: true }, []).kind).toBe("working");
   });
 });
 

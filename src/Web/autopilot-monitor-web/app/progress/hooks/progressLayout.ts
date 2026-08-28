@@ -47,6 +47,17 @@ const V2_STEP_LABELS: Record<number, string> = {
   6: "Finalizing setup",
 };
 
+// Windows 365 Cloud PC: provisioning runs headless; the agent installs at the user's first
+// connect, so the monitored enrollment starts in Account Setup (v1 rail, phases 4 -> 5 -> 7)
+// and the device phases 1-3 are never declared. The end user follows the Cloud PC by the
+// device name the Windows App shows, so the steps are the ones they can actually watch.
+const CLOUD_PC_STEPS: ReadonlyArray<{ id: number; label: string }> = [
+  { id: 0, label: "First sign-in" },
+  { id: 4, label: "Account setup" },
+  { id: 5, label: "Installing apps" },
+  { id: 6, label: "Finalizing setup" },
+];
+
 const APPS_STEP_IDS: ReadonlySet<number> = new Set([3, 5]);
 const COMPLETE_PHASE_ID = 7;
 const FAILED_PHASE_ID = 99;
@@ -54,13 +65,17 @@ const FAILED_PHASE_ID = 99;
 /**
  * Steps shown to the end user, derived from the same layout the session detail page uses
  * (v2 = Start / Device preparation / Installing apps / Finalizing; v1 = the ESP phases,
- * minus Account setup + user apps when the ESP policy skips the user status page). The
- * terminal "Complete" phase is not a step — success is the whole card.
+ * minus Account setup + user apps when the ESP policy skips the user status page; Cloud PC
+ * = the user-visible first-connect steps only). The terminal "Complete" phase is not a
+ * step — success is the whole card.
  */
 export function buildProgressSteps(
-  session: Pick<ProgressSession, "enrollmentType" | "isPreProvisioned">,
+  session: Pick<ProgressSession, "enrollmentType" | "isPreProvisioned" | "isCloudPc">,
   isSkipUserStatusPage: boolean,
 ): ProgressStep[] {
+  if (session.isCloudPc) {
+    return CLOUD_PC_STEPS.map((p) => ({ ...p, isAppsStep: APPS_STEP_IDS.has(p.id) }));
+  }
   const { phases, skippedPhaseIds } = resolvePhaseLayout({
     enrollmentType: session.enrollmentType,
     isSkipUserStatusPage,
@@ -145,7 +160,7 @@ export function computeOverallProgress(status: string, activeStepIndex: number, 
   return Math.max(0, Math.min(100, Math.round((activeStepIndex / stepCount) * 100)));
 }
 
-export type PresentationKind = "working" | "waiting" | "success" | "failed" | "incomplete" | "unsupported";
+export type PresentationKind = "working" | "waiting" | "success" | "failed" | "incomplete";
 
 export interface ProgressPresentation {
   kind: PresentationKind;
@@ -161,14 +176,6 @@ const CONTACT_IT = "Please contact your IT department.";
  * parked for its user, a stalled device and an Incomplete verdict are not failures.
  */
 export function resolvePresentation(session: ProgressSession, events: EnrollmentEvent[]): ProgressPresentation {
-  if (session.isCloudPc) {
-    return {
-      kind: "unsupported",
-      title: "Windows 365 Cloud PC",
-      detail: "Cloud PC setup progress is not shown here. " + CONTACT_IT,
-    };
-  }
-
   switch (session.status) {
     case "Succeeded":
       return { kind: "success", title: "Setup complete!" };
