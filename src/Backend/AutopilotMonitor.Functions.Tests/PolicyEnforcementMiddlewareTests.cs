@@ -1308,4 +1308,119 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed);
         Assert.Equal(string.Empty, result.Context!.CallerId);
     }
+
+    // ── Tenant suspension gate (TenantConfiguration.Disabled / DisabledUntil) ──────────
+    // The operator kill-switch must revoke API access on the shared authorization path, not only
+    // on the SPA's auth/me probe — a direct REST caller with a valid token must get 403 too.
+
+    private static void AsSuspended(Harness h, string tenantId, DateTime? until = null, string? reason = null) =>
+        h.ConfigRepo.Setup(r => r.GetTenantConfigurationAsync(tenantId))
+            .ReturnsAsync(new TenantConfiguration
+            {
+                TenantId = tenantId,
+                Disabled = true,
+                DisabledUntil = until,
+                DisabledReason = reason,
+            });
+
+    [Fact]
+    public async Task Suspended_HomeTenant_ReadRoute_IsForbidden_WithTenantSuspendedCode()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsSuspended(h, TenantA, until: DateTime.UtcNow.AddDays(30), reason: "Abuse investigation");
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+        Assert.Equal("Abuse investigation", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Suspended_HomeTenant_WriteRoute_IsForbidden()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsSuspended(h, TenantA); // indefinite suspension (no DisabledUntil)
+
+        var result = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Suspended_ExpiredDisabledUntil_IsAllowed()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsSuspended(h, TenantA, until: DateTime.UtcNow.AddMinutes(-1)); // suspension window elapsed
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+    }
+
+    [Fact]
+    public async Task Suspended_GlobalAdmin_BypassesGate_ToAdministerTenant()
+    {
+        const string upn = "ga@platform.example";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+        AsSuspended(h, TenantA);
+        AsSuspended(h, TenantB);
+
+        var own = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+        var cross = await h.Middleware.DecideAsync("PUT", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(own.Allowed);
+        Assert.True(cross.Allowed);
+    }
+
+    [Fact]
+    public async Task Suspended_DelegatedReader_TargetTenantSuspended_IsForbidden()
+    {
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+        AsSuspended(h, TenantB); // home tenant A is fine, managed target B is suspended
+
+        var result = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Suspended_DelegatedReader_HomeTenantSuspended_LosesDelegatedReach()
+    {
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+        AsSuspended(h, TenantA); // the MSP's own home tenant is suspended
+
+        var result = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Suspended_DeviceRoute_NoPrincipal_GateNotApplied()
+    {
+        // Anonymous/device routes carry no principal — SecurityValidator owns their tenant gate. The
+        // middleware must not touch tenant config here (no tenant to key on).
+        var h = BuildHarness();
+        AsSuspended(h, TenantA);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/health", null, null);
+
+        Assert.True(result.Allowed);
+        h.ConfigRepo.Verify(r => r.GetTenantConfigurationAsync(It.IsAny<string>()), Times.Never);
+    }
 }

@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -212,6 +213,29 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 decision.UserIdentifier, decision.UserRole, "CrossTenant");
         }
 
+        // Tenant suspension gate — the operator kill-switch (TenantConfiguration.Disabled/DisabledUntil) and
+        // the offboarding tombstone. Enforced HERE, on the shared authorization path, so it covers every
+        // tenant-scoped API call and not just the SPA's auth/me login probe (which also carries it, for the
+        // richer client payload). Both the caller's HOME tenant (JWT tid) and the request's TARGET tenant are
+        // checked: a suspended tenant's members lose everything, including delegated reach into other tenants,
+        // and nobody without platform scope reaches a suspended target. Platform operators (GA/Reader) bypass —
+        // they must still administer the suspended tenant. Anonymous/device routes bring their own gate
+        // (SecurityValidator → 403 TenantDisabled). Cached, side-effect-free read; a missing row is not disabled.
+        if (principal != null && !hasGlobalScope)
+        {
+            var suspended = await FindSuspendedTenantAsync(jwtTenantId, targetTenantId);
+            if (suspended != null)
+            {
+                _logger.LogWarning("[PolicyEnforcement] BLOCKED suspended tenant: user={User} tenant={Tenant} path={Path}",
+                    LogSanitizer.Clean(decision.UserIdentifier), LogSanitizer.Clean(suspended.TenantId), logPath);
+                return PolicyResult.Deny((int)HttpStatusCode.Forbidden, "TenantSuspended",
+                    !string.IsNullOrEmpty(suspended.DisabledReason)
+                        ? suspended.DisabledReason
+                        : "Your tenant has been suspended. Please contact support for more information.",
+                    decision.UserIdentifier, decision.UserRole, "TenantSuspended");
+            }
+        }
+
         // Merge delegated state from the two delegated admission paths:
         //  • scoped-route (RouteParam/QueryParam): a single-tenant cross-tenant read — delegatedRole +
         //    allowedTenantIds were set above.
@@ -257,6 +281,26 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         };
 
         return PolicyResult.Allow(requestContext, decision.UserIdentifier, decision.UserRole);
+    }
+
+    /// <summary>
+    /// Returns the configuration of the first currently-suspended tenant among the caller's home tenant and
+    /// the request target (null when neither is suspended). <see cref="TenantConfigurationService.TryGetConfigurationAsync"/>
+    /// is cached (5 min TTL, same as the agent gate) and never persists a default row.
+    /// <see cref="TenantConfiguration.IsCurrentlyDisabled"/> already treats an elapsed DisabledUntil as
+    /// re-enabled, so the gate lifts on its own; auth/me persists the flip on the next login.
+    /// </summary>
+    private async Task<TenantConfiguration?> FindSuspendedTenantAsync(string jwtTenantId, string targetTenantId)
+    {
+        var (homeConfig, _) = await _tenantConfigService.TryGetConfigurationAsync(jwtTenantId);
+        if (homeConfig.IsCurrentlyDisabled())
+            return homeConfig;
+
+        if (string.Equals(targetTenantId, jwtTenantId, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var (targetConfig, _) = await _tenantConfigService.TryGetConfigurationAsync(targetTenantId);
+        return targetConfig.IsCurrentlyDisabled() ? targetConfig : null;
     }
 
     /// <summary>
