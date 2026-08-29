@@ -4,7 +4,7 @@ title: CMTrace Time Resolution — Per-Line Self-Anchoring
 description: How the agent converts bias-less CMTrace local times to UTC without trusting any process's timezone belief — each provably fresh line anchors its own offset against the agent clock on the 15-minute grid; everything not provably fresh falls back uniformly and says so.
 resource: src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/Ime
 tags: [agent, ime, cmtrace, timestamps, timezone, calibration, provenance]
-timestamp: 2026-08-20
+timestamp: 2026-08-30
 ---
 
 # Problem
@@ -86,6 +86,40 @@ with the process zone).
 * Mixed pairs remain possible across a restart (start resolved from backlog fallback,
   completion line-anchored) and are recognizable via provenance.
 
+# Line parsing (bounded cost)
+
+`CmTraceLogParser.TryParseLine` (Shared) is the single CMTrace line parser for the agent
+(`ImeLogTracker`, `LogParserCollector`, `StallProbeCollector`) and the backend
+(`TestLogPatternFunction`). Both feed it input an outsider influences: tenant-supplied
+sample lines (200 x 8 KB per request) on the backend, and on the agent every tailed log
+file, including entries that IME assembles from installer or script output. It is
+therefore not one regex. The former shape — a greedy `(?<message>.*)` in front of the
+`]LOG]!><time="` literal, unanchored, no match timeout — re-tried every `<![LOG[`
+occurrence as a fresh start and backtracked the message group across every later character
+for each: quadratic in line length (an 8 KB line of repeated prefixes and `]` filler cost
+~7 million engine steps; a 1 MB assembled entry would have spun the SYSTEM agent for
+hours and blacked out IME tracking for the rest of the enrollment).
+
+The parser reproduces exactly what that regex returned, in linear time: the message begins
+after the first `<![LOG[` (a later start could only match when the first one does, since
+`.*` spans the difference) and ends at the last `]LOG]!><time="` occurrence whose trailer
+parses — earlier occurrences are tried in turn, which is the order greedy backtracking
+visited them. The trailer is checked with a `\G`-anchored regex that has no ambiguous
+quantifier and a 1-second match timeout as a backstop; a timeout means "not a CMTrace
+line" (callers already have that path: raw-text matching in the tracker, `parse_failed`
+on the backend), never an exception. `CmTraceLogParserTests` pins the equivalence against
+the legacy regex over the shapes that matter (multiline messages, bias suffix, trailer
+literal inside the message, a last trailer that fails to parse, BOM prefix) and the
+reported worst case at 200 lines.
+
+On the agent, `ImeLogTracker` additionally caps an assembled multiline entry at 100 raw
+lines **and** 1 MB of characters (`MaxMultiLineBufferChars`). A capped entry is dropped
+and logged at **Warning** — visible at the default `Info` level, so a real IME entry that
+large shows up in the client log and can be acted on. The remaining physical lines of a
+dropped entry are skipped until it closes or a new `<![LOG[` entry begins; previously they
+fell through to raw-text pattern matching, so fragments of a discarded entry could fire
+patterns without CMTrace context.
+
 # Backend regression tripwire
 
 The backend watches for the failure mode this design eliminates. On every terminal ingest
@@ -129,3 +163,6 @@ precisely so an anchoring regression can never surface as a customer finding.
 * `tasks/todo.md` (2026-08-20) — full evidence trail: field measurements, the revert,
   the two-writer-era fixture, and the disproven foreign-binary hypothesis (the SHA
   mismatch was the known release race against the 5-minute AdminConfiguration cache).
+* `CmTraceLogParser.TryParseLine` + `CmTraceLogParserTests` — the linear parser and its
+  legacy-regex equivalence oracle; `ImeLogTracker.LogProcessing.cs` multiline buffering
+  (`MaxMultiLineBufferLines` / `MaxMultiLineBufferChars`, `skippingDroppedEntry`).

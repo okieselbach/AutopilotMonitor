@@ -123,11 +123,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             // "write output done. output = ..." spans many lines)
                             StringBuilder multiLineBuffer = null;
                             int multiLineCount = 0;
+                            // Set after a capped entry is dropped: its remaining physical lines
+                            // are skipped instead of being matched as raw text, until the entry
+                            // closes or a new entry begins (so no real entry is lost).
+                            bool skippingDroppedEntry = false;
 
                             string line;
                             while ((line = await reader.ReadLineAsync()) != null)
                             {
                                 if (token.IsCancellationRequested) break;
+
+                                if (skippingDroppedEntry)
+                                {
+                                    if (line.Contains("]LOG]!>")) { skippingDroppedEntry = false; continue; }
+                                    if (!line.StartsWith("<![LOG[")) continue;
+                                    skippingDroppedEntry = false;
+                                }
 
                                 // --- Multiline CMTrace buffering ---
                                 // CMTrace entries: <![LOG[message]LOG]!><time=...>
@@ -146,12 +157,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                         multiLineBuffer = null;
                                         multiLineCount = 0;
                                     }
-                                    else if (multiLineCount >= MaxMultiLineBufferLines)
+                                    else if (multiLineCount >= MaxMultiLineBufferLines || multiLineBuffer.Length >= MaxMultiLineBufferChars)
                                     {
-                                        // Safety limit — discard to prevent unbounded memory usage
-                                        _logger.Debug($"ImeLogTracker: discarding multiline CMTrace buffer after {multiLineCount} lines (corrupt entry?)");
+                                        // Safety limit — discard to bound memory and parser work. Warning
+                                        // (not Debug) so a capped entry is visible in the client log at the
+                                        // default level: a real IME entry this large would be news.
+                                        _logger.Warning($"ImeLogTracker: discarding multiline CMTrace buffer in {Path.GetFileName(filePath)} after {multiLineCount} lines / {multiLineBuffer.Length} chars (cap {MaxMultiLineBufferLines} lines / {MaxMultiLineBufferChars} chars) — entry dropped");
                                         multiLineBuffer = null;
                                         multiLineCount = 0;
+                                        skippingDroppedEntry = true;
                                         continue;
                                     }
                                     else

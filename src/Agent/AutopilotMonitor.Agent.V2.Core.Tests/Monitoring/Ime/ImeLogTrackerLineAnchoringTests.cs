@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -437,5 +438,43 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         private DateTime? _expectedForCurrentEntry;
+
+        // ── Multiline buffer caps ─────────────────────────────────────────────
+
+        /// <summary>
+        /// 100 raw lines of unbounded length could still assemble a multi-megabyte entry. The
+        /// char cap drops such an entry (its marker never fires) and says so at Warning, which
+        /// is visible at the default Info level — a capped real entry would be news worth
+        /// reacting to. A same-shaped entry under the cap still assembles and matches.
+        /// </summary>
+        [Theory]
+        [InlineData(2 * 1024 * 1024, false)]   // over cap → dropped, warned
+        [InlineData(64 * 1024, true)]          // under cap → assembled, matched
+        public async Task MultilineEntry_IsDroppedAndWarned_WhenItExceedsTheCharCap(int fillerChars, bool expectMatch)
+        {
+            using var h = new Harness();
+            h.Append("AgentExecutor.log", Line("marker 0", h.Now, TimeSpan.Zero));
+            await h.Pass();
+
+            var matched = new List<string>();
+            h.Tracker.OnPatternMatched += id => matched.Add(id);
+
+            // One entry spanning 3 physical lines; the closing trailer sits on the last line.
+            var filler = new string('x', fillerChars / 2);
+            h.Append("AgentExecutor.log", "<![LOG[write output done. output = " + filler);
+            h.Append("AgentExecutor.log", filler);
+            h.Append("AgentExecutor.log", Line("marker 7", h.Now, TimeSpan.Zero).Substring("<![LOG[".Length));
+            h.Now = T0.AddSeconds(10);
+            await h.Pass();
+
+            Assert.Equal(expectMatch ? 1 : 0, matched.Count);
+            var agentLog = string.Concat(Directory.GetFiles(h.PathOf(""), "*.log")
+                .Where(f => !Path.GetFileName(f).Equals("AgentExecutor.log", StringComparison.OrdinalIgnoreCase))
+                .Select(File.ReadAllText));
+            if (expectMatch)
+                Assert.DoesNotContain("discarding multiline CMTrace buffer", agentLog);
+            else
+                Assert.Contains("discarding multiline CMTrace buffer in AgentExecutor.log", agentLog);
+        }
     }
 }

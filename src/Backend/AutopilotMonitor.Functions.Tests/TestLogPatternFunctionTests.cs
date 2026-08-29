@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Linq;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Functions.Rules;
 
@@ -141,5 +143,27 @@ public class TestLogPatternFunctionTests
                 SampleLines = new List<string> { "x" },
             }));
         }
+    }
+
+    // ===== hostile sample lines: the built-in CMTrace parser must stay bounded =====
+
+    /// <summary>A maximal request (200 x 8192-char lines) built from the reported worst case:
+    /// each line passes the CMTrace prefix gate and never matches. The built-in parser used to
+    /// backtrack quadratically here (~1.4e9 steps per request) — before the tenant's own
+    /// 1-second-timeout regex ever ran.</summary>
+    [Fact]
+    public void CmTraceMode_WorstCaseSampleLines_CompleteInBoundedTime()
+    {
+        var line = string.Concat(Enumerable.Repeat("<![LOG[", 585)) + new string(']', 4097);
+        Assert.Equal(TestLogPatternFunction.MaxLineLength, line.Length);
+        var lines = Enumerable.Repeat(line, TestLogPatternFunction.MaxSampleLines).ToArray();
+
+        var sw = Stopwatch.StartNew();
+        var result = TestLogPatternFunction.EvaluatePattern(AgentRegex("error"), isTextMode: false, lines);
+        sw.Stop();
+
+        Assert.Equal(TestLogPatternFunction.MaxSampleLines, result.ParseFailureCount);
+        Assert.All(result.Lines, l => Assert.Equal("parse_failed", l.Outcome));
+        Assert.True(sw.ElapsedMilliseconds < 1000, $"maximal worst-case request took {sw.ElapsedMilliseconds} ms");
     }
 }

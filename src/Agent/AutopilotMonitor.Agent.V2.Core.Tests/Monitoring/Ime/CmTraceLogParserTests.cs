@@ -1,4 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.Logging;
 using Xunit;
 
@@ -136,6 +141,108 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.True(ok);
             Assert.NotNull(entry);
             Assert.Equal(hugeMessage.Length, entry.Message.Length);
+        }
+
+        // ── Hostile input: cost must be linear, never quadratic ───────────────
+
+        /// <summary>
+        /// The legacy single-regex parser (greedy <c>.*</c> message group before the trailer
+        /// literal, unanchored, Singleline, no timeout). Kept here ONLY as the semantic oracle:
+        /// the linear parser must return exactly what this regex returned for every line that
+        /// matches, and false for every line it rejected.
+        /// </summary>
+        private static readonly Regex LegacyRegex = new Regex(
+            @"<!\[LOG\[(?<message>.*)\]LOG\]!><time=""(?<time>[\d:.]+)(?<bias>[+-]\d{1,4})?""\s+date=""(?<date>[\d-]+)""\s+component=""(?<component>[^""]*)""\s+context=""[^""]*""\s+type=""(?<type>\d+)""\s+thread=""(?<thread>\d+)""\s+file=""[^""]*"">",
+            RegexOptions.Singleline);
+
+        public static IEnumerable<object[]> EquivalenceLines()
+        {
+            const string trailer = "]LOG]!><time=\"06:08:04.8834397\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"2\" thread=\"7\" file=\"\">";
+            const string badTrailer = "]LOG]!><time=\"06:08:04\" date=\"2-8-2026\" component=\"C\" context=\"\" type=\"x\" thread=\"7\" file=\"\">";
+            yield return new object[] { CmTraceLine("plain", "06:08:04.8834397", "2-8-2026") };
+            yield return new object[] { CmTraceLine("multi\nline\r\nmessage", "06:08:04.8834397", "2-8-2026") };
+            yield return new object[] { CmTraceLine("bias", "11:46:19.0226610+480", "7-29-2026") };
+            yield return new object[] { CmTraceLine("", "06:08:04.8834397", "2-8-2026") };
+            // The trailer literal INSIDE the message: greedy .* takes the LAST parseable trailer.
+            yield return new object[] { "<![LOG[inner " + trailer + " outer" + trailer };
+            // Last trailer occurrence does not parse (type="x") → the earlier one wins, and the
+            // failing trailer text is part of the message.
+            yield return new object[] { "<![LOG[first" + trailer + " second" + badTrailer };
+            // Only a broken trailer → false.
+            yield return new object[] { "<![LOG[msg" + badTrailer };
+            // A nested "<![LOG[" inside the message: the FIRST open wins (message keeps the inner one).
+            yield return new object[] { "<![LOG[outer <![LOG[inner" + trailer };
+            // Whitespace variants the old regex tolerated (\s+ between attributes).
+            yield return new object[] { "<![LOG[ws]LOG]!><time=\"06:08:04.8834397\"   date=\"2-8-2026\"\tcomponent=\"C\" context=\"\" type=\"1\" thread=\"1\" file=\"x.cpp:12\">" };
+            // BOM-prefixed first line of a fresh log.
+            yield return new object[] { "\uFEFF" + CmTraceLine("bom", "06:08:04.8834397", "2-8-2026") };
+            // Trailer text without its leading ']' → false on both.
+            yield return new object[] { "<![LOG[" + trailer.Substring(1) };
+            yield return new object[] { "<![LOG[truncated" };
+        }
+
+        [Theory]
+        [MemberData(nameof(EquivalenceLines))]
+        public void TryParseLine_is_semantically_identical_to_the_legacy_greedy_regex(string line)
+        {
+            var legacy = LegacyRegex.Match(line);
+            var ok = CmTraceLogParser.TryParseLine(line, out var entry);
+
+            Assert.Equal(legacy.Success, ok);
+            if (!legacy.Success) return;
+
+            Assert.NotNull(entry);
+            Assert.Equal(legacy.Groups["message"].Value, entry.Message);
+            Assert.Equal(legacy.Groups["component"].Value, entry.Component);
+            Assert.Equal(int.Parse(legacy.Groups["type"].Value), entry.Type);
+            Assert.Equal(legacy.Groups["thread"].Value, entry.Thread);
+            var expectedBias = legacy.Groups["bias"].Success ? int.Parse(legacy.Groups["bias"].Value) : (int?)null;
+            Assert.Equal(expectedBias, entry.BiasMinutes);
+        }
+
+        /// <summary>
+        /// The reported worst case: 585 x "&lt;![LOG[" (4095 chars) + 4097 x "]" — passes the StartsWith
+        /// gate, never matches, and drove ~7 million backtracking steps through the legacy regex
+        /// (k prefix restarts x m filler positions). The linear parser has no trailer literal to
+        /// find and returns false in a handful of string searches.
+        /// </summary>
+        [Fact]
+        public void TryParseLine_rejects_reported_worst_case_in_bounded_time()
+        {
+            var line = string.Concat(Enumerable.Repeat("<![LOG[", 585)) + new string(']', 4097);
+            Assert.Equal(8192, line.Length);
+
+            var sw = Stopwatch.StartNew();
+            for (var i = 0; i < 200; i++)
+            {
+                Assert.False(CmTraceLogParser.TryParseLine(line, out _));
+            }
+            sw.Stop();
+
+            // 200 lines = one maximal backend request. Generous bound for a slow CI box; the
+            // legacy regex needed seconds here.
+            Assert.True(sw.ElapsedMilliseconds < 500, $"200 worst-case lines took {sw.ElapsedMilliseconds} ms");
+        }
+
+        /// <summary>
+        /// The agent variant: a multi-megabyte assembled entry stuffed with prefixes, trailer
+        /// literals whose attributes never parse, and filler — every occurrence is tried once,
+        /// each trailer probe fails at its first attribute, total work stays linear.
+        /// </summary>
+        [Fact]
+        public void TryParseLine_rejects_multi_megabyte_hostile_entry_in_bounded_time()
+        {
+            var sb = new StringBuilder(2 * 1024 * 1024);
+            sb.Append("<![LOG[");
+            while (sb.Length < 1024 * 1024)
+                sb.Append("<![LOG[").Append("]LOG]!><time=\"x\" ").Append(new string(']', 40)).Append('\n');
+            var line = sb.ToString();
+
+            var sw = Stopwatch.StartNew();
+            Assert.False(CmTraceLogParser.TryParseLine(line, out _));
+            sw.Stop();
+
+            Assert.True(sw.ElapsedMilliseconds < 1000, $"1 MB hostile entry took {sw.ElapsedMilliseconds} ms");
         }
     }
 }

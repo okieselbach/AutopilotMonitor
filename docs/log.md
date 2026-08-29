@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (2)
+
+* **Update**: `agent/cmtrace-time-resolution.md` — new "Line parsing (bounded cost)" section: `CmTraceLogParser.TryParseLine` is no longer one greedy-`.*` regex (quadratic on hostile lines, no timeout) but a linear first-open / last-parseable-trailer search with a `\G`-anchored, timeout-backed trailer regex that returns exactly what the old regex did; the agent's multiline buffer gains a 1 MB char cap next to the 100-line cap, both logged at Warning, and the tail of a dropped entry is skipped instead of raw-matched.
+
 ## 2026-08-30 (1)
 
 * **Update**: `agent/diagnostics-package.md` — reads are validated on the handle, not the path: `PinnedSourceFolder` pins each section folder (its final path must equal the validated path; held open so the chain cannot be renamed) and opens every file with `FILE_FLAG_OPEN_REPARSE_POINT`, requiring the handle's final path to be `<canonical folder>\<relative path>`. A subdirectory swapped for a junction between enumeration and open is skipped (`SKIPPED (resolved outside validated folder)`) instead of copied into the package.

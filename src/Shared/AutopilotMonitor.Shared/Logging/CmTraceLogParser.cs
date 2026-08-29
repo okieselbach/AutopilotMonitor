@@ -73,32 +73,84 @@ namespace AutopilotMonitor.Shared.Logging
     /// </summary>
     public static class CmTraceLogParser
     {
-        // Pre-compiled regex for the CMTrace format. The time field may carry a UTC-bias
-        // suffix in minutes ("06:08:04.8834397+480", GetTimeZoneInformation convention:
-        // UTC = local + bias) — without the optional bias group such lines would not match
-        // at all and their content would be invisible to every pattern.
-        private static readonly Regex CmTraceRegex = new Regex(
-            @"<!\[LOG\[(?<message>.*)\]LOG\]!><time=""(?<time>[\d:.]+)(?<bias>[+-]\d{1,4})?""\s+date=""(?<date>[\d-]+)""\s+component=""(?<component>[^""]*)""\s+context=""[^""]*""\s+type=""(?<type>\d+)""\s+thread=""(?<thread>\d+)""\s+file=""[^""]*"">",
-            RegexOptions.Compiled | RegexOptions.Singleline
+        /// <summary>
+        /// Every CMTrace line has the shape <c>&lt;![LOG[message]LOG]!&gt;&lt;time=... file=""&gt;</c>. The
+        /// parser deliberately does NOT express that as one regex with a greedy <c>.*</c> message
+        /// group in front of the <c>]LOG]!&gt;&lt;time="</c> literal: on a line that never matches, such a
+        /// regex re-tries every <c>&lt;![LOG[</c> occurrence as a fresh start and, for each, backtracks
+        /// <c>.*</c> across every later character — Theta(k*m), quadratic in line length. Both sinks
+        /// parse attacker-influenced input (tenant-supplied sample lines on the backend, tailed log
+        /// files assembled into multi-line entries on the SYSTEM agent), so the cost must be linear.
+        ///
+        /// <para>
+        /// The greedy regex's semantics are reproduced exactly with string search: the message
+        /// starts after the FIRST <c>&lt;![LOG[</c> (a later start can only match when the first one
+        /// does too, since <c>.*</c> spans the difference), and the message ends at the LAST
+        /// <c>]LOG]!&gt;&lt;time="</c> occurrence whose trailer parses — earlier occurrences are tried in
+        /// turn exactly as backtracking would. The trailer regex is anchored with <c>\G</c>, has no
+        /// ambiguous quantifier, and additionally carries a match timeout as a backstop; a timeout
+        /// is reported as "does not match", never thrown.
+        /// </para>
+        /// </summary>
+        private const string LogOpen = "<![LOG[";
+        private const string TrailerOpen = "]LOG]!><time=\"";
+
+        // The time field may carry a UTC-bias suffix in minutes ("06:08:04.8834397+480",
+        // GetTimeZoneInformation convention: UTC = local + bias) — without the optional bias
+        // group such lines would not match at all and their content would be invisible to
+        // every pattern.
+        private static readonly Regex TrailerRegex = new Regex(
+            @"\G\]LOG\]!><time=""(?<time>[\d:.]+)(?<bias>[+-]\d{1,4})?""\s+date=""(?<date>[\d-]+)""\s+component=""(?<component>[^""]*)""\s+context=""[^""]*""\s+type=""(?<type>\d+)""\s+thread=""(?<thread>\d+)""\s+file=""[^""]*"">",
+            RegexOptions.Compiled,
+            TimeSpan.FromSeconds(1)
         );
 
         /// <summary>
         /// Attempts to parse a single line of CMTrace-formatted log.
         /// Returns true if parsing succeeded, false if the line doesn't match the format.
+        /// Cost is linear in the line length for arbitrary input; it never throws.
         /// </summary>
         public static bool TryParseLine(string? line, [NotNullWhen(true)] out CmTraceLogEntry? entry)
         {
             entry = null;
 
             // netstandard2.0's IsNullOrEmpty lacks [NotNullWhen(false)] — assert non-null after it.
-            if (string.IsNullOrEmpty(line) || !line!.StartsWith("<![LOG["))
+            // StartsWith is culture-sensitive on purpose: a leading BOM (U+FEFF) is ignorable
+            // there, so a freshly created log's first line still parses.
+            if (string.IsNullOrEmpty(line) || !line!.StartsWith(LogOpen))
                 return false;
 
-            var match = CmTraceRegex.Match(line);
-            if (!match.Success)
+            var open = line.IndexOf(LogOpen, StringComparison.Ordinal);
+            if (open < 0)
+                return false;
+            var messageStart = open + LogOpen.Length;
+
+            Match? match = null;
+            var trailerPos = line.LastIndexOf(TrailerOpen, StringComparison.Ordinal);
+            try
+            {
+                while (trailerPos >= messageStart)
+                {
+                    var candidate = TrailerRegex.Match(line, trailerPos);
+                    if (candidate.Success)
+                    {
+                        match = candidate;
+                        break;
+                    }
+                    if (trailerPos == messageStart)
+                        break;
+                    trailerPos = line.LastIndexOf(TrailerOpen, trailerPos - 1, StringComparison.Ordinal);
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return false;
+            }
+
+            if (match == null)
                 return false;
 
-            var message = match.Groups["message"].Value;
+            var message = line.Substring(messageStart, trailerPos - messageStart);
             var timeStr = match.Groups["time"].Value;
             var biasStr = match.Groups["bias"].Value;
             var dateStr = match.Groups["date"].Value;

@@ -224,6 +224,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
+        // Companion byte cap: 100 raw lines of unbounded length could still assemble a
+        // multi-megabyte entry. Any process able to append to a tailed log can plant one; the
+        // parser is linear, but memory and the per-entry work must stay bounded regardless.
+        // Real IME entries (AgentExecutor script output is capped by IME itself) stay far below.
+        internal const int MaxMultiLineBufferChars = 1024 * 1024;
 
         // Counter for HS-NEW-RESULT JSON parse failures — visible to operators via tracker
         // metrics so we can detect IME log-format drift in production.
