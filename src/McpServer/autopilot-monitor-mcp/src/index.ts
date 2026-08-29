@@ -213,6 +213,12 @@ const SERVER_DEPS: ServerDeps = {
 
 const mcpRequestHandler = createMcpRequestHandler(() => createServerForCaller(SERVER_DEPS), {
   onerror: (error: Error) => console.error(`[mcp] Transport error: ${error.message}`),
+  // One structured line per request, gated like the tool_call lines: which
+  // protocol era real clients actually speak (2026-07-28 vs. 2025 initialize)
+  // is otherwise invisible — the response path records nothing era-specific.
+  onRequest: toolLoggingEnabled
+    ? (era, method) => console.error(JSON.stringify({ type: 'mcp_request', era, method: method ?? 'unknown', timestamp: new Date().toISOString() }))
+    : undefined,
 });
 
 // --- HTTP Server with Streamable HTTP Transport ---

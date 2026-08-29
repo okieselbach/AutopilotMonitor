@@ -36,6 +36,12 @@ export type PerRequestServerFactory = (ctx: McpRequestContext) => McpServer;
 export interface McpRequestHandlerOptions {
   /** Out-of-band transport/entry errors (reporting only; never alters the response). */
   onerror?: (error: Error) => void;
+  /**
+   * Observability hook, called once per POST with the era the request was
+   * classified into. The only way to positively know which protocol revision
+   * real clients speak — nothing else in the response path records it.
+   */
+  onRequest?: (era: 'legacy' | 'modern', method: string | undefined) => void;
 }
 
 /**
@@ -48,6 +54,7 @@ export function createMcpRequestHandler(
   options: McpRequestHandlerOptions = {},
 ): (req: Request, res: Response) => Promise<void> {
   const onerror = options.onerror;
+  const onRequest = options.onRequest;
   const modern = createMcpHandler(factory, {
     legacy: 'reject',
     // Never stream: this server emits no mid-call notifications (no progress,
@@ -64,10 +71,15 @@ export function createMcpRequestHandler(
     // (already parsed) body. Passing `parsedBody` means nothing is read from
     // the Node stream — express.json() already drained it.
     const request = await toWebRequest(req, req.body);
+    const method = typeof (req.body as { method?: unknown } | undefined)?.method === 'string'
+      ? (req.body as { method: string }).method
+      : undefined;
     if (!(await isLegacyRequest(request, req.body))) {
+      onRequest?.('modern', method);
       await modernNode(req, res, req.body);
       return;
     }
+    onRequest?.('legacy', method);
 
     const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless: no session tracking
