@@ -467,6 +467,10 @@ async function resolveRegisteredClient(
   if (isClientIdMetadataUrl(clientId)) {
     try {
       const md = await resolveClientMetadata(clientId);
+      // Positive evidence on purpose: the success path must be visible in the
+      // container log, otherwise "CIMD is used by client X" is only provable
+      // by its absence from the /oauth/register log — see tasks/lessons.md.
+      console.error(`[oauth/${where}] client via metadata document ${sanitizeForLog(clientId)} (${sanitizeForLog(md.clientName)})`);
       return { ok: true, redirectUris: md.redirectUris, name: md.clientName };
     } catch (err) {
       const e = err instanceof ClientMetadataError ? err : new ClientMetadataError('invalid_client', 'metadata document unavailable');
