@@ -93,6 +93,49 @@ namespace AutopilotMonitor.Functions.Helpers
             return null;
         }
 
+        // Generous for a CDN asset URL; bounds the command line the agent composes from it.
+        internal const int MaxBrandingImageUrlLength = 2048;
+
+        /// <summary>
+        /// Validates <see cref="TenantConfiguration.EnrollmentSummaryBrandingImageUrl"/>. The value
+        /// is delivered verbatim to every enrolling device, fetched from the signed-in user's
+        /// session and spliced into the summary-dialog command line, so it is the one piece of
+        /// tenant config that is both a device egress target and a process argument. It must be a
+        /// plain absolute HTTPS URL to a DNS host — no quotes, whitespace or control characters
+        /// that could terminate a quoted argument. Returns an error message, or null when
+        /// valid/empty (empty = no branding image).
+        /// </summary>
+        internal static string? ValidateBrandingImageUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return null;
+
+            if (url!.Length > MaxBrandingImageUrlLength)
+                return $"must be at most {MaxBrandingImageUrlLength} characters.";
+
+            foreach (var ch in url)
+            {
+                if (char.IsControl(ch) || char.IsWhiteSpace(ch))
+                    return "must not contain whitespace or control characters.";
+                if (ch == '"' || ch == '\'')
+                    return "must not contain quotes.";
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return "is not a valid absolute URL.";
+
+            if (uri.Scheme != Uri.UriSchemeHttps)
+                return "must use HTTPS.";
+
+            if (uri.IsLoopback || string.IsNullOrEmpty(uri.Host))
+                return "must not target localhost.";
+
+            if (System.Net.IPAddress.TryParse(uri.Host, out _))
+                return "must use a DNS hostname, not an IP address.";
+
+            return null;
+        }
+
         /// <summary>
         /// Validates a candidate configuration against the stored one. Returns a
         /// user-facing error message (same wording the PUT endpoint always produced),
@@ -129,6 +172,10 @@ namespace AutopilotMonitor.Functions.Helpers
             var channelsError = ValidateNotificationChannels(candidate.NotificationChannelsJson);
             if (channelsError != null)
                 return $"Invalid notification channels: {channelsError}";
+
+            var brandingUrlError = ValidateBrandingImageUrl(candidate.EnrollmentSummaryBrandingImageUrl);
+            if (brandingUrlError != null)
+                return $"Invalid enrollment summary branding image URL: {brandingUrlError}";
 
             var manufacturerWhitelistError = ValidateHardwareWhitelist(candidate.ManufacturerWhitelist);
             if (manufacturerWhitelistError != null)

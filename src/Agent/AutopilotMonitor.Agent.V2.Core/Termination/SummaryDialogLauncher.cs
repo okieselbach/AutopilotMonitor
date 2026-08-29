@@ -132,10 +132,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             }
 
             // 4) Compose args. Legacy contract: --status-file <path> --timeout <s> --cleanup [--branding-url <url>].
-            var tempStatusArg = Path.Combine(tempDir, FinalStatusFileName);
-            var args = $"--status-file \"{tempStatusArg}\" --timeout {configuration.EnrollmentSummaryTimeoutSeconds} --cleanup";
-            if (!string.IsNullOrWhiteSpace(configuration.EnrollmentSummaryBrandingImageUrl))
-                args += $" --branding-url \"{configuration.EnrollmentSummaryBrandingImageUrl}\"";
+            var args = BuildDialogArguments(
+                Path.Combine(tempDir, FinalStatusFileName),
+                configuration.EnrollmentSummaryTimeoutSeconds,
+                configuration.EnrollmentSummaryBrandingImageUrl,
+                logger);
 
             // 5) Launch in user session with retry.
             var retrySeconds = configuration.EnrollmentSummaryLaunchRetrySeconds > 0
@@ -149,6 +150,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                 logger.Warning("SummaryDialogLauncher: dialog launch failed or no user session available.");
 
             return launched;
+        }
+
+        /// <summary>
+        /// Composes the dialog command line. The branding URL is tenant-supplied config and the
+        /// dialog parses arguments last-occurrence-wins, so a value carrying a double quote could
+        /// terminate its argument and override <c>--status-file</c>/<c>--timeout</c>/<c>--cleanup</c>
+        /// (CWE-88). The backend rejects such values, but the agent is the last line of defence:
+        /// only a plain absolute HTTPS URL without quotes, whitespace or control characters is
+        /// ever placed on the command line — anything else is dropped (the dialog then simply
+        /// shows no branding image).
+        /// </summary>
+        internal static string BuildDialogArguments(string statusFilePath, int timeoutSeconds, string brandingImageUrl, AgentLogger logger)
+        {
+            var args = $"--status-file \"{statusFilePath}\" --timeout {timeoutSeconds} --cleanup";
+            if (string.IsNullOrWhiteSpace(brandingImageUrl))
+                return args;
+
+            if (IsSafeBrandingImageUrl(brandingImageUrl))
+                return args + $" --branding-url \"{brandingImageUrl}\"";
+
+            logger?.Warning("SummaryDialogLauncher: EnrollmentSummaryBrandingImageUrl is not a plain absolute HTTPS URL — ignoring it.");
+            return args;
+        }
+
+        internal static bool IsSafeBrandingImageUrl(string url)
+        {
+            if (string.IsNullOrEmpty(url) || url.Length > 2048)
+                return false;
+
+            foreach (var ch in url)
+            {
+                if (ch == '"' || ch == '\'' || char.IsWhiteSpace(ch) || char.IsControl(ch))
+                    return false;
+            }
+
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && !string.IsNullOrEmpty(uri.Host);
         }
 
         private static void TryCopy(string source, string destination)

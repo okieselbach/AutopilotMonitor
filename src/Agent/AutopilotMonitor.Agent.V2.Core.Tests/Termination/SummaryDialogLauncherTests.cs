@@ -50,5 +50,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
 
             Assert.Equal(a, b);
         }
+
+        // The branding URL is tenant config; the dialog parses arguments last-occurrence-wins, so
+        // an embedded quote must never terminate the argument and inject extra flags (CWE-88).
+
+        private const string BaseArgs = "--status-file \"C:\\x\\final-status.json\" --timeout 30 --cleanup";
+
+        [Fact]
+        public void BuildDialogArguments_omits_branding_when_empty()
+        {
+            var args = SummaryDialogLauncher.BuildDialogArguments(@"C:\x\final-status.json", 30, null, null);
+
+            Assert.Equal(BaseArgs, args);
+        }
+
+        [Fact]
+        public void BuildDialogArguments_appends_clean_https_url_as_single_quoted_argument()
+        {
+            var args = SummaryDialogLauncher.BuildDialogArguments(@"C:\x\final-status.json", 30, "https://cdn.example/logo.png?v=2", null);
+
+            Assert.Equal(BaseArgs + " --branding-url \"https://cdn.example/logo.png?v=2\"", args);
+        }
+
+        [Theory]
+        [InlineData("x\" --status-file \"C:\\some\\file\" --timeout \"0")]
+        [InlineData("https://cdn.example/logo.png\" --cleanup")]
+        [InlineData("https://cdn.example/logo.png --timeout 0")]
+        [InlineData("https://cdn.example/lo'go.png")]
+        [InlineData("https://cdn.example/logo.png\r\n")]
+        [InlineData("http://cdn.example/logo.png")]
+        [InlineData("file:///C:/Windows/x.png")]
+        [InlineData("cdn.example/logo.png")]
+        public void BuildDialogArguments_drops_unsafe_branding_url(string url)
+        {
+            var args = SummaryDialogLauncher.BuildDialogArguments(@"C:\x\final-status.json", 30, url, null);
+
+            Assert.Equal(BaseArgs, args);
+        }
     }
 }
