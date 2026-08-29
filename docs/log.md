@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (7)
+
+* **Update**: `backend/client-cert-tenant-binding.md` — new "Certificate transport and proof of possession" section: `X-ARR-ClientCert` (platform-set after the mTLS handshake, inbound copies stripped even on excluded paths) is the only certificate source; the client-writable `X-Client-Certificate` fallback is gone; `/api/bootstrap/*` routes are token-only and fail closed on a missing/empty token or unwired token service instead of falling through to the certificate stage.
+
 ## 2026-08-29 (6)
 
 * **Update**: `backend/admin-identity-binding.md` — grants are self-maintaining: `AdminIdentityResolver` derives the home tenant + object id from sign-in history (`UserActivity`), falls back to the UPN domain of an onboarded tenant, refuses to guess when a UPN was seen under two tenants; 422 `HomeTenantUnresolved` + portal tenant picker only for a never-seen domain. Identity fields and pills removed from the delegated / tenant-group forms; inspect/correct lives in Tenant Management → Edit Tenant Configuration → Identity bindings (collapsed).

@@ -86,7 +86,7 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Validates a client certificate from HTTP request header
         /// </summary>
-        /// <param name="certificateBase64">Base64-encoded certificate from X-Client-Certificate header</param>
+        /// <param name="certificateBase64">Base64-encoded certificate from the platform-set X-ARR-ClientCert header</param>
         /// <param name="logger">Logger for diagnostic output</param>
         /// <returns>Validation result with certificate details</returns>
         public static CertificateValidationResult ValidateCertificate(string? certificateBase64, ILogger? logger = null)

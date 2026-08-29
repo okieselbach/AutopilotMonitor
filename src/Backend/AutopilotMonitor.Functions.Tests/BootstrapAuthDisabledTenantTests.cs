@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
@@ -99,8 +99,9 @@ public sealed class BootstrapAuthDisabledTenantTests
     {
         // Sanity: a non-disabled tenant DOES reach the bootstrap branch (which will then
         // run its own validation against _bootstrapSessionService). With _bootstrapSessionService
-        // null in this test, the bootstrap branch falls through to the cert path — proving
-        // that the §0 gate did NOT block.
+        // null and no request URL (= not a /api/bootstrap/* route, where that combination is
+        // rejected fail-closed — see BootstrapRouteFailClosedTests), the branch falls through to
+        // the platform-cert path — proving that the §0 gate did NOT block.
         var enabled = TenantConfiguration.CreateDefault(TenantId);
         enabled.Disabled = false;
         enabled.ValidateAutopilotDevice = false;

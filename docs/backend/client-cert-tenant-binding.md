@@ -10,7 +10,7 @@ tags:
   - certificates
   - intune
   - multi-tenant
-timestamp: 2026-08-24T00:00:00+02:00
+timestamp: 2026-08-29T00:00:00+02:00
 ---
 
 # Problem
@@ -128,6 +128,41 @@ Grep marker for every site involved: `CERT-TENANT-BINDING`.
 
 The bootstrap-token path (`X-Bootstrap-Token`) bypasses certificate validation by design and is
 unaffected by either stage.
+
+# Certificate transport and proof of possession
+
+Every stage above validates certificate *content*: chain, validity window, EKU, tenant extension.
+None of them proves the caller holds the private key — a certificate is public material (sent in
+clear in a TLS 1.2 client-auth handshake, readable from the machine store by any local user, present
+on resold hardware). Proof of possession comes from the TLS handshake alone: the platform runs
+`clientCertMode=Required` on every path not listed in its `clientCertExclusionPaths`, forwards the
+handshake certificate as `X-ARR-ClientCert`, and **strips any inbound copy of that header — on
+excluded paths too** (verified 2026-08-29 with a spoofed header against `/api/bootstrap/config`:
+the validator saw "No certificate provided"). So `X-ARR-ClientCert` is trustworthy exactly because
+the caller cannot write it.
+
+Two consequences shape `SecurityValidator`:
+
+* **No other certificate header is ever read.** A former local-dev fallback (`X-Client-Certificate`)
+  accepted certificate bytes from a client-writable header, which decouples the certificate from
+  key possession: anyone holding a device's public certificate would authenticate as that device.
+  Removed 2026-08-29. Local development sets `X-ARR-ClientCert` directly — Core Tools does not strip
+  it.
+* **Bootstrap routes are token-only, fail-closed.** `/api/bootstrap/*` is in the platform's
+  exclusion list so cert-less OOBE agents can reach it — which also means nothing on those paths
+  proves a handshake happened. The token is therefore the sole credential there:
+  `SecurityValidator.IsBootstrapRoute` (path prefix, mirroring the exclusion entry so no function
+  can forget to opt in) rejects a missing or **empty** `X-Bootstrap-Token`, and a missing
+  `BootstrapSessionService`, with 401 before the certificate stage can run. The live gap this
+  closes: the function-level `Headers.Contains` gate accepted an empty header while the validator
+  treated it as "no token" and fell through to the certificate stage, where the fallback header
+  above was parsed. Bootstrap tokens are never accepted as a *replacement* for the certificate on
+  platform-enforced routes either — there the cert requirement is already satisfied by the
+  handshake before the request reaches code.
+
+The exclusion list is portal-only state (no IaC). Adding `/api/agent` to it, or moving a
+device-authenticated function under an excluded prefix, would silently reopen the header path;
+`BootstrapRouteFailClosedTests` pins the code half of this contract.
 
 **Stage 3 — device binding (Global-Admin-only preview).** Tenant binding proves the certificate was
 issued to this tenant; it does not prove the certificate belongs to a device the tenant still has.

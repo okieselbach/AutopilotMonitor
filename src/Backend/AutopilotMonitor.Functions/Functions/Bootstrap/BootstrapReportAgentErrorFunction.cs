@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Security;
@@ -53,8 +53,10 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
         {
             try
             {
-                // Bootstrap-only: reject requests without X-Bootstrap-Token
-                if (!req.Headers.Contains("X-Bootstrap-Token"))
+                // Bootstrap-only: reject requests without a (non-empty) X-Bootstrap-Token before any
+                // parsing. SecurityValidator enforces the same rule fail-closed for every
+                // /api/bootstrap/* route; this is only the cheap early exit.
+                if (SecurityValidator.GetBootstrapToken(req) == null)
                 {
                     var noToken = req.CreateResponse(HttpStatusCode.Unauthorized);
                     await noToken.WriteAsJsonAsync(new { error = "X-Bootstrap-Token header is required" });
