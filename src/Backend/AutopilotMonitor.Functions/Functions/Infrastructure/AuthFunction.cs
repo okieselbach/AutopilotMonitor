@@ -32,6 +32,7 @@ public class AuthFunction
     private readonly McpUserService _mcpUserService;
     private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
     private readonly EntraAppRegistry _appRegistry;
+    private readonly AdminIdentityResolver _identityResolver;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -45,9 +46,11 @@ public class AuthFunction
         GlobalNotificationService globalNotificationService,
         McpUserService mcpUserService,
         Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
-        EntraAppRegistry appRegistry)
+        EntraAppRegistry appRegistry,
+        AdminIdentityResolver identityResolver)
     {
         _logger = logger;
+        _identityResolver = identityResolver;
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
         _tenantConfigService = tenantConfigService;
@@ -251,20 +254,27 @@ public class AuthFunction
             await badRequestResponse.WriteAsJsonAsync(new { error = "UPN is required" });
             return badRequestResponse;
         }
-        // The grantee's home tenant is mandatory: the row is inert until the UPN is bound to the identity
-        // that may use it, and the UPN string alone cannot tell which tenant that is.
-        var bindingError = IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId);
+        // The row is inert until the UPN is bound to the identity that may use it. The home tenant is resolved
+        // automatically (sign-in history, then UPN domain → onboarded tenant); the body may override it.
+        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
             var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
             await badRequestResponse.WriteAsJsonAsync(new { error = bindingError });
             return badRequestResponse;
         }
+        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
+        if (identity == null)
+        {
+            var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
+            await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
+            return unresolved;
+        }
 
         GlobalAdminEntity newAdmin;
         try
         {
-            newAdmin = await _globalAdminService.AddGlobalAdminAsync(body.Upn, currentUpn!, body.HomeTenantId!, body.ObjectId);
+            newAdmin = await _globalAdminService.AddGlobalAdminAsync(body.Upn, currentUpn!, identity.Value.TenantId, identity.Value.ObjectId);
         }
         catch (IdentityBindingConflictException ex)
         {
@@ -636,8 +646,8 @@ internal class AuthDecisionResult
 public class AddGlobalAdminRequest
 {
     public string Upn { get; set; } = string.Empty;
-    /// <summary>The grantee's home Entra tenant id (required) — the JWT tid their tokens will carry.</summary>
+    /// <summary>The grantee's home Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
     public string? HomeTenantId { get; set; }
-    /// <summary>The grantee's Entra object id (optional) — pinned on their first sign-in when omitted.</summary>
+    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
     public string? ObjectId { get; set; }
 }

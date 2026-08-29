@@ -83,19 +83,30 @@ winner). Two accounts racing the first sign-in inside the home tenant therefore 
 Row lookups stay cached by UPN; the binding has its own 30 s cache keyed by UPN and is invalidated on
 pin, rebind and removal. A rebind on one scaled-out instance converges on the others within seconds.
 
-## Grants bind first
+## Grants bind first — and resolve the identity themselves
 
-`AddGlobalAdminAsync`, `DelegatedAdminService.UpsertAsync` and `AssignGroupAsync` take
-`homeTenantId` (GUID, required) and `objectId` (GUID, optional) and call `EnsureBoundAsync` **before**
-writing the role row. `EnsureBoundAsync` creates the binding, keeps a compatible one (same tenant; the
+Granting is "type the UPN". The three grant endpoints (`POST auth/global-admins`,
+`POST global/delegated-admins`, `POST global/tenant-groups/{id}/assignees`) accept `homeTenantId` /
+`objectId` only as optional overrides; normally `AdminIdentityResolver` supplies them:
+
+1. **Sign-in history** (`UserActivity`, filtered on the UPN): the person has signed in before ⇒ tid + oid
+   are known, both from validated tokens. The most recent sign-in wins for the oid. A UPN seen under
+   **more than one tenant** is never auto-resolved — that is the attack shape the binding exists for.
+2. **UPN domain → onboarded tenant** (`TenantConfiguration.DomainName`, exactly one match): tid only; the
+   oid is pinned on the first sign-in.
+3. Neither ⇒ **422 `HomeTenantUnresolved`**; the portal then shows a home-tenant picker (onboarded
+   tenants) and retries with `homeTenantId`. This is the only manual step, and only for a UPN whose
+   domain the platform has never seen.
+
+`AddGlobalAdminAsync`, `DelegatedAdminService.UpsertAsync` and `AssignGroupAsync` then take the resolved
+`homeTenantId` / `objectId` and call `EnsureBoundAsync` **before** writing the role row. `EnsureBoundAsync` creates the binding, keeps a compatible one (same tenant; the
 supplied object id equals the pin or upgrades an unpinned one), and throws
 `IdentityBindingConflictException` for a different tenant or a different pinned object id — the
 functions map that to **409**. A grant can therefore never silently re-home a UPN.
 
-Why the object id may be omitted: the operator granting an external MSP admin has no directory access
-to the partner tenant, so the person's `oid` is frequently unknown at grant time; the home tenant is
-always known (it is who the grant is for). The first sign-in from that tenant pins it; from then on a
-recycled UPN in the same tenant is refused.
+Why the object id may be unknown: a person who has never signed in has no history to resolve from, and
+the operator granting an external MSP admin has no directory access to the partner tenant. The first
+sign-in from the bound tenant pins it; from then on a recycled UPN in the same tenant is refused.
 
 ## Explicit rebind surface
 
@@ -106,9 +117,10 @@ recycled UPN in the same tenant is refused.
 | `DELETE global/identity-bindings/{upn}` | GlobalAdminOnly | Make every role row of the UPN inert without touching the rows. Self-removal is refused. |
 
 Both mutations are audited under the binding's home tenant (`AdminIdentityBinding` entity, previous
-values in the details) and logged at Warning. The list endpoints of delegated admins and tenant groups
-return `bindings` alongside their rows so the management UI can show a per-UPN context pill (home tenant,
-pin state) and require the home tenant in its grant / assign forms.
+values in the details) and logged at Warning. The portal surfaces this in **Tenant Management → Edit
+Tenant Configuration → Identity bindings** (collapsed): the bindings homed in that tenant, with inline
+edit (re-home / re-pin; empty object id ⇒ re-pinned on the next sign-in) and remove. The grant forms
+themselves carry no identity fields — the binding is a background property of the grant.
 
 ## Lifecycle and secondary effects
 
@@ -144,6 +156,8 @@ Same row, binding without an object id: the first `tid=1111…` sign-in pins its
 
 * `src/Backend/AutopilotMonitor.Functions/Security/AdminIdentity.cs` — the identity record and its factories.
 * `src/Backend/AutopilotMonitor.Functions/Services/AdminIdentityBindingService.cs` — verdict, pin, grant-time binding, rebind; the table entity.
+* `src/Backend/AutopilotMonitor.Functions/Services/AdminIdentityResolver.cs` — sign-in-history / UPN-domain resolution at grant time (`AdminIdentityResolverTests`).
+* `src/Web/autopilot-monitor-web/app/admin/components/IdentityBindingsSection.tsx` — the per-tenant inspect/correct panel.
 * `src/Backend/AutopilotMonitor.Functions/Services/GlobalAdminService.cs`, `DelegatedAdminService.cs` — resolution order.
 * `src/Backend/AutopilotMonitor.Functions/DataAccess/TableStorage/TableAdminRepository.cs` — `TryPinIdentityObjectIdAsync` and the binding CRUD.
 * `src/Backend/AutopilotMonitor.Functions/Functions/Admin/IdentityBindingManagementFunction.cs` — the rebind surface and the shared `IdentityBindingRequest.Validate`.

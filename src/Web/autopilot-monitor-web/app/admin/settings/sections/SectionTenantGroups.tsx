@@ -6,7 +6,7 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
-import { bindingLabel, bindingsByUpn, isGuid, type IdentityBinding } from "@/lib/identityBinding";
+import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 
 /** One UPN assigned to a group (camelCase JSON from the backend). */
 interface GroupAssignee {
@@ -43,7 +43,6 @@ export function SectionTenantGroups() {
   const tenants = useTenantList(true);
 
   const [groups, setGroups] = useState<TenantGroup[]>([]);
-  const [bindings, setBindings] = useState<IdentityBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -56,8 +55,10 @@ export function SectionTenantGroups() {
   const [tenantToAdd, setTenantToAdd] = useState<Record<string, string>>({});
   const [assignUpn, setAssignUpn] = useState<Record<string, string>>({});
   const [assignRole, setAssignRole] = useState<Record<string, string>>({});
-  const [assignHomeTenantId, setAssignHomeTenantId] = useState<Record<string, string>>({});
-  const [assignObjectId, setAssignObjectId] = useState<Record<string, string>>({});
+  // Per-group: shown only after a 422 HomeTenantUnresolved (UPN never signed in AND its domain belongs to
+  // no onboarded tenant) — the one case the identity binding cannot be resolved automatically.
+  const [needHomeTenant, setNeedHomeTenant] = useState<Record<string, boolean>>({});
+  const [homeTenantPick, setHomeTenantPick] = useState<Record<string, string>>({});
 
   const domainOf = useMemo(() => {
     const map = new Map(tenants.map((t) => [t.tenantId.toLowerCase(), t.domainName]));
@@ -84,7 +85,6 @@ export function SectionTenantGroups() {
       if (!response.ok) throw new Error(`Failed to load groups: ${response.statusText}`);
       const data = await response.json();
       setGroups(data.groups ?? []);
-      setBindings(data.bindings ?? []);
     } catch (err) {
       handleError(err, "Failed to load groups");
     } finally {
@@ -114,6 +114,9 @@ export function SectionTenantGroups() {
         const response = await authenticatedFetch(url, getAccessToken, init);
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
+          if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED && key.startsWith("assign:")) {
+            setNeedHomeTenant((p) => ({ ...p, [key.slice("assign:".length)]: true }));
+          }
           throw new Error(data.error || `Request failed: ${response.statusText}`);
         }
         flash(ok);
@@ -188,19 +191,11 @@ export function SectionTenantGroups() {
     [mutate, domainOf],
   );
 
-  const bindingOf = useMemo(() => bindingsByUpn(bindings), [bindings]);
-
-  /** True when the per-group assign form is complete: UPN, GUID home tenant, and an empty-or-GUID object id. */
+  /** True when the per-group assign form is complete (UPN, plus the home tenant if the backend asked for it). */
   const canAssign = useCallback(
-    (groupId: string) => {
-      const objectId = (assignObjectId[groupId] || "").trim();
-      return (
-        !!(assignUpn[groupId] || "").trim() &&
-        isGuid(assignHomeTenantId[groupId] || "") &&
-        (objectId === "" || isGuid(objectId))
-      );
-    },
-    [assignUpn, assignHomeTenantId, assignObjectId],
+    (groupId: string) =>
+      !!(assignUpn[groupId] || "").trim() && (!needHomeTenant[groupId] || !!homeTenantPick[groupId]),
+    [assignUpn, needHomeTenant, homeTenantPick],
   );
 
   const handleAssign = useCallback(
@@ -215,18 +210,17 @@ export function SectionTenantGroups() {
         {
           upn,
           role,
-          homeTenantId: (assignHomeTenantId[t.groupId] || "").trim(),
-          objectId: (assignObjectId[t.groupId] || "").trim() || undefined,
+          homeTenantId: needHomeTenant[t.groupId] ? homeTenantPick[t.groupId] : undefined,
         },
         `Assigned ${upn} to "${t.name}".`,
       );
       if (ok) {
         setAssignUpn((prev) => ({ ...prev, [t.groupId]: "" }));
-        setAssignHomeTenantId((prev) => ({ ...prev, [t.groupId]: "" }));
-        setAssignObjectId((prev) => ({ ...prev, [t.groupId]: "" }));
+        setNeedHomeTenant((prev) => ({ ...prev, [t.groupId]: false }));
+        setHomeTenantPick((prev) => ({ ...prev, [t.groupId]: "" }));
       }
     },
-    [assignUpn, assignRole, assignHomeTenantId, assignObjectId, canAssign, mutate],
+    [assignUpn, assignRole, needHomeTenant, homeTenantPick, canAssign, mutate],
   );
 
   const handleUnassign = useCallback(
@@ -432,12 +426,6 @@ export function SectionTenantGroups() {
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800">
                                 {ROLE_LABELS[a.role] ?? a.role}
                               </span>
-                              <span
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-xs border border-gray-300 text-gray-600"
-                                title={bindingOf.get(a.upn.toLowerCase())?.tenantId ?? "No identity binding"}
-                              >
-                                {bindingLabel(bindingOf.get(a.upn.toLowerCase()), domainOf)}
-                              </span>
                               <button
                                 onClick={() => handleUnassign(t, a.upn)}
                                 disabled={busyKey === `unassign:${t.groupId}:${a.upn}`}
@@ -481,26 +469,21 @@ export function SectionTenantGroups() {
                           Assign
                         </button>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <input
-                          type="text"
-                          value={assignHomeTenantId[t.groupId] || ""}
-                          onChange={(e) => setAssignHomeTenantId((p) => ({ ...p, [t.groupId]: e.target.value }))}
-                          placeholder="Home tenant ID (GUID) — the Entra tenant they sign in from"
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="w-full sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
-                        />
-                        <input
-                          type="text"
-                          value={assignObjectId[t.groupId] || ""}
-                          onChange={(e) => setAssignObjectId((p) => ({ ...p, [t.groupId]: e.target.value }))}
-                          placeholder="Object ID (optional — pinned on first sign-in)"
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="w-full sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
-                        />
-                      </div>
+                      {needHomeTenant[t.groupId] && (
+                        <select
+                          value={homeTenantPick[t.groupId] || ""}
+                          onChange={(e) => setHomeTenantPick((p) => ({ ...p, [t.groupId]: e.target.value }))}
+                          className="w-full px-2 py-1.5 border border-amber-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                          aria-label="Home tenant of the person"
+                        >
+                          <option value="">Home tenant they sign in from…</option>
+                          {tenants.map((tn) => (
+                            <option key={tn.tenantId} value={tn.tenantId}>
+                              {tn.domainName || tn.tenantId}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </div>
                 </div>

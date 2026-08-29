@@ -76,6 +76,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<(int uniqueUsers, int loginCount)> GetUserActivityForDateAsync(string? tenantId, DateTime date);
         /// <summary>Retention cleanup: deletes UserActivity login rows whose LoginAt is older than the cutoff. Returns the number deleted.</summary>
         Task<int> DeleteUserActivityOlderThanAsync(DateTime cutoffUtc);
+        /// <summary>
+        /// Every distinct (tenant id, object id) a UPN has signed in with, from the UserActivity login rows
+        /// (cross-partition scan filtered on Upn — grant-time only, never a hot path). Both values came from
+        /// validated tokens, which is what makes them usable as an identity-binding source.
+        /// </summary>
+        Task<List<UserSignInIdentity>> GetSignInIdentitiesByUpnAsync(string upn);
 
         // --- Live Presence (one row per user, upserted) ---
         /// <summary>Upserts the caller's presence row (PK=tenantId, RK=SHA-256(lowercase UPN) hex) with LastSeen=now.</summary>
@@ -146,6 +152,15 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         public string SessionId { get; set; } = string.Empty;
         public string AppName { get; set; } = string.Empty;
+    }
+
+    /// <summary>One (tenant, object id) a UPN was seen signing in with, plus the most recent such sign-in.</summary>
+    public class UserSignInIdentity
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string ObjectId { get; set; } = string.Empty;
+        public DateTime LastLoginAt { get; set; }
+        public int LoginCount { get; set; }
     }
 
     public class UserActivityMetrics

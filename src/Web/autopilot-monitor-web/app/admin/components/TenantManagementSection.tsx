@@ -8,6 +8,7 @@ import { classifyClientId, legacyConfigured } from "@/lib/authApp";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 import { TenantAdminSection } from "./TenantAdminSection";
+import { IdentityBindingsSection } from "./IdentityBindingsSection";
 import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
@@ -908,6 +909,14 @@ function TenantManagementSectionInner({
 
               {/* Admin Users Info */}
               <TenantAdminSection
+                tenantId={editingTenant.tenantId}
+                getAccessToken={getAccessToken}
+                setError={setError}
+                setSuccessMessage={setSuccessMessage}
+              />
+
+              {/* Identity bindings homed in this tenant (cross-tenant role holders) — collapsed, inspect/correct only */}
+              <IdentityBindingsSection
                 tenantId={editingTenant.tenantId}
                 getAccessToken={getAccessToken}
                 setError={setError}

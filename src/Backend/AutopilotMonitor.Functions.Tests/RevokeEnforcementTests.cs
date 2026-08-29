@@ -28,6 +28,14 @@ public class RevokeEnforcementTests
 
     private static readonly StubAdminIdentityBindingService Bindings = new(bound: true);
 
+    /// <summary>Resolver stub: never consulted by the revoke/validation seams under test (loose mock ⇒ null).</summary>
+    private static AdminIdentityResolver Resolver() =>
+        new Mock<AdminIdentityResolver>(
+            Mock.Of<IMetricsRepository>(),
+            new Mock<TenantConfigurationService>(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance,
+                new MemoryCache(new MemoryCacheOptions())) { CallBase = false }.Object,
+            NullLogger<AdminIdentityResolver>.Instance) { CallBase = false }.Object;
+
     private static DelegatedAdminService BuildService(Mock<IAdminRepository> repo) =>
         new(
             repo.Object,
@@ -58,7 +66,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new DelegatedAdminManagementFunction(
-            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Bindings, audit.Object, signalR);
+            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR);
         return (fn, repo, audit, signalR);
     }
 
@@ -75,7 +83,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
-            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Bindings, audit.Object, signalR);
+            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR);
         return (fn, repo, audit, signalR);
     }
 
@@ -105,19 +113,24 @@ public class RevokeEnforcementTests
                 new GrantDelegatedAdminRequest { Upn = Upn, TenantId = tenantId }, out _));
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
     [InlineData("partner.example")]
     [InlineData("11111111-1111-1111-1111")]
-    public void ValidateGrant_MissingOrNonGuidHomeTenant_Rejected(string? homeTenantId)
+    public void ValidateGrant_NonGuidHomeTenant_Rejected(string homeTenantId)
     {
-        // The grantee's HOME tenant is what the identity binding is keyed on — without it the grant would be
-        // inert at best and UPN-only (the original cross-tenant hole) at worst. Required, GUID, fail-closed.
+        // The home tenant is OPTIONAL at the API (resolved from sign-in history / UPN domain when absent),
+        // but a supplied value must be a GUID — a typo must not become a binding.
         var error = DelegatedAdminManagementFunction.ValidateGrantRequest(
             new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = homeTenantId }, out _);
         Assert.NotNull(error);
         Assert.Contains("homeTenantId", error);
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void ValidateGrant_AbsentHomeTenant_IsValid_ResolvedLater(string? homeTenantId)
+        => Assert.Null(DelegatedAdminManagementFunction.ValidateGrantRequest(
+            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = homeTenantId }, out _));
 
     [Fact]
     public void ValidateGrant_NonGuidObjectId_Rejected()

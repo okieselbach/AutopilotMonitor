@@ -86,6 +86,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<int> DeleteUserActivityOlderThanAsync(DateTime cutoffUtc)
             => _storage.DeleteUserActivityOlderThanAsync(cutoffUtc);
 
+        public Task<List<UserSignInIdentity>> GetSignInIdentitiesByUpnAsync(string upn)
+            => _storage.GetSignInIdentitiesByUpnAsync(upn);
+
         public Task RecordUserPresenceAsync(string tenantId, string upn, string userRole)
             => _storage.RecordUserPresenceAsync(tenantId, upn, userRole);
 

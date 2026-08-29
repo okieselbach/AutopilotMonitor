@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (6)
+
+* **Update**: `backend/admin-identity-binding.md` — grants are self-maintaining: `AdminIdentityResolver` derives the home tenant + object id from sign-in history (`UserActivity`), falls back to the UPN domain of an onboarded tenant, refuses to guess when a UPN was seen under two tenants; 422 `HomeTenantUnresolved` + portal tenant picker only for a never-seen domain. Identity fields and pills removed from the delegated / tenant-group forms; inspect/correct lives in Tenant Management → Edit Tenant Configuration → Identity bindings (collapsed).
+
 ## 2026-08-29 (5)
 
 * **Creation**: Added `backend/admin-identity-binding.md` — cross-tenant roles (GlobalAdmin / GlobalReader, delegated MSP) were resolved from the UPN string alone while the API accepts tokens from every Entra tenant. New `AdminIdentityBindings` table (RK = UPN → home `TenantId` + `ObjectId`), `AdminIdentity` (upn + tid + oid) as the key both role services resolve on, binding checked after the row and before the Pro gate, object id pinned on the first sign-in from the bound tenant (ETag-guarded), grants require `homeTenantId` and refuse to re-home (409), `global/identity-bindings` GET/PUT/DELETE as the audited rebind path, `RequestContext.ObjectId`, throttle bucket keyed on oid. Legacy rows are inert until bound — seed bindings before the backend deploy.

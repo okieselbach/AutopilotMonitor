@@ -24,37 +24,33 @@ public class DelegatedAdminManagementFunction
 {
     private readonly ILogger<DelegatedAdminManagementFunction> _logger;
     private readonly DelegatedAdminService _delegatedAdminService;
-    private readonly AdminIdentityBindingService _bindings;
+    private readonly AdminIdentityResolver _identityResolver;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
 
     public DelegatedAdminManagementFunction(
         ILogger<DelegatedAdminManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
-        AdminIdentityBindingService bindings,
+        AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
         ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
-        _bindings = bindings;
+        _identityResolver = identityResolver;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
     }
 
-    /// <summary>
-    /// GET /api/global/delegated-admins — list every delegated assignment plus the identity bindings of the
-    /// assigned UPNs (so the UI can show which tenant/object id each grant is actually usable from). GlobalReadOrAdmin.
-    /// </summary>
+    /// <summary>GET /api/global/delegated-admins — list every delegated assignment. GlobalReadOrAdmin.</summary>
     [Function("GetDelegatedAdmins")]
     [Authorize]
     public async Task<HttpResponseData> GetDelegatedAdmins(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/delegated-admins")] HttpRequestData req)
     {
         var assignments = await _delegatedAdminService.GetAllAsync();
-        var bindings = await _bindings.GetAllAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { assignments, bindings });
+        await response.WriteAsJsonAsync(new { assignments });
         return response;
     }
 
@@ -75,18 +71,23 @@ public class DelegatedAdminManagementFunction
         if (validationError != null)
             return await Bad(req, validationError);
 
-        // Edition note: TARGET tenants may be any edition — an MSP on Pro may manage Community
-        // customers. The Pro requirement applies to the delegated admin's HOME tenant (homeTenantId,
-        // which also becomes the UPN's identity binding) and is enforced at resolve time
-        // (DelegatedAdminService.GetScopeAsync gates on the JWT tid). Grants to non-Pro-homed admins are
-        // simply inert. A binding conflict (UPN already homed in another tenant) is a 409, never a silent rebind.
+        // The UPN's identity binding (home tenant + object id) is resolved automatically — sign-in history,
+        // then UPN domain → onboarded tenant; the body may override it. Unresolvable ⇒ 422 and the UI asks
+        // the operator to pick the tenant. Edition note: TARGET tenants may be any edition — an MSP on Pro
+        // may manage Community customers; the Pro requirement applies to the HOME tenant and is enforced at
+        // resolve time (DelegatedAdminService.GetScopeAsync gates on the JWT tid), so grants to non-Pro-homed
+        // admins are simply inert. A binding conflict (UPN already homed elsewhere) is a 409, never a silent rebind.
+        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body!.Upn, body.HomeTenantId, body.ObjectId);
+        if (identity == null)
+            return await Unresolved(req);
+
         DelegatedAdminEntry entry;
         try
         {
             entry = await _delegatedAdminService.UpsertAsync(
-                body!.Upn, body.TenantId, role,
+                body.Upn, body.TenantId, role,
                 Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, currentUpn ?? "",
-                body.HomeTenantId!, body.ObjectId);
+                identity.Value.TenantId, identity.Value.ObjectId);
         }
         catch (IdentityBindingConflictException ex)
         {
@@ -100,7 +101,7 @@ public class DelegatedAdminManagementFunction
                 { "Role", entry.Role },
                 { "Status", entry.Status },
                 { "Source", entry.Source },
-                { "HomeTenantId", body.HomeTenantId!.ToLowerInvariant() },
+                { "HomeTenantId", identity.Value.TenantId.ToLowerInvariant() },
             });
 
         _logger.LogInformation("Delegated grant: {Upn} -> {TenantId} ({Role}) by {By}",
@@ -228,7 +229,7 @@ public class DelegatedAdminManagementFunction
         if (!Guid.TryParse(body.TenantId, out _))
             return "a valid tenantId (GUID) is required";
 
-        var bindingError = IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId);
+        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
             return bindingError;
 
@@ -252,6 +253,13 @@ public class DelegatedAdminManagementFunction
         await conflict.WriteAsJsonAsync(new { error });
         return conflict;
     }
+
+    private static async Task<HttpResponseData> Unresolved(HttpRequestData req)
+    {
+        var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
+        await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
+        return unresolved;
+    }
 }
 
 public class GrantDelegatedAdminRequest
@@ -260,8 +268,8 @@ public class GrantDelegatedAdminRequest
     /// <summary>The MANAGED (target) tenant the UPN may read.</summary>
     public string TenantId { get; set; } = string.Empty;
     public string? Role { get; set; }
-    /// <summary>The grantee's HOME Entra tenant id (required) — the JWT tid their tokens carry; becomes the identity binding.</summary>
+    /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
     public string? HomeTenantId { get; set; }
-    /// <summary>The grantee's Entra object id (optional) — pinned on their first sign-in when omitted.</summary>
+    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
     public string? ObjectId { get; set; }
 }

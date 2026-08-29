@@ -1125,6 +1125,38 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Every distinct (tenant, object id) pair a UPN has signed in with — see IMetricsRepository. The Upn
+        /// column is not a key, so this is a filtered table scan; acceptable because it runs once per grant.
+        /// </summary>
+        public async Task<List<UserSignInIdentity>> GetSignInIdentitiesByUpnAsync(string upn)
+        {
+            var result = new Dictionary<(string Tid, string Oid), UserSignInIdentity>();
+            if (string.IsNullOrWhiteSpace(upn))
+                return new List<UserSignInIdentity>();
+
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UserActivity);
+            // Rows store the UPN as the token carried it; compare lowercase in memory and pre-filter on the
+            // exact lowercase string (the common case) OR the raw input so a mixed-case row is not missed.
+            var normalized = upn.ToLowerInvariant().Replace("'", "''");
+            var filter = $"Upn eq '{normalized}'";
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "Upn", "ObjectId", "LoginAt" }))
+            {
+                var tid = entity.PartitionKey.ToLowerInvariant();
+                var oid = (entity.GetString("ObjectId") ?? string.Empty).ToLowerInvariant();
+                var loginAt = entity.GetDateTime("LoginAt") ?? DateTime.MinValue;
+                if (!result.TryGetValue((tid, oid), out var entry))
+                {
+                    entry = new UserSignInIdentity { TenantId = tid, ObjectId = oid };
+                    result[(tid, oid)] = entry;
+                }
+                entry.LoginCount++;
+                if (loginAt > entry.LastLoginAt)
+                    entry.LastLoginAt = loginAt;
+            }
+            return result.Values.ToList();
+        }
+
+        /// <summary>
         /// Gets user activity metrics for a specific tenant
         /// </summary>
         public async Task<UserActivityMetrics> GetUserActivityMetricsAsync(string tenantId)

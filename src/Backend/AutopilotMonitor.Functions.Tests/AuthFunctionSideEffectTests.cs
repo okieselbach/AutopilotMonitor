@@ -96,7 +96,9 @@ public class AuthFunctionSideEffectTests
             _autoApproveEnqueuerMock.Object,
             new AutopilotMonitor.Functions.Security.EntraAppRegistry(
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
-                Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()));
+                Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()),
+            new Mock<AdminIdentityResolver>(
+                _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object);
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock
