@@ -79,6 +79,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # Security & Identity
 
 * [MCP OAuth Flow](mcp-oauth-flow.md) - Who authenticates where when connecting an AI client to the MCP server; two identities, three parties plus Entra ID.
+* [Vulnerability Correlation Sources](backend/vulnerability-correlation-sources.md) - How the software inventory becomes CVE findings from four cached primaries (NVD per-CPE cache with budget and TTLs, CISA KEV, MSRC, FIRST EPSS stored on the cached CVE and re-scored nightly), the NVD throttle contract (a refused answer is never cached as "0 CVEs"; bounded process-wide cooldown honouring Retry-After), the persisted CVSS vector, and the act/attend/track priority that keeps severity and likelihood as two visible signals instead of one composite score.
 * [Client-Certificate Tenant Binding](backend/client-cert-tenant-binding.md) - Why a chain-valid Intune MDM certificate only proves "issued to some tenant", which extension actually carries the Entra tenant id (`…5.14`) versus the two that look like it (`…5.6` Intune Account id, `…5.4` device id, different encodings), why the Entra join certificate is not part of the auth path, and the shadow-then-enforce rollout with its volume-controlled telemetry.
 
 # Conventions for this bundle

@@ -69,6 +69,32 @@ public class CveIndexEntityMergeTests
     }
 
     [Fact]
+    public void Merge_EpssMaxes_PriorityMaxes_AndUnscoredWritesNoEpssColumn()
+    {
+        var scoredLow = Vuln("CVE-1", 5.0, "MEDIUM"); scoredLow["epssScore"] = 0.02; scoredLow["priority"] = "track";
+        var scoredHigh = Vuln("CVE-1", 4.0, "MEDIUM"); scoredHigh["epssScore"] = 0.35; scoredHigh["priority"] = "attend";
+        var unscored = Vuln("CVE-1", 3.0, "LOW"); unscored["priority"] = "track";
+
+        var e = Assert.Single(TableStorageService.BuildCveIndexEntities(Tenant, Session, new List<Dictionary<string, object>>
+        {
+            Finding("App A", "medium", unscored),
+            Finding("App B", "medium", scoredLow),
+            Finding("App C", "medium", scoredHigh),
+        }));
+
+        Assert.Equal(0.35, e.GetDouble("EpssScore"));
+        Assert.Equal("attend", e.GetString("Priority"));
+
+        // A CVE nobody scored must not carry a fake 0.0 — the aggregate treats absent as "unknown".
+        var none = Assert.Single(TableStorageService.BuildCveIndexEntities(Tenant, Session, new List<Dictionary<string, object>>
+        {
+            Finding("App A", "low", Vuln("CVE-2", 3.0, "LOW")),
+        }));
+        Assert.False(none.ContainsKey("EpssScore"));
+        Assert.Equal("", none.GetString("Priority"));
+    }
+
+    [Fact]
     public void DistinctCves_StayDistinct_AndInvalidEntriesAreSkipped()
     {
         var findings = new List<Dictionary<string, object>>

@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "31 July 2026";
+const LAST_UPDATED = "29 August 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_PLANS = `${DOCS_URL}/plans`;
 const GITHUB_ADVISORY = "https://github.com/okieselbach/AutopilotMonitor/security/advisories/new";
@@ -197,6 +197,14 @@ export default function TermsPage() {
               <p className="text-sm text-gray-500">
                 Microsoft-specific vulnerability data is sourced from the MSRC Security Update Guide API. For more information, visit{" "}
                 <a href="https://msrc.microsoft.com/" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">msrc.microsoft.com</a>.
+              </p>
+            </div>
+            <div className="p-4 border border-[var(--lp-line-soft)] rounded-lg">
+              <h3 className="font-semibold text-gray-900 mb-1">Exploit Prediction Scoring System (EPSS), FIRST.org</h3>
+              <p className="text-sm text-gray-500">
+                Exploitation-probability scores (EPSS) are provided by the Forum of Incident Response and Security Teams (FIRST). The lookup
+                sends only public CVE identifiers from the shared reference cache — never tenant or device data. For more information, visit{" "}
+                <a href="https://www.first.org/epss/" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">first.org/epss</a>.
               </p>
             </div>
           </div>

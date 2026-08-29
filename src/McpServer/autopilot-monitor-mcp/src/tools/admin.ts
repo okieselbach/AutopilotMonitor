@@ -1493,7 +1493,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Get a fleet-wide vulnerability exposure summary aggregated from detected CVEs: total affected devices, ' +
         'distinct CVE count, KEV (CISA Known-Exploited) count, a severity breakdown, and the top CVEs ranked by how ' +
-        'many devices they affect. ' +
+        'many devices they affect. Each top CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS ' +
+        'probability of exploitation within 30 days, 0-1, null when unscored) and priority ("act" = in CISA KEV, ' +
+        '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = everything else) — rank remediation by priority, then EPSS, ' +
+        'not by CVSS alone. ' +
         (ga ? 'Omit tenantId for a cross-tenant overview (Global Admin; also returns affected tenant count); pass tenantId to scope to one tenant. ' : '') +
         'Use this to answer "how exposed is the fleet / this ' +
         'tenant?" and "which CVEs affect the most devices?" — for the device list of a single CVE use search_sessions_by_cve. ' +

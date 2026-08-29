@@ -319,6 +319,9 @@ namespace AutopilotMonitor.Functions.Services
 
                     var cvssSeverity = vuln.TryGetValue("cvssSeverity", out var csvs) ? csvs?.ToString() ?? "" : "";
                     var isKev = vuln.TryGetValue("isKev", out var ik) && ik is bool ikb && ikb;
+                    double? epssScore = null;
+                    try { if (vuln.TryGetValue("epssScore", out var es) && es != null) epssScore = Convert.ToDouble(es); } catch { }
+                    var priority = vuln.TryGetValue("priority", out var pr) ? pr?.ToString() ?? "" : "";
 
                     if (byCve.TryGetValue(cveId, out var existing))
                     {
@@ -329,12 +332,16 @@ namespace AutopilotMonitor.Functions.Services
                             existing["SoftwareName"] = softwareName;
                         }
                         existing["IsKev"] = existing.GetBoolean("IsKev") == true || isKev;
+                        if (epssScore.HasValue && epssScore.Value > (existing.GetDouble("EpssScore") ?? -1))
+                            existing["EpssScore"] = epssScore.Value;
+                        if (Vulnerability.CvePriority.Rank(priority) > Vulnerability.CvePriority.Rank(existing.GetString("Priority")))
+                            existing["Priority"] = priority;
                         if (RiskRank(overallRisk) > RiskRank(existing.GetString("OverallRisk")))
                             existing["OverallRisk"] = overallRisk;
                         continue;
                     }
 
-                    byCve[cveId] = new TableEntity($"{tenantId}_{cveId}", sessionId)
+                    var entity = new TableEntity($"{tenantId}_{cveId}", sessionId)
                     {
                         ["SessionId"] = sessionId,
                         ["TenantId"] = tenantId,
@@ -343,9 +350,14 @@ namespace AutopilotMonitor.Functions.Services
                         ["CvssScore"] = cvssScore,
                         ["CvssSeverity"] = cvssSeverity,
                         ["IsKev"] = isKev,
+                        ["Priority"] = priority,
                         ["OverallRisk"] = overallRisk,
                         ["DetectedAt"] = now,
                     };
+                    // Nullable double: write only when scored so a legacy reader sees "absent",
+                    // not a fake 0.0 that would sort as "least likely exploited".
+                    if (epssScore.HasValue) entity["EpssScore"] = epssScore.Value;
+                    byCve[cveId] = entity;
                 }
             }
 
@@ -1364,7 +1376,7 @@ namespace AutopilotMonitor.Functions.Services
             var select = new[]
             {
                 "SessionId", "TenantId", "CveId", "SoftwareName",
-                "CvssScore", "CvssSeverity", "IsKev", "OverallRisk", "DetectedAt",
+                "CvssScore", "CvssSeverity", "IsKev", "EpssScore", "Priority", "OverallRisk", "DetectedAt",
             };
 
             var rows = new List<CveExposureEntry>(Math.Min(maxRows, 2048));
@@ -1392,6 +1404,8 @@ namespace AutopilotMonitor.Functions.Services
                     CvssScore = e.GetDouble("CvssScore") ?? 0,
                     CvssSeverity = e.GetString("CvssSeverity") ?? string.Empty,
                     IsKev = e.GetBoolean("IsKev") ?? false,
+                    EpssScore = e.GetDouble("EpssScore"),
+                    Priority = e.GetString("Priority") ?? string.Empty,
                     OverallRisk = e.GetString("OverallRisk") ?? string.Empty,
                     DetectedAt = e.GetDateTime("DetectedAt"),
                 });

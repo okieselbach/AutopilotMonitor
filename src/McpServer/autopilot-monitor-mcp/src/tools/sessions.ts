@@ -724,6 +724,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         (ga ? "Omit tenantId for cross-tenant search (Global Admin). " : "") +
         "Requires vulnerability scanning to be enabled. " +
         "Use this to answer: which devices are affected by CVE-2024-XXXX, show all critical vulnerability sessions. " +
+        "The per-session vulnerability report (get_session_summary / vulnerability_report event) lists each CVE with " +
+        "cvssScore, cvssVector, isKev, epssScore (FIRST EPSS, 0-1), epssPercentile and priority (act/attend/track). " +
         "This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical " +
         "interactive queries; raise it (up to 1000) for full exposure audits. For \"how many of my devices have CVE-X\" " +
         "use pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as " +

@@ -131,7 +131,9 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
               '1. Call search_sessions_by_cve with the cveId' +
               (tenantId ? ' and tenantId' : '') +
               '. Use pageSize=1000 and follow nextLink until it is absent — exposure audits must be complete, not sampled.\n' +
-              '2. Tally affected sessions/devices, and break them down by overallRisk and CVSS score.\n' +
+              '2. Tally affected sessions/devices, and break them down by overallRisk and CVSS score. ' +
+              'Call get_vulnerability_summary to pick up the CVE\'s epssScore (FIRST EPSS exploitation probability) and ' +
+              'priority (act = CISA KEV, attend = EPSS >= 0.1 or CVSS >= 9.0, track) — state both; a low-CVSS CVE with a high EPSS is still urgent.\n' +
               '3. Use search_knowledge to look up remediation guidance for the affected software if a relevant rule exists.\n\n' +
               'Report: total affected devices, severity breakdown, the most-exposed manufacturers/models if a pattern ' +
               'stands out, and prioritized remediation. State explicitly if vulnerability scanning is disabled (empty result ≠ "not affected").',
