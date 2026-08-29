@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Config;
 
 namespace AutopilotMonitor.Functions.Helpers
 {
@@ -55,6 +56,43 @@ namespace AutopilotMonitor.Functions.Helpers
             return true;
         }
 
+        private const int MaxWhitelistEntries = 200;
+        private const int MaxWhitelistEntryLength = 128;
+
+        /// <summary>
+        /// Validates a hardware whitelist CSV (<see cref="TenantConfiguration.ManufacturerWhitelist"/> /
+        /// <see cref="TenantConfiguration.ModelWhitelist"/>). The CSV is split on ',' at enforcement
+        /// time, so this is the last line of defence against a value that was meant as ONE entry but
+        /// alters the list structure: blank items (",,", ", ,") are rejected rather than silently
+        /// dropped, and every item must be a printable, bounded pattern. Returns a user-facing
+        /// reason, or null when the list is well-formed. Empty/whitespace = allow all (documented).
+        /// </summary>
+        internal static string? ValidateHardwareWhitelist(string? csv)
+        {
+            if (string.IsNullOrWhiteSpace(csv))
+                return null;
+
+            var items = csv!.Split(',');
+            if (items.Length > MaxWhitelistEntries)
+                return $"at most {MaxWhitelistEntries} entries are allowed.";
+
+            foreach (var raw in items)
+            {
+                var entry = raw.Trim();
+                if (entry.Length == 0)
+                    return "entries must not be empty (check for a stray or doubled comma).";
+                if (entry.Length > MaxWhitelistEntryLength)
+                    return $"each entry must be at most {MaxWhitelistEntryLength} characters.";
+                foreach (var ch in entry)
+                {
+                    if (char.IsControl(ch))
+                        return "entries must not contain control characters.";
+                }
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Validates a candidate configuration against the stored one. Returns a
         /// user-facing error message (same wording the PUT endpoint always produced),
@@ -91,6 +129,14 @@ namespace AutopilotMonitor.Functions.Helpers
             var channelsError = ValidateNotificationChannels(candidate.NotificationChannelsJson);
             if (channelsError != null)
                 return $"Invalid notification channels: {channelsError}";
+
+            var manufacturerWhitelistError = ValidateHardwareWhitelist(candidate.ManufacturerWhitelist);
+            if (manufacturerWhitelistError != null)
+                return $"Invalid manufacturer whitelist: {manufacturerWhitelistError}";
+
+            var modelWhitelistError = ValidateHardwareWhitelist(candidate.ModelWhitelist);
+            if (modelWhitelistError != null)
+                return $"Invalid model whitelist: {modelWhitelistError}";
 
             // Only validate the customer-supplied SAS URL when the tenant has actually selected
             // the CustomerSas destination — a stale value left over from a prior CustomerSas

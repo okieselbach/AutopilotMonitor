@@ -3,6 +3,7 @@
 import { useState } from "react";
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
+import { joinList, parseList, toWhitelistEntry } from "../lib/hardwareWhitelist";
 
 interface HardwareWhitelistSectionProps {
   manufacturerWhitelist: string;
@@ -14,14 +15,6 @@ interface HardwareWhitelistSectionProps {
   saving: boolean;
   /** Read-only viewer (Operator): inputs disabled, no Save/Reset bar. */
   readOnly?: boolean;
-}
-
-function parseList(csv: string): string[] {
-  return csv.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
-function joinList(items: string[]): string {
-  return items.join(",");
 }
 
 function WhitelistEditor({
@@ -38,7 +31,8 @@ function WhitelistEditor({
   setItems: (items: string[]) => void;
 }) {
   const [newItem, setNewItem] = useState("");
-  const trimmed = newItem.trim();
+  // One typed value = one pattern; a ',' would otherwise split into several entries.
+  const trimmed = toWhitelistEntry(newItem);
   const isDuplicate =
     trimmed !== "" &&
     items.some((a) => a.toLowerCase() === trimmed.toLowerCase());

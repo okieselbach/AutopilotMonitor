@@ -1008,25 +1008,32 @@ namespace AutopilotMonitor.Shared.Models
         }
 
         /// <summary>
-        /// Gets manufacturer whitelist as array
+        /// Gets manufacturer whitelist as array (empty/whitespace = allow all)
         /// </summary>
-        public string[] GetManufacturerWhitelist()
-        {
-            if (string.IsNullOrEmpty(ManufacturerWhitelist))
-                return new[] { "*" };
-
-            return ManufacturerWhitelist.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-        }
+        public string[] GetManufacturerWhitelist() => ParseWhitelist(ManufacturerWhitelist);
 
         /// <summary>
-        /// Gets model whitelist as array
+        /// Gets model whitelist as array (empty/whitespace = allow all)
         /// </summary>
-        public string[] GetModelWhitelist()
+        public string[] GetModelWhitelist() => ParseWhitelist(ModelWhitelist);
+
+        /// <summary>
+        /// Splits a stored hardware whitelist CSV into individual match patterns: trimmed, empty
+        /// entries dropped. The CSV is the ONLY storage format, so a ',' can never be part of a
+        /// pattern — writers (web editor, <c>TenantConfigValidation</c>) must guarantee each
+        /// intended entry lands as exactly one CSV item.
+        /// </summary>
+        public static string[] ParseWhitelist(string? csv)
         {
-            if (string.IsNullOrEmpty(ModelWhitelist))
+            if (string.IsNullOrWhiteSpace(csv))
                 return new[] { "*" };
 
-            return ModelWhitelist.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            var entries = csv!.Split(',')
+                .Select(e => e.Trim())
+                .Where(e => e.Length > 0)
+                .ToArray();
+
+            return entries.Length == 0 ? new[] { "*" } : entries;
         }
 
         /// <summary>

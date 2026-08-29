@@ -7,14 +7,7 @@ import { TenantNotifications } from "../../TenantNotifications";
 import HardwareWhitelistSection from "../../components/HardwareWhitelistSection";
 import HardwareRejectionInsights from "../../components/HardwareRejectionInsights";
 import TpmIncompatibleDevicesInsights from "../../components/TpmIncompatibleDevicesInsights";
-
-function parseList(csv: string): string[] {
-  return csv.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
-function joinList(items: string[]): string {
-  return items.join(",");
-}
+import { addWhitelistEntry } from "../../lib/hardwareWhitelist";
 
 export function SectionHardwareWhitelist() {
   const { getAccessToken } = useAuth();
@@ -30,18 +23,14 @@ export function SectionHardwareWhitelist() {
 
   const hasWebhook = notificationChannels.some((c) => c.enabled && (c.url ?? "").length > 0);
 
+  // Values come from UNAUTHENTICATED distress signals — addWhitelistEntry guarantees each
+  // click adds exactly one pattern (a ',' inside the value cannot split the list).
   const handleAddManufacturer = useCallback((value: string) => {
-    const items = parseList(manufacturerWhitelist);
-    if (!items.some((i) => i.toLowerCase() === value.toLowerCase())) {
-      setManufacturerWhitelist(joinList([...items, value]));
-    }
+    setManufacturerWhitelist(addWhitelistEntry(manufacturerWhitelist, value));
   }, [manufacturerWhitelist, setManufacturerWhitelist]);
 
   const handleAddModel = useCallback((value: string) => {
-    const items = parseList(modelWhitelist);
-    if (!items.some((i) => i.toLowerCase() === value.toLowerCase())) {
-      setModelWhitelist(joinList([...items, value]));
-    }
+    setModelWhitelist(addWhitelistEntry(modelWhitelist, value));
   }, [modelWhitelist, setModelWhitelist]);
 
   return (
