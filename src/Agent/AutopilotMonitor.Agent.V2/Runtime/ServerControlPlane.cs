@@ -33,6 +33,9 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             EnrollmentTerminationHandler terminationHandler,
             RemoteConfigService remoteConfigService,
             DiagnosticsPackageService diagnosticsService,
+            BackendAuthBundle auth,
+            string agentVersion,
+            bool consoleMode,
             ManualResetEventSlim shutdown,
             ManualResetEventSlim shutdownComplete,
             InformationalEventPost post,
@@ -41,9 +44,31 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             return new ServerActionDispatcher(
                 configuration: agentConfig,
                 logger: logger,
+                // rotate_config = fetch AND apply. FetchConfigAsync only stores the response
+                // in RemoteConfigService.CurrentConfig; the projection onto the live
+                // AgentConfiguration (DiagnosticsUploadMode, LogLevel, SelfDestruct, ...)
+                // is ApplyFetchedConfig — the same path the startup fetch uses. Without it
+                // the portal's "enable diagnostics, then collect" flow fetched the new
+                // config and still ran the diagnostics gate against the stale mode.
+                // FetchConfigAsync never throws: a failed fetch falls back to cache/defaults
+                // and reports it via LastFetchOutcome — that is NOT an executed rotation.
                 rotateConfigAsync: async () =>
                 {
-                    try { var _ = await remoteConfigService.FetchConfigAsync(); return true; }
+                    try
+                    {
+                        var fetched = await remoteConfigService.FetchConfigAsync();
+                        if (remoteConfigService.LastFetchOutcome != RemoteConfigFetchOutcome.Succeeded)
+                        {
+                            logger.Warning($"ServerAction rotate_config: live fetch failed (outcome={remoteConfigService.LastFetchOutcome}, {remoteConfigService.LastFetchFailureMessage}) — runtime config unchanged.");
+                            return false;
+                        }
+
+                        var mergeResult = AgentRuntimeConfig.ApplyFetchedConfig(
+                            agentConfig, fetched, auth, agentVersion, consoleMode, logger);
+                        LifecycleEmitters.EmitUnrestrictedModeAuditIfChanged(post, agentConfig, mergeResult, logger);
+                        logger.Info($"ServerAction rotate_config: applied ConfigVersion={fetched.ConfigVersion} to the running agent.");
+                        return true;
+                    }
                     catch (Exception ex) { logger.Warning($"ServerAction rotate_config failed: {ex.Message}"); return false; }
                 },
                 // On-demand request mid-enrollment — the session has no outcome yet. Null keeps

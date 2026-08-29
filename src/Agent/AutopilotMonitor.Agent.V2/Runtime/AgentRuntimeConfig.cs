@@ -115,10 +115,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
 
         /// <summary>
         /// Applies a live-fetched config to the runtime: merge, tracker ceilings, log level,
-        /// integrity SHA + check, bootstrap-config cleanup. Shared by the Phase 4 startup path
-        /// and the post-registration recovery path so both apply identical semantics.
+        /// integrity SHA + check, bootstrap-config cleanup. Shared by the Phase 4 startup path,
+        /// the post-registration recovery path and the live <c>rotate_config</c> ServerAction
+        /// (<see cref="ServerControlPlane.BuildDispatcher"/>) so all three apply identical semantics.
         /// </summary>
-        private static RemoteConfigMergeResult ApplyFetchedConfig(
+        internal static RemoteConfigMergeResult ApplyFetchedConfig(
             AgentConfiguration agentConfig,
             AgentConfigResponse remoteConfig,
             BackendAuthBundle auth,

@@ -527,7 +527,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
         {
             // On-demand mid-session (no outcome yet): the OnFailure gate must NOT skip —
             // there is no known success to skip on. Reaching the archive build (sentinel
-            // throw → error result) proves the gate was passed; a skip would return null.
+            // throw → error result) proves the gate was passed; a skip would return Skipped.
             using var rig = new Rig();
             var result = await BuildGateProbe(rig.Logger, "OnFailure")
                 .CreateAndUploadAsync(enrollmentSucceeded: null, fileNameSuffix: "server-requested");
@@ -543,7 +543,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             var result = await BuildGateProbe(rig.Logger, "OnFailure")
                 .CreateAndUploadAsync(enrollmentSucceeded: true);
 
-            Assert.Null(result);
+            Assert.NotNull(result);
+            Assert.True(result!.Skipped);
+            Assert.False(result.Success);
+            Assert.Equal(DiagnosticsUploadResult.SkipOnFailureSucceeded, result.ErrorCode);
         }
 
         [Fact]
@@ -553,7 +556,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             var result = await BuildGateProbe(rig.Logger, "Off")
                 .CreateAndUploadAsync(enrollmentSucceeded: null);
 
-            Assert.Null(result);
+            // The gate name travels in ErrorCode so the dispatcher's server_action_failed
+            // event says "mode_off" instead of a generic "diagnostics_upload_failed".
+            Assert.NotNull(result);
+            Assert.True(result!.Skipped);
+            Assert.Equal(DiagnosticsUploadResult.SkipModeOff, result.ErrorCode);
         }
 
         [Theory]

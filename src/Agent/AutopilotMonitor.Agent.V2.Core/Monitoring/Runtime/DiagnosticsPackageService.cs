@@ -45,10 +45,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// </summary>
         public string SasUrlPrefix { get; set; }
 
-        /// <summary>Human-readable error code/message when upload failed. Null on success or skip.</summary>
+        /// <summary>Human-readable error code/message when upload failed or was skipped. Null on success.</summary>
         public string ErrorCode { get; set; }
 
+        /// <summary>
+        /// True when no package was built because a configuration gate said so (mode=Off,
+        /// destination not configured, OnFailure + known success). <see cref="ErrorCode"/>
+        /// then carries the machine-readable gate name so the emitted
+        /// <c>server_action_failed</c> / <c>diagnostics_upload_failed</c> event names the
+        /// actual reason instead of a generic "upload failed".
+        /// </summary>
+        public bool Skipped { get; set; }
+
         public bool Success => BlobName != null;
+
+        public const string SkipModeOff = "diagnostics_skipped_mode_off";
+        public const string SkipNotConfigured = "diagnostics_skipped_not_configured";
+        public const string SkipOnFailureSucceeded = "diagnostics_skipped_onfailure_success";
+
+        public static DiagnosticsUploadResult SkippedBy(string gate) =>
+            new DiagnosticsUploadResult { Skipped = true, ErrorCode = gate };
     }
 
     /// <summary>
@@ -191,7 +207,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// <summary>
         /// Creates a diagnostics ZIP and uploads it to the configured Blob Storage container.
         /// Returns a DiagnosticsUploadResult with BlobName set on success, or ErrorCode set on failure.
-        /// Returns null if the upload was skipped (mode=Off, not configured, or OnFailure+succeeded).
+        /// A configuration gate (mode=Off, not configured, OnFailure+succeeded) returns a result
+        /// with <see cref="DiagnosticsUploadResult.Skipped"/> and the gate name in ErrorCode.
         /// This method is non-fatal: all exceptions are caught and logged.
         /// </summary>
         /// <param name="enrollmentSucceeded">
@@ -214,14 +231,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 var mode = _configuration.DiagnosticsUploadMode ?? "Off";
                 if (string.Equals(mode, "Off", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.Debug("Diagnostics upload disabled (mode=Off)");
-                    return null;
+                    _logger.Info("Diagnostics upload skipped: DiagnosticsUploadMode=Off on the running agent.");
+                    return DiagnosticsUploadResult.SkippedBy(DiagnosticsUploadResult.SkipModeOff);
                 }
 
                 if (!_configuration.DiagnosticsUploadEnabled)
                 {
-                    _logger.Debug("Diagnostics upload skipped: not configured for this tenant");
-                    return null;
+                    _logger.Info($"Diagnostics upload skipped: no upload destination configured for this tenant (mode={mode}).");
+                    return DiagnosticsUploadResult.SkippedBy(DiagnosticsUploadResult.SkipNotConfigured);
                 }
 
                 // Null outcome (on-demand mid-session) passes through: the OnFailure gate only
@@ -229,7 +246,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 if (string.Equals(mode, "OnFailure", StringComparison.OrdinalIgnoreCase) && enrollmentSucceeded == true)
                 {
                     _logger.Info("Diagnostics upload skipped: enrollment succeeded and mode=OnFailure");
-                    return null;
+                    return DiagnosticsUploadResult.SkippedBy(DiagnosticsUploadResult.SkipOnFailureSucceeded);
                 }
 
                 _logger.Info($"Creating diagnostics package (mode={mode}, enrollmentSucceeded={(enrollmentSucceeded.HasValue ? enrollmentSucceeded.ToString() : "n/a")}{(fileNameSuffix != null ? $", suffix={fileNameSuffix}" : "")})...");

@@ -123,6 +123,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
         }
 
         [Fact]
+        public async Task Dispatch_request_diagnostics_skipped_by_gate_surfaces_gate_name_as_failure_reason()
+        {
+            // Session 2550bcea (2026-08-29): the on-demand collection was refused by the
+            // mode=Off gate and the portal only saw a generic "diagnostics_upload_failed".
+            // The gate name must travel through to the event so the operator can tell a
+            // config gate from a real upload error.
+            using var rig = new Rig();
+            rig.DiagnosticsResult = DiagnosticsUploadResult.SkippedBy(DiagnosticsUploadResult.SkipModeOff);
+
+            await rig.Build().DispatchAsync(new List<ServerAction>
+            {
+                new ServerAction { Type = ServerActionTypes.RequestDiagnostics, QueuedAt = DateTime.UtcNow },
+            });
+
+            Assert.Equal(1, rig.DiagnosticsCalls);
+            Assert.Empty(rig.EventsOfType("server_action_executed"));
+            var failed = rig.EventsOfType("server_action_failed").Single();
+            var typed = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object>>(failed.TypedPayload!);
+            Assert.Equal(DiagnosticsUploadResult.SkipModeOff, (string)typed["failureReason"]);
+        }
+
+        [Fact]
         public async Task Dispatch_unknown_action_type_emits_failed_with_unknown_action_type_reason()
         {
             using var rig = new Rig();
