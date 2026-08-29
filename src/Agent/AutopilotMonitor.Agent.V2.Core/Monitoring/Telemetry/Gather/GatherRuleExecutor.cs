@@ -21,6 +21,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
     /// </summary>
     public class GatherRuleExecutor : IDisposable
     {
+        /// <summary>
+        /// <see cref="EnrollmentEvent.Source"/> label stamped on every event the gather pipeline
+        /// emits (executor, context guard events, collectors). The timeline feed uses it to keep
+        /// gather output from re-triggering on_event rules.
+        /// </summary>
+        public const string SourceName = "GatherRuleExecutor";
+
+        /// <summary>
+        /// Upper bound on on_event executions per rule and session. on_event has no natural
+        /// once-per-(rule, phase) dedup like the phase triggers; this cap bounds any remaining
+        /// cycle (e.g. two rules chained through an intermediate non-gather event) and any
+        /// pathological trigger type that fires on every timeline entry.
+        /// </summary>
+        internal const int MaxOnEventExecutionsPerRule = 100;
+
         private readonly AgentLogger _logger;
         private readonly GatherRuleDebugLog _debug;   // null unless EnableGatherRuleDebugLog / --gather-debug-log
         private readonly GatherRuleContext _context;
@@ -30,6 +45,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         private readonly Dictionary<string, Timer> _intervalTimers = new Dictionary<string, Timer>();
         private readonly HashSet<string> _startupRulesExecuted = new HashSet<string>();
         private readonly HashSet<string> _phaseRulesExecuted = new HashSet<string>();
+        private readonly Dictionary<string, int> _onEventExecutions = new Dictionary<string, int>();
         private CountdownEvent _startupRulesLatch;   // non-null only while startup rules are pending
 
         // Phase-scope + emit-mode state (ActivePhases / ActiveFromPhase / EmitMode on GatherRule).
@@ -394,6 +410,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         continue;
                     }
 
+                    // Per-rule execution cap (see MaxOnEventExecutionsPerRule). The counter is
+                    // bumped once past the cap so the boundary is logged exactly once.
+                    int executions;
+                    lock (_scopeLock)
+                    {
+                        _onEventExecutions.TryGetValue(rule.RuleId, out executions);
+                        if (executions <= MaxOnEventExecutionsPerRule)
+                            _onEventExecutions[rule.RuleId] = executions + 1;
+                    }
+
+                    if (executions >= MaxOnEventExecutionsPerRule)
+                    {
+                        if (executions == MaxOnEventExecutionsPerRule)
+                        {
+                            _logger.Warning($"Gather rule {rule.RuleId} reached the on_event execution cap ({MaxOnEventExecutionsPerRule}) for this session — further {eventType} triggers are ignored");
+                            DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger,
+                                $"on_event {eventType} ignored: per-rule execution cap ({MaxOnEventExecutionsPerRule}) reached for this session");
+                        }
+                        continue;
+                    }
+
                     _logger.Info($"Event triggered rule {rule.RuleId} (event: {eventType})");
                     DebugLog(rule.RuleId, GatherRuleDebugLog.StageTrigger, $"on_event {eventType} fired");
                     ThreadPool.QueueUserWorkItem(_ => ExecuteRule(rule));
@@ -482,7 +519,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                         Timestamp = DateTime.UtcNow,
                         EventType = eventType,
                         Severity = severity,
-                        Source = "GatherRuleExecutor",
+                        Source = SourceName,
                         Message = $"Gather: {rule.Title}",
                         Data = result
                     });

@@ -291,7 +291,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                     Timestamp = DateTime.UtcNow,
                                     EventType = eventType,
                                     Severity = severity,
-                                    Source = "GatherRuleExecutor",
+                                    Source = GatherRuleExecutor.SourceName,
                                     Message = $"Gather: {rule.Title}",
                                     Data = data
                                 });
@@ -360,7 +360,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                     Timestamp = entryUtc,
                                     EventType = eventType,
                                     Severity = severity,
-                                    Source = "GatherRuleExecutor",
+                                    Source = GatherRuleExecutor.SourceName,
                                     Message = $"Gather: {rule.Title}",
                                     Data = data
                                 });

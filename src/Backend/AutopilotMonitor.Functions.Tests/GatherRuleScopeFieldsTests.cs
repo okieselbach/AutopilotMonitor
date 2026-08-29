@@ -240,6 +240,45 @@ public class GatherRuleScopeFieldsTests
             ValidationRule(activePhases: new List<string> { "" })));
     }
 
+    private static GatherRule OnEventRule(string triggerEventType, string? outputEventType)
+        => new GatherRule
+        {
+            RuleId = "GATHER-VAL-EVT",
+            CollectorType = "registry",
+            Target = "HKLM\\SOFTWARE\\Contoso",
+            Trigger = "on_event",
+            TriggerEventType = triggerEventType,
+            OutputEventType = outputEventType!,
+        };
+
+    [Theory]
+    [InlineData("gather_proxy", "gather_proxy")]   // self-cycle
+    [InlineData("GATHER_PROXY", "gather_proxy")]   // case-insensitive (agent matches OrdinalIgnoreCase)
+    [InlineData("gather_result", null)]            // self-cycle through the default output type
+    [InlineData("gather_result", "")]
+    [InlineData("gather_result", "gather_other")]  // gather output namespace never triggers
+    public void Validate_RejectsOnEventRuleTriggeringOnGatherOutput(string trigger, string? output)
+    {
+        Assert.NotNull(GatherRulesFunction.ValidateScopeAndEmitMode(OnEventRule(trigger, output)));
+    }
+
+    [Theory]
+    [InlineData("enrollment_complete", "gather_proxy")]
+    [InlineData("app_install_failed", null)]
+    [InlineData("", "gather_proxy")]               // partial/toggle payload passes through
+    public void Validate_AcceptsOnEventRuleOnNonGatherEvents(string trigger, string? output)
+    {
+        Assert.Null(GatherRulesFunction.ValidateScopeAndEmitMode(OnEventRule(trigger, output)));
+    }
+
+    [Fact]
+    public void Validate_OutputEqualsTrigger_IsOnlyCheckedForOnEventTrigger()
+    {
+        var rule = OnEventRule("gather_same", "gather_same");
+        rule.Trigger = "startup";
+        Assert.Null(GatherRulesFunction.ValidateScopeAndEmitMode(rule));
+    }
+
     [Fact]
     public void Validate_RejectsBothScopeFieldsSet()
     {

@@ -8,7 +8,7 @@ tags:
   - backend
   - gather-rules
   - config
-timestamp: 2026-08-04T00:00:00+02:00
+timestamp: 2026-08-29T00:00:00+02:00
 ---
 
 # Problem
@@ -89,6 +89,18 @@ Consequences of the emitted-event feed:
   the raw signal stream — the documented "On Event with `enrollment_complete`" end-of-enrollment
   pattern only works because of this. This restores V1 semantics (V1 fired triggers from every
   emitted `EnrollmentEvent`).
+* **Feedback-loop guard** (2026-08-29): gather output travels the same post → ingress →
+  reducer → emitter → stream path, so the stream would hand the executor's own events straight
+  back to `OnEvent`. A rule with `triggerEventType == outputEventType` (or two rules chained
+  A→B→A) then executed and emitted without bound for the whole session — `emitMode:
+  on_change` does not help when the collected result varies. `TimelineEventStream` therefore
+  publishes the event **source**, and `GatherRuleExecutorHost` never dispatches `on_event` for
+  `Source == GatherRuleExecutor.SourceName` (phase declarations on such events are still
+  honoured). Second layer: `GatherRuleExecutor.MaxOnEventExecutionsPerRule` (100 per rule and
+  session) bounds any cycle that reaches the executor through a non-gather event; the boundary
+  is logged once (agent log Warning + debug-trace `trigger` line). Backend validation rejects
+  `on_event` rules whose trigger equals their own output type or `gather_result` — such a rule
+  could never fire.
 * Other hosts (`DeviceInfoHost`, `UserEspKeepAwakeHost`, `ProvisioningPackageHost`) still key
   off the raw signal stream deliberately — their collections are about OS state at the raw
   boundary (ESP exit, keep-awake), not about timeline agreement.
@@ -103,7 +115,8 @@ Consequences of the emitted-event feed:
     `_startupRulesExecuted` dedup; it is not part of the `WaitForStartupRules` latch).
   * `phase_change` — evaluated against the **new** phase; the scope gate runs before the
     per-(rule, phase) dedup so an out-of-scope pass does not consume the execution slot.
-  * `on_event` — gated by the current phase.
+  * `on_event` — gated by the current phase; never fires on gather output; capped at
+    `MaxOnEventExecutionsPerRule` per rule and session.
 * **Before the first phase signal** of a session (`_currentPhase == Unknown`) scoped rules are
   inactive. Sessions that never produce phase signals never run them (documented behavior).
 * **From-phase latch**: activates when `phase != Unknown && phase != Failed && (int)phase >=
@@ -164,4 +177,4 @@ Consequences of the emitted-event feed:
 * `src/Backend/AutopilotMonitor.Functions/Functions/Rules/GatherRulesFunction.cs` — `ValidateScopeAndEmitMode`
 * `src/Backend/AutopilotMonitor.Functions/Services/GatherRuleService.cs` — partial-PUT merge, `ContentEquivalent`
 * `src/Shared/AutopilotMonitor.Shared/Models/Rules/GatherRule.cs` — field contracts
-* Tests: `GatherRuleExecutorPhaseScopeTests`, `GatherRuleExecutorEmitModeTests`, `GatherRuleExecutorHostTimelineFeedTests` (agent); `GatherRuleUpdatePartialMergeTests`, `GatherRuleScopeFieldsTests` (backend)
+* Tests: `GatherRuleExecutorPhaseScopeTests`, `GatherRuleExecutorEmitModeTests`, `GatherRuleExecutorHostTimelineFeedTests`, `GatherRuleExecutorOnEventCapTests` (agent); `GatherRuleUpdatePartialMergeTests`, `GatherRuleScopeFieldsTests` (backend)

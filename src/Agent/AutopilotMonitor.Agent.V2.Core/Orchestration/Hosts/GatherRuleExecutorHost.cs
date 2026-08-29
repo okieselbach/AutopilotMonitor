@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         // the enrollment reaches this phase"). Null on test fakes / standalone configurations —
         // then phase/event triggers degrade off (startup + interval rules still run).
         private readonly TimelineEventStream? _timelineEvents;
-        private Action<string, EnrollmentPhase>? _timelineHandler;
+        private Action<string, EnrollmentPhase, string>? _timelineHandler;
         private readonly object _sync = new object();
         private EnrollmentPhase _lastPhase = EnrollmentPhase.Unknown;
 
@@ -101,8 +101,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// realmjoin_resolved, …) that never existed on the raw signal stream. The executor
         /// dispatches rule execution on the ThreadPool, so this stays off the ingress worker's
         /// effect path; it also dedups phase rules per (rule, phase).
+        /// <para>
+        /// Feedback-loop guard: events the gather executor emitted itself (Source ==
+        /// <see cref="Monitoring.Telemetry.Gather.GatherRuleExecutor.SourceName"/>) travel the
+        /// same post → ingress → reducer → emitter → stream path and would otherwise re-enter
+        /// <c>OnEvent</c>. A rule whose TriggerEventType equals its own OutputEventType (or two
+        /// rules chained A→B→A) then executes and emits without bound for the whole session.
+        /// Gather output therefore never dispatches on_event rules; phase declarations are still
+        /// honoured (gather events carry Phase=Unknown, so this is a no-op in practice).
+        /// </para>
         /// </summary>
-        private void OnTimelineEventEmitted(string eventType, EnrollmentPhase phase)
+        private void OnTimelineEventEmitted(string eventType, EnrollmentPhase phase, string source)
         {
             try
             {
@@ -114,7 +123,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                         _executor.OnPhaseChanged(phase);
                     }
 
-                    if (!string.IsNullOrEmpty(eventType))
+                    if (!string.IsNullOrEmpty(eventType)
+                        && !string.Equals(source, Monitoring.Telemetry.Gather.GatherRuleExecutor.SourceName, StringComparison.Ordinal))
                     {
                         _executor.OnEvent(eventType);
                     }

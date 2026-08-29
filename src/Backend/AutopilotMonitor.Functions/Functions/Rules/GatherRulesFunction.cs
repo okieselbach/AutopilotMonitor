@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -167,12 +168,33 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         };
 
         /// <summary>
-        /// Validates the phase-scope + emit-mode fields on create/update.
-        /// Returns an error message for a 400 response, or null when valid.
+        /// Validates the phase-scope + emit-mode fields and the on_event trigger wiring on
+        /// create/update. Returns an error message for a 400 response, or null when valid.
         /// Toggle-style partial payloads carry none of these fields and pass through.
+        /// <para>
+        /// on_event: the agent never dispatches on_event rules for events the gather executor
+        /// itself emitted (feedback-loop guard, <c>GatherRuleExecutorHost</c>), so a rule that
+        /// triggers on its own output — or on the <c>gather_result</c> default output type —
+        /// could never fire and is rejected here with an explanatory message instead of being
+        /// stored as a dead rule.
+        /// </para>
         /// </summary>
         internal static string? ValidateScopeAndEmitMode(GatherRule rule)
         {
+            if (string.Equals(rule.Trigger, "on_event", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(rule.TriggerEventType))
+            {
+                var outputEventType = string.IsNullOrEmpty(rule.OutputEventType)
+                    ? Constants.EventTypes.GatherResult
+                    : rule.OutputEventType;
+
+                if (string.Equals(rule.TriggerEventType, outputEventType, StringComparison.OrdinalIgnoreCase))
+                    return "triggerEventType must differ from the rule's own outputEventType — gather rules never trigger on their own output.";
+
+                if (string.Equals(rule.TriggerEventType, Constants.EventTypes.GatherResult, StringComparison.OrdinalIgnoreCase))
+                    return $"triggerEventType '{Constants.EventTypes.GatherResult}' is the gather-rule output type — gather rules never trigger on gather output.";
+            }
+
             var hasActivePhases = rule.ActivePhases != null && rule.ActivePhases.Count > 0;
             var hasFromPhase = !string.IsNullOrEmpty(rule.ActiveFromPhase);
 

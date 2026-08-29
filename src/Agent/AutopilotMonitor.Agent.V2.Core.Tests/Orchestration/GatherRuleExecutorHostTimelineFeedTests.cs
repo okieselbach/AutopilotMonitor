@@ -122,13 +122,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             // The raw-world sequence of session 32312a32 as it reaches the emitted timeline:
             // esp_exiting and hello_wizard_started are emitted WITHOUT a phase declaration
             // (the engine holds FinalizingSetup back behind the RealmJoin gate) — no fire.
-            _stream.Publish("esp_exiting", EnrollmentPhase.Unknown);
-            _stream.Publish("hello_wizard_started", EnrollmentPhase.Unknown);
+            _stream.Publish("esp_exiting", EnrollmentPhase.Unknown, "Engine");
+            _stream.Publish("hello_wizard_started", EnrollmentPhase.Unknown, "Engine");
             Thread.Sleep(300);
             Assert.Equal(0, _sink.CountOf("gather_host_test"));
 
             // Only the engine's actual phase declaration fires the rule.
-            _stream.Publish("phase_transition", EnrollmentPhase.FinalizingSetup);
+            _stream.Publish("phase_transition", EnrollmentPhase.FinalizingSetup, "Engine");
             Assert.True(WaitForCount("gather_host_test", 1));
         }
 
@@ -140,7 +140,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             // enrollment_complete" trigger was dead under the previous SignalPosted feed.
             BuildHost(Rule("GATHER-HOST-002", "on_event", triggerEventType: "enrollment_complete"));
 
-            _stream.Publish("enrollment_complete", EnrollmentPhase.Unknown);
+            _stream.Publish("enrollment_complete", EnrollmentPhase.Unknown, "Engine");
             Assert.True(WaitForCount("gather_host_test", 1));
         }
 
@@ -151,14 +151,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             // identical phase (e.g. duplicate esp_phase_changed) must not count as one.
             BuildHost(Rule("GATHER-HOST-003", "phase_change", triggerPhase: ""));
 
-            _stream.Publish("esp_phase_changed", EnrollmentPhase.DeviceSetup);
+            _stream.Publish("esp_phase_changed", EnrollmentPhase.DeviceSetup, "Engine");
             Assert.True(WaitForCount("gather_host_test", 1));
 
-            _stream.Publish("esp_phase_changed", EnrollmentPhase.DeviceSetup);
+            _stream.Publish("esp_phase_changed", EnrollmentPhase.DeviceSetup, "Engine");
             Thread.Sleep(300);
             Assert.Equal(1, _sink.CountOf("gather_host_test"));
 
-            _stream.Publish("esp_phase_changed", EnrollmentPhase.AccountSetup);
+            _stream.Publish("esp_phase_changed", EnrollmentPhase.AccountSetup, "Engine");
             Assert.True(WaitForCount("gather_host_test", 2));
         }
 
@@ -167,11 +167,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         {
             BuildHost(Rule("GATHER-HOST-004", "phase_exit", triggerPhase: "AccountSetup"));
 
-            _stream.Publish("esp_phase_changed", EnrollmentPhase.AccountSetup);
+            _stream.Publish("esp_phase_changed", EnrollmentPhase.AccountSetup, "Engine");
             Thread.Sleep(300);
             Assert.Equal(0, _sink.CountOf("gather_host_test"));
 
-            _stream.Publish("phase_transition", EnrollmentPhase.FinalizingSetup);
+            _stream.Publish("phase_transition", EnrollmentPhase.FinalizingSetup, "Engine");
+            Assert.True(WaitForCount("gather_host_test", 1));
+        }
+
+        [Fact]
+        public void OnEventRule_NeverFiresOnGatherExecutorOutput_BreaksSelfTriggerLoop()
+        {
+            // A rule whose TriggerEventType equals its own OutputEventType: the event it emits
+            // travels post → ingress → reducer → emitter → stream and comes back here with
+            // Source == GatherRuleExecutor. Without the source guard that re-enters OnEvent and
+            // the rule loops for the whole session (execute → emit → trigger → execute …).
+            BuildHost(Rule("GATHER-HOST-006", "on_event", triggerEventType: "gather_host_test"));
+
+            _stream.Publish("gather_host_test", EnrollmentPhase.Unknown,
+                Core.Monitoring.Telemetry.Gather.GatherRuleExecutor.SourceName);
+            Thread.Sleep(300);
+            Assert.Equal(0, _sink.CountOf("gather_host_test"));
+
+            // The same event type from any other origin still triggers exactly once per event.
+            _stream.Publish("gather_host_test", EnrollmentPhase.Unknown, "Engine");
+            Assert.True(WaitForCount("gather_host_test", 1));
+            Thread.Sleep(300);
+            Assert.Equal(1, _sink.CountOf("gather_host_test"));
+        }
+
+        [Fact]
+        public void PhaseDeclarationOnGatherSourcedEvent_StillDrivesPhaseTriggers()
+        {
+            // The source guard only suppresses on_event dispatch; a phase declaration is a
+            // timeline fact regardless of which component carried it.
+            BuildHost(Rule("GATHER-HOST-007", "phase_change", triggerPhase: "DeviceSetup"));
+
+            _stream.Publish("gather_host_test", EnrollmentPhase.DeviceSetup,
+                Core.Monitoring.Telemetry.Gather.GatherRuleExecutor.SourceName);
             Assert.True(WaitForCount("gather_host_test", 1));
         }
 
@@ -181,7 +214,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             BuildHost(Rule("GATHER-HOST-005", "on_event", triggerEventType: "enrollment_complete"));
 
             _host!.Stop();
-            _stream.Publish("enrollment_complete", EnrollmentPhase.Unknown);
+            _stream.Publish("enrollment_complete", EnrollmentPhase.Unknown, "Engine");
             Thread.Sleep(300);
             Assert.Equal(0, _sink.CountOf("gather_host_test"));
         }

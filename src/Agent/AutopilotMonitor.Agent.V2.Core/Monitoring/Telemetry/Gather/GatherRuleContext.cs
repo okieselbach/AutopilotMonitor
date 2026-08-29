@@ -76,7 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 Timestamp = DateTime.UtcNow,
                 EventType = Constants.EventTypes.SecurityWarning,
                 Severity = EventSeverity.Warning,
-                Source = "GatherRuleExecutor",
+                Source = GatherRuleExecutor.SourceName,
                 Message = $"Blocked {collectorType} target not on allowlist: {target} (Rule: {rule.RuleId})",
                 Data = data
             });

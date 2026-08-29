@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (11)
+
+* **Update**: `rules/gather-rule-phase-scoping.md` — `on_event` feedback-loop guard: `TimelineEventStream` publishes the event source and `GatherRuleExecutorHost` never dispatches `on_event` for gather-emitted events (a rule triggering on its own output type looped for the whole session); per-rule on_event execution cap (100/session); backend rejects `on_event` rules whose trigger equals their output type or `gather_result`.
+
 ## 2026-08-29 (10)
 
 * **Update**: `backend/tenant-activation-welcome-mail.md` — welcome/farewell mails HTML-encode the domain at substitution; `DomainName` is frozen on the full-model config PUT (was persisted verbatim) and the first-login seed only accepts a strict DNS host name.

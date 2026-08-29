@@ -33,18 +33,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// Raised once per emitted timeline event with its <see cref="EnrollmentEvent.EventType"/>
         /// and parsed <see cref="EnrollmentEvent.Phase"/> (<see cref="EnrollmentPhase.Unknown"/>
         /// for the vast majority of events — only phase-declaration events carry a real phase,
-        /// which is exactly the set the UI timeline groups on).
+        /// which is exactly the set the UI timeline groups on), plus the originating
+        /// <see cref="EnrollmentEvent.Source"/> component label. The source lets subscribers that
+        /// themselves emit timeline events (the gather-rule executor) recognise their own output
+        /// and not re-trigger on it — see <see cref="GatherRuleExecutorHost"/>.
         /// </summary>
-        public event Action<string, EnrollmentPhase>? EventEmitted;
+        public event Action<string, EnrollmentPhase, string>? EventEmitted;
 
-        internal void Publish(string eventType, EnrollmentPhase phase)
+        internal void Publish(string eventType, EnrollmentPhase phase, string source)
         {
             var handler = EventEmitted;
             if (handler == null) return;
 
-            foreach (Action<string, EnrollmentPhase> subscriber in handler.GetInvocationList())
+            foreach (Action<string, EnrollmentPhase, string> subscriber in handler.GetInvocationList())
             {
-                try { subscriber(eventType, phase); }
+                try { subscriber(eventType, phase, source); }
                 catch
                 {
                     // Subscriber isolation — see class doc: the emit path must never throw.

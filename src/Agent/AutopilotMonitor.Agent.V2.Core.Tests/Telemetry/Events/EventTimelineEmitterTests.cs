@@ -161,7 +161,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             using var r = new Rig();
             var stream = new AutopilotMonitor.Agent.V2.Core.Orchestration.TimelineEventStream();
             var published = new List<(string EventType, EnrollmentPhase Phase)>();
-            stream.EventEmitted += (eventType, phase) => published.Add((eventType, phase));
+            stream.EventEmitted += (eventType, phase, _) => published.Add((eventType, phase));
             var sut = new EventTimelineEmitter(r.Inner, stream);
 
             sut.Emit(
@@ -190,8 +190,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Events
             using var r = new Rig();
             var stream = new AutopilotMonitor.Agent.V2.Core.Orchestration.TimelineEventStream();
             var secondSubscriberCalls = 0;
-            stream.EventEmitted += (_, _) => throw new InvalidOperationException("subscriber bug");
-            stream.EventEmitted += (_, _) => secondSubscriberCalls++;
+            stream.EventEmitted += (_, _, _) => throw new InvalidOperationException("subscriber bug");
+            stream.EventEmitted += (_, _, _) => secondSubscriberCalls++;
             var sut = new EventTimelineEmitter(r.Inner, stream);
 
             sut.Emit(
