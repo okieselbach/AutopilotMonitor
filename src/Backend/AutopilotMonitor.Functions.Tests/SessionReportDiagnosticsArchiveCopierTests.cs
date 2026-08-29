@@ -55,6 +55,23 @@ public class SessionReportDiagnosticsArchiveCopierTests
         Assert.Equal(0, copier.HostedOpenCalls + copier.CustomerOpenCalls + copier.UploadCalls);
     }
 
+    [Theory]
+    [InlineData("x/../../hosted-diagnostics/22222222-2222-2222-2222-222222222222/payload_diag_archive_1.zip")]
+    [InlineData("sub/dir_diag_archive_1.zip")]
+    [InlineData("..\\escape_diag_archive_1.zip")]
+    public async Task CopyAsync_NonFlatDestination_Rejected_WithoutReadOrWrite(string destination)
+    {
+        // A path-shaped destination would let the SDK + System.Uri resolve the write outside
+        // the session-reports container. Reject before touching any storage.
+        var copier = new RecordingCopier();
+
+        var result = await copier.CopyAsync(TenantA, SessionId, HostedBlob, destination);
+
+        Assert.False(result.Success);
+        Assert.Equal(SessionReportDiagnosticsArchiveCopier.Statuses.FailedInvalidBlobName, result.Status);
+        Assert.Equal(0, copier.HostedOpenCalls + copier.CustomerOpenCalls + copier.UploadCalls);
+    }
+
     [Fact]
     public async Task CopyAsync_Hosted_HappyPath_UploadsWithFlatName()
     {

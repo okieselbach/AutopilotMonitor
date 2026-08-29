@@ -1,5 +1,6 @@
 using System.Net;
 using System.Web;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -44,7 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 }
 
                 // Prevent path traversal
-                if (blobName.Contains("..") || blobName.Contains("/") || blobName.Contains("\\"))
+                if (!BlobNameGuard.IsFlat(blobName))
                 {
                     var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });

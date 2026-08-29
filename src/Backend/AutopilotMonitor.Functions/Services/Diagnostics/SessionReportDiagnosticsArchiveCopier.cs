@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Functions.Diagnostics;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.Models;
 using Azure;
 using Azure.Storage.Blobs;
@@ -99,6 +100,16 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         {
             if (string.IsNullOrEmpty(sourceBlobName))
                 return new DiagnosticsArchiveCopyResult(false, Statuses.FailedNoDiagnostics, null);
+
+            // Destination is derived from request data (tenant/session ids). A non-flat name
+            // would let the SDK + System.Uri walk out of the session-reports container.
+            if (!BlobNameGuard.IsFlat(destinationBlobName))
+            {
+                _logger.LogWarning(
+                    "DiagnosticsArchiveCopier: rejecting non-flat destination blob name for tenant {TenantId}, session {SessionId}",
+                    tenantId, sessionId);
+                return new DiagnosticsArchiveCopyResult(false, Statuses.FailedInvalidBlobName, null);
+            }
 
             try
             {
@@ -219,7 +230,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         {
             var containerClient = _blobStorage.GetContainerClient(ReportsContainerName);
             await containerClient.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
-            var blobClient = containerClient.GetBlobClient(destinationBlobName);
+            var blobClient = containerClient.GetBlobClient(BlobNameGuard.EnsureFlat(destinationBlobName, nameof(destinationBlobName)));
             await blobClient.UploadAsync(content, new BlobUploadOptions
             {
                 HttpHeaders = new BlobHttpHeaders { ContentType = "application/zip" }

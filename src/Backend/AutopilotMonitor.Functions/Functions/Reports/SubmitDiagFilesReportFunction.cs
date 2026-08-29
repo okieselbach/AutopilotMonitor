@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -104,6 +105,14 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         message = "tenantId is required in body for Global Admin submissions."
                     });
                     return bad;
+                }
+
+                // TenantId becomes part of the blob name — must be a GUID, never path-shaped.
+                if (!SecurityValidator.IsValidGuid(request.TenantId))
+                {
+                    var invalid = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await invalid.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId." });
+                    return invalid;
                 }
 
                 var metadata = await _sessionReportService.SubmitDiagFilesReportAsync(request, userIdentifier);

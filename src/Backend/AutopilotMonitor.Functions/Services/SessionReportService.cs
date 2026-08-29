@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Storage.Blobs.Models;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -60,6 +61,11 @@ namespace AutopilotMonitor.Functions.Services
             SubmitSessionReportRequest request,
             string submittedBy)
         {
+            // Both identifiers shape blob names below; a non-GUID value could smuggle path
+            // separators / dot segments into the storage URI (cross-container write).
+            SecurityValidator.EnsureValidGuid(request.TenantId, nameof(request.TenantId));
+            SecurityValidator.EnsureValidGuid(request.SessionId, nameof(request.SessionId));
+
             var reportId = Guid.NewGuid().ToString("N")[..12];
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var blobName = $"{request.TenantId}_{request.SessionId}_diag_request_{timestamp}.zip";
@@ -203,7 +209,7 @@ namespace AutopilotMonitor.Functions.Services
             zipStream.Position = 0;
             var containerClient = _blobStorage.GetContainerClient(ContainerName);
             await containerClient.CreateIfNotExistsAsync();
-            var blobClient = containerClient.GetBlobClient(blobName);
+            var blobClient = containerClient.GetBlobClient(BlobNameGuard.EnsureFlat(blobName, nameof(blobName)));
             await blobClient.UploadAsync(zipStream, new BlobUploadOptions
             {
                 HttpHeaders = new BlobHttpHeaders { ContentType = "application/zip" }
@@ -245,6 +251,8 @@ namespace AutopilotMonitor.Functions.Services
             SubmitDiagFilesReportRequest request,
             string submittedBy)
         {
+            SecurityValidator.EnsureValidGuid(request.TenantId, nameof(request.TenantId));
+
             var reportId = Guid.NewGuid().ToString("N")[..12];
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
             var blobName = $"{request.TenantId}_diag_files_{timestamp}.zip";
@@ -292,7 +300,7 @@ namespace AutopilotMonitor.Functions.Services
             zipStream.Position = 0;
             var containerClient = _blobStorage.GetContainerClient(ContainerName);
             await containerClient.CreateIfNotExistsAsync();
-            var blobClient = containerClient.GetBlobClient(blobName);
+            var blobClient = containerClient.GetBlobClient(BlobNameGuard.EnsureFlat(blobName, nameof(blobName)));
             await blobClient.UploadAsync(zipStream, new BlobUploadOptions
             {
                 HttpHeaders = new BlobHttpHeaders { ContentType = "application/zip" }

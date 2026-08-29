@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -103,6 +104,19 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         message = "tenantId is required in body for Global Admin submissions."
                     });
                     return bad;
+                }
+
+                // Identifier format gate: both values become part of the report blob name.
+                // Route values are percent-decoded, so an encoded '/' or '..' would otherwise
+                // reach the storage layer as a path segment.
+                if (!SecurityValidator.IsValidGuid(request.SessionId) || !SecurityValidator.IsValidGuid(request.TenantId))
+                {
+                    _logger.LogWarning(
+                        "SubmitSessionReport: BLOCKED non-GUID identifier user={User} tenant={TenantId} sessionIdLength={SessionIdLength}",
+                        userIdentifier, request.TenantId, request.SessionId?.Length ?? 0);
+                    var invalid = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await invalid.WriteAsJsonAsync(new { success = false, message = "Invalid sessionId or tenantId." });
+                    return invalid;
                 }
 
                 // Submit report
