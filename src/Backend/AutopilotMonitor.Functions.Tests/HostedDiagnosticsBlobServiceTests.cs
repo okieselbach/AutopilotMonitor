@@ -26,7 +26,9 @@ public class HostedDiagnosticsBlobServiceTests
 {
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
-    private const string Filename = "AgentDiagnostics-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa-20260519T120000.zip";
+    private const string SessionA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    private const string SessionB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    private const string Filename = "AgentDiagnostics-" + SessionA + "-20260519T120000.zip";
 
     // ── Path build + validation ────────────────────────────────────────────────────
 
@@ -89,7 +91,15 @@ public class HostedDiagnosticsBlobServiceTests
     {
         var svc = new FakeHostedDiagnosticsBlobService();
         await Assert.ThrowsAsync<ArgumentException>(
-            () => svc.GenerateUploadSasAsync("not-a-guid", Filename));
+            () => svc.GenerateUploadSasAsync("not-a-guid", SessionA, Filename));
+    }
+
+    [Fact]
+    public async Task GenerateUploadSas_RejectsNonGuidSessionId()
+    {
+        var svc = new FakeHostedDiagnosticsBlobService();
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => svc.GenerateUploadSasAsync(TenantA, "not-a-guid", Filename));
     }
 
     [Fact]
@@ -97,14 +107,64 @@ public class HostedDiagnosticsBlobServiceTests
     {
         var svc = new FakeHostedDiagnosticsBlobService();
         await Assert.ThrowsAsync<ArgumentException>(
-            () => svc.GenerateUploadSasAsync(TenantA, "../other-tenant/escape.zip"));
+            () => svc.GenerateUploadSasAsync(TenantA, SessionA, "../other-tenant/escape.zip"));
+    }
+
+    // ── Session binding — one device must not be able to name another session's package ──
+
+    [Theory]
+    [InlineData("AgentDiagnostics-" + SessionB + "-20260519T120000.zip")]                 // foreign session
+    [InlineData("AgentDiagnostics-" + SessionA + "20260519T120000.zip")]                  // missing separator
+    [InlineData("AgentDiagnostics-" + SessionA + "-")]                                     // nothing after the session
+    [InlineData("AgentDiagnostics-" + SessionA + "-20260519T120000.txt")]                 // not a zip
+    [InlineData("x-AgentDiagnostics-" + SessionA + "-20260519T120000.zip")]               // wrong prefix
+    [InlineData("other.zip")]
+    public async Task GenerateUploadSas_RejectsFilenameNotBoundToSession(string filename)
+    {
+        var svc = new FakeHostedDiagnosticsBlobService();
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => svc.GenerateUploadSasAsync(TenantA, SessionA, filename));
+        Assert.Empty(svc.CapturedSasBuilders);
+    }
+
+    [Theory]
+    [InlineData("AgentDiagnostics-" + SessionA + "-20260519T120000.zip")]
+    [InlineData("AgentDiagnostics-" + SessionA + "-20260519T120000-preprov.zip")]
+    [InlineData("AgentDiagnostics-" + SessionA + "-20260724170902-server-requested.zip")]
+    [InlineData("agentdiagnostics-" + SessionA + "-20260519T120000.ZIP")]                 // case-insensitive
+    public async Task GenerateUploadSas_AcceptsEveryAgentProducedShapeForOwnSession(string filename)
+    {
+        var svc = new FakeHostedDiagnosticsBlobService();
+        var result = await svc.GenerateUploadSasAsync(TenantA, SessionA, filename);
+        Assert.Equal($"{TenantA}/{filename}", result.BlobPath);
+    }
+
+    // ── Create-only — an existing blob is never re-issued ─────────────────────────
+
+    [Fact]
+    public async Task GenerateUploadSas_ExistingBlob_ThrowsAlreadyExists_AndMintsNothing()
+    {
+        var svc = new FakeHostedDiagnosticsBlobService { ExistingBlobPath = $"{TenantA}/{Filename}" };
+        var ex = await Assert.ThrowsAsync<HostedBlobAlreadyExistsException>(
+            () => svc.GenerateUploadSasAsync(TenantA, SessionA, Filename));
+        Assert.Equal($"{TenantA}/{Filename}", ex.BlobPath);
+        Assert.Empty(svc.CapturedSasBuilders);
+    }
+
+    [Fact]
+    public async Task GenerateUploadSas_ExistingBlobInOtherTenant_DoesNotBlockSameName()
+    {
+        // Existence is checked on the tenant-prefixed path, not on the bare filename.
+        var svc = new FakeHostedDiagnosticsBlobService { ExistingBlobPath = $"{TenantB}/{Filename}" };
+        var result = await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
+        Assert.Equal($"{TenantA}/{Filename}", result.BlobPath);
     }
 
     [Fact]
     public async Task GenerateUploadSas_ReturnsTenantPrefixedBlobPath()
     {
         var svc = new FakeHostedDiagnosticsBlobService();
-        var result = await svc.GenerateUploadSasAsync(TenantA, Filename);
+        var result = await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
         Assert.Equal($"{TenantA}/{Filename}", result.BlobPath);
     }
 
@@ -112,9 +172,9 @@ public class HostedDiagnosticsBlobServiceTests
     public async Task GenerateUploadSas_EnsuresContainerOnce()
     {
         var svc = new FakeHostedDiagnosticsBlobService();
-        await svc.GenerateUploadSasAsync(TenantA, Filename);
-        await svc.GenerateUploadSasAsync(TenantA, Filename);
-        await svc.GenerateUploadSasAsync(TenantB, "other.zip");
+        await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
+        await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
+        await svc.GenerateUploadSasAsync(TenantB, SessionA, Filename);
         Assert.Equal(1, svc.EnsureContainerCallCount);
     }
 
@@ -124,7 +184,7 @@ public class HostedDiagnosticsBlobServiceTests
         var svc = new FakeHostedDiagnosticsBlobService();
         var requested = TimeSpan.FromHours(24);
         var before = DateTime.UtcNow;
-        var result = await svc.GenerateUploadSasAsync(TenantA, Filename, requested);
+        var result = await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename, requested);
         var maxAllowed = before.Add(HostedDiagnosticsBlobService.MaxUploadSasTtl).AddMinutes(1); // tolerance
         Assert.True(result.ExpiresAt <= maxAllowed,
             $"ExpiresAt {result.ExpiresAt:O} exceeded MaxUploadSasTtl-bounded {maxAllowed:O}");
@@ -135,16 +195,16 @@ public class HostedDiagnosticsBlobServiceTests
     {
         var svc = new FakeHostedDiagnosticsBlobService();
         var before = DateTime.UtcNow;
-        var result = await svc.GenerateUploadSasAsync(TenantA, Filename);
+        var result = await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
         var delta = result.ExpiresAt - before;
         Assert.InRange(delta.TotalMinutes, 14, 16);
     }
 
     [Fact]
-    public async Task GenerateUploadSas_PassesBlobScopedResourceAndWriteCreateOnlyPermsToBuilder()
+    public async Task GenerateUploadSas_PassesBlobScopedResourceAndCreateOnlyPermsToBuilder()
     {
         var svc = new FakeHostedDiagnosticsBlobService();
-        await svc.GenerateUploadSasAsync(TenantA, Filename);
+        await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
 
         Assert.Single(svc.CapturedSasBuilders);
         var builder = svc.CapturedSasBuilders.Single();
@@ -152,32 +212,32 @@ public class HostedDiagnosticsBlobServiceTests
         Assert.Equal($"{TenantA}/{Filename}", builder.BlobName);
         Assert.Equal("diagnostics", builder.BlobContainerName);
 
-        // Reconstruct the permissions string to ensure ONLY Write + Create are set —
+        // ONLY Create — no Write (would allow replacing an existing same-tenant blob),
         // no Read (would expose other-tenant blobs in cross-tenant scenarios),
         // no Delete (cleanup is service-side via DeleteIfExistsAsync),
         // no List (agent has no enumeration need).
-        var permsString = builder.Permissions ?? string.Empty;
-        Assert.Contains("w", permsString);
-        Assert.Contains("c", permsString);
-        Assert.DoesNotContain("r", permsString);
-        Assert.DoesNotContain("d", permsString);
-        Assert.DoesNotContain("l", permsString);
+        Assert.Equal("c", builder.Permissions);
+    }
+
+    [Fact]
+    public void UploadSasPermissions_IsCreateOnly()
+    {
+        // Pinned: Write must never come back — it is what turns a create into an overwrite.
+        Assert.Equal(BlobSasPermissions.Create, HostedDiagnosticsBlobService.UploadSasPermissions);
     }
 
     [Fact]
     public async Task GenerateUploadSas_DifferentTenants_GetDifferentBlobPaths()
     {
         var svc = new FakeHostedDiagnosticsBlobService();
-        var a = await svc.GenerateUploadSasAsync(TenantA, Filename);
-        var b = await svc.GenerateUploadSasAsync(TenantB, Filename);
+        var a = await svc.GenerateUploadSasAsync(TenantA, SessionA, Filename);
+        var b = await svc.GenerateUploadSasAsync(TenantB, SessionA, Filename);
         Assert.NotEqual(a.BlobPath, b.BlobPath);
         Assert.StartsWith(TenantA + "/", a.BlobPath);
         Assert.StartsWith(TenantB + "/", b.BlobPath);
     }
 
     // ── DeleteBySessionPrefixAsync — cascade sweep for multi-package sessions ──────
-
-    private const string SessionA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
     [Theory]
     [InlineData("not-a-guid", SessionA)]
@@ -310,6 +370,9 @@ public class HostedDiagnosticsBlobServiceTests
         public int EnsureContainerCallCount { get; private set; }
         public List<BlobSasBuilder> CapturedSasBuilders { get; } = new();
 
+        /// <summary>Blob path that the fake reports as already existing (null = nothing exists).</summary>
+        public string? ExistingBlobPath { get; set; }
+
         public FakeHostedDiagnosticsBlobService()
             : base(
                 new BlobServiceClient("UseDevelopmentStorage=true"),
@@ -323,6 +386,9 @@ public class HostedDiagnosticsBlobServiceTests
             EnsureContainerCallCount++;
             return Task.CompletedTask;
         }
+
+        protected override Task<bool> BlobExistsAsync(string blobPath, CancellationToken cancellationToken)
+            => Task.FromResult(ExistingBlobPath == blobPath);
 
         protected override Task<Uri> BuildUploadSasUriAsync(
             string blobPath, DateTimeOffset expiresOn, CancellationToken cancellationToken)
@@ -338,7 +404,7 @@ public class HostedDiagnosticsBlobServiceTests
                 StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
                 ExpiresOn = expiresOn,
             };
-            builder.SetPermissions(BlobSasPermissions.Write | BlobSasPermissions.Create);
+            builder.SetPermissions(HostedDiagnosticsBlobService.UploadSasPermissions);
             CapturedSasBuilders.Add(builder);
 
             return Task.FromResult(new Uri($"https://fake.blob.core.windows.net/diagnostics/{blobPath}?fake=sas"));

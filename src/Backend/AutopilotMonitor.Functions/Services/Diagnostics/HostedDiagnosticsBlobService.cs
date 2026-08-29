@@ -27,8 +27,8 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
     /// (<c>AzureStorageAccountName</c>) or connection string (<c>AzureBlobStorageConnectionString</c>).
     /// SAS issuance for the agent upload-url endpoint differs by auth path — User
     /// Delegation SAS under MI, account-key SAS under connection-string — both produce
-    /// a blob-scoped, Write+Create-only, 15-min token that cannot reach other tenants'
-    /// prefixes.
+    /// a blob-scoped, Create-only, 15-min token that cannot reach other tenants'
+    /// prefixes and cannot replace an existing blob.
     /// </para>
     /// </summary>
     public class HostedDiagnosticsBlobService
@@ -39,6 +39,16 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         // keeping the exposure window short. Hard cap defends against a misconfigured caller
         // requesting hour-long tokens.
         public static readonly TimeSpan MaxUploadSasTtl = TimeSpan.FromMinutes(60);
+
+        /// <summary>
+        /// Permissions on the upload SAS. Create-only by design: the agent PUTs one new block
+        /// blob per package (fresh timestamped name), so Write — which would allow replacing an
+        /// existing blob under the same tenant prefix — is never needed.
+        /// </summary>
+        public const BlobSasPermissions UploadSasPermissions = BlobSasPermissions.Create;
+
+        /// <summary>Canonical package-name prefix; the session id follows immediately after.</summary>
+        internal const string PackageNamePrefix = "AgentDiagnostics-";
 
         private readonly BlobServiceClient _blobServiceClient;
         private readonly ILogger<HostedDiagnosticsBlobService> _logger;
@@ -94,16 +104,21 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         // -------- Public API --------
 
         /// <summary>
-        /// Mints a blob-scoped, Write+Create-only SAS URI pinned to the EXACT path
+        /// Mints a blob-scoped, Create-only SAS URI pinned to the EXACT path
         /// <c>{tenantId}/{filename}</c> for an agent's diagnostics-package upload. Cannot
-        /// be redirected to other tenants' prefixes. TTL is capped at
-        /// <see cref="MaxUploadSasTtl"/> to keep the exposure window tight.
+        /// be redirected to other tenants' prefixes, and the filename must carry the
+        /// caller's <paramref name="sessionId"/> (<c>AgentDiagnostics-{sessionId}-…zip</c>)
+        /// so one device cannot name another session's package. An already-existing blob
+        /// is never re-issued (<see cref="HostedBlobAlreadyExistsException"/>). TTL is
+        /// capped at <see cref="MaxUploadSasTtl"/> to keep the exposure window tight.
         /// </summary>
         public virtual async Task<HostedUploadSasResult> GenerateUploadSasAsync(
-            string tenantId, string filename, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
+            string tenantId, string sessionId, string filename, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
             ValidateFilename(filename);
+            EnsureFilenameBoundToSession(filename, sessionId);
 
             var effectiveTtl = ttl ?? TimeSpan.FromMinutes(15);
             if (effectiveTtl > MaxUploadSasTtl)
@@ -115,6 +130,14 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
             var expiresOn = DateTimeOffset.UtcNow.Add(effectiveTtl);
 
             await EnsureContainerAsync(cancellationToken);
+
+            // Create-only semantics, enforced twice: the SAS carries no Write permission (an
+            // existing blob cannot be replaced with it), and issuance itself refuses a name
+            // that is already taken so the conflict surfaces here as a 409 instead of as an
+            // opaque 403 from storage. Every package gets a fresh timestamped name, so a
+            // legitimate agent never asks for an existing one.
+            if (await BlobExistsAsync(blobPath, cancellationToken))
+                throw new HostedBlobAlreadyExistsException(blobPath);
 
             var sasUri = await BuildUploadSasUriAsync(blobPath, expiresOn, cancellationToken);
 
@@ -185,7 +208,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
 
             // Trailing dash bounds the match to this exact session id (GUIDs are fixed-length,
             // but the explicit separator keeps the invariant obvious and layout-proof).
-            var prefix = $"{tenantId}/AgentDiagnostics-{sessionId}-";
+            var prefix = $"{tenantId}/{PackageNamePrefix}{sessionId}-";
             var deleted = 0;
             await foreach (var item in containerClient.GetBlobsAsync(
                 BlobTraits.None, BlobStates.None, prefix: prefix, cancellationToken: cancellationToken))
@@ -272,7 +295,17 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         }
 
         /// <summary>
-        /// Builds the blob-scoped Write+Create-only SAS URI for upload. Branch on the
+        /// Test seam: whether a blob already exists at <paramref name="blobPath"/>. Production
+        /// issues a HEAD; tests override to simulate a taken name without Azurite.
+        /// </summary>
+        protected virtual async Task<bool> BlobExistsAsync(string blobPath, CancellationToken cancellationToken)
+        {
+            var response = await GetContainerClient().GetBlobClient(blobPath).ExistsAsync(cancellationToken);
+            return response.Value;
+        }
+
+        /// <summary>
+        /// Builds the blob-scoped Create-only SAS URI for upload. Branch on the
         /// auth mode: MI uses User Delegation SAS (no account key needed); connection
         /// string uses the underlying StorageSharedKeyCredential via
         /// <see cref="BlobClient.GenerateSasUri(BlobSasBuilder)"/>.
@@ -290,9 +323,10 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
                 StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), // clock-skew tolerance
                 ExpiresOn = expiresOn,
             };
-            // Write + Create only — agent must not be able to Read other tenants' blobs,
-            // Delete anything, or List the container.
-            sasBuilder.SetPermissions(BlobSasPermissions.Write | BlobSasPermissions.Create);
+            // Create only — the agent does a single Put Blob of a brand-new name. No Write
+            // (would let the holder replace an existing blob of the same tenant), no Read,
+            // no Delete, no List.
+            sasBuilder.SetPermissions(UploadSasPermissions);
 
             if (UsesManagedIdentity)
             {
@@ -338,6 +372,26 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         }
 
         /// <summary>
+        /// Binds an upload filename to the requesting session: it must be
+        /// <c>AgentDiagnostics-{sessionId}-{anything}.zip</c> (the shape the agent has always
+        /// produced, incl. the <c>-preprov</c>/<c>-server-requested</c> suffixes). Without this
+        /// an authenticated device could name any other session's package in its tenant.
+        /// Throws <see cref="ArgumentException"/> on rejection.
+        /// </summary>
+        internal static void EnsureFilenameBoundToSession(string filename, string sessionId)
+        {
+            var required = $"{PackageNamePrefix}{sessionId}-";
+            if (!filename.StartsWith(required, StringComparison.OrdinalIgnoreCase)
+                || filename.Length <= required.Length
+                || !filename.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "filename must be of the form 'AgentDiagnostics-{sessionId}-{timestamp}.zip' for the requesting session",
+                    nameof(filename));
+            }
+        }
+
+        /// <summary>
         /// Validates a stored blob path (<c>{tenantId}/{filename}</c>) on the read paths.
         /// Defends the download proxy against path-traversal even if a row was tampered with.
         /// </summary>
@@ -356,6 +410,22 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
             if (blobPath.Contains('\\'))
                 throw new ArgumentException("blobPath must not contain backslashes", nameof(blobPath));
         }
+    }
+
+    /// <summary>
+    /// Thrown by <see cref="HostedDiagnosticsBlobService.GenerateUploadSasAsync"/> when the
+    /// requested blob name is already taken. Distinct from <see cref="ArgumentException"/>
+    /// (malformed input → 400) so the Function can answer 409.
+    /// </summary>
+    public sealed class HostedBlobAlreadyExistsException : InvalidOperationException
+    {
+        public HostedBlobAlreadyExistsException(string blobPath)
+            : base($"Hosted diagnostics blob already exists: {blobPath}")
+        {
+            BlobPath = blobPath;
+        }
+
+        public string BlobPath { get; }
     }
 
     /// <summary>

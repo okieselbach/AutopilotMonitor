@@ -2,6 +2,7 @@
 using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
@@ -19,8 +20,10 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
     ///         container SAS URL stored in <see cref="TenantConfiguration.DiagnosticsBlobSasUrl"/>.
     ///         Data stays in the customer's own storage account.</item>
     ///   <item><c>Hosted</c> (opt-in): mints a freshly-stamped, 15-min, blob-scoped,
-    ///         Write+Create-only SAS pinned to <c>{tenantId}/{filename}</c> in the backend's
-    ///         own diagnostics container. Requires explicit admin opt-in via the UI; never
+    ///         Create-only SAS pinned to <c>{tenantId}/{filename}</c> in the backend's
+    ///         own diagnostics container. The filename must carry the requesting session id
+    ///         and the blob must not exist yet, so one device can neither name nor replace
+    ///         another session's package. Requires explicit admin opt-in via the UI; never
     ///         silent.</item>
     /// </list>
     /// Called by the agent just before uploading — never at startup, never cached.
@@ -56,6 +59,8 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly HostedDiagnosticsBlobService _hostedDiagnostics;
+        private readonly ISessionDeletionInventoryReader _sessionRowReader;
+        private readonly SessionOwnerBindingObserver _ownerBinding;
 
         public GetDiagnosticsUploadUrlFunction(
             ILogger<GetDiagnosticsUploadUrlFunction> logger,
@@ -68,8 +73,12 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             CloudPcDeviceValidator cloudPcDeviceValidator,
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
-            HostedDiagnosticsBlobService hostedDiagnostics)
+            HostedDiagnosticsBlobService hostedDiagnostics,
+            ISessionDeletionInventoryReader sessionRowReader,
+            SessionOwnerBindingObserver ownerBinding)
         {
+            _sessionRowReader = sessionRowReader;
+            _ownerBinding = ownerBinding;
             _logger = logger;
             _configService = configService;
             _adminConfigService = adminConfigService;
@@ -145,7 +154,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
 
                 if (destination == DestinationHosted)
                 {
-                    return await IssueHostedSasAsync(req, requestBody);
+                    return await IssueHostedSasAsync(req, requestBody, validation);
                 }
 
                 if (destination == DestinationCustomerSas)
@@ -237,7 +246,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         }
 
         private async Task<HttpResponseData> IssueHostedSasAsync(
-            HttpRequestData req, GetDiagnosticsUploadUrlRequest requestBody)
+            HttpRequestData req, GetDiagnosticsUploadUrlRequest requestBody, SecurityValidationResult validation)
         {
             if (string.IsNullOrEmpty(requestBody.FileName))
             {
@@ -250,18 +259,36 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 return badRequest;
             }
 
+            // The blob name is bound to the session below, so the session id has to be a real
+            // one — and it is the coordinate for the owner-binding observation.
+            if (!SecurityValidator.IsValidGuid(requestBody.SessionId))
+            {
+                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                {
+                    Success = false,
+                    Message = "sessionId is required for hosted destination"
+                });
+                return badRequest;
+            }
+
+            // SESSION-OWNER-BINDING-SHADOW: same observation as the session-scoped writes, so
+            // stage-2 enforcement covers this endpoint with the same data. Never rejects here.
+            await ObserveSessionOwnerAsync(req, requestBody.TenantId, requestBody.SessionId, validation);
+
             HostedUploadSasResult sasResult;
             try
             {
                 sasResult = await _hostedDiagnostics.GenerateUploadSasAsync(
-                    requestBody.TenantId, requestBody.FileName);
+                    requestBody.TenantId, requestBody.SessionId, requestBody.FileName);
             }
             catch (ArgumentException ex)
             {
-                // Filename validation failed (path separator, traversal, oversize, etc.)
+                // Filename validation failed (path separator, traversal, oversize, not bound
+                // to the requesting session, etc.)
                 _logger.LogWarning(
-                    "GetDiagnosticsUploadUrl: rejecting hosted SAS for tenant {TenantId}, file {FileName}: {Reason}",
-                    requestBody.TenantId, requestBody.FileName, ex.Message);
+                    "GetDiagnosticsUploadUrl: rejecting hosted SAS for tenant {TenantId}, session {SessionId}, file {FileName}: {Reason}",
+                    requestBody.TenantId, requestBody.SessionId, requestBody.FileName, ex.Message);
                 var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
                 await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
                 {
@@ -269,6 +296,21 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                     Message = "Invalid file name"
                 });
                 return badRequest;
+            }
+            catch (HostedBlobAlreadyExistsException ex)
+            {
+                // A legitimate agent never re-requests an existing name (every package is
+                // freshly timestamped); this is either a replay or an overwrite attempt.
+                _logger.LogWarning(
+                    "GetDiagnosticsUploadUrl: rejecting hosted SAS for tenant {TenantId}, session {SessionId}: blob {BlobPath} already exists",
+                    requestBody.TenantId, requestBody.SessionId, ex.BlobPath);
+                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflict.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                {
+                    Success = false,
+                    Message = "A diagnostics package with this name already exists"
+                });
+                return conflict;
             }
 
             _logger.LogInformation(
@@ -286,6 +328,21 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 Message = null
             });
             return response;
+        }
+
+        private async Task ObserveSessionOwnerAsync(
+            HttpRequestData req, string tenantId, string sessionId, SecurityValidationResult validation)
+        {
+            try
+            {
+                var row = await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId);
+                _ownerBinding.Observe(req, tenantId, sessionId, row, validation, "agent/upload-url");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "GetDiagnosticsUploadUrl: session-owner observation skipped for session {SessionId}", sessionId);
+            }
         }
 
         /// <summary>
