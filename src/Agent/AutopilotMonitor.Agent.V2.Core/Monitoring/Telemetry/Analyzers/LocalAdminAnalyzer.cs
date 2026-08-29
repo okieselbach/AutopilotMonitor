@@ -36,6 +36,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     /// (<c>builtin_administrator_enabled</c>) but not scored: whether OOBE enables it
     /// transiently is not established, so the field first collects evidence.
     ///
+    /// Built-in accounts are recognised by well-known RID (500/501/503/504 on the machine SID)
+    /// in addition to their English names, so localized installs (Gast, Invité, Administrateur)
+    /// do not flag their own disabled Guest/Administrator.
+    ///
+    /// At shutdown the logged-in users are allowed dynamically — but only identities that are
+    /// NOT local SAM accounts (Entra / domain users, whose profile folder is the only artifact
+    /// they leave). A logged-in local account is exactly the delta this analyzer exists to
+    /// catch and is never exempted by its own login (CWE-807: the login state is under the
+    /// adversary's control); it is reported as <c>logged_in_local_accounts</c>.
+    ///
     /// Emits a single "local_admin_analysis" event at startup and at shutdown,
     /// enabling delta detection between pre- and post-enrollment state.
     ///
@@ -62,6 +72,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             "defaultuser0",    // Temporary OOBE/Autopilot system account, present during enrollment
             "defaultuser1",    // Sometimes seen in OOBE, but not always present
             "defaultuser2",    // Sometimes seen in OOBE, but not always present
+            "kioskUser0",      // Assigned Access (kiosk profile) autologon account, created by Windows
             "Public",          // Profile folder (not a user account)
             "Default",         // Default user profile template
             "Default User",    // Symlink to Default in some Windows versions
@@ -111,9 +122,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         {
             _logger.Info($"{Name}: Running shutdown analysis");
 
-            // At shutdown a user has logged in — their profile folder and account are expected.
-            // Detect logged-in users via explorer.exe owner (same technique as DesktopArrivalDetector)
-            // and add them dynamically so they don't trigger false positives.
+            // At shutdown a user has logged in — their profile folder is expected. Detect logged-in
+            // users via explorer.exe owner (same technique as DesktopArrivalDetector); RunAnalysis
+            // allows them dynamically unless the name is a local SAM account (see SplitLoggedInUsers).
             var loggedInUsers = GetLoggedInUserNames();
             // Phase=Unknown: this is an analysis event, not a phase declaration.
             // Phase-tagged events are reserved for explicit phase transitions (esp_phase_changed etc.).
@@ -124,16 +135,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         // Core analysis
         // -----------------------------------------------------------------------
 
-        private void RunAnalysis(string trigger, EnrollmentPhase phase, List<string> dynamicAllowedUsers = null)
+        private void RunAnalysis(string trigger, EnrollmentPhase phase, List<string> loggedInUsers = null)
         {
             try
             {
-                // Build effective allowed list: static + optional dynamic (logged-in users at shutdown)
+                // The SAM inventory is read first: it decides which logged-in users may be allowed
+                // dynamically. A logged-in name that IS a local account is never exempted — its
+                // login state is under the adversary's control, and a local account created after
+                // the startup scan is precisely the delta this run exists to catch.
+                var localAccounts = ReadLocalAccounts();
+                var loggedIn      = SplitLoggedInUsers(loggedInUsers, localAccounts);
+
+                foreach (var user in loggedIn.LocalAccounts)
+                    _logger.Warning($"{Name}: Logged-in user '{user}' is a local account — not allowed dynamically");
+
+                // Build effective allowed list: static + dynamic (non-local logged-in users at shutdown)
                 var effectiveAllowed = _allowedAccounts;
-                if (dynamicAllowedUsers != null && dynamicAllowedUsers.Count > 0)
+                if (loggedIn.Allowed.Count > 0)
                 {
                     effectiveAllowed = new List<string>(_allowedAccounts);
-                    foreach (var user in dynamicAllowedUsers)
+                    foreach (var user in loggedIn.Allowed)
                     {
                         if (!effectiveAllowed.Any(a => string.Equals(a, user, StringComparison.OrdinalIgnoreCase)))
                         {
@@ -144,7 +165,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 }
 
                 var bypassNroResult  = CheckBypassNroRegistry();
-                var accountsResult   = CheckLocalAdminAccounts(effectiveAllowed);
+                var accountsResult   = CheckLocalAdminAccounts(localAccounts, effectiveAllowed);
                 var profilesResult   = CheckUserProfiles(effectiveAllowed);
 
                 int confidenceScore = 0;
@@ -210,7 +231,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     { "triggered_at",               trigger },
                     { "enrollment_phase_at_check",  phase.ToString() },
                     { "allowed_accounts",           effectiveAllowed },
-                    { "dynamically_allowed_users",  dynamicAllowedUsers ?? new List<string>() },
+                    { "dynamically_allowed_users",  loggedIn.Allowed },
+                    { "logged_in_local_accounts",   loggedIn.LocalAccounts },
                     { "checks", new Dictionary<string, object>
                         {
                             { "bypass_nro", new Dictionary<string, object>
@@ -314,6 +336,82 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             return allowedAccounts.Any(a => MatchesAllowedEntry(name, a));
         }
 
+        /// <summary>
+        /// Well-known built-in accounts of the local machine domain, recognised by RID so that
+        /// localized names (Gast, Invité, Administrateur, …) are not flagged:
+        /// 500 Administrator, 501 Guest, 503 DefaultAccount, 504 WDAGUtilityAccount.
+        /// Only S-1-5-21-… SIDs qualify (the WMI query is already restricted to local accounts).
+        /// Internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static bool IsWellKnownBuiltInRid(string sid)
+        {
+            if (string.IsNullOrEmpty(sid) || !sid.StartsWith("S-1-5-21-", StringComparison.Ordinal))
+                return false;
+
+            var dash = sid.LastIndexOf('-');
+            if (dash < 0 || dash == sid.Length - 1)
+                return false;
+
+            switch (sid.Substring(dash + 1))
+            {
+                case "500":
+                case "501":
+                case "503":
+                case "504":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Splits the logged-in user names into those that may be allowed dynamically (not a
+        /// local SAM account — Entra / domain identities whose only artifact is a profile
+        /// folder) and those that are local accounts (never allowed; reported).
+        /// Pure; internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static LoggedInUserSplit SplitLoggedInUsers(IList<string> loggedInUsers, IList<LocalAccountInfo> localAccounts)
+        {
+            var split = new LoggedInUserSplit();
+            if (loggedInUsers == null)
+                return split;
+
+            var localNames = new HashSet<string>(
+                (localAccounts ?? new List<LocalAccountInfo>()).Select(a => a.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var user in loggedInUsers)
+            {
+                if (string.IsNullOrWhiteSpace(user))
+                    continue;
+                if (localNames.Contains(user))
+                    split.LocalAccounts.Add(user);
+                else
+                    split.Allowed.Add(user);
+            }
+
+            return split;
+        }
+
+        /// <summary>
+        /// Top-level entries of C:\Users that are not user profiles and are skipped entirely:
+        /// junctions (<c>All Users</c>, <c>Default User</c> and their localized variants point
+        /// at ProgramData / Default) and <c>$&lt;32 hex&gt;</c> folders. Neither can be the
+        /// profile of a local account — a SAM account name is at most 20 characters — so they
+        /// can never contribute to the profile-overlap score; listing them is pure noise.
+        /// Internal for direct unit-testing via InternalsVisibleTo.
+        /// </summary>
+        internal static bool IsNonProfileFolder(string folderName, FileAttributes attributes)
+        {
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                return true;
+
+            return folderName != null
+                   && folderName.Length == 33
+                   && folderName[0] == '$'
+                   && folderName.Skip(1).All(Uri.IsHexDigit);
+        }
+
         // -----------------------------------------------------------------------
         // Individual checks
         // -----------------------------------------------------------------------
@@ -352,7 +450,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             }
         }
 
-        private LocalAccountCheckResult CheckLocalAdminAccounts(List<string> allowedAccounts)
+        /// <summary>Local account inventory via WMI; empty on failure (logged at Warning).</summary>
+        private List<LocalAccountInfo> ReadLocalAccounts()
         {
             var accounts = new List<LocalAccountInfo>();
 
@@ -379,6 +478,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 _logger.Warning($"{Name}: Failed to enumerate local accounts via WMI: {ex.Message}");
             }
 
+            return accounts;
+        }
+
+        private LocalAccountCheckResult CheckLocalAdminAccounts(List<LocalAccountInfo> accounts, List<string> allowedAccounts)
+        {
             // Administrators-group membership is read from the SAM, independent of WMI and of
             // the enabled state — a dormant backdoor with admin rights is still a member.
             var group = LocalGroupNativeMethods.GetAdministratorsMembers();
@@ -404,6 +508,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
         ///   - every local account is checked, disabled ones included (state is reported);
         ///   - a local account is an Administrators member when its SID matches a group member,
         ///     or (SID unavailable) its name matches a member of the local machine domain;
+        ///   - an account is allowed by name (allowed list, globs) or by well-known RID
+        ///     (<see cref="IsWellKnownBuiltInRid"/>) — localized built-ins are never flagged;
         ///   - <c>UnexpectedAdminMembers</c> = unexpected accounts holding membership, plus local
         ///     members not on the allowed list that the WMI inventory did not return at all;
         ///   - members outside the local machine domain (Entra role SIDs, domain groups) are
@@ -420,13 +526,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
             var adminSids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var adminLocalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var adminLocalMembers = new List<LocalGroupMember>();
             foreach (var member in adminMembers ?? new List<LocalGroupMember>())
             {
                 result.AdministratorsGroupMembers.Add(member.DomainAndName ?? string.Empty);
                 if (!string.IsNullOrEmpty(member.Sid))
                     adminSids.Add(member.Sid);
                 if (IsLocalMember(member, machineName))
+                {
                     adminLocalNames.Add(member.Name);
+                    adminLocalMembers.Add(member);
+                }
             }
 
             foreach (var account in accounts ?? new List<LocalAccountInfo>())
@@ -445,7 +555,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 if (account.Sid != null && account.Sid.EndsWith("-500", StringComparison.Ordinal))
                     result.BuiltInAdministratorEnabled = !account.Disabled;
 
-                if (IsAllowed(account.Name, allowedAccounts))
+                if (IsWellKnownBuiltInRid(account.Sid) || IsAllowed(account.Name, allowedAccounts))
                     continue;
 
                 result.Unexpected.Add(account.Name);
@@ -455,9 +565,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
             // Local members the WMI inventory did not surface (WMI failure, or an account the
             // provider does not list) — still an unexpected admin when not on the allowed list.
-            foreach (var name in adminLocalNames)
+            foreach (var member in adminLocalMembers)
             {
-                if (IsAllowed(name, allowedAccounts))
+                var name = member.Name;
+                if (IsWellKnownBuiltInRid(member.Sid) || IsAllowed(name, allowedAccounts))
                     continue;
                 if (result.UnexpectedAdminMembers.Any(u => string.Equals(u, name, StringComparison.OrdinalIgnoreCase)))
                     continue;
@@ -496,6 +607,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     var folderName = Path.GetFileName(dir);
                     if (string.IsNullOrEmpty(folderName))
                         continue;
+
+                    if (IsNonProfileFolder(folderName, new DirectoryInfo(dir).Attributes))
+                    {
+                        _logger.Debug($"{Name}: Skipping non-profile folder: {folderName}");
+                        continue;
+                    }
 
                     allFound.Add(folderName);
 
@@ -634,6 +751,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
             /// <summary>Enabled state of the built-in Administrator (RID 500); null when not found.</summary>
             public bool? BuiltInAdministratorEnabled { get; set; }
+        }
+
+        /// <summary>Logged-in users at shutdown, split by whether the name is a local SAM account.</summary>
+        internal sealed class LoggedInUserSplit
+        {
+            /// <summary>Not a local account (Entra / domain identity) — allowed dynamically.</summary>
+            public List<string> Allowed { get; } = new List<string>();
+
+            /// <summary>Local accounts that are logged in — never allowed, reported.</summary>
+            public List<string> LocalAccounts { get; } = new List<string>();
         }
 
         private class UserProfileCheckResult

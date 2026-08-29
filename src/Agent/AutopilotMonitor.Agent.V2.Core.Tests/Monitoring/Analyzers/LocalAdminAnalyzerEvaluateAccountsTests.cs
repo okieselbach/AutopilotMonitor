@@ -151,6 +151,76 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Analyzers
             Assert.Equal(new[] { "BackDoor" }, result.UnexpectedAdminMembers);
         }
 
+        // -------------------------------------------------------------- localized built-ins (RID)
+
+        [Fact]
+        public void Localized_builtin_accounts_are_allowed_by_well_known_rid()
+        {
+            // German / French install: the English names are on the allowed list, the local
+            // names are not — before the RID match every disabled Guest was an unexpected account.
+            var accounts = new List<LocalAdminAnalyzer.LocalAccountInfo>
+            {
+                Account("Administrateur",     disabled: true,  rid: 500),
+                Account("Gast",               disabled: true,  rid: 501),
+                Account("Standardkonto",      disabled: true,  rid: 503),
+                Account("WDAGDienstprogramm", disabled: true,  rid: 504),
+                Account("defaultuser0",       disabled: false, rid: 1000)
+            };
+            var members = new List<LocalGroupMember> { LocalMember("Administrateur", 500) };
+
+            var result = LocalAdminAnalyzer.EvaluateAccounts(accounts, members, true, Machine, Allowed);
+
+            Assert.Empty(result.Unexpected);
+            Assert.Empty(result.UnexpectedAdminMembers);
+            Assert.Equal(5, result.AllChecked.Count);
+        }
+
+        [Fact]
+        public void Localized_builtin_admin_member_missing_from_wmi_is_not_flagged()
+        {
+            var members = new List<LocalGroupMember>
+            {
+                LocalMember("Administrateur", 500),
+                LocalMember("backdoor", 1001)
+            };
+
+            var result = LocalAdminAnalyzer.EvaluateAccounts(
+                new List<LocalAdminAnalyzer.LocalAccountInfo>(), members, true, Machine, Allowed);
+
+            Assert.Equal(new[] { "backdoor" }, result.UnexpectedAdminMembers);
+        }
+
+        [Fact]
+        public void Well_known_rid_does_not_cover_ordinary_accounts_or_foreign_sids()
+        {
+            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "500"));
+            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "501"));
+            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "503"));
+            Assert.True(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "504"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "502"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "1500"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix + "1001"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid("S-1-12-1-1-2-3-500"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid("S-1-5-32-544"));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(MachineSidPrefix));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(null));
+            Assert.False(LocalAdminAnalyzer.IsWellKnownBuiltInRid(""));
+        }
+
+        [Fact]
+        public void Account_named_like_a_builtin_but_with_an_ordinary_rid_is_still_matched_by_name_only()
+        {
+            // Name-based allowance is unchanged: the RID match only ADDS coverage.
+            var accounts = new List<LocalAdminAnalyzer.LocalAccountInfo>
+            {
+                Account("Gast", disabled: false, rid: 1001)
+            };
+
+            var result = LocalAdminAnalyzer.EvaluateAccounts(accounts, new List<LocalGroupMember>(), true, Machine, Allowed);
+
+            Assert.Equal(new[] { "Gast" }, result.Unexpected);
+        }
+
         // -------------------------------------------------------------- built-in Administrator
 
         [Theory]

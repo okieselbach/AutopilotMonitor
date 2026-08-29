@@ -2,6 +2,8 @@
 
 ## 2026-08-30 (3)
 
+* **Update**: `agent/local-admin-analyzer.md` — built-ins matched by well-known RID (500/501/503/504) so localized Guest/Administrator are not flagged now that disabled accounts are inventoried; `kioskUser0` built-in; shutdown-time dynamic allowance restricted to non-SAM identities (a logged-in local account is never exempted — CWE-807) with new `logged_in_local_accounts` field; junctions and `$<32 hex>` folders skipped by the profile check.
+
 * **New**: `agent/local-admin-analyzer.md` — `LocalAdminAnalyzer` no longer skips disabled accounts (a `/active:no` backdoor re-enabled after enrollment was invisible at both scans) and reads Administrators-group membership from the SAM via `NetLocalGroupGetMembers` on `S-1-5-32-544` (`LocalGroupNativeMethods`, WMI-independent). New event fields `unexpected_admin_members` (+40), `account_details`, `administrators_group.{enumerated,error_code,members}`, `builtin_administrator_enabled` (reported, not scored). Non-local members (Entra role SIDs, domain groups) are listed, never flagged. `ANALYZE-ID-002` 1.2.0 explanation names the new fields. Registered in `index.md`.
 
 ## 2026-08-30 (2)
