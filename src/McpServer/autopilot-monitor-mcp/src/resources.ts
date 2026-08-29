@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { EVENT_TYPES_CATALOG, DEVICE_PROPERTIES_CATALOG, getResourceContent } from './resource-catalog.js';
 import { DIAG_ZIP_MAP } from './diag-zip-map.js';
 

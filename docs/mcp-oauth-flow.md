@@ -8,7 +8,7 @@ tags:
   - oauth
   - entra-id
   - security
-timestamp: 2026-07-11T10:59:31+02:00
+timestamp: 2026-08-29T08:45:00+02:00
 ---
 
 # MCP OAuth Flow — Who Authenticates Where
@@ -41,9 +41,12 @@ The two identities never mix:
    in the vendor's backend, not on the user's machine.
 2. **MCP server** (Container App) — acts as a stateless **OAuth proxy /
    authorization-server façade** in front of Entra ID. It is *not* an IdP:
-   it registers clients dynamically (RFC 7591, HMAC-signed stateless
-   `client_id`), enforces the redirect-URI allowlist and PKCE, and exchanges
-   codes at Entra using its confidential client secret.
+   it establishes the client's identity statelessly — a Client ID Metadata
+   Document (MCP spec 2026-07-28: the `client_id` is an HTTPS URL the server
+   fetches and validates) or, for older clients, dynamic registration
+   (RFC 7591, HMAC-signed stateless `client_id`) — enforces the redirect-URI
+   allowlist and PKCE, and exchanges codes at Entra using its confidential
+   client secret. See [Protocol Eras & CIMD](mcp/protocol-eras-and-cimd.md).
 3. **Entra ID** — the real identity provider. This is where `adm.luke` lives.
 
 ## Full sequence
@@ -54,9 +57,10 @@ Claude Desktop        Browser (user's           MCP server              Entra ID
      │                      │                        │                      │
  1.  │─ POST /mcp ──────────┼───────────────────────▶│ 401 + WWW-Auth       │
  2.  │─ Discovery ──────────┼───────────────────────▶│ RFC 9728/8414 docs   │
- 3.  │─ POST /oauth/register┼───────────────────────▶│ client_id (HMAC-     │
-     │                      │                        │ signed, embeds the   │
-     │                      │                        │ registered callback) │
+ 3.  │─ client identity ────┼───────────────────────▶│ CIMD: client_id is a │
+     │   (CIMD, or legacy   │                        │ URL, doc fetched at  │
+     │    POST /oauth/      │                        │ /authorize; DCR:     │
+     │    register)         │                        │ HMAC-signed client_id│
      │                      │                        │                      │
  4.  │─ opens browser ─────▶│─ GET /oauth/authorize ▶│─ 302 to Entra ──────▶│
      │                      │  (PKCE challenge)      │  app-reg client_id,  │

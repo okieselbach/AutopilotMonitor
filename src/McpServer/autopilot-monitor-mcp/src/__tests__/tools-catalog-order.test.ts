@@ -18,7 +18,7 @@
  * never calls the API.
  */
 import { describe, it, expect } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
 import type { SearchProvider } from '../search-provider.js';
 

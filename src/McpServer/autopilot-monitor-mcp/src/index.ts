@@ -3,11 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express, { type ErrorRequestHandler } from 'express';
 import compression from 'compression';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { registerTools } from './tools.js';
-import { registerResources } from './resources.js';
-import { registerPrompts } from './prompts.js';
+import { createMcpRequestHandler } from './mcp-http.js';
+import { createServerForCaller, type ServerDeps } from './mcp-server-factory.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
 import { loadDocsCorpus, docSections } from './docs-corpus.js';
 import { createSearchProvider, resolveBackend } from './search-factory.js';
@@ -17,7 +14,6 @@ import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
-import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId } from './client.js';
 import { toolLoggingEnabled, attachToolCallRejectionSniffer } from './telemetry.js';
 import { API_BASE_URL } from './config.js';
 
@@ -206,78 +202,18 @@ if (docsIndex) {
   console.error('Docs index: not available — search_docs is not registered.');
 }
 
-// Computed once: the tool catalog is rebuilt per request, and this is a pure
-// function of the (immutable) corpus.
-const DOCS = docsIndex ? { vector: docsIndex, sections: docSections(docsDocs) } : undefined;
+const SERVER_DEPS: ServerDeps = {
+  serverVersion: SERVER_VERSION,
+  knowledgeBase,
+  eventTypeIndex,
+  // Computed once: the tool catalog is rebuilt per request, and this is a pure
+  // function of the (immutable) corpus.
+  docs: docsIndex ? { vector: docsIndex, sections: docSections(docsDocs) } : undefined,
+};
 
-// Server-level guidance. The host surfaces this once per connection, so it is
-// the right home for cross-cutting strategy that would otherwise be duplicated
-// into every tool description (and re-sent on every tools/list). Keep it short:
-// it is always-on context, not a manual.
-//
-// Role-aware: only a platform-scope caller (Global Admin or read-only Global
-// Reader) sees the cross-tenant scope hint. A normal tenant user gets
-// instructions with no mention of cross-tenant capability at all — the surface
-// is scoped to what they can actually do.
-function buildInstructions(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): string {
-  // Delegated (MSP) callers get a tenant-bounded surface: cross-tenant ROUTING, but every query MUST name
-  // a tenant — no platform aggregate. Spell that out once here (the host surfaces it per connection) so the
-  // model passes tenantId up front instead of discovering it via a tool error. A delegated admin who is
-  // also a member of their own home tenant may name it too (routed to the member path), so surface it.
-  const scopeLine = ga
-    ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
-    : delegated
-      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — there ' +
-        `is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.` +
-        (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '') +
-        ' Call list_tenants to resolve these IDs to tenant display names (domainName).'
-      : 'Scope: all queries are automatically limited to your tenant.';
-  // Role-aware headline: everyone below a real Global Admin keeps the exact READ-ONLY
-  // contract (and wording) this server has always advertised. A strict GA additionally
-  // holds the tenant-config write tools — say so once, with the safety model, so the
-  // model reaches for update/revert instead of assuming writes are impossible.
-  const headline = strictGa
-    ? 'Autopilot-Monitor is a telemetry server for Windows Autopilot enrollment sessions. All investigation ' +
-      'tools are read-only; as a Global Admin you additionally have tenant-configuration write tools ' +
-      '(update_tenant_config, revert_tenant_config). Call get_tenant_config_schema before composing a patch — ' +
-      'it lists every field with its exact name and JSON type. Every config write is snapshotted first and ' +
-      'verified after — use list_tenant_config_backups + revert_tenant_config to roll back.'
-    : 'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.';
-  return [
-    headline,
-    '',
-    'Investigating one session: call get_session_summary FIRST (status, filtered timeline, stats, rule analysis in one call), then drill in.',
-    ...(docsIndex
-      ? ['Product questions ("how do I…", "what does X mean", "where is my data stored"): use search_docs — the ' +
-         'published customer documentation. search_knowledge is a DIFFERENT corpus (analysis rules and IME log ' +
-         'patterns) and answers why an enrollment failed, not how the product works.']
-      : []),
-    'Searching events: use search_events (hybrid keyword+semantic ranking; depth="fast" then "deep" for exhaustive recall) for ranked hits, or get_session_events / query_raw_events for the raw unranked stream.',
-    'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
-    'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
-    'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
-    scopeLine,
-  ].join('\n');
-}
-
-/**
- * Creates a fresh McpServer instance per request (each needs its own protocol).
- * The tool catalog, descriptions and instructions are tailored to the caller's
- * role: a non-Global-Admin never sees GA-only tools or any cross-tenant / GA
- * wording — reducing both confusion and attack surface.
- */
-function createMcpServer(ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): McpServer {
-  const s = new McpServer(
-    { name: 'Autopilot-Monitor', version: SERVER_VERSION },
-    { instructions: buildInstructions(ga, strictGa, delegated, managedTenants, homeTenantId) },
-  );
-  registerTools(s, knowledgeBase, eventTypeIndex, DOCS, ga, strictGa, delegated);
-  registerResources(s);
-  // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
-  // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user.
-  registerPrompts(s, ga);
-  return s;
-}
+const mcpRequestHandler = createMcpRequestHandler(() => createServerForCaller(SERVER_DEPS), {
+  onerror: (error: Error) => console.error(`[mcp] Transport error: ${error.message}`),
+});
 
 // --- HTTP Server with Streamable HTTP Transport ---
 
@@ -348,7 +284,9 @@ app.get('/health', (_req, res) => {
 // Access guard for /mcp — validates JWT, checks backend whitelist, enforces rate limits
 app.use('/mcp', accessGuard);
 
-// MCP Streamable HTTP endpoint — STATELESS mode.
+// MCP Streamable HTTP endpoint — STATELESS, serving both the 2026-07-28
+// revision (per-request envelope, server/discover) and 2025-era clients
+// (initialize handshake) through one factory — see mcp-http.ts.
 //
 // Sessions are intentionally NOT tracked server-side. Rationale:
 //   - The Container App runs with minReplicas=0 and scales to zero on idle
@@ -359,9 +297,10 @@ app.use('/mcp', accessGuard);
 //   - This MCP server exposes only request/response tool calls; it emits no
 //     server→client notifications, resource subscriptions, or log streams,
 //     so per-connection state has no purpose.
-//   - Stateless mode (sessionIdGenerator: undefined) makes every POST a
-//     self-contained request. No Mcp-Session-Id header is issued, no state
-//     survives the response, scale-to-zero is free of side effects.
+//   - Every POST is a self-contained request: no Mcp-Session-Id header is
+//     issued, no state survives the response, scale-to-zero is free of side
+//     effects. The 2026-07-28 revision made exactly this the protocol's
+//     baseline; 2025 clients get the same via sessionIdGenerator: undefined.
 //
 // GET/DELETE on /mcp have no meaning without sessions → respond 405.
 app.all('/mcp', async (req, res) => {
@@ -384,45 +323,8 @@ app.all('/mcp', async (req, res) => {
     attachToolCallRejectionSniffer(toolName, res);
   }
 
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless: no session tracking
-    // Return a single buffered application/json response instead of an SSE
-    // (text/event-stream) frame. This server is stateless request/response and
-    // emits NO server→client notifications (see the rationale below), so SSE
-    // buys nothing — and a plain JSON body is what lets the compression
-    // middleware gzip large tool results (SSE would have to be left uncompressed
-    // to avoid breaking stream framing). Spec-compatible: the client already must
-    // Accept application/json for a POST, so no client regresses.
-    enableJsonResponse: true,
-  });
-  // accessGuard ran runWithCaller({ platform role + delegated scope }) around next(), so the
-  // caller's resolved scope is available here (and stays active through transport.handleRequest, where
-  // tools/list and tool calls execute). Tool catalog + routing key off platform SCOPE (GA or read-only
-  // Global Reader, identical cross-tenant reach on this read-only server). A caller with NO platform
-  // scope but a delegated (MSP) assignment gets a tenant-bounded variant: cross-tenant routing limited
-  // to its managed tenants, the platform-only tools hidden, and a required tenantId per tool. A caller
-  // who is BOTH platform and delegated is treated as platform (ga wins ⇒ delegated=false here).
-  const ga = hasGlobalScope();
-  const delegated = !ga && isDelegated();
-  const managedTenants = delegated ? (getDelegatedTenantIds() ?? []) : [];
-  // Home tenant is only surfaced to a delegated caller (for the "you may also query your home tenant" hint);
-  // GA / plain tenant users don't need it in their instructions.
-  const homeTenantId = delegated ? getHomeTenantId() : undefined;
-  const server = createMcpServer(ga, isGlobalAdmin(), delegated, managedTenants, homeTenantId);
-
-  // Guarantee cleanup once the response is done, even on client disconnect.
-  res.on('close', () => {
-    transport.close().catch(() => {});
-    server.close().catch(() => {});
-  });
-
-  transport.onerror = (error: Error) => {
-    console.error(`[mcp] Transport error: ${error.message}`);
-  };
-
   try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+    await mcpRequestHandler(req, res);
   } catch (err) {
     console.error('[mcp] Request handling failed:', err);
     if (!res.headersSent) {

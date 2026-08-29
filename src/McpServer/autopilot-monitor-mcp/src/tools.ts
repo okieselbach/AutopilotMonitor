@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { SearchProvider } from './search-provider.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerSearchTools } from './tools/search.js';

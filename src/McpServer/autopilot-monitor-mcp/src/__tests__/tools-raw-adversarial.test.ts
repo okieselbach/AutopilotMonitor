@@ -17,7 +17,7 @@
  * registered handler, stub global fetch, invoke inside runWithCaller, inspect url + body.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
 import { runWithCaller } from '../client.js';
 

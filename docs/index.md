@@ -68,6 +68,7 @@ https://docs.autopilotmonitor.com (separate repository).
 
 # MCP Server
 
+* [MCP Protocol Eras & Client ID Metadata Documents](mcp/protocol-eras-and-cimd.md) - One per-request factory serving the 2026-07-28 stateless revision (server/discover, ttlMs/cacheScope, Mcp-Method routing) and 2025-era initialize clients side by side, why the legacy leg stays a hand-wired JSON+gzip transport, the never-public cache-hint contract, and the CIMD client-registration path (SSRF-gated document fetch, same redirect allowlist) next to the deprecated dynamic registration.
 * [MCP Docs Corpus](mcp/docs-corpus.md) - How the published customer documentation becomes the `search_docs` corpus: CRLF-safe heading chunking, build-time embedding as a third precomputed section, and why a docs edit needs an MCP redeploy.
 * [MCP Tool Telemetry](mcp/tool-telemetry.md) - The three telemetry layers for judging tool quality: backend App Insights via X-MCP-Tool-Name, the per-user usage table, and the MCP_TOOL_LOGGING stderr lines (soft errors, result size vs. cap, zero-hit searches, Zod rejections).
 

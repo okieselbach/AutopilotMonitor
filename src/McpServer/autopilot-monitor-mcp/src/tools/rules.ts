@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { apiFetch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
@@ -30,7 +30,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
         'Fix all errors, then dry-run analyze rules with test_analyze_rule against a real session. ' +
         'Read get_resource(name="rule_authoring_guide") first when authoring from scratch.',
       inputSchema: {
-        rule: z.record(z.unknown()).describe('The draft rule JSON object (gather or analyze — detected automatically)'),
+        rule: z.record(z.string(), z.unknown()).describe('The draft rule JSON object (gather or analyze — detected automatically)'),
       },
       annotations: READ_ONLY,
     },
@@ -115,7 +115,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
         (ga ? ' Platform-scope callers can target any tenant\'s session — the tenant is resolved from the session automatically.' : ''),
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID to evaluate the draft against'),
-        rule: z.record(z.unknown()).describe('The draft analyze rule JSON object'),
+        rule: z.record(z.string(), z.unknown()).describe('The draft analyze rule JSON object'),
       },
       annotations: READ_ONLY,
     },

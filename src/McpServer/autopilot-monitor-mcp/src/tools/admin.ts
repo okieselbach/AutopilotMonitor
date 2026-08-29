@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
@@ -1342,7 +1342,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'revert_tenant_config. Never send "***REDACTED***" values.',
       inputSchema: {
         tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to change.'),
-        fields: z.record(z.unknown())
+        fields: z.record(z.string(), z.unknown())
           .describe('Object of fieldName → newValue for ONLY the fields to change (e.g. {"dataRetentionDays": 90}). ' +
                     'Use get_tenant_config for current values and exact field names.'),
         reason: z.string().min(1)

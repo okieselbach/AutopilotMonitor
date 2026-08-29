@@ -9,7 +9,11 @@
  *   1. Claude Code → POST /mcp → 401 (with WWW-Authenticate header)
  *   2. Claude Code → GET /.well-known/oauth-protected-resource → discovers auth server (RFC 9728)
  *   3. Claude Code → GET /.well-known/oauth-authorization-server → discovers endpoints (RFC 8414)
- *   4. Claude Code → POST /oauth/register → dynamic client registration (RFC 7591)
+ *   4. Client identity — one of (MCP spec 2026-07-28 priority):
+ *        a. Client ID Metadata Document: client_id IS an https URL; we fetch and
+ *           validate the document on demand (cimd.ts) — no registration call
+ *        b. POST /oauth/register → dynamic client registration (RFC 7591, deprecated
+ *           in the 2026-07-28 revision, kept as the fallback for older clients)
  *   5. Claude Code → GET /oauth/authorize → 302 to Entra ID /authorize
  *   6. User authenticates at Entra ID
  *   7. Entra ID → GET /oauth/callback → 302 back to Claude Code with code
@@ -20,6 +24,10 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { oauthRateLimit, oauthTokenRateLimit } from './access-guard.js';
 import { ENTRA_LOGIN_BASE_URL, getPublicBaseUrl } from './config.js';
+import { ClientMetadataError, isClientIdMetadataUrl, resolveClientMetadata } from './cimd.js';
+import { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH } from './oauth-limits.js';
+
+export { MAX_CLIENT_NAME_LENGTH, MAX_REDIRECT_URIS_PER_CLIENT, MAX_REDIRECT_URI_LENGTH };
 
 const CLIENT_ID: string = (() => {
   const v = process.env.AUTOPILOT_ENTRA_CLIENT_ID;
@@ -182,10 +190,6 @@ export function verifyState(state: string, nowSeconds: number = Math.floor(Date.
 
   return parsed;
 }
-
-export const MAX_REDIRECT_URIS_PER_CLIENT = 10;
-export const MAX_REDIRECT_URI_LENGTH = 1024;
-export const MAX_CLIENT_NAME_LENGTH = 256;
 
 /**
  * Makes a caller-controlled value safe for single-line text logs: strips
@@ -449,6 +453,35 @@ export function redirectUriMatches(registered: string[], requested: string): boo
   return registered.some((r) => canonicalizeRedirectUri(r) === target);
 }
 
+/**
+ * Resolves a client_id to its registered redirect_uris through whichever
+ * registration mechanism minted it: an https URL is a Client ID Metadata
+ * Document (fetched + validated, cached), anything else must be one of our
+ * HMAC-signed dynamic-registration tokens. Returns the OAuth error to answer
+ * when the client cannot be established — always fail closed.
+ */
+async function resolveRegisteredClient(
+  clientId: string,
+  where: string,
+): Promise<{ ok: true; redirectUris: string[]; name: string } | { ok: false; error: string }> {
+  if (isClientIdMetadataUrl(clientId)) {
+    try {
+      const md = await resolveClientMetadata(clientId);
+      return { ok: true, redirectUris: md.redirectUris, name: md.clientName };
+    } catch (err) {
+      const e = err instanceof ClientMetadataError ? err : new ClientMetadataError('invalid_client', 'metadata document unavailable');
+      console.error(`[oauth/${where}] client_id metadata document rejected (${sanitizeForLog(clientId)}): ${e.message}`);
+      return { ok: false, error: e.code };
+    }
+  }
+  const registered = verifyClientId(clientId);
+  if (!registered) {
+    console.error(`[oauth/${where}] client_id failed signature verification`);
+    return { ok: false, error: 'invalid_client' };
+  }
+  return { ok: true, redirectUris: registered.redirectUris, name: registered.name };
+}
+
 export function createOAuthRouter(): Router {
   const router = Router();
 
@@ -489,6 +522,10 @@ export function createOAuthRouter(): Router {
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
+      // MCP spec 2026-07-28 client registration: clients that support Client ID
+      // Metadata Documents pick them over dynamic registration when this flag
+      // is present (cimd.ts resolves the document at /oauth/authorize).
+      client_id_metadata_document_supported: true,
       // RFC 9207: the authorization response (the /oauth/callback redirect)
       // carries an `iss` parameter; advertising it here tells clients they
       // MUST validate it against this document's `issuer` before redeeming
@@ -577,7 +614,7 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Authorize: redirect to Entra ID ---
-  router.get('/oauth/authorize', oauthRateLimit, (req, res) => {
+  router.get('/oauth/authorize', oauthRateLimit, async (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
     const {
       client_id,
@@ -642,16 +679,19 @@ export function createOAuthRouter(): Router {
       });
       return;
     }
-    // The client_id is a self-describing signed token (see signClientId), so
-    // this verifies statelessly — no registry lookup, correct across cold
-    // starts and replicas. A forged/malformed token fails closed with
-    // invalid_client; a valid one must still carry the exact redirect_uri.
-    const registered = verifyClientId(client_id);
-    if (!registered) {
-      console.error('[oauth/authorize] client_id failed signature verification');
+    // Two client identities, resolved statelessly either way: an https URL is a
+    // Client ID Metadata Document (fetched + validated on demand, cimd.ts);
+    // anything else must be our self-describing signed token (see signClientId).
+    // No registry lookup, correct across cold starts and replicas. A forged /
+    // unfetchable / malformed client fails closed; a valid one must still carry
+    // the exact redirect_uri.
+    const registered = await resolveRegisteredClient(client_id, 'authorize');
+    if (!registered.ok) {
       res.status(400).json({
-        error: 'invalid_client',
-        error_description: 'client_id is invalid — register via /oauth/register first',
+        error: registered.error,
+        error_description: registered.error === 'invalid_client'
+          ? 'client_id is invalid — use a Client ID Metadata Document URL or register via /oauth/register first'
+          : 'client_id metadata document is malformed',
       });
       return;
     }
@@ -703,7 +743,7 @@ export function createOAuthRouter(): Router {
   });
 
   // --- Callback: receive code from Entra ID, forward to Claude Code ---
-  router.get('/oauth/callback', oauthRateLimit, (req, res) => {
+  router.get('/oauth/callback', oauthRateLimit, async (req, res) => {
     const baseUrl = getPublicBaseUrl(req);
     const { code, state, error, error_description } = req.query as Record<string, string>;
 
@@ -747,12 +787,13 @@ export function createOAuthRouter(): Router {
       return;
     }
     if (clientId) {
-      // Stateless verify (no registry) — correct across cold starts/replicas.
-      // The redirectUri is already pinned inside the HMAC-verified state, so
-      // this only adds defense-in-depth: a valid client_id must still list the
-      // redirectUri. A forged client_id fails closed.
-      const registered = verifyClientId(clientId);
-      if (!registered || !redirectUriMatches(registered.redirectUris, redirectUri)) {
+      // Stateless re-check (signed token or metadata document, the latter
+      // normally a cache hit within the 10-min state window) — correct across
+      // cold starts/replicas. The redirectUri is already pinned inside the
+      // HMAC-verified state, so this only adds defense-in-depth: a valid
+      // client must still list the redirectUri. A forged client_id fails closed.
+      const registered = await resolveRegisteredClient(clientId, 'callback');
+      if (!registered.ok || !redirectUriMatches(registered.redirectUris, redirectUri)) {
         console.error(`[oauth/callback] client_id invalid or redirectUri not registered: ${sanitizeForLog(redirectUri)}`);
         res.status(400).json({
           error: 'invalid_request',

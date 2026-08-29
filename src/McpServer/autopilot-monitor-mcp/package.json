@@ -1,6 +1,6 @@
 {
   "name": "autopilot-monitor-mcp",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "MCP server for Autopilot-Monitor — enables AI agents to query enrollment sessions, device properties, events and vulnerabilities",
   "type": "module",
   "engines": {
@@ -20,15 +20,17 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "compression": "^1.8.1",
     "express": "^5.2.1",
     "fuse.js": "^7.5.0",
-    "zod": "^3.22.0"
+    "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.1",
@@ -38,8 +40,6 @@
   },
   "overrides": {
     "sharp": "^0.35.0",
-    "fast-uri": "^3.1.4",
-    "hono": "^4.12.27",
-    "@hono/node-server": "^2.0.5"
+    "fast-uri": "^3.1.4"
   }
 }

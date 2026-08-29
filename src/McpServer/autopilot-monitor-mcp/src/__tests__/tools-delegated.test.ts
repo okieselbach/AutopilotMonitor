@@ -11,7 +11,7 @@
  * tool handler directly inside a runWithCaller scope and inspect the URL it would have fetched.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
 import { runWithCaller } from '../client.js';
 import { tenantIdDescription } from '../tools/shared.js';

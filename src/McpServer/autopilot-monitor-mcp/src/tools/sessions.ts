@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { apiFetch, ApiError, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';

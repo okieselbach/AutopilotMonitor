@@ -11,7 +11,7 @@
  * The provider is a stub: no model, no backend, no corpus on disk.
  */
 import { describe, it, expect } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
 import { extractDistinctiveTerms } from '../tools/search.js';
 import type { SearchDocument, SearchProvider, SearchResult } from '../search-provider.js';
