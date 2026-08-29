@@ -19,13 +19,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
     ///
     /// Checks performed:
     ///   1. BypassNRO registry flag (HKLM\...\OOBE\BypassNRO = 1)
-    ///   2. Unexpected local user accounts (via WMI Win32_UserAccount)
-    ///   3. Unexpected C:\Users profile directories
+    ///   2. Unexpected local user accounts (via WMI Win32_UserAccount) — disabled accounts
+    ///      included: a backdoor created with /active:no and re-enabled after enrollment
+    ///      is dormant at both scans and would otherwise never surface
+    ///   3. Administrators-group membership (NetLocalGroupGetMembers on S-1-5-32-544) —
+    ///      an unexpected account that also holds admin membership is the actual backdoor
+    ///   4. Unexpected C:\Users profile directories
     ///
     /// Confidence scoring:
-    ///   BypassNRO = 1                          → +20 (low indicator)
-    ///   Unexpected local account found         → +40 (medium indicator)
-    ///   Account + matching C:\Users profile    → +40 (high indicator, profile overlap)
+    ///   BypassNRO = 1                                  → +20 (low indicator)
+    ///   Unexpected local account found                 → +40 (medium indicator)
+    ///   Unexpected account is an Administrators member → +40 (high indicator)
+    ///   Account + matching C:\Users profile            → +40 (high indicator, profile overlap)
+    ///
+    /// The enabled-state of the built-in Administrator (RID 500) is reported
+    /// (<c>builtin_administrator_enabled</c>) but not scored: whether OOBE enables it
+    /// transiently is not established, so the field first collects evidence.
     ///
     /// Emits a single "local_admin_analysis" event at startup and at shutdown,
     /// enabling delta detection between pre- and post-enrollment state.
@@ -146,6 +155,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 if (accountsResult.Unexpected.Count > 0)
                     confidenceScore += 40;
 
+                // An unexpected account that is also a member of Administrators is the
+                // actual backdoor (enabled or dormant) — high indicator on its own.
+                if (accountsResult.UnexpectedAdminMembers.Count > 0)
+                    confidenceScore += 40;
+
                 // Profile overlap: unexpected account AND matching C:\Users folder
                 bool profileOverlap = accountsResult.Unexpected.Any(a =>
                     profilesResult.Unexpected.Any(p =>
@@ -183,6 +197,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                     $"{Name}: confidence={confidenceScore}, finding={findingLabel}, " +
                     $"bypassNro={bypassNroResult.Value}, " +
                     $"unexpectedAccounts={accountsResult.Unexpected.Count}, " +
+                    $"unexpectedAdminMembers={accountsResult.UnexpectedAdminMembers.Count}, " +
+                    $"adminGroupEnumerated={accountsResult.AdministratorsGroupEnumerated}, " +
+                    $"builtinAdministratorEnabled={accountsResult.BuiltInAdministratorEnabled?.ToString() ?? "unknown"}, " +
                     $"unexpectedProfiles={profilesResult.Unexpected.Count}");
 
                 var data = new Dictionary<string, object>
@@ -203,8 +220,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                                 }
                             },
                             { "unexpected_accounts",  accountsResult.Unexpected },
+                            { "unexpected_admin_members", accountsResult.UnexpectedAdminMembers },
                             { "unexpected_profiles",  profilesResult.Unexpected },
                             { "accounts_checked",     accountsResult.AllChecked },
+                            { "account_details",      accountsResult.AccountDetails },
+                            { "administrators_group", new Dictionary<string, object>
+                                {
+                                    { "enumerated", accountsResult.AdministratorsGroupEnumerated },
+                                    { "error_code", accountsResult.AdministratorsGroupErrorCode },
+                                    { "members",    accountsResult.AdministratorsGroupMembers }
+                                }
+                            },
+                            { "builtin_administrator_enabled", accountsResult.BuiltInAdministratorEnabled },
                             { "profiles_found",       profilesResult.AllFound }
                         }
                     }
@@ -327,33 +354,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
 
         private LocalAccountCheckResult CheckLocalAdminAccounts(List<string> allowedAccounts)
         {
-            var allChecked = new List<string>();
-            var unexpected = new List<string>();
+            var accounts = new List<LocalAccountInfo>();
 
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
-                    "SELECT Name, Disabled FROM Win32_UserAccount WHERE LocalAccount = True"))
+                    "SELECT Name, Disabled, SID FROM Win32_UserAccount WHERE LocalAccount = True"))
                 {
                     foreach (ManagementObject obj in searcher.Get())
                     {
                         var name     = obj["Name"]?.ToString() ?? string.Empty;
                         var disabled = obj["Disabled"] != null && Convert.ToBoolean(obj["Disabled"]);
+                        var sid      = obj["SID"]?.ToString();
 
                         if (string.IsNullOrEmpty(name))
                             continue;
 
-                        allChecked.Add(name);
-
-                        // Skip disabled accounts — they cannot be used to log in
-                        if (disabled)
-                            continue;
-
-                        if (!IsAllowed(name, allowedAccounts))
-                        {
-                            unexpected.Add(name);
-                            _logger.Debug($"{Name}: Unexpected local account: {name}");
-                        }
+                        accounts.Add(new LocalAccountInfo { Name = name, Disabled = disabled, Sid = sid });
                     }
                 }
             }
@@ -362,7 +379,100 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
                 _logger.Warning($"{Name}: Failed to enumerate local accounts via WMI: {ex.Message}");
             }
 
-            return new LocalAccountCheckResult { AllChecked = allChecked, Unexpected = unexpected };
+            // Administrators-group membership is read from the SAM, independent of WMI and of
+            // the enabled state — a dormant backdoor with admin rights is still a member.
+            var group = LocalGroupNativeMethods.GetAdministratorsMembers();
+            if (!group.Succeeded)
+                _logger.Warning($"{Name}: Failed to enumerate members of '{group.GroupName}': NET_API_STATUS={group.ErrorCode}");
+
+            var result = EvaluateAccounts(accounts, group.Members, group.Succeeded, Environment.MachineName, allowedAccounts);
+            result.AdministratorsGroupErrorCode = group.ErrorCode;
+
+            foreach (var name in result.Unexpected)
+                _logger.Debug($"{Name}: Unexpected local account: {name}");
+            foreach (var name in result.UnexpectedAdminMembers)
+                _logger.Debug($"{Name}: Unexpected Administrators member: {name}");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Pure evaluation of the account inventory against the allowed list — separated from
+        /// the WMI / SAM reads for unit-testing (InternalsVisibleTo).
+        ///
+        /// Rules:
+        ///   - every local account is checked, disabled ones included (state is reported);
+        ///   - a local account is an Administrators member when its SID matches a group member,
+        ///     or (SID unavailable) its name matches a member of the local machine domain;
+        ///   - <c>UnexpectedAdminMembers</c> = unexpected accounts holding membership, plus local
+        ///     members not on the allowed list that the WMI inventory did not return at all;
+        ///   - members outside the local machine domain (Entra role SIDs, domain groups) are
+        ///     listed for delta comparison but never flagged — they are expected on joined devices.
+        /// </summary>
+        internal static LocalAccountCheckResult EvaluateAccounts(
+            IList<LocalAccountInfo> accounts,
+            IList<LocalGroupMember> adminMembers,
+            bool adminGroupEnumerated,
+            string machineName,
+            List<string> allowedAccounts)
+        {
+            var result = new LocalAccountCheckResult { AdministratorsGroupEnumerated = adminGroupEnumerated };
+
+            var adminSids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var adminLocalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var member in adminMembers ?? new List<LocalGroupMember>())
+            {
+                result.AdministratorsGroupMembers.Add(member.DomainAndName ?? string.Empty);
+                if (!string.IsNullOrEmpty(member.Sid))
+                    adminSids.Add(member.Sid);
+                if (IsLocalMember(member, machineName))
+                    adminLocalNames.Add(member.Name);
+            }
+
+            foreach (var account in accounts ?? new List<LocalAccountInfo>())
+            {
+                var isAdmin = (!string.IsNullOrEmpty(account.Sid) && adminSids.Contains(account.Sid))
+                              || adminLocalNames.Contains(account.Name);
+
+                result.AllChecked.Add(account.Name);
+                result.AccountDetails.Add(new Dictionary<string, object>
+                {
+                    { "name",                  account.Name },
+                    { "disabled",              account.Disabled },
+                    { "administrators_member", isAdmin }
+                });
+
+                if (account.Sid != null && account.Sid.EndsWith("-500", StringComparison.Ordinal))
+                    result.BuiltInAdministratorEnabled = !account.Disabled;
+
+                if (IsAllowed(account.Name, allowedAccounts))
+                    continue;
+
+                result.Unexpected.Add(account.Name);
+                if (isAdmin)
+                    result.UnexpectedAdminMembers.Add(account.Name);
+            }
+
+            // Local members the WMI inventory did not surface (WMI failure, or an account the
+            // provider does not list) — still an unexpected admin when not on the allowed list.
+            foreach (var name in adminLocalNames)
+            {
+                if (IsAllowed(name, allowedAccounts))
+                    continue;
+                if (result.UnexpectedAdminMembers.Any(u => string.Equals(u, name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                result.UnexpectedAdminMembers.Add(name);
+            }
+
+            return result;
+        }
+
+        private static bool IsLocalMember(LocalGroupMember member, string machineName)
+        {
+            var domain = member.Domain;
+            if (string.IsNullOrEmpty(domain))
+                return false;   // unresolved SID (Entra role, deleted account) — not a local account
+            return string.Equals(domain, machineName, StringComparison.OrdinalIgnoreCase);
         }
 
         private UserProfileCheckResult CheckUserProfiles(List<string> allowedAccounts)
@@ -494,10 +604,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Analyzers
             public bool KeyExists { get; set; }
         }
 
-        private class LocalAccountCheckResult
+        /// <summary>One local account as returned by Win32_UserAccount.</summary>
+        internal sealed class LocalAccountInfo
         {
+            public string Name     { get; set; }
+            public bool   Disabled { get; set; }
+            public string Sid      { get; set; }
+        }
+
+        internal sealed class LocalAccountCheckResult
+        {
+            /// <summary>All local account names (enabled and disabled).</summary>
             public List<string> AllChecked { get; set; } = new List<string>();
+
+            /// <summary>Account names not on the allowed list, disabled ones included.</summary>
             public List<string> Unexpected { get; set; } = new List<string>();
+
+            /// <summary>Unexpected accounts that are members of the Administrators group.</summary>
+            public List<string> UnexpectedAdminMembers { get; set; } = new List<string>();
+
+            /// <summary>Per-account state: name, disabled, administrators_member.</summary>
+            public List<Dictionary<string, object>> AccountDetails { get; set; } = new List<Dictionary<string, object>>();
+
+            /// <summary>Every Administrators member (DOMAIN\name or SID), local or not — for delta comparison.</summary>
+            public List<string> AdministratorsGroupMembers { get; set; } = new List<string>();
+
+            public bool AdministratorsGroupEnumerated { get; set; }
+            public int  AdministratorsGroupErrorCode  { get; set; }
+
+            /// <summary>Enabled state of the built-in Administrator (RID 500); null when not found.</summary>
+            public bool? BuiltInAdministratorEnabled { get; set; }
         }
 
         private class UserProfileCheckResult

@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (3)
+
+* **New**: `agent/local-admin-analyzer.md` — `LocalAdminAnalyzer` no longer skips disabled accounts (a `/active:no` backdoor re-enabled after enrollment was invisible at both scans) and reads Administrators-group membership from the SAM via `NetLocalGroupGetMembers` on `S-1-5-32-544` (`LocalGroupNativeMethods`, WMI-independent). New event fields `unexpected_admin_members` (+40), `account_details`, `administrators_group.{enumerated,error_code,members}`, `builtin_administrator_enabled` (reported, not scored). Non-local members (Entra role SIDs, domain groups) are listed, never flagged. `ANALYZE-ID-002` 1.2.0 explanation names the new fields. Registered in `index.md`.
+
 ## 2026-08-30 (2)
 
 * **Update**: `agent/cmtrace-time-resolution.md` — new "Line parsing (bounded cost)" section: `CmTraceLogParser.TryParseLine` is no longer one greedy-`.*` regex (quadratic on hostile lines, no timeout) but a linear first-open / last-parseable-trailer search with a `\G`-anchored, timeout-backed trailer regex that returns exactly what the old regex did; the agent's multiline buffer gains a 1 MB char cap next to the 100-line cap, both logged at Warning, and the tail of a dropped entry is skipped instead of raw-matched.

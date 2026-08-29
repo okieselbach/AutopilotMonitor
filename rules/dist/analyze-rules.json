@@ -2766,7 +2766,7 @@
       "description": "Detects when the LocalAdminAnalyzer flags unexpected local user accounts or profile directories on the device. This is a known Autopilot bypass technique where admin accounts are created before or during enrollment to gain persistent local admin access.",
       "severity": "high",
       "category": "identity",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": "Autopilot Monitor",
       "enabled": true,
       "evaluateOn": [
@@ -2817,7 +2817,7 @@
         }
       ],
       "confidenceThreshold": 50,
-      "explanation": "The agent detected unexpected local user accounts or profile directories on this device that are not in the built-in or tenant-configured allowed list.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not on the allowed list), unexpected_profiles (C:\\Users profile directories not on the allowed list), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list in Tenant Settings.",
+      "explanation": "The agent detected unexpected local user accounts or profile directories on this device that are not in the built-in or tenant-configured allowed list.\n\nThis is a security-relevant finding. Creating local admin accounts before or during Autopilot enrollment is a known bypass technique (e.g. via BypassNRO or Shift+F10 during OOBE) that grants persistent local administrator access.\n\nClick the event link below to jump to the local_admin_analysis event and check: unexpected_accounts (local user accounts not on the allowed list — disabled accounts included, a dormant account can be re-enabled later), unexpected_admin_members (unexpected accounts that are members of the local Administrators group — the actual backdoor), account_details (per account: disabled state and Administrators membership), unexpected_profiles (C:\\Users profile directories not on the allowed list), bypass_nro (whether the BypassNRO registry flag was set), and confidence_score (the agent's confidence in the finding, 0-100).\n\nIf these accounts are expected for your environment (e.g. a service account or helpdesk account), add them to the allowed list in Tenant Settings.",
       "remediation": [
         {
           "title": "Review the unexpected accounts",
@@ -2840,7 +2840,7 @@
           "steps": [
             "Check if the BypassNRO registry flag was set (indicates OOBE was bypassed)",
             "Review the enrollment timeline for Shift+F10 or other OOBE escape indicators",
-            "Check whether the unexpected account has admin group membership",
+            "Check 'unexpected_admin_members' and 'account_details' — an unexpected account with Administrators membership is a backdoor even while it is disabled (it can be re-enabled by a scheduled task after enrollment)",
             "Consider re-imaging the device if unauthorized admin access is confirmed"
           ]
         }
