@@ -88,9 +88,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private int _passThroughStepsSinceSnapshot; // H1a — pass-through steps skipped since last snapshot
         private bool _parkedTripwireFired; // liveness PR1 — one-shot per agent run, no state-schema touch
 
-        // M1 — parked-tripwire dwell machinery. The timer thread is also what fixes L8: the
+        // M1 — parked-tripwire dwell machinery. The timer thread is also what fixed L8: the
         // tripwire post no longer runs on the ingress worker, so a full channel cannot
-        // self-deadlock on it. Guarded by _parkedLock because the callback races ApplyStep.
+        // self-deadlock on it. (Since 2026-08-29 SignalIngress.Post itself is re-entrancy-safe
+        // — worker-thread posts go to a worker-local queue — so the EffectRunner's
+        // ClassifierVerdictIssued post from inside ApplyStep is covered too.) Guarded by
+        // _parkedLock because the callback races ApplyStep.
         private readonly object _parkedLock = new object();
         private readonly TimeSpan _parkedTripwireDwell;
         private Timer? _parkedDwellTimer;

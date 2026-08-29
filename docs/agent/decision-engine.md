@@ -216,7 +216,12 @@ Wired by `EnrollmentOrchestrator.Start` (`src/Agent/AutopilotMonitor.Agent.V2.Co
 - `SignalIngress` — bounded queue (256, back-pressure) + **one** worker thread. Per
   signal, in order: assign ordinals → `SignalLog.Append` (durable, *before* reducing;
   append failure ⇒ reducer does not run, no ordinal gap) → `engine.Reduce` →
-  `DecisionStepProcessor.ApplyStep`.
+  `DecisionStepProcessor.ApplyStep`. A `Post` issued *by the worker thread itself*
+  (the `EffectRunner` posting `ClassifierVerdictIssued` from inside `ApplyStep`) never
+  enters the bounded queue: it goes to a worker-local follow-up queue that is drained,
+  ahead of the channel, right after the current item — the worker is the queue's only
+  consumer, so blocking on a full channel there would freeze the pipeline for the rest
+  of the run.
 - `DecisionStepProcessor.ApplyStep` (same thread, no locks): journal append (the only
   hard-throwing path; 3 consecutive failures escalate to quarantine) → effects run
   synchronously via `EffectRunner` → best-effort snapshot → advance `CurrentState` →

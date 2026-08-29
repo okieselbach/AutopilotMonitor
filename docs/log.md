@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (9)
+
+* **Update**: `agent/decision-engine.md`, `agent/overview.md` — `SignalIngress.Post` is worker-thread re-entrancy-safe: signals the worker posts to itself from inside `ApplyStep` (EffectRunner `ClassifierVerdictIssued`) go to a worker-local follow-up queue drained ahead of the bounded channel instead of blocking on it, so a full channel can no longer deadlock the single consumer.
+
 ## 2026-08-29 (8)
 
 * **Creation**: Added `backend/session-owner-binding.md` — SESSION-OWNER-BINDING stage 1 (shadow): Sessions rows carry the creating device identity (`OwnerKind/OwnerThumbprint/OwnerDeviceId/OwnerBootstrapCode/OwnerSerial/OwnerBoundAt`, primary-only), `SessionOwnershipPolicy` evaluates every register / telemetry / error-report request against it, outcomes ride on the request row (`SessionOwnerBinding`), warnings and a throttled `SessionOwnerMismatch` ops event; nothing is refused yet. Agent ships the dormant counterpart: `errorCode` parsing on 401/403, one-shot session rotation on `session_owner_mismatch` without feeding the auth-failure tracker, spool drop, `agent_started.sessionRotated`.

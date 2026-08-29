@@ -27,6 +27,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// Die Back-Pressure-Emission läuft NICHT durch den Signal-Channel (würde deadlocken).
     /// </para>
     /// <para>
+    /// <b>Worker re-entrancy</b>: a <see cref="Post"/> issued ON the worker thread itself
+    /// (EffectRunner posting a <c>ClassifierVerdictIssued</c> from inside
+    /// <c>ApplyStep</c>) must never touch the bounded channel — the worker is the channel's
+    /// only consumer, so a full channel would block the consumer as a producer and freeze
+    /// the whole pipeline for the rest of the run. Such posts go to a worker-local
+    /// follow-up queue that the worker drains (ahead of the channel) right after the
+    /// current item finishes. Same processing path, same ordinal/log/reduce semantics —
+    /// just never blocking.
+    /// </para>
+    /// <para>
     /// <b>Shutdown</b>: <see cref="Stop"/> ruft <see cref="BlockingCollection{T}.CompleteAdding"/>,
     /// wartet auf das Drain-Ende via <c>Thread.Join</c>. Nach <c>Stop</c> wirft jeder
     /// weitere <see cref="Post"/> <see cref="InvalidOperationException"/>.
@@ -79,6 +89,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly object _backPressureLock = new object();
 
         private Thread? _worker;
+        // Worker-thread-only: signals posted re-entrantly from ApplyStep (EffectRunner
+        // classifier verdicts). Drained by WorkerLoop after every channel item, before the
+        // next channel item is taken. Only the worker enqueues and dequeues — no lock.
+        private readonly Queue<IngressItem> _workerLocalQueue = new Queue<IngressItem>();
+        private long _reentrantPostCount;
         private long _nextSignalOrdinal;     // worker-thread-only after Start; seeded from SignalLog
         private int _started;                 // 0 = not started, 1 = running
         private int _stopRequested;           // 0 = live, 1 = Stop called
@@ -134,6 +149,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// handler would exit early. Codex Finding 2 (2026-04-30).
         /// </summary>
         public long PendingSignalCount => Interlocked.Read(ref _unprocessedCount);
+
+        /// <summary>
+        /// Signals that were posted from the worker thread itself and routed through the
+        /// worker-local follow-up queue instead of the bounded channel. Observability/tests.
+        /// </summary>
+        public long ReentrantPostCount => Interlocked.Read(ref _reentrantPostCount);
 
         /// <summary>
         /// Fires synchronously from <see cref="Post"/> after a signal has been accepted into
@@ -218,6 +239,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// Reicht ein Raw-/Derived-/Synthetic-Signal in den Ingress ein. Thread-safe; darf von
         /// beliebig vielen Collector-Threads (und vom <see cref="EffectRunner"/>) parallel
         /// gerufen werden. Blockiert, wenn der Channel voll ist — Plan §2.1a Back-Pressure.
+        /// Ausnahme: Aufrufe vom Worker-Thread selbst blockieren nie (worker-local queue).
         /// </summary>
         public void Post(
             DecisionSignalKind kind,
@@ -228,10 +250,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int kindSchemaVersion = 1,
             object? typedPayload = null)
         {
-            if (Volatile.Read(ref _stopRequested) == 1 || _channel.IsAddingCompleted)
-            {
-                throw new InvalidOperationException("SignalIngress has been stopped.");
-            }
             if (evidence == null)
             {
                 throw new ArgumentNullException(nameof(evidence));
@@ -242,6 +260,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             }
 
             var item = new IngressItem(kind, kindSchemaVersion, occurredAtUtc, sourceOrigin, evidence, payload, typedPayload);
+
+            // Worker re-entrancy (see class doc): a post from the worker thread itself goes to
+            // the worker-local follow-up queue, never into the bounded channel. Checked before
+            // the stop gate on purpose — while Stop() drains the channel the worker may still
+            // produce verdicts for the items it is finishing, and those must not be lost.
+            if (ReferenceEquals(Thread.CurrentThread, _worker))
+            {
+                Interlocked.Increment(ref _unprocessedCount);
+                _workerLocalQueue.Enqueue(item);
+                Interlocked.Increment(ref _reentrantPostCount);
+                if (_workerLocalQueue.Count > 1)
+                {
+                    // One follow-up per step is the expected shape (one RunClassifier effect).
+                    // More means effects are chaining on the worker — worth seeing in the log.
+                    _logger?.Debug($"SignalIngress: worker-local follow-up queue depth={_workerLocalQueue.Count} kind={kind} origin={sourceOrigin}");
+                }
+                RaiseSignalPosted(kind, payload);
+                return;
+            }
+
+            if (Volatile.Read(ref _stopRequested) == 1 || _channel.IsAddingCompleted)
+            {
+                throw new InvalidOperationException("SignalIngress has been stopped.");
+            }
 
             // Codex Finding 2 (2026-04-30): bump the pending-counter BEFORE handing the item
             // to the channel. Decrement in three places: (a) when TryAdd throws because
@@ -353,6 +395,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 foreach (var item in _channel.GetConsumingEnumerable())
                 {
                     ProcessItem(item);
+                    DrainWorkerLocalQueue();
                 }
             }
             catch (Exception ex)
@@ -363,6 +406,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 // Post() throws "ingress has been stopped".
                 _workerFault = ex;
                 _logger?.Error("SignalIngress.Worker faulted unexpectedly — ingress STOPPED. No further signals will be processed.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Processes signals the worker posted to itself during the previous item (see class
+        /// doc, worker re-entrancy). Iterative, not recursive: a follow-up that produces
+        /// another follow-up is simply appended and handled in the same loop.
+        /// </summary>
+        private void DrainWorkerLocalQueue()
+        {
+            while (_workerLocalQueue.Count > 0)
+            {
+                ProcessItem(_workerLocalQueue.Dequeue());
             }
         }
 

@@ -109,7 +109,9 @@ telemetry directly:
 ```
 Collector callback
   → SignalAdapter (dual emission: decision signal + InformationalEvent)
-    → SignalIngress.Post()            (bounded queue 256, back-pressure blocks producer)
+    → SignalIngress.Post()            (bounded queue 256, back-pressure blocks producer;
+                                       posts from the worker thread itself bypass the
+                                       queue via a worker-local follow-up queue)
       → single worker thread:
           assign ordinals → SignalLog.Append (durable)   ← source of truth
           → DecisionEngine.Reduce → apply step/effects

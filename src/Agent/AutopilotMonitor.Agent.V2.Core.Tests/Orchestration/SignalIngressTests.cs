@@ -498,6 +498,207 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             Assert.Equal(5, observedCount);
         }
 
+        // ============================================================ Worker re-entrancy (2026-08-29)
+
+        [Fact]
+        public void Worker_thread_post_with_full_channel_does_not_deadlock_and_is_processed_next()
+        {
+            // Channel capacity 1, the worker is parked inside ApplyStep on a gate while a
+            // second producer keeps the channel full. When the gate opens, ApplyStep posts a
+            // verdict from the worker thread. Before the fix, Post would block in
+            // BlockingCollection.Add forever (the worker is the only consumer). After the fix,
+            // the verdict goes to the worker-local queue, is processed BEFORE the queued channel
+            // item, and the worker keeps draining.
+            using var tmp = new TempDirectory();
+            var log = new SignalLogWriter(tmp.File("signal-log.jsonl"));
+            SignalIngress? ingRef = null;
+            var gate = new ManualResetEventSlim(false);
+            var inApply = new ManualResetEventSlim(false);
+            var processor = new GatedReentrantProcessor(() => ingRef!, gate, inApply);
+            var ing = new SignalIngress(
+                engine: new DecisionEngine(),
+                signalLog: log,
+                traceCounter: new SessionTraceOrdinalProvider(),
+                processor: processor,
+                clock: new VirtualClock(At),
+                channelCapacity: 1);
+            ingRef = ing;
+            ing.Start();
+
+            // Item 0 — worker takes it and parks inside ApplyStep on the gate.
+            ing.Post(DecisionSignalKind.SessionStarted, At, "Collector", RawEvidence("s0"));
+            Assert.True(inApply.Wait(5000));
+
+            // Item 1 fills the single slot; item 2 blocks a foreign producer (channel full).
+            ing.Post(DecisionSignalKind.DesktopArrived, At.AddSeconds(1), "Collector", RawEvidence("s1"));
+            var blockedProducer = Task.Run(() =>
+                ing.Post(DecisionSignalKind.DesktopArrived, At.AddSeconds(2), "Collector", RawEvidence("s2")));
+            Assert.True(WaitFor(() => ing.ApproximateQueueLength == 1));
+            Assert.False(blockedProducer.Wait(200));   // genuinely blocked by back-pressure
+
+            // Release the worker: ApplyStep(s0) now posts the verdict from the worker thread
+            // into a full channel.
+            gate.Set();
+
+            Assert.True(blockedProducer.Wait(5000), "foreign producer must be released — worker must keep draining");
+            Assert.True(WaitFor(() => processor.CallCount == 4));
+            ing.Stop();
+
+            Assert.Equal(
+                new[]
+                {
+                    DecisionSignalKind.SessionStarted,
+                    DecisionSignalKind.ClassifierVerdictIssued,   // follow-up drained BEFORE the next channel item
+                    DecisionSignalKind.DesktopArrived,
+                    DecisionSignalKind.DesktopArrived,
+                },
+                processor.Kinds);
+            Assert.Equal(1, ing.ReentrantPostCount);
+            Assert.Equal(0, ing.PendingSignalCount);
+            // Same worker thread for every step — single-writer invariant intact.
+            Assert.Single(processor.ThreadIds.Distinct());
+            // Follow-up went through the normal path: ordinal assigned + durably logged.
+            var logged = log.ReadAll();
+            Assert.Equal(4, logged.Count);
+            Assert.Equal(DecisionSignalKind.ClassifierVerdictIssued, logged[1].Kind);
+            Assert.Equal(1, logged[1].SessionSignalOrdinal);
+        }
+
+        [Fact]
+        public void Worker_thread_post_chain_is_drained_iteratively_in_order()
+        {
+            // A follow-up whose own ApplyStep posts another follow-up: both are processed on
+            // the worker, in order, before the next channel item, without recursion.
+            using var tmp = new TempDirectory();
+            var log = new SignalLogWriter(tmp.File("signal-log.jsonl"));
+            SignalIngress? ingRef = null;
+            var processor = new ChainingProcessor(() => ingRef!);
+            var ing = new SignalIngress(
+                engine: new DecisionEngine(),
+                signalLog: log,
+                traceCounter: new SessionTraceOrdinalProvider(),
+                processor: processor,
+                clock: new VirtualClock(At));
+            ingRef = ing;
+            ing.Start();
+
+            ing.Post(DecisionSignalKind.SessionStarted, At, "Collector", RawEvidence("s0"));
+            ing.Post(DecisionSignalKind.DesktopArrived, At.AddSeconds(1), "Collector", RawEvidence("s1"));
+            ing.Stop();
+
+            Assert.Equal(
+                new[] { "Collector", "chain:1", "chain:2", "Collector" },
+                processor.Origins);
+            Assert.Equal(2, ing.ReentrantPostCount);
+            Assert.Equal(4, log.ReadAll().Count);
+        }
+
+        [Fact]
+        public void Worker_thread_post_during_Stop_drain_is_still_processed()
+        {
+            // Stop() completes adding, but a verdict posted by the worker while it finishes
+            // the last channel item must not be dropped — it belongs to that step.
+            using var tmp = new TempDirectory();
+            var log = new SignalLogWriter(tmp.File("signal-log.jsonl"));
+            SignalIngress? ingRef = null;
+            var gate = new ManualResetEventSlim(false);
+            var inApply = new ManualResetEventSlim(false);
+            var processor = new GatedReentrantProcessor(() => ingRef!, gate, inApply);
+            var ing = new SignalIngress(
+                engine: new DecisionEngine(),
+                signalLog: log,
+                traceCounter: new SessionTraceOrdinalProvider(),
+                processor: processor,
+                clock: new VirtualClock(At));
+            ingRef = ing;
+            ing.Start();
+
+            ing.Post(DecisionSignalKind.SessionStarted, At, "Collector", RawEvidence("s0"));
+            Assert.True(inApply.Wait(5000));
+            var stopTask = Task.Run(() => ing.Stop());
+            Assert.True(WaitFor(() => ing.ApproximateQueueLength == 0 && !stopTask.IsCompleted));
+            gate.Set();
+            Assert.True(stopTask.Wait(5000));
+
+            Assert.Equal(
+                new[] { DecisionSignalKind.SessionStarted, DecisionSignalKind.ClassifierVerdictIssued },
+                processor.Kinds);
+            Assert.Equal(2, log.ReadAll().Count);
+        }
+
+        /// <summary>
+        /// Parks inside ApplyStep(SessionStarted) on a gate, then posts a verdict back into the
+        /// ingress from the worker thread — the EffectRunner/RunClassifier shape.
+        /// </summary>
+        private sealed class GatedReentrantProcessor : IDecisionStepProcessor
+        {
+            private readonly Func<ISignalIngressSink> _sink;
+            private readonly ManualResetEventSlim _gate;
+            private readonly ManualResetEventSlim _inApply;
+            private readonly List<(DecisionSignalKind Kind, int ThreadId)> _calls = new List<(DecisionSignalKind, int)>();
+            private DecisionCore.State.DecisionState _state = DecisionCore.State.DecisionState.CreateInitial("S1", "T1");
+
+            public GatedReentrantProcessor(Func<ISignalIngressSink> sink, ManualResetEventSlim gate, ManualResetEventSlim inApply)
+            {
+                _sink = sink;
+                _gate = gate;
+                _inApply = inApply;
+            }
+
+            public int CallCount { get { lock (_calls) { return _calls.Count; } } }
+            public DecisionSignalKind[] Kinds { get { lock (_calls) { return _calls.Select(c => c.Kind).ToArray(); } } }
+            public int[] ThreadIds { get { lock (_calls) { return _calls.Select(c => c.ThreadId).ToArray(); } } }
+
+            public DecisionCore.State.DecisionState CurrentState => _state;
+
+            public EffectRunResult ApplyStep(DecisionStep step, DecisionSignal signal)
+            {
+                lock (_calls) { _calls.Add((signal.Kind, Thread.CurrentThread.ManagedThreadId)); }
+                _state = step.NewState;
+                if (signal.Kind == DecisionSignalKind.SessionStarted)
+                {
+                    _inApply.Set();
+                    _gate.Wait();
+                    _sink().Post(
+                        DecisionSignalKind.ClassifierVerdictIssued,
+                        signal.OccurredAtUtc,
+                        "effectrunner:classifier:test",
+                        new Evidence(EvidenceKind.Synthetic, "classifier:test:h", "Strong/90"),
+                        new Dictionary<string, string> { ["level"] = "Strong" });
+                }
+                return EffectRunResult.Empty();
+            }
+        }
+
+        private sealed class ChainingProcessor : IDecisionStepProcessor
+        {
+            private readonly Func<ISignalIngressSink> _sink;
+            private DecisionCore.State.DecisionState _state = DecisionCore.State.DecisionState.CreateInitial("S1", "T1");
+            public List<string> Origins { get; } = new List<string>();
+
+            public ChainingProcessor(Func<ISignalIngressSink> sink) { _sink = sink; }
+
+            public DecisionCore.State.DecisionState CurrentState => _state;
+
+            public EffectRunResult ApplyStep(DecisionStep step, DecisionSignal signal)
+            {
+                Origins.Add(signal.SourceOrigin);
+                _state = step.NewState;
+                string? next = signal.Kind == DecisionSignalKind.SessionStarted ? "chain:1"
+                    : signal.SourceOrigin == "chain:1" ? "chain:2"
+                    : null;
+                if (next != null)
+                {
+                    _sink().Post(
+                        DecisionSignalKind.ClassifierVerdictIssued,
+                        signal.OccurredAtUtc,
+                        next,
+                        new Evidence(EvidenceKind.Synthetic, next, next));
+                }
+                return EffectRunResult.Empty();
+            }
+        }
+
         [Fact]
         public void Post_via_ISignalIngressSink_reaches_reducer_like_any_signal()
         {
