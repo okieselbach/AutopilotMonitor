@@ -56,6 +56,17 @@ public class SearchSessionsFunction
             else
             {
                 filterTenantId = query["tenantId"];
+                if (!string.IsNullOrWhiteSpace(filterTenantId))
+                {
+                    // Interpolated into OData filters downstream — GUID-gate the raw query value.
+                    if (!Guid.TryParse(filterTenantId, out var parsedTenantId))
+                    {
+                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a GUID" });
+                        return bad;
+                    }
+                    filterTenantId = parsedTenantId.ToString("D");
+                }
                 tenantId = filterTenantId;
                 scope = "search:global";
                 basePath = "/api/global/search/sessions";

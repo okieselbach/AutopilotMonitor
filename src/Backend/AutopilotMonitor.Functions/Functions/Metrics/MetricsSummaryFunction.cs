@@ -49,6 +49,18 @@ public class MetricsSummaryFunction
             // tenant. When absent, returns the full cross-tenant view (null → all tenants).
             var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
             var filterTenantId = query["tenantId"];
+            if (!string.IsNullOrWhiteSpace(filterTenantId))
+            {
+                // Query value is interpolated into an OData filter downstream — GUID-gate it here
+                // (belt) in addition to ODataSanitizer at the sink (braces).
+                if (!Guid.TryParse(filterTenantId, out var parsedTenantId))
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a GUID" });
+                    return bad;
+                }
+                filterTenantId = parsedTenantId.ToString("D");
+            }
             var summary = await _metricsRepo.GetMetricsSummaryAsync(
                 string.IsNullOrEmpty(filterTenantId) ? null : filterTenantId,
                 days);

@@ -660,7 +660,7 @@ namespace AutopilotMonitor.Functions.Services
             string? tenantId, SessionSearchFilter filter, int pageSize, string? continuation)
         {
             var snapshotTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceSnapshot);
-            var oDataFilter = string.IsNullOrEmpty(tenantId) ? null : $"PartitionKey eq '{tenantId}'";
+            var oDataFilter = BuildDeviceSnapshotTenantFilter(tenantId);
 
             var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
                 client: snapshotTableClient,
@@ -838,7 +838,7 @@ namespace AutopilotMonitor.Functions.Services
         private async Task<List<SessionSummary>> SearchSessionsByDeviceSnapshotAsync(string? tenantId, SessionSearchFilter filter)
         {
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceSnapshot);
-            var oDataFilter = string.IsNullOrEmpty(tenantId) ? null : $"PartitionKey eq '{tenantId}'";
+            var oDataFilter = BuildDeviceSnapshotTenantFilter(tenantId);
 
             var sessionIds = new List<string>();
             await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: oDataFilter))
@@ -1437,6 +1437,26 @@ namespace AutopilotMonitor.Functions.Services
             groups[pk] = g.Add(statusStr);
         }
 
+        /// <summary>
+        /// SessionsIndex filter for the metrics summary: date-window bound plus optional single-tenant
+        /// scope. <paramref name="tenantId"/> may originate from the HTTP query string, so it is
+        /// escaped — a quote in the value must never alter the filter grammar.
+        /// </summary>
+        internal static string BuildMetricsSummaryFilter(string? tenantId, string cutoffRowKeyPrefix)
+        {
+            var filterParts = new List<string> { $"RowKey lt '{cutoffRowKeyPrefix}'" };
+            if (!string.IsNullOrEmpty(tenantId))
+                filterParts.Add($"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'");
+            return string.Join(" and ", filterParts);
+        }
+
+        /// <summary>
+        /// DeviceSnapshot filter for the device-property search path: optional single-tenant scope.
+        /// Escaped for the same reason as <see cref="BuildMetricsSummaryFilter"/>.
+        /// </summary>
+        internal static string? BuildDeviceSnapshotTenantFilter(string? tenantId)
+            => string.IsNullOrEmpty(tenantId) ? null : $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'";
+
         public async Task<List<object>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
         {
             // Clamp to a sane range so callers can't accidentally trigger an unbounded scan.
@@ -1446,10 +1466,7 @@ namespace AutopilotMonitor.Functions.Services
             var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
             var cutoffRowKeyPrefix = ComputeCutoffRowKeyPrefix(days);
 
-            var filterParts = new List<string> { $"RowKey lt '{cutoffRowKeyPrefix}'" };
-            if (!string.IsNullOrEmpty(tenantId))
-                filterParts.Add($"PartitionKey eq '{tenantId}'");
-            var oDataFilter = string.Join(" and ", filterParts);
+            var oDataFilter = BuildMetricsSummaryFilter(tenantId, cutoffRowKeyPrefix);
 
             // Tally every status into its own bucket so the buckets always reconcile to total
             // (SessionStatusBuckets enforces this by construction — Pending/Stalled/Unknown no
