@@ -42,7 +42,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             Program.PreviousExitSummary previousExit,
             string agentVersion,
             RemoteConfigService remoteConfigService,
-            AgentLogger logger)
+            AgentLogger logger,
+            string rotatedFromSessionId = null)
         {
             try
             {
@@ -67,6 +68,11 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                     { "diagnosticsUploadMode", agentConfig.DiagnosticsUploadMode ?? "Off" },
                     { "previousExitType", previousExit?.ExitType ?? "unknown" },
                     { "unrestrictedMode", agentConfig.UnrestrictedMode },
+                    // SESSION-OWNER-BINDING: true when the backend refused the persisted session
+                    // id (session_owner_mismatch) and this run rotated to a new session before
+                    // registering — the re-enroll-without-wipe shape, made visible on the timeline.
+                    { "sessionRotated", rotatedFromSessionId != null },
+                    { "previousSessionId", rotatedFromSessionId ?? string.Empty },
                     // remoteConfigFetched answers "is the agent running on a live-fetched
                     // config" — true also when the post-registration recovery replaced a
                     // failed startup fetch (remoteConfigOutcome then still names the startup

@@ -291,6 +291,22 @@ namespace AutopilotMonitor.Functions.Services
                 null, blockedBy, new { pattern });
 
         /// <summary>
+        /// SESSION-OWNER-BINDING-SHADOW: a validated agent request targeted a session that is bound
+        /// to a different device identity (see <c>SessionOwnershipPolicy</c>). Stage 1 records only —
+        /// the request went through. Throttled by <c>SessionOwnerBindingObserver</c> to one event per
+        /// session+outcome per hour. <c>serialMatch=true</c> on <c>MismatchCert</c> is the
+        /// re-enroll-without-wipe shape (same device, new certificate identity, old session id);
+        /// <c>serialMatch=false</c> is a foreign device naming somebody else's session.
+        /// </summary>
+        public Task RecordSessionOwnerMismatchAsync(
+            string tenantId, string sessionId, string outcome, string callerKind, string ownerKind,
+            bool serialMatch, string? agentVersion, string endpoint)
+            => WriteAsync(OpsEventCategory.Security, "SessionOwnerMismatch", OpsEventSeverity.Warning,
+                $"Session owner mismatch ({outcome}) on {endpoint}: {callerKind} caller vs {ownerKind}-owned session {sessionId} (serialMatch={serialMatch.ToString().ToLowerInvariant()}, shadow - allowed)",
+                tenantId, "System.SessionOwnerBinding",
+                new { sessionId, outcome, callerKind, ownerKind, serialMatch, agentVersion, endpoint, enforced = false });
+
+        /// <summary>
         /// Fired by <see cref="KillSwitchEvaluator"/> when a Kill signal was actually SERVED to
         /// an agent (as opposed to DeviceBlocked/VersionBlocked, which fire when the admin
         /// creates the rule). This is the delivery confirmation operators wire Telegram rules

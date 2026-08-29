@@ -444,9 +444,15 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Stores a session registration
+        /// Stores a session registration.
         /// </summary>
-        public async Task<bool> StoreSessionAsync(SessionRegistration registration)
+        /// <param name="registration">Agent-supplied registration (server-stamped fields already applied by the caller).</param>
+        /// <param name="ownerToStamp">
+        /// SESSION-OWNER-BINDING: the device identity to bind the row to, decided by
+        /// <c>SessionOwnershipPolicy</c> (fresh bind, legacy claim, rebind). Null preserves whatever
+        /// owner the row already carries — the Replace below must never blank it.
+        /// </param>
+        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null)
         {
             SecurityValidator.EnsureValidGuid(registration.TenantId, "TenantId");
             SecurityValidator.EnsureValidGuid(registration.SessionId, "SessionId");
@@ -508,11 +514,16 @@ namespace AutopilotMonitor.Functions.Services
                 string verdictPath = VerdictPaths.RegisterNew;
                 string? priorStatus = null;
                 string? priorVerdictPath = null;
+                // SESSION-OWNER-BINDING: preserved verbatim through the Replace unless the caller
+                // hands in a new owner (bind / claim / rebind). Ingest may stamp these via Merge
+                // (UpdateSessionOwnerAsync) — the CAS re-read below re-applies the fresh values.
+                SessionOwner? existingOwner = null;
 
                 try
                 {
                     var existing = await tableClient.GetEntityAsync<TableEntity>(registration.TenantId, registration.SessionId);
                     var existingEntity = existing.Value;
+                    existingOwner = SessionOwnershipPolicy.FromRow(existingEntity);
 
                     var existingStartedAt = existingEntity.GetDateTimeOffset("StartedAt")?.UtcDateTime;
                     if (existingStartedAt.HasValue && existingStartedAt.Value < startedAt)
@@ -692,6 +703,11 @@ namespace AutopilotMonitor.Functions.Services
                 if (!string.IsNullOrEmpty(existingIndexRowKey))
                     entity["IndexRowKey"] = existingIndexRowKey;
 
+                if (ownerToStamp != null)
+                    SessionOwnershipPolicy.ApplyTo(entity, ownerToStamp);
+                else if (existingOwner != null)
+                    SessionOwnershipPolicy.ApplyTo(entity, existingOwner);
+
                 // PR3 (codex round 2 follow-up): ETag-bound CAS write loop. The plain
                 // UpsertEntity (Replace) had a TOCTOU race against the cascade-delete producer:
                 // (T1) StoreSessionAsync reads row → DeletionState=None, captures preserved fields.
@@ -718,6 +734,10 @@ namespace AutopilotMonitor.Functions.Services
                                 "Status", "CurrentPhase", "CompletedAt", "FailureReason", "ReconcileReason",
                                 "FailureSnapshotJson", "FailureSource", "AdminMarkedAction", "DurationSeconds",
                                 "EspSoftFailure", "CompletionSource", "VerdictPath", "PriorStatus", "PriorVerdictPath",
+                                // SESSION-OWNER-BINDING columns — a Merge-stamped owner (ingest claim /
+                                // rebind) that landed after the initial read must survive the Replace.
+                                SessionOwner.Columns.Kind, SessionOwner.Columns.Thumbprint, SessionOwner.Columns.DeviceId,
+                                SessionOwner.Columns.BootstrapCode, SessionOwner.Columns.Serial, SessionOwner.Columns.BoundAt,
                             });
                         freshEtag = freshResponse.Value.ETag;
                         freshEntity = freshResponse.Value;
@@ -732,6 +752,13 @@ namespace AutopilotMonitor.Functions.Services
                     // Stamp cascade-lock columns from the FRESH read so the Replace below
                     // doesn't silently clear them. This kicks in even when the initial read
                     // saw None and the producer transitioned to Preparing in between.
+                    if (ownerToStamp == null && freshEntity != null)
+                    {
+                        var freshOwner = SessionOwnershipPolicy.FromRow(freshEntity);
+                        if (freshOwner != null)
+                            SessionOwnershipPolicy.ApplyTo(entity, freshOwner);
+                    }
+
                     var freshDeletionState = freshEntity?.GetString("DeletionState");
                     var freshPendingDeletionManifestId = freshEntity?.GetString("PendingDeletionManifestId");
                     if (!string.IsNullOrEmpty(freshDeletionState))
@@ -2862,6 +2889,31 @@ namespace AutopilotMonitor.Functions.Services
         /// container — required so that a later tenant switch from one destination to
         /// the other doesn't break downloads for already-uploaded sessions.
         /// </summary>
+        /// <summary>
+        /// SESSION-OWNER-BINDING: Merge-stamps the owner columns onto an existing Sessions row from
+        /// a path that does not replace the row (telemetry ingest: legacy claim, cert rotation,
+        /// bootstrap→cert handoff). Primary-only columns — no SessionsIndex mirror (see
+        /// <see cref="SessionIndexFieldManifest.PrimaryOnly"/>). Throws on storage failure; the
+        /// observer catches (fail-soft) because the binding is observational in stage 1.
+        /// </summary>
+        public async Task UpdateSessionOwnerAsync(string tenantId, string sessionId, SessionOwner owner)
+        {
+            SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+            SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+            var update = new TableEntity(tenantId, sessionId);
+            SessionOwnershipPolicy.ApplyTo(update, owner);
+            // A Merge leaves columns it does not mention untouched; a Bootstrap→Cert handoff must
+            // therefore null the other kind's columns explicitly so no stale short code stays.
+            foreach (var col in SessionOwner.Columns.All)
+            {
+                if (!update.ContainsKey(col))
+                    update[col] = null;
+            }
+            await tableClient.UpdateEntityAsync(update, ETag.All, TableUpdateMode.Merge);
+        }
+
         public async Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null)
         {

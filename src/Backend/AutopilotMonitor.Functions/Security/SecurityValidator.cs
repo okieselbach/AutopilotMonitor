@@ -585,10 +585,12 @@ namespace AutopilotMonitor.Functions.Security
             }
 
             // All checks passed
+            TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var certIntuneDeviceId);
             return new SecurityValidationResult
             {
                 IsValid = true,
                 CertificateThumbprint = certValidation.Thumbprint,
+                IntuneDeviceId = certIntuneDeviceId,
                 Manufacturer = manufacturer,
                 Model = model,
                 SerialNumber = serialNumber,
@@ -766,6 +768,14 @@ namespace AutopilotMonitor.Functions.Security
         /// Certificate thumbprint (if validation succeeded)
         /// </summary>
         public string? CertificateThumbprint { get; set; }
+
+        /// <summary>
+        /// Intune device id taken from the client certificate CN (lower-case GUID). Set only on
+        /// the certificate path and only when the CN has that shape. TLS-proven — the one device
+        /// identifier that survives a certificate re-issue, which is why SESSION-OWNER-BINDING
+        /// falls back to it when the thumbprint changed.
+        /// </summary>
+        public string? IntuneDeviceId { get; set; }
 
         /// <summary>
         /// Device manufacturer (if validation succeeded)

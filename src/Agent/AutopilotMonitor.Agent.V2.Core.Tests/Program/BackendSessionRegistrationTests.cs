@@ -59,6 +59,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
         }
 
         [Fact]
+        public void RotateSession_rotates_id_updates_config_drops_spool_and_keeps_whiteglove_marker()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var original = persistence.GetOrCreate();
+            persistence.SaveWhiteGloveComplete();
+            var config = new AgentConfiguration { ApiBaseUrl = "https://example.invalid", TenantId = "t", SessionId = original };
+
+            var transportDir = Path.Combine(tmp.Path, "Spool");
+            Directory.CreateDirectory(transportDir);
+            File.WriteAllText(Path.Combine(transportDir, "spool.jsonl"), "{}");
+            File.WriteAllText(Path.Combine(transportDir, "upload-cursor.json"), "{}");
+            File.WriteAllText(Path.Combine(transportDir, "unrelated.txt"), "keep");
+
+            var rotated = BackendSessionRegistration.RotateSession(config, persistence, auth: null, transportDir, logger);
+
+            Assert.NotEqual(original, rotated);
+            Assert.Equal(rotated, config.SessionId);
+            Assert.Equal(rotated, new SessionIdPersistence(tmp.Path).GetOrCreate());
+            Assert.True(persistence.IsWhiteGloveResume());
+            Assert.False(File.Exists(Path.Combine(transportDir, "spool.jsonl")));
+            Assert.False(File.Exists(Path.Combine(transportDir, "upload-cursor.json")));
+            Assert.True(File.Exists(Path.Combine(transportDir, "unrelated.txt")));
+        }
+
+        [Fact]
+        public void RotateSession_tolerates_a_missing_transport_directory()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp.Path);
+            var persistence = new SessionIdPersistence(tmp.Path);
+            var config = new AgentConfiguration { ApiBaseUrl = "https://example.invalid", TenantId = "t", SessionId = persistence.GetOrCreate() };
+
+            var rotated = BackendSessionRegistration.RotateSession(
+                config, persistence, auth: null, Path.Combine(tmp.Path, "does-not-exist"), logger);
+
+            Assert.Equal(rotated, config.SessionId);
+        }
+
+        [Fact]
         public void Register_throws_on_null_arguments()
         {
             using var tmp = new TempDirectory();

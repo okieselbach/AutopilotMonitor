@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (8)
+
+* **Creation**: Added `backend/session-owner-binding.md` — SESSION-OWNER-BINDING stage 1 (shadow): Sessions rows carry the creating device identity (`OwnerKind/OwnerThumbprint/OwnerDeviceId/OwnerBootstrapCode/OwnerSerial/OwnerBoundAt`, primary-only), `SessionOwnershipPolicy` evaluates every register / telemetry / error-report request against it, outcomes ride on the request row (`SessionOwnerBinding`), warnings and a throttled `SessionOwnerMismatch` ops event; nothing is refused yet. Agent ships the dormant counterpart: `errorCode` parsing on 401/403, one-shot session rotation on `session_owner_mismatch` without feeding the auth-failure tracker, spool drop, `agent_started.sessionRotated`.
+
 ## 2026-08-29 (7)
 
 * **Update**: `backend/client-cert-tenant-binding.md` — new "Certificate transport and proof of possession" section: `X-ARR-ClientCert` (platform-set after the mTLS handshake, inbound copies stripped even on excluded paths) is the only certificate source; the client-writable `X-Client-Certificate` fallback is gone; `/api/bootstrap/*` routes are token-only and fail closed on a missing/empty token or unwired token service instead of falling through to the certificate stage.

@@ -22,9 +22,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _publisher = publisher;
         }
 
-        public async Task<bool> StoreSessionAsync(SessionRegistration registration)
+        public async Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null)
         {
-            var result = await _storage.StoreSessionAsync(registration);
+            var result = await _storage.StoreSessionAsync(registration, ownerToStamp);
             if (result)
                 await _publisher.PublishAsync("session.created", registration, registration.TenantId);
             return result;
@@ -136,6 +136,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<Dictionary<string, int>> GetImeOffsetOriginHistogramAsync(string tenantId, string sessionId, int maxRows = 500)
             => _storage.GetImeOffsetOriginHistogramAsync(tenantId, sessionId, maxRows);
+
+        public Task UpdateSessionOwnerAsync(string tenantId, string sessionId, SessionOwner owner)
+            => _storage.UpdateSessionOwnerAsync(tenantId, sessionId, owner);
 
         public Task UpdateSessionDiagnosticsBlobAsync(
             string tenantId, string sessionId, string blobName, string? destination = null)

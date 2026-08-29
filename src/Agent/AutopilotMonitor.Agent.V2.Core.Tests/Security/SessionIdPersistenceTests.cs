@@ -73,6 +73,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
         }
 
         [Fact]
+        public void Rotate_writes_a_new_id_and_keeps_the_whiteglove_marker()
+        {
+            using var tmp = new TempDirectory();
+            var sut = new SessionIdPersistence(tmp.Path);
+            var first = sut.GetOrCreate();
+            sut.SaveWhiteGloveComplete();
+            var createdBefore = File.ReadAllText(Path.Combine(tmp.Path, "session.created"));
+
+            var rotated = sut.Rotate();
+
+            Assert.True(Guid.TryParse(rotated, out _));
+            Assert.NotEqual(first, rotated);
+            Assert.Equal(rotated, File.ReadAllText(Path.Combine(tmp.Path, "session.id")));
+            Assert.Equal(rotated, new SessionIdPersistence(tmp.Path).GetOrCreate());
+            Assert.True(sut.IsWhiteGloveResume(), "Rotate must not clear whiteglove.complete (unlike Delete)");
+            Assert.True(File.Exists(Path.Combine(tmp.Path, "session.created")));
+            Assert.NotEqual(createdBefore, File.ReadAllText(Path.Combine(tmp.Path, "session.created")));
+        }
+
+        [Fact]
         public void Ctor_creates_data_directory_when_missing()
         {
             using var tmp = new TempDirectory();

@@ -4,6 +4,7 @@ using AutopilotMonitor.Agent.V2.Core.Configuration;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Security
@@ -33,6 +34,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
     ///     <see cref="AuthFailureTracker"/> (which fires the first-failure distress + may trip
     ///     the shutdown threshold) and return <see cref="SessionRegistrationOutcome.AuthFailed"/>
     ///     without retrying — the backend has definitively rejected the device cert.</item>
+    ///   <item>Exception to the above — a 403 carrying error code
+    ///     <c>session_owner_mismatch</c> (SESSION-OWNER-BINDING): the persisted SessionId names a
+    ///     session bound to another device identity (typically an Intune re-enrollment without a
+    ///     wipe, where <c>session.id</c> survived but the certificate identity changed). That is
+    ///     not an auth failure: the session is rotated through <c>rotateSession</c> and
+    ///     registration retried exactly once. The tracker is NOT fed — five of these would
+    ///     otherwise soft-shutdown a perfectly authorized agent.</item>
     ///   <item>Any other exception on the last attempt → <see cref="EmergencyReporter.TrySendAsync"/>
     ///     with <c>AgentErrorType.RegisterSessionFailed</c> so operators see the final cause.</item>
     /// </list>
@@ -72,7 +80,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             Func<int, Task> backoffDelay = null,
             Func<Exception, Task> onTerminalTransportFailure = null,
             (string Manufacturer, string Model, string SerialNumber)? deviceHardware = null,
-            Func<AgentLogger, Task> networkLinkWait = null)
+            Func<AgentLogger, Task> networkLinkWait = null,
+            Func<string> rotateSession = null)
         {
             if (apiClient == null) throw new ArgumentNullException(nameof(apiClient));
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
@@ -86,6 +95,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             catch (Exception ex) { logger.Debug($"Pre-registration network wait failed ({ex.Message}) — registering anyway."); }
             string lastError = null;
             Exception lastException = null;
+            string rotatedFromSessionId = null;
 
             for (int attempt = 1; attempt <= MaxAttempts; attempt++)
             {
@@ -97,11 +107,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
                     if (response != null && response.Success)
                     {
                         logger.Info($"Session registered successfully: {response.SessionId} (validatedBy={response.ValidatedBy}, adminAction={response.AdminAction ?? "(none)"})");
-                        return SessionRegistrationResult.Succeeded(response);
+                        return SessionRegistrationResult.Succeeded(response, rotatedFromSessionId);
                     }
 
                     lastError = response?.Message ?? "(null response)";
                     logger.Warning($"Session registration failed: {lastError}");
+                }
+                catch (BackendAuthException ex) when (
+                    ex.ErrorCode == Constants.AgentErrorCodes.SessionOwnerMismatch
+                    && rotateSession != null
+                    && rotatedFromSessionId == null)
+                {
+                    // SESSION-OWNER-BINDING: the id on disk belongs to a session this device
+                    // identity does not own. Become a new session and register once more —
+                    // immediately, no backoff, no auth-failure bookkeeping.
+                    rotatedFromSessionId = registration.SessionId;
+                    string newSessionId;
+                    try
+                    {
+                        newSessionId = rotateSession();
+                    }
+                    catch (Exception rotateEx)
+                    {
+                        logger.Error($"Session owner mismatch reported by backend but session rotation failed: {rotateEx.Message}", rotateEx);
+                        authFailureTracker?.RecordFailure(ex.StatusCode, "agent/register-session", ex.EndpointUnavailable);
+                        return SessionRegistrationResult.AuthFailed(ex.StatusCode, ex.Message);
+                    }
+                    logger.Warning(
+                        $"Backend refused registration with {Constants.AgentErrorCodes.SessionOwnerMismatch}: session {rotatedFromSessionId} " +
+                        $"is bound to another device identity (re-enrollment without wipe?). Rotated to {newSessionId}; re-registering.");
+                    registration = BuildRegistration(agentConfig, agentVersion, deviceHardware);
+                    continue;
                 }
                 catch (BackendAuthException ex)
                 {
@@ -237,20 +273,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
         public string AdminAction => Response?.AdminAction;
         public ValidatorType ValidatedBy => Response?.ValidatedBy ?? ValidatorType.Unknown;
 
+        /// <summary>
+        /// SESSION-OWNER-BINDING: the SessionId this run started with when the backend refused it
+        /// with <c>session_owner_mismatch</c> and the session was rotated before the successful
+        /// registration. Null on the normal path.
+        /// </summary>
+        public string RotatedFromSessionId { get; }
+
         private SessionRegistrationResult(
             SessionRegistrationOutcome outcome,
             RegisterSessionResponse response,
             int httpStatusCode,
-            string errorMessage)
+            string errorMessage,
+            string rotatedFromSessionId = null)
         {
             Outcome = outcome;
             Response = response;
             HttpStatusCode = httpStatusCode;
             ErrorMessage = errorMessage;
+            RotatedFromSessionId = rotatedFromSessionId;
         }
 
-        public static SessionRegistrationResult Succeeded(RegisterSessionResponse response)
-            => new SessionRegistrationResult(SessionRegistrationOutcome.Succeeded, response, 200, null);
+        public static SessionRegistrationResult Succeeded(RegisterSessionResponse response, string rotatedFromSessionId = null)
+            => new SessionRegistrationResult(SessionRegistrationOutcome.Succeeded, response, 200, null, rotatedFromSessionId);
 
         public static SessionRegistrationResult AuthFailed(int statusCode, string message)
             => new SessionRegistrationResult(SessionRegistrationOutcome.AuthFailed, null, statusCode, message);

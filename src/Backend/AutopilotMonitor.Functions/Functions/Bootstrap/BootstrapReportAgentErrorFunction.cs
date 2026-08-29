@@ -79,7 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     return req.CreateResponse(HttpStatusCode.NotFound);
                 }
 
-                var (_, errorResponse) = await req.ValidateSecurityAsync(
+                var (validation, errorResponse) = await req.ValidateSecurityAsync(
                     tenantId, _configService, _adminConfigService, _rateLimitService,
                     _autopilotDeviceValidator, _corporateIdentifierValidator,
                     _logger, bootstrapSessionService: _bootstrapSessionService,
@@ -90,7 +90,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     return errorResponse;
                 }
 
-                return await _inner.ProcessReportErrorAsync(req, tenantId);
+                return await _inner.ProcessReportErrorAsync(req, tenantId, validation);
             }
             catch (Exception ex)
             {

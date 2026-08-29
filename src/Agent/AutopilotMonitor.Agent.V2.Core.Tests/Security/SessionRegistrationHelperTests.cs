@@ -96,6 +96,112 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Security
             Assert.Equal(1, tracker.ConsecutiveFailures);
         }
 
+        // ── SESSION-OWNER-BINDING ────────────────────────────────────────────
+
+        private static BackendAuthException OwnerMismatch()
+            => new BackendAuthException("Backend returned 403 Forbidden.", statusCode: 403,
+                errorCode: AutopilotMonitor.Shared.Constants.AgentErrorCodes.SessionOwnerMismatch);
+
+        [Fact]
+        public async Task Owner_mismatch_rotates_once_and_re_registers_without_recording_an_auth_failure()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+            var originalSessionId = config.SessionId;
+            var rotatedTo = Guid.NewGuid().ToString();
+            var seenSessionIds = new System.Collections.Generic.List<string>();
+
+            var apiClient = new FakeApiClient(
+                attempt => attempt == 1
+                    ? throw OwnerMismatch()
+                    : new RegisterSessionResponse { Success = true, SessionId = rotatedTo, ValidatedBy = ValidatorType.AutopilotV1 },
+                onRegister: r => seenSessionIds.Add(r.SessionId));
+
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+            var rotations = 0;
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker,
+                backoffDelay: _ => throw new InvalidOperationException("rotation must retry without backoff"),
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { rotations++; config.SessionId = rotatedTo; return rotatedTo; });
+
+            Assert.Equal(SessionRegistrationOutcome.Succeeded, result.Outcome);
+            Assert.Equal(2, apiClient.CallCount);
+            Assert.Equal(1, rotations);
+            Assert.Equal(0, tracker.ConsecutiveFailures);
+            Assert.Equal(new[] { originalSessionId, rotatedTo }, seenSessionIds);
+            Assert.Equal(originalSessionId, result.RotatedFromSessionId);
+        }
+
+        [Fact]
+        public async Task Second_owner_mismatch_after_rotation_is_an_auth_failure()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ => throw OwnerMismatch());
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker,
+                networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => { config.SessionId = Guid.NewGuid().ToString(); return config.SessionId; });
+
+            Assert.Equal(SessionRegistrationOutcome.AuthFailed, result.Outcome);
+            Assert.Equal(403, result.HttpStatusCode);
+            Assert.Equal(2, apiClient.CallCount);
+            Assert.Equal(1, tracker.ConsecutiveFailures);
+        }
+
+        [Fact]
+        public async Task Owner_mismatch_without_rotation_hook_behaves_like_any_auth_failure()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ => throw OwnerMismatch());
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker, networkLinkWait: _ => Task.CompletedTask);
+
+            Assert.Equal(SessionRegistrationOutcome.AuthFailed, result.Outcome);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Equal(1, tracker.ConsecutiveFailures);
+            Assert.Null(result.RotatedFromSessionId);
+        }
+
+        [Fact]
+        public async Task Rotation_hook_failure_falls_back_to_auth_failed()
+        {
+            using var tmp = new TempDirectory();
+            var logger = NewLogger(tmp);
+            var config = NewConfig();
+
+            var apiClient = new FakeApiClient(_ => throw OwnerMismatch());
+            var tracker = new AuthFailureTracker(maxFailures: 5, timeoutMinutes: 0,
+                clock: SystemClock.Instance, logger: logger);
+
+            var result = await SessionRegistrationHelper.RegisterWithRetryAsync(
+                apiClient, config, agentVersion: "0.0.0", logger: logger,
+                authFailureTracker: tracker, networkLinkWait: _ => Task.CompletedTask,
+                rotateSession: () => throw new IOException("disk full"));
+
+            Assert.Equal(SessionRegistrationOutcome.AuthFailed, result.Outcome);
+            Assert.Equal(1, apiClient.CallCount);
+            Assert.Equal(1, tracker.ConsecutiveFailures);
+        }
+
         [Fact]
         public async Task Fails_after_six_exceptions_without_auth_error()
         {

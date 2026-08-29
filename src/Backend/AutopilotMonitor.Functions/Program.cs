@@ -282,6 +282,7 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Monitoring.AzurePoisonQueueProbe>();
 builder.Services.AddSingleton<OpsAlertDispatchService>();
 builder.Services.AddSingleton<OpsEventService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.SessionOwnerBindingObserver>();
 builder.Services.AddSingleton<BlockedDeviceService>();
 builder.Services.AddSingleton<HardwareRejectionThrottleService>();
 builder.Services.AddSingleton<BlockedVersionService>();

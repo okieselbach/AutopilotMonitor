@@ -326,10 +326,39 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
                     endpointUnavailable: true);
             }
 
+            // Backend JSON bodies may carry a machine-readable errorCode (Shared
+            // Constants.AgentErrorCodes) that tells the caller how to react — e.g.
+            // session_owner_mismatch → rotate the session id instead of treating this as a
+            // certificate rejection. Absent/unparseable → null, classic auth failure.
+            var errorCode = TryExtractErrorCode(body);
             throw new BackendAuthException(
                 $"Backend returned {statusText}. " +
                 "The device is not authorized. Check client certificate and Autopilot device validation.",
-                (int)response.StatusCode);
+                (int)response.StatusCode,
+                errorCode: errorCode);
+        }
+
+        /// <summary>
+        /// Pulls <c>errorCode</c> out of a backend JSON error body. Tolerant: any parse failure
+        /// or a non-string value yields null, never an exception.
+        /// </summary>
+        internal static string TryExtractErrorCode(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body) || body.TrimStart().Length == 0 || body.TrimStart()[0] != '{')
+                return null;
+            try
+            {
+                var obj = Newtonsoft.Json.Linq.JObject.Parse(body);
+                var token = obj["errorCode"] ?? obj["ErrorCode"];
+                if (token == null || token.Type != Newtonsoft.Json.Linq.JTokenType.String)
+                    return null;
+                var value = (string)token;
+                return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -429,10 +458,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         /// </summary>
         public bool EndpointUnavailable { get; }
 
-        public BackendAuthException(string message, int statusCode = 0, bool endpointUnavailable = false) : base(message)
+        /// <summary>
+        /// Machine-readable code from the backend's JSON error body (see Shared
+        /// <c>Constants.AgentErrorCodes</c>), or null when the body carried none.
+        /// </summary>
+        public string ErrorCode { get; }
+
+        public BackendAuthException(string message, int statusCode = 0, bool endpointUnavailable = false, string errorCode = null) : base(message)
         {
             StatusCode = statusCode;
             EndpointUnavailable = endpointUnavailable;
+            ErrorCode = errorCode;
         }
     }
 }

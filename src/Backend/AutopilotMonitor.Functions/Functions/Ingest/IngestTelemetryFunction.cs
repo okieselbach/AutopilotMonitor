@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
         private readonly SessionDeletionGuard _deletionGuard;
+        private readonly SessionOwnerBindingObserver _ownerBinding;
 
         public IngestTelemetryFunction(
             ILogger<IngestTelemetryFunction> logger,
@@ -73,7 +74,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator,
-            SessionDeletionGuard deletionGuard)
+            SessionDeletionGuard deletionGuard,
+            SessionOwnerBindingObserver ownerBinding)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -92,6 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _bootstrapSessionService = bootstrapSessionService;
             _killSwitchEvaluator = killSwitchEvaluator;
             _deletionGuard = deletionGuard;
+            _ownerBinding = ownerBinding;
         }
 
         [Function("IngestTelemetry")]
@@ -224,6 +227,15 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // Reuse the guard's full-row read: its Status feeds the stall-heal check inside
                 // EventIngestProcessor, saving one Sessions point-read per batch.
                 var preFetchedStatus = TryReadSessionStatus(guardSessionRow);
+
+                // SESSION-OWNER-BINDING-SHADOW: is the device behind this certificate/token the
+                // device this session belongs to? Same guard row, zero extra reads. Stage 1 records
+                // the outcome (request-row dimension + Warning + throttled ops event) and stamps
+                // legacy claims / rebinds; it never refuses the batch. Covers the Signal-only path
+                // too — that is where pending ServerActions get fetched-and-cleared.
+                var ownerDecision = _ownerBinding.Observe(req, bodyTenantId, sessionId, guardSessionRow, validation, "agent/telemetry");
+                if (guardSessionRow != null)
+                    await _ownerBinding.StampAsync(bodyTenantId, sessionId, ownerDecision);
 
                 // P14: device-clock send time of this upload (one value per request). Separates
                 // spool delay from device-vs-server clock offset downstream; absent/garbage → null.

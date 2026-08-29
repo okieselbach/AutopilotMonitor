@@ -105,6 +105,15 @@ namespace AutopilotMonitor.Functions.Services
             "PendingActionsQueuedAt",
             "DeletionState",
             "PendingDeletionManifestId",
+            // SESSION-OWNER-BINDING: device identity the session is bound to. Consumed only by the
+            // agent write paths (which read the primary row anyway) — deliberately never mirrored
+            // and never surfaced on SessionSummary, so no certificate identity travels to clients.
+            "OwnerKind",
+            "OwnerThumbprint",
+            "OwnerDeviceId",
+            "OwnerBootstrapCode",
+            "OwnerSerial",
+            "OwnerBoundAt",
         };
 
         private static readonly HashSet<string> AllSet = new(All, StringComparer.Ordinal);

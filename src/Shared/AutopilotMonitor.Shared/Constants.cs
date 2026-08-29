@@ -250,6 +250,21 @@ namespace AutopilotMonitor.Shared
         // -----------------------------------------------------------------------
 
         /// <summary>
+        /// Machine-readable error codes the backend returns in agent-facing error bodies
+        /// (<c>RegisterSessionResponse.ErrorCode</c>). Wire contract — keep stable.
+        /// </summary>
+        public static class AgentErrorCodes
+        {
+            /// <summary>
+            /// SESSION-OWNER-BINDING: the session named by the request is bound to a different
+            /// device identity than the caller presented. The agent's correct reaction is to
+            /// rotate its SessionId and register afresh — NOT to count it as an auth failure.
+            /// Reserved in stage 1 (shadow); emitted only once enforcement is switched on.
+            /// </summary>
+            public const string SessionOwnerMismatch = "session_owner_mismatch";
+        }
+
+        /// <summary>
         /// API endpoint paths used by the agent
         /// </summary>
         public static class ApiEndpoints

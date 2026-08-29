@@ -49,6 +49,12 @@ namespace AutopilotMonitor.Shared.Models
         /// Older backends that do not set this return Unknown — agent falls back to its own detection.
         /// </summary>
         public ValidatorType ValidatedBy { get; set; } = ValidatorType.Unknown;
+
+        /// <summary>
+        /// Machine-readable reason on a failure response (see <see cref="Constants.AgentErrorCodes"/>).
+        /// Null on success and on failures that carry no agent-actionable code.
+        /// </summary>
+        public string? ErrorCode { get; set; }
     }
 
     /// <summary>

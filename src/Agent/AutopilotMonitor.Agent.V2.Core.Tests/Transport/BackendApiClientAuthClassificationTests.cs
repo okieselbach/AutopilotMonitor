@@ -62,6 +62,46 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
         }
 
         [Fact]
+        public async Task Backend_json_403_carries_the_errorCode_when_present()
+        {
+            using var client = BuildClient(
+                HttpStatusCode.Forbidden,
+                "{\"success\":false,\"message\":\"Session belongs to another device\",\"errorCode\":\"session_owner_mismatch\"}",
+                "application/json");
+
+            var ex = await Assert.ThrowsAsync<BackendAuthException>(() => client.GetAgentConfigAsync("tenant-1"));
+
+            Assert.Equal(403, ex.StatusCode);
+            Assert.False(ex.EndpointUnavailable);
+            Assert.Equal("session_owner_mismatch", ex.ErrorCode);
+        }
+
+        [Fact]
+        public async Task Backend_json_403_without_errorCode_yields_null()
+        {
+            using var client = BuildClient(
+                HttpStatusCode.Forbidden,
+                "{\"success\":false,\"message\":\"Device validation failed\"}",
+                "application/json");
+
+            var ex = await Assert.ThrowsAsync<BackendAuthException>(() => client.GetAgentConfigAsync("tenant-1"));
+            Assert.Null(ex.ErrorCode);
+        }
+
+        [Theory]
+        [InlineData(null, null)]
+        [InlineData("", null)]
+        [InlineData("not json", null)]
+        [InlineData("<html><body>403</body></html>", null)]
+        [InlineData("{\"errorCode\":42}", null)]
+        [InlineData("{\"errorCode\":\"  \"}", null)]
+        [InlineData("{\"errorCode\":\"session_owner_mismatch\"}", "session_owner_mismatch")]
+        [InlineData("{\"ErrorCode\":\"session_owner_mismatch\"}", "session_owner_mismatch")]
+        [InlineData("  {\"success\":false,\"errorCode\":\" x \"}", "x")]
+        public void TryExtractErrorCode_is_tolerant(string? body, string? expected)
+            => Assert.Equal(expected, BackendApiClient.TryExtractErrorCode(body!));
+
+        [Fact]
         public async Task Platform_html_403_is_reported_as_endpoint_unavailable_with_page_title()
         {
             using var client = BuildClient(

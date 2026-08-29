@@ -40,6 +40,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly BootstrapSessionService _bootstrapSessionService;
         private readonly ISessionRepository _sessionRepo;
         private readonly OpsEventService _opsEventService;
+        private readonly Services.Deletion.ISessionDeletionInventoryReader _sessionRowReader;
+        private readonly SessionOwnerBindingObserver _ownerBinding;
 
         public ReportAgentErrorFunction(
             ILogger<ReportAgentErrorFunction> logger,
@@ -54,7 +56,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             TelemetryClient telemetryClient,
             BootstrapSessionService bootstrapSessionService,
             ISessionRepository sessionRepo,
-            OpsEventService opsEventService)
+            OpsEventService opsEventService,
+            Services.Deletion.ISessionDeletionInventoryReader sessionRowReader,
+            SessionOwnerBindingObserver ownerBinding)
         {
             _logger = logger;
             _configService = configService;
@@ -69,6 +73,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _bootstrapSessionService = bootstrapSessionService;
             _sessionRepo = sessionRepo;
             _opsEventService = opsEventService;
+            _sessionRowReader = sessionRowReader;
+            _ownerBinding = ownerBinding;
         }
 
         [Function("ReportAgentError")]
@@ -91,7 +97,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // Full security validation: cert, rate limit, hardware whitelist, Autopilot (if enabled).
                 // Autopilot positive cache TTL is 30 min — devices that have recently called /ingest
                 // will get a cache hit here at essentially zero cost.
-                var (_, errorResponse) = await req.ValidateSecurityAsync(
+                var (validation, errorResponse) = await req.ValidateSecurityAsync(
                     tenantId,
                     _configService,
                     _adminConfigService,
@@ -110,7 +116,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     return errorResponse;
                 }
 
-                return await ProcessReportErrorAsync(req, tenantId);
+                return await ProcessReportErrorAsync(req, tenantId, validation);
             }
             catch (Exception ex)
             {
@@ -124,7 +130,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// Core error reporting logic: parse body, log to App Insights.
         /// Called by both the cert-auth Run() method and the bootstrap wrapper.
         /// </summary>
-        internal async Task<HttpResponseData> ProcessReportErrorAsync(HttpRequestData req, string tenantId)
+        internal async Task<HttpResponseData> ProcessReportErrorAsync(HttpRequestData req, string tenantId, SecurityValidationResult validation)
         {
             // Request body size limit (1 MB)
             if (req.Headers.TryGetValues("Content-Length", out var clValues)
@@ -180,6 +186,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 ["AgentTimestamp"] = report.Timestamp.ToString("O"),
             });
 
+            // SESSION-OWNER-BINDING-SHADOW: the emergency-break path below writes timeline events
+            // into whatever session the report names. Observe the binding here as well (one
+            // point-read — this function has no guard row in hand); no stamping from this path.
+            await ObserveSessionOwnerAsync(req, tenantId, report.SessionId, validation);
+
             await MaterializeEmergencyBreakArtifactsAsync(report, tenantId, _sessionRepo, _opsEventService, _logger);
 
             var adminConfig = await _adminConfigService.GetConfigurationAsync();
@@ -188,6 +199,21 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 adminConfig?.LatestAgentV2Version, adminConfig?.LatestAgentV2ExeSha256, _logger);
 
             return req.CreateResponse(HttpStatusCode.OK);
+        }
+
+        private async Task ObserveSessionOwnerAsync(HttpRequestData req, string tenantId, string? sessionId, SecurityValidationResult validation)
+        {
+            if (!SecurityValidator.IsValidGuid(sessionId) || !SecurityValidator.IsValidGuid(tenantId))
+                return;
+            try
+            {
+                var row = await _sessionRowReader.GetSessionRowAsync(tenantId, sessionId!);
+                _ownerBinding.Observe(req, tenantId, sessionId!, row, validation, "agent/error");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ReportAgentError: session-owner observation skipped for session {SessionId}", sessionId);
+            }
         }
 
         /// <summary>

@@ -175,6 +175,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Security
             }
         }
 
+        /// <summary>
+        /// Replaces the persisted SessionId with a fresh GUID and restarts the session-age clock.
+        /// Used when the backend answers register-session with <c>session_owner_mismatch</c>
+        /// (SESSION-OWNER-BINDING): the id on disk belongs to a session bound to a different device
+        /// identity — the re-enroll-without-wipe shape — so this run must become a new session.
+        /// Unlike <see cref="Delete"/> this leaves <c>whiteglove.complete</c> untouched: a Part-2
+        /// resume that has to rotate is still a Part-2 resume.
+        /// </summary>
+        /// <returns>The new SessionId.</returns>
+        public string Rotate(AgentLogger logger = null)
+        {
+            lock (_lockObject)
+            {
+                var fresh = Guid.NewGuid().ToString();
+                WriteAtomic(fresh, logger);
+                SaveSessionCreatedAtInternal(DateTime.UtcNow);
+                logger?.Info($"SessionIdPersistence: rotated SessionId to {fresh}.");
+                return fresh;
+            }
+        }
+
         private static void TryDelete(string path, AgentLogger logger)
         {
             try { if (File.Exists(path)) File.Delete(path); }

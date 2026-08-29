@@ -15,7 +15,10 @@ namespace AutopilotMonitor.Shared.DataAccess
     public interface ISessionRepository
     {
         // --- Session CRUD ---
-        Task<bool> StoreSessionAsync(SessionRegistration registration);
+        /// <param name="ownerToStamp">SESSION-OWNER-BINDING: owner to bind the row to; null preserves the existing binding.</param>
+        Task<bool> StoreSessionAsync(SessionRegistration registration, SessionOwner? ownerToStamp = null);
+        /// <summary>SESSION-OWNER-BINDING: Merge-stamps the owner onto an existing row (ingest claim / rebind). Throws on storage failure.</summary>
+        Task UpdateSessionOwnerAsync(string tenantId, string sessionId, SessionOwner owner);
         Task<SessionSummary?> GetSessionAsync(string tenantId, string sessionId);
         /// <summary>
         /// Resolves the tenantId owning <paramref name="sessionId"/> — point-read on the

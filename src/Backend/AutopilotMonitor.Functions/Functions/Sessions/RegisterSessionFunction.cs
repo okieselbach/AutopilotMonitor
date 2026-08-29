@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly WebhookNotificationService _webhookNotificationService;
         private readonly SessionDeletionGuard _deletionGuard;
         private readonly AdminConfigurationService _adminConfigService;
+        private readonly SessionOwnerBindingObserver _ownerBinding;
 
         public RegisterSessionFunction(
             ILogger<RegisterSessionFunction> logger,
@@ -52,7 +53,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
             WebhookNotificationService webhookNotificationService,
-            SessionDeletionGuard deletionGuard)
+            SessionDeletionGuard deletionGuard,
+            SessionOwnerBindingObserver ownerBinding)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -68,6 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _bootstrapSessionService = bootstrapSessionService;
             _webhookNotificationService = webhookNotificationService;
             _deletionGuard = deletionGuard;
+            _ownerBinding = ownerBinding;
         }
 
         [Function("RegisterSession")]
@@ -148,9 +151,10 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             // Refuses with 410 Gone on lock states (Preparing/Queued/Running/Poisoned) and on a
             // fresh tombstone marker — without this gate the bootstrap path could still mutate a
             // mid-cascade row or Add-revive a session past the tombstone.
+            Azure.Data.Tables.TableEntity? guardSessionRow;
             try
             {
-                await _deletionGuard.EnsureWritableAsync(
+                guardSessionRow = await _deletionGuard.EnsureWritableAndGetRowAsync(
                     registration.TenantId, registration.SessionId, "RegisterSession");
             }
             catch (SessionDeletionLockedException locked)
@@ -173,8 +177,17 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             bool isFreshRegistration = preExistingSession == null;
             bool isWhiteGloveResume = preExistingSession?.Status == SessionStatus.Pending;
 
+            // SESSION-OWNER-BINDING-SHADOW: compare the caller's validated identity against the
+            // owner already on the row (reusing the guard's read). Stage 1 never refuses — the
+            // decision only records the outcome and yields the owner to stamp (fresh bind,
+            // legacy claim, cert rotation, bootstrap→cert handoff). Enforcement (stage 2) will turn
+            // a would-reject here into 403 + AgentErrorCodes.SessionOwnerMismatch, on which the
+            // agent rotates its session id.
+            var ownerDecision = _ownerBinding.Observe(
+                req, registration.TenantId, registration.SessionId, guardSessionRow, validation, "agent/register-session");
+
             // Store session in Azure Table Storage
-            var stored = await _sessionRepo.StoreSessionAsync(registration);
+            var stored = await _sessionRepo.StoreSessionAsync(registration, ownerDecision.OwnerToStamp);
 
             if (!stored)
             {

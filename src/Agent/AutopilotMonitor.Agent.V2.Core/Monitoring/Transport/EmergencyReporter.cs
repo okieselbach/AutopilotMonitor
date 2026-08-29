@@ -28,7 +28,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
         private const int MinIntervalMinutes = 10;
 
         private readonly BackendApiClient _apiClient;
-        private readonly string _sessionId;
+        private volatile string _sessionId;
         private readonly string _tenantId;
         private readonly string _agentVersion;
         private readonly AgentLogger _logger;
@@ -50,6 +50,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Transport
             _tenantId = tenantId;
             _agentVersion = agentVersion;
             _logger = logger;
+        }
+
+        /// <summary>
+        /// SESSION-OWNER-BINDING: the reporter is built before registration and snapshots the
+        /// SessionId; a rotation during registration must be reflected here or later reports
+        /// would name the refused session.
+        /// </summary>
+        public void UpdateSessionId(string sessionId)
+        {
+            if (!string.IsNullOrWhiteSpace(sessionId))
+                _sessionId = sessionId;
         }
 
         /// <summary>

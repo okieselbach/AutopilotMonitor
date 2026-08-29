@@ -269,7 +269,9 @@ namespace AutopilotMonitor.Agent.V2
             // mapping + on-failure client disposal) is encapsulated in BackendSessionRegistration.
             // Exit codes: 6 = AuthFailed, 7 = anything else. See Runtime/BackendSessionRegistration.cs.
             var registration = Runtime.BackendSessionRegistration.Register(
-                bootstrap.AgentConfig, auth, telemetry.MtlsHttpClient, GetAgentVersion(), consoleMode, logger);
+                bootstrap.AgentConfig, auth, telemetry.MtlsHttpClient, GetAgentVersion(), consoleMode, logger,
+                rotateSession: () => Runtime.BackendSessionRegistration.RotateSession(
+                    bootstrap.AgentConfig, bootstrap.SessionPersistence, auth, transportDir, logger));
             if (registration.ShouldExit)
             {
                 return registration.ExitCode;

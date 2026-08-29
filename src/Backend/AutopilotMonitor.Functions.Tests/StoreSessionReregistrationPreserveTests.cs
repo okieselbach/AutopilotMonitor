@@ -305,6 +305,84 @@ public class StoreSessionReregistrationPreserveTests
     /// try/catch in the SUT, so leaving those table clients unconfigured (null) is harmless and
     /// keeps the test focused on the Sessions Replace payload.
     /// </summary>
+    // ── SESSION-OWNER-BINDING ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task StoreSessionAsync_preserves_the_owner_when_no_owner_is_stamped()
+    {
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["OwnerKind"] = "Cert",
+            ["OwnerThumbprint"] = "AA11BB22",
+            ["OwnerDeviceId"] = "0f4e1c2d-1111-4aaa-8bbb-000000000001",
+            ["OwnerSerial"] = "SN-1",
+            ["OwnerBoundAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 5, DateTimeKind.Utc)),
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+        });
+
+        Assert.True(ok);
+        Assert.NotNull(harness.Written);
+        Assert.Equal("Cert", harness.Written!["OwnerKind"]);
+        Assert.Equal("AA11BB22", harness.Written["OwnerThumbprint"]);
+        Assert.Equal("0f4e1c2d-1111-4aaa-8bbb-000000000001", harness.Written["OwnerDeviceId"]);
+        Assert.Equal("SN-1", harness.Written["OwnerSerial"]);
+        Assert.True(harness.Written.ContainsKey("OwnerBoundAt"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_replaces_the_owner_when_one_is_stamped_and_clears_the_other_kind()
+    {
+        var existing = new TableEntity(TenantId, SessionId)
+        {
+            ["StartedAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 0, DateTimeKind.Utc)),
+            ["Status"] = "InProgress",
+            ["OwnerKind"] = "Bootstrap",
+            ["OwnerBootstrapCode"] = "ABC123",
+            ["OwnerSerial"] = "SN-1",
+            ["OwnerBoundAt"] = new DateTimeOffset(new DateTime(2026, 1, 1, 8, 0, 5, DateTimeKind.Utc)),
+        };
+        existing.ETag = new ETag("0xEXISTING");
+        var harness = new Harness(existing);
+
+        var boundAt = new DateTime(2026, 1, 1, 9, 0, 1, DateTimeKind.Utc);
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+        }, new SessionOwner { Kind = "Cert", Thumbprint = "CC33DD44", DeviceId = "dev-1", Serial = "SN-1", BoundAt = boundAt });
+
+        Assert.True(ok);
+        Assert.Equal("Cert", harness.Written!["OwnerKind"]);
+        Assert.Equal("CC33DD44", harness.Written["OwnerThumbprint"]);
+        Assert.False(harness.Written.ContainsKey("OwnerBootstrapCode"));
+        Assert.Equal(new DateTimeOffset(boundAt), harness.Written.GetDateTimeOffset("OwnerBoundAt"));
+    }
+
+    [Fact]
+    public async Task StoreSessionAsync_fresh_row_carries_the_stamped_owner()
+    {
+        var harness = new Harness(existing: null);
+        var ok = await harness.Sut.StoreSessionAsync(new SessionRegistration
+        {
+            TenantId = TenantId, SessionId = SessionId, SerialNumber = "SN-1",
+            StartedAt = new DateTime(2026, 1, 1, 9, 0, 0, DateTimeKind.Utc),
+        }, new SessionOwner { Kind = "Bootstrap", BootstrapCode = "ABC123", Serial = "SN-1", BoundAt = DateTime.UtcNow });
+
+        Assert.True(ok);
+        Assert.Equal("Bootstrap", harness.Written!["OwnerKind"]);
+        Assert.Equal("ABC123", harness.Written["OwnerBootstrapCode"]);
+        Assert.False(harness.Written.ContainsKey("OwnerThumbprint"));
+    }
+
     private sealed class Harness
     {
         public Mock<TableClient> Sessions { get; }

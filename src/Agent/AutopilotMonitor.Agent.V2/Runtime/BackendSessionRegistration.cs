@@ -27,7 +27,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             HttpClient mtlsHttpClient,
             string agentVersion,
             bool consoleMode,
-            AgentLogger logger)
+            AgentLogger logger,
+            Func<string> rotateSession = null)
         {
             if (agentConfig == null) throw new ArgumentNullException(nameof(agentConfig));
             if (auth == null) throw new ArgumentNullException(nameof(auth));
@@ -43,7 +44,8 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                 onTerminalTransportFailure: ex => DiagnoseTerminalTransportFailure(ex, auth, logger),
                 // Reuse the single hardened hardware read from the auth bundle so the session row
                 // matches the security headers the backend validated against (no second WMI query).
-                deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber))
+                deviceHardware: (auth.Manufacturer, auth.Model, auth.SerialNumber),
+                rotateSession: rotateSession)
                 .GetAwaiter().GetResult();
 
             if (registrationResult.Outcome != SessionRegistrationOutcome.Succeeded)
@@ -61,6 +63,48 @@ namespace AutopilotMonitor.Agent.V2.Runtime
             }
 
             return SessionRegistrationOutcomeResult.Continue(registrationResult);
+        }
+
+        /// <summary>
+        /// SESSION-OWNER-BINDING: the one place that turns "backend says this session id is not
+        /// ours" into a new session. Rotates the persisted id, points the runtime config at it,
+        /// drops the transport spool (its lines carry the refused session's partition key and
+        /// would otherwise be uploaded against it after the rotation) and re-targets the
+        /// emergency reporter, which snapshotted the id before registration. Everything else
+        /// reads <c>agentConfig.SessionId</c> live after Phase 6.
+        /// </summary>
+        internal static string RotateSession(
+            AgentConfiguration agentConfig,
+            SessionIdPersistence sessionPersistence,
+            BackendAuthBundle auth,
+            string transportDir,
+            AgentLogger logger)
+        {
+            var newSessionId = sessionPersistence.Rotate(logger);
+            agentConfig.SessionId = newSessionId;
+            auth?.EmergencyReporter?.UpdateSessionId(newSessionId);
+            DropTransportSpool(transportDir, logger);
+            return newSessionId;
+        }
+
+        private static void DropTransportSpool(string transportDir, AgentLogger logger)
+        {
+            if (string.IsNullOrWhiteSpace(transportDir)) return;
+            foreach (var name in new[] { "spool.jsonl", "upload-cursor.json" })
+            {
+                var path = System.IO.Path.Combine(transportDir, name);
+                try
+                {
+                    if (!System.IO.File.Exists(path)) continue;
+                    var size = new System.IO.FileInfo(path).Length;
+                    System.IO.File.Delete(path);
+                    logger.Info($"Session rotation: dropped {name} ({size} bytes) — its items belonged to the refused session.");
+                }
+                catch (Exception ex)
+                {
+                    logger.Warning($"Session rotation: could not drop {name}: {ex.Message}");
+                }
+            }
         }
 
         /// <summary>
