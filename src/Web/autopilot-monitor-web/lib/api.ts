@@ -33,44 +33,44 @@ export const api = {
         continuation: opts?.continuation,
       })}`,
     get: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}${qs({ tenantId })}`,
     events: (
       sessionId: string,
       tenantId?: string,
       opts?: { pageSize?: number; continuation?: string },
     ) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/events${qs({
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/events${qs({
         tenantId,
         pageSize: opts?.pageSize?.toString(),
         continuation: opts?.continuation,
       })}`,
     delete: (sessionId: string, tenantId: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}${qs({ tenantId })}`,
     analysis: (sessionId: string, tenantId?: string, reanalyze?: boolean) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/analysis${qs({ tenantId, ...(reanalyze ? { reanalyze: "true" } : {}) })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/analysis${qs({ tenantId, ...(reanalyze ? { reanalyze: "true" } : {}) })}`,
     vulnerabilityReport: (sessionId: string, tenantId?: string, rescan?: boolean) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/vulnerability-report${qs({ tenantId, ...(rescan ? { rescan: "true" } : {}) })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/vulnerability-report${qs({ tenantId, ...(rescan ? { rescan: "true" } : {}) })}`,
     // F1 time attribution: pre-computed breakdown row (null for pre-feature / non-terminal /
     // Incomplete sessions — the lane is simply omitted, nothing is re-derived client-side).
     timeAttribution: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/time-attribution${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/time-attribution${qs({ tenantId })}`,
     markFailed: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/mark-failed${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/mark-failed${qs({ tenantId })}`,
     markSucceeded: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/mark-succeeded${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/mark-succeeded${qs({ tenantId })}`,
     // POST { type, reason } — queues a ServerAction delivered with the agent's next ingest
     // response (e.g. request_diagnostics for the "Collect Logs" button).
     queueAction: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/actions${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/actions${qs({ tenantId })}`,
     report: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/report${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/report${qs({ tenantId })}`,
     // GET — all annotation lanes visible to the caller (backend hides the globaladmin
     // lane from callers without global scope).
     annotations: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/annotations${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/annotations${qs({ tenantId })}`,
     // PUT { verdict, note } — upserts one lane; both fields null/empty clears it.
     annotation: (sessionId: string, lane: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/annotations/${lane}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/annotations/${encodeURIComponent(lane)}${qs({ tenantId })}`,
     quickSearch: (q: string) =>
       `${API_BASE_URL}/api/search/quick${qs({ q })}`,
     // Server-side free-text search (dashboard search box) — substring across the same
@@ -92,11 +92,11 @@ export const api = {
   // ── Inspector v1 (global admin only — Plan §M6) ───────────────────────────
   inspector: {
     signals: (sessionId: string, opts?: { tenantId?: string; maxResults?: number }) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/signals${qs({ tenantId: opts?.tenantId, maxResults: opts?.maxResults?.toString() })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/signals${qs({ tenantId: opts?.tenantId, maxResults: opts?.maxResults?.toString() })}`,
     decisionGraph: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/decision-graph${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/decision-graph${qs({ tenantId })}`,
     reducerVerification: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${sessionId}/reducer-verification${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/reducer-verification${qs({ tenantId })}`,
   },
 
   // ── Global Sessions (global admin) ────────────────────────────────────────
@@ -131,31 +131,31 @@ export const api = {
   // ── Config ────────────────────────────────────────────────────────────────
   config: {
     all: () => `${API_BASE_URL}/api/config/all`,
-    tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}`,
+    tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}`,
     // Same PUT, labelled: the session-detail Collect Logs quick-config dialog. The backend
     // maps the intent to write source "portal-collect-logs" and emits the dedicated
     // CollectLogsQuickConfigEnabled ops event instead of the generic DiagnosticsUploadEnabled.
-    tenantCollectLogsQuickConfig: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}?intent=collect-logs`,
+    tenantCollectLogsQuickConfig: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}?intent=collect-logs`,
     /**
      * PATCH — transactional field-level config write (TenantAdminOrGA, own row):
      * { fields: { <wireFieldName>: value | null, ... }, reason?: string }. The backend
      * verifies exactly those fields changed and rolls back on drift; every write snapshots
      * to ConfigurationBackups first. The Settings sections save through this per section.
      */
-    fields: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/fields`,
-    featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/feature-flags`,
+    fields: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/fields`,
+    featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/feature-flags`,
     /** PATCH — GA-only plan/trial mutation: { planTier?, trialExpiresUtc?: ISO | null }. */
-    plan: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/plan`,
+    plan: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/plan`,
     /** POST — tenant-admin self-service 30-day Pro trial (once per tenant, 409 after). */
-    trial: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}/trial`,
+    trial: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/trial`,
     autopilotConsentUrl: (tenantId: string, redirectUri: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-url${qs({ redirectUri })}`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/consent-url${qs({ redirectUri })}`,
     autopilotConsentStatus: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-status`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/consent-status`,
     autopilotConsentFailure: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-failure`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/consent-failure`,
     autopilotConsentSuccess: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/consent-success`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/consent-success`,
     /**
      * Probe whether the app's core validation permission is already effectively granted in
      * the tenant (pre-approved by someone with consent rights), so a rights-less admin can be
@@ -163,16 +163,16 @@ export const api = {
      * { accessPresent, isTransient, requiredPermission }.
      */
     autopilotAccessCheck: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/autopilot-device-validation/access-check`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/autopilot-device-validation/access-check`,
     /**
      * POST — dual app-reg homing flip: { target: "primary" | "legacy", force?: boolean }.
      * Tenant admins: target "primary" only, no force, kill-switch flag on, consent probe must
      * pass. Global Admins: both directions, force skips the probe.
      */
     appHoming: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/app-homing`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/app-homing`,
     testNotification: (tenantId: string) =>
-      `${API_BASE_URL}/api/config/${tenantId}/test-notification`,
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/test-notification`,
     latestVersions: (opts?: { refresh?: boolean }) =>
       `${API_BASE_URL}/api/config/latest-versions${qs({ refresh: opts?.refresh ? "true" : undefined })}`,
   },
@@ -181,13 +181,13 @@ export const api = {
   graphPermissions: {
     /** GET status of optional Graph add-on permissions for the tenant (admin-only). */
     status: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/graph-permissions/status`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/graph-permissions/status`,
     /** POST to invalidate the backend's cached roles after a grant script run. */
     refresh: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/graph-permissions/refresh`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/graph-permissions/refresh`,
     /** POST endpoint to resolve Intune script display names; body carries the refs array. */
     scriptDisplayNames: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/scripts/display-names`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/scripts/display-names`,
   },
 
   // ── Global Config (global admin) ──────────────────────────────────────────
@@ -201,17 +201,17 @@ export const api = {
   // ── Tenants ───────────────────────────────────────────────────────────────
   tenants: {
     admins: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/admins`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins`,
     admin: (tenantId: string, adminUpn: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/admins/${encodeURIComponent(adminUpn)}`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(adminUpn)}`,
     adminAction: (tenantId: string, adminUpn: string, action: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/admins/${encodeURIComponent(adminUpn)}/${action}`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(adminUpn)}/${encodeURIComponent(action)}`,
     adminPermissions: (tenantId: string, adminUpn: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/admins/${encodeURIComponent(adminUpn)}/permissions`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(adminUpn)}/permissions`,
     offboard: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/offboard`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/offboard`,
     offboardFeedback: (tenantId: string) =>
-      `${API_BASE_URL}/api/tenants/${tenantId}/offboard/feedback`,
+      `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/offboard/feedback`,
   },
 
   // ── Devices ───────────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ export const api = {
     gather: (tenantId?: string) =>
       `${API_BASE_URL}/api/rules/gather${qs({ tenantId })}`,
     gatherRule: (ruleId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/rules/gather/${ruleId}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/rules/gather/${encodeURIComponent(ruleId)}${qs({ tenantId })}`,
     globalGather: (tenantId?: string) =>
       `${API_BASE_URL}/api/global/rules/gather${qs({ tenantId })}`,
     // Cross-tenant edit/toggle/delete of an existing gather rule (Global Admin override) — see globalAnalyzeRule.
@@ -406,7 +406,7 @@ export const api = {
     lookup: (tenantId: string, search: string) =>
       `${API_BASE_URL}/api/progress/sessions/lookup${qs({ tenantId, search })}`,
     sessionEvents: (sessionId: string, tenantId: string, serial: string) =>
-      `${API_BASE_URL}/api/progress/sessions/${sessionId}/events${qs({ tenantId, serial })}`,
+      `${API_BASE_URL}/api/progress/sessions/${encodeURIComponent(sessionId)}/events${qs({ tenantId, serial })}`,
   },
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ export const api = {
     sessions: (tenantId?: string) =>
       `${API_BASE_URL}/api/bootstrap/sessions${qs({ tenantId })}`,
     session: (code: string, tenantId: string) =>
-      `${API_BASE_URL}/api/bootstrap/sessions/${code}${qs({ tenantId })}`,
+      `${API_BASE_URL}/api/bootstrap/sessions/${encodeURIComponent(code)}${qs({ tenantId })}`,
   },
 
   // ── Annotations (tenant-scoped overview list) ─────────────────────────────
@@ -467,7 +467,7 @@ export const api = {
     downloadUrl: (blobName: string) =>
       `${API_BASE_URL}/api/global/session-reports/download-url${qs({ blobName })}`,
     note: (reportId: string) =>
-      `${API_BASE_URL}/api/global/session-reports/${reportId}/note`,
+      `${API_BASE_URL}/api/global/session-reports/${encodeURIComponent(reportId)}/note`,
   },
 
   // ── Diag Files Reports (no session context) ───────────────────────────────
@@ -553,11 +553,11 @@ export const api = {
   // ── Notifications ─────────────────────────────────────────────────────────
   notifications: {
     list: () => `${API_BASE_URL}/api/global/notifications`,
-    dismiss: (id: string) => `${API_BASE_URL}/api/global/notifications/${id}/dismiss`,
+    dismiss: (id: string) => `${API_BASE_URL}/api/global/notifications/${encodeURIComponent(id)}/dismiss`,
     dismissAll: () => `${API_BASE_URL}/api/global/notifications/dismiss-all`,
     // Tenant-scoped persistent notifications (bell). TenantId resolved server-side from JWT.
     tenantList: () => `${API_BASE_URL}/api/notifications`,
-    tenantDismiss: (id: string) => `${API_BASE_URL}/api/notifications/${id}/dismiss`,
+    tenantDismiss: (id: string) => `${API_BASE_URL}/api/notifications/${encodeURIComponent(id)}/dismiss`,
     tenantDismissAll: () => `${API_BASE_URL}/api/notifications/dismiss-all`,
   },
 
@@ -608,12 +608,12 @@ export const api = {
   preview: {
     whitelist: () => `${API_BASE_URL}/api/preview/whitelist`,
     whitelistTenant: (tenantId: string) =>
-      `${API_BASE_URL}/api/preview/whitelist/${tenantId}`,
+      `${API_BASE_URL}/api/preview/whitelist/${encodeURIComponent(tenantId)}`,
     sendWelcomeEmail: (tenantId: string) =>
-      `${API_BASE_URL}/api/preview/send-welcome-email/${tenantId}`,
+      `${API_BASE_URL}/api/preview/send-welcome-email/${encodeURIComponent(tenantId)}`,
     notificationEmail: () => `${API_BASE_URL}/api/preview/notification-email`,
     notificationEmailTenant: (tenantId: string) =>
-      `${API_BASE_URL}/api/preview/notification-email/${tenantId}`,
+      `${API_BASE_URL}/api/preview/notification-email/${encodeURIComponent(tenantId)}`,
     /** GA/Reader: every stored notification address, keyed by lowercased tenant id. */
     notificationEmails: () => `${API_BASE_URL}/api/preview/notification-emails`,
   },
@@ -721,13 +721,13 @@ export const api = {
   // ── Email Templates (GA) ──────────────────────────────────────────────────
   emailTemplates: {
     get: (kind: "welcome" | "farewell") =>
-      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+      `${API_BASE_URL}/api/global/email-templates/${encodeURIComponent(kind)}`,
     save: (kind: "welcome" | "farewell") =>
-      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+      `${API_BASE_URL}/api/global/email-templates/${encodeURIComponent(kind)}`,
     reset: (kind: "welcome" | "farewell") =>
-      `${API_BASE_URL}/api/global/email-templates/${kind}`,
+      `${API_BASE_URL}/api/global/email-templates/${encodeURIComponent(kind)}`,
     sendTest: (kind: "welcome" | "farewell") =>
-      `${API_BASE_URL}/api/global/email-templates/${kind}/test`,
+      `${API_BASE_URL}/api/global/email-templates/${encodeURIComponent(kind)}/test`,
   },
 
   // ── Maintenance ───────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 import { diagnosisUrl, inspectorUrl } from "@/lib/routes";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -15,6 +16,7 @@ import ScriptExecutions from '../../components/ScriptExecutions';
 import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
+import { isGuid } from "@/utils/inputValidation";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
@@ -59,7 +61,11 @@ function SessionDetailContent() {
   const searchParams = useSearchParams();
   // Query-string identity (`?id=`) — path params are gone with the static export;
   // legacy /sessions/{id} URLs are rewritten here by LegacyPathRedirect.
-  const sessionId = searchParams?.get("id") as string;
+  // The raw value is attacker-deliverable (deep link) and useSearchParams returns it
+  // percent-DECODED, so anything but a GUID must never reach an API URL builder: an empty
+  // sessionId keeps every data hook inert and the page renders the invalid-id branch below.
+  const rawSessionId = searchParams?.get("id") ?? "";
+  const sessionId = isGuid(rawSessionId) ? rawSessionId.trim() : "";
   // Explicit target tenant from the fleet drill-in (`?tenantId=`). Drives the cross-tenant reads for a
   // delegated ("MSP") admin viewing a managed tenant's session, and flips the page into read-only mode.
   const tenantIdOverride = searchParams?.get("tenantId") || undefined;
@@ -424,6 +430,19 @@ function SessionDetailContent() {
   // so `loading` never flips and we'd render this branch forever — bypassing the
   // auth gate and hanging on "Loading session details..." without ever triggering
   // the MSAL login redirect. Wrapping here lets ProtectedRoute drive re-auth.
+  if (!sessionId) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-gray-600">
+            {rawSessionId ? "Invalid session id." : "No session id given."}{" "}
+            <Link href="/dashboard" className="text-blue-600 hover:underline">Back to dashboard</Link>
+          </div>
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
   if (loading && !session && events.length === 0) {
     return (
       <ProtectedRoute>

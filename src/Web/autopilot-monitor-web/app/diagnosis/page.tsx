@@ -30,7 +30,8 @@ export default function DiagnosisPage() {
 function DiagnosisContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const sessionId = searchParams?.get("id") as string;
+  // Deep-link value is percent-decoded by useSearchParams; only a GUID may reach the API builders.
+  const sessionId = (isGuid(searchParams?.get("id")) ? searchParams!.get("id")!.trim() : "") as string;
 
   const [session, setSession] = useState<Session | null>(null);
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null);

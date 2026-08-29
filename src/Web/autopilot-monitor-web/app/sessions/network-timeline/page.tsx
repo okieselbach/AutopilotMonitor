@@ -16,6 +16,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import { isGuid } from '@/utils/inputValidation';
 import { api } from '@/lib/api';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { extractContinuation, MAX_EAGER_PAGES } from '@/lib/paginationLink';
@@ -91,7 +92,8 @@ export default function NetworkTimelinePage() {
 
 function Content() {
   const searchParams = useSearchParams();
-  const sessionId = searchParams?.get('id') ?? null;
+  // Deep-link value is percent-decoded by useSearchParams; only a GUID may reach the API builders.
+  const sessionId = isGuid(searchParams?.get('id')) ? searchParams!.get('id')!.trim() : null;
   const tenantIdOverride = searchParams?.get('tenantId') ?? undefined;
 
   const { session, events, loading, error } = useSessionData(sessionId, tenantIdOverride);

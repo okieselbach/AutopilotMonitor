@@ -108,7 +108,10 @@ export function useSessionDetail({
       const response = await authenticatedFetch(endpoint, getAccessToken);
       if (response.ok) {
         const data = await response.json();
-        const foundSession = data.session ?? data.sessions?.find((s: Session) => s.sessionId === sessionId);
+        // Accept only a session whose id matches the one we asked for — a misrouted or
+        // unexpected 200 must never hydrate the page (defense in depth behind the GUID gate).
+        const candidate: Session | undefined = data.session ?? data.sessions?.find((s: Session) => s.sessionId === sessionId);
+        const foundSession = candidate?.sessionId?.toLowerCase() === sessionId.toLowerCase() ? candidate : undefined;
         if (foundSession) {
           setSession(foundSession);
           setSessionTenantId(foundSession.tenantId);
