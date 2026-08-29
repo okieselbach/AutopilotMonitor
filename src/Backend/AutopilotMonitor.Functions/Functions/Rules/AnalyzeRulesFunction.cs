@@ -78,6 +78,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
                 return conflict;
             }
+            catch (ArgumentException ex)
+            {
+                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badReq.WriteAsJsonAsync(new { success = false, message = ex.Message });
+                return badReq;
+            }
         }
 
         [Function("UpdateAnalyzeRule")]
@@ -120,6 +126,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 var conflict = req.CreateResponse(HttpStatusCode.Conflict);
                 await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
                 return conflict;
+            }
+            catch (ArgumentException ex)
+            {
+                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badReq.WriteAsJsonAsync(new { success = false, message = ex.Message });
+                return badReq;
             }
         }
 

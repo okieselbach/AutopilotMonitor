@@ -16,6 +16,7 @@ import { ConfidenceBadge, SeverityBadge } from "./components/DiagnosisBadges";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { isGuid } from "@/utils/inputValidation";
+import { safeHttpUrl } from "@/lib/safeDocUrl";
 
 export default function DiagnosisPage() {
   // useSearchParams() in DiagnosisContent requires a Suspense boundary for static prerender.
@@ -286,6 +287,7 @@ function DiagnosisContent() {
 
   const primaryResult = analysisResults[0] || null;
   const otherResults = analysisResults.slice(1);
+  const primaryDocUrl = safeHttpUrl(primaryResult?.relatedDocs?.[0]?.url);
 
   const statusLabel =
     session?.status === "Failed"
@@ -529,9 +531,9 @@ function DiagnosisContent() {
 
                     {/* Action Buttons */}
                     <div className="flex items-center space-x-3 mt-4">
-                      {primaryResult.relatedDocs?.length > 0 && (
+                      {primaryDocUrl && (
                         <a
-                          href={primaryResult.relatedDocs[0].url}
+                          href={primaryDocUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center space-x-1 text-sm text-green-700 hover:text-green-800"
@@ -726,17 +728,22 @@ function DiagnosisContent() {
 
                             {result.relatedDocs?.length > 0 && (
                               <div className="flex flex-wrap gap-2">
-                                {result.relatedDocs.map((doc, i) => (
-                                  <a
-                                    key={i}
-                                    href={doc.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-green-700 hover:text-green-800 underline"
-                                  >
-                                    {doc.title}
-                                  </a>
-                                ))}
+                                {result.relatedDocs.map((doc, i) => {
+                                  const href = safeHttpUrl(doc.url);
+                                  return href ? (
+                                    <a
+                                      key={i}
+                                      href={href}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-green-700 hover:text-green-800 underline"
+                                    >
+                                      {doc.title}
+                                    </a>
+                                  ) : (
+                                    <span key={i} className="text-xs text-gray-500">{doc.title}</span>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>

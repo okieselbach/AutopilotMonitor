@@ -274,6 +274,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             ValidateEvaluateOn(rule);
+            ValidateRelatedDocs(rule);
 
             rule.IsBuiltIn = false;
             rule.IsCommunity = false;
@@ -311,6 +312,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             ValidateEvaluateOn(rule);
+            ValidateRelatedDocs(rule);
 
             // Custom rules are fully tenant-owned: fold a notify override into the row default
             // (there is no separate RuleState for them) — mirrors how the UI edits Enabled.
@@ -654,6 +656,43 @@ namespace AutopilotMonitor.Functions.Services
                     $"evaluateOn on_event trigger(s) blocked for high-frequency telemetry event type(s): {string.Join(", ", blocked)}. " +
                     "These occur on nearly every ingest batch and would run analysis continuously — pick a rare, problem-indicating event type.");
             }
+        }
+
+        /// <summary>
+        /// Related-doc URLs are author-controlled (Tenant Admin) and rendered as anchor hrefs
+        /// for every viewer of a fired rule, including cross-tenant Global/MSP admins. Only
+        /// absolute http(s) URLs may persist — a stored javascript:/data: URL would be a durable
+        /// stored XSS in the portal origin. Entries with an empty URL (the editor's "+ Add Link"
+        /// default) are dropped rather than rejected. Throws <see cref="ArgumentException"/>
+        /// (mapped to 400 by the function) so the author sees the offending entry.
+        /// </summary>
+        internal static void ValidateRelatedDocs(AnalyzeRule rule)
+        {
+            if (rule.RelatedDocs is not { Count: > 0 })
+                return;
+
+            rule.RelatedDocs = rule.RelatedDocs
+                .Where(d => d != null && !string.IsNullOrWhiteSpace(d.Url))
+                .ToList();
+
+            var invalid = rule.RelatedDocs
+                .Where(d => !IsAbsoluteHttpUrl(d.Url))
+                .Select(d => d.Url.Trim())
+                .ToList();
+            if (invalid.Count > 0)
+            {
+                throw new ArgumentException(
+                    $"Invalid relatedDocs URL(s): {string.Join(", ", invalid)}. " +
+                    "Only absolute http:// or https:// URLs are allowed.");
+            }
+        }
+
+        internal static bool IsAbsoluteHttpUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return false;
+            return Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+                && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
         }
 
         /// <summary>

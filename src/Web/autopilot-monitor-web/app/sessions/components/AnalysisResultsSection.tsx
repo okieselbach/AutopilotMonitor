@@ -12,6 +12,7 @@ import { dashboardUrl } from "@/lib/routes";
 import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
+import { safeHttpUrl } from "@/lib/safeDocUrl";
 
 interface AnalysisResultsSectionProps {
   analysisResults: RuleResult[];
@@ -385,17 +386,22 @@ function AnalysisResultCard({
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-1">Related Documentation</h4>
               <div className="flex flex-wrap gap-2">
-                {result.relatedDocs.map((doc, i) => (
-                  <a
-                    key={i}
-                    href={doc.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-green-700 hover:text-green-800 underline"
-                  >
-                    {doc.title}
-                  </a>
-                ))}
+                {result.relatedDocs.map((doc, i) => {
+                  const href = safeHttpUrl(doc.url);
+                  return href ? (
+                    <a
+                      key={i}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-green-700 hover:text-green-800 underline"
+                    >
+                      {doc.title}
+                    </a>
+                  ) : (
+                    <span key={i} className="text-sm text-gray-500">{doc.title}</span>
+                  );
+                })}
               </div>
             </div>
           )}

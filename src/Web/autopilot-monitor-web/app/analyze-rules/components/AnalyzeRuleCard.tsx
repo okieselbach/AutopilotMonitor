@@ -6,6 +6,7 @@ import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/compo
 import AnalyzeRuleFormFields from "./AnalyzeRuleFormFields";
 import { stripInternalFields } from "@/lib/rulePageHelpers";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
+import { safeHttpUrl } from "@/lib/safeDocUrl";
 
 /** One day of rule telemetry (rule-stats `trend`; sparse — days without activity have no entry). */
 export interface RuleTrendPoint {
@@ -445,12 +446,17 @@ export default function AnalyzeRuleCard({
             <div>
               <h4 className="text-sm font-semibold text-gray-700 mb-2">Related Documentation</h4>
               <div className="flex flex-wrap gap-2">
-                {rule.relatedDocs.map((doc, idx) => (
-                  <a key={idx} href={doc.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-100 transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                    <span>{doc.title}</span>
-                  </a>
-                ))}
+                {rule.relatedDocs.map((doc, idx) => {
+                  const href = safeHttpUrl(doc.url);
+                  return href ? (
+                    <a key={idx} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-700 hover:bg-indigo-100 transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                      <span>{doc.title}</span>
+                    </a>
+                  ) : (
+                    <span key={idx} className="inline-flex items-center px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-500">{doc.title}</span>
+                  );
+                })}
               </div>
             </div>
           )}
