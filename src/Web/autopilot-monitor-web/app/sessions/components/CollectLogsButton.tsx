@@ -145,7 +145,7 @@ export default function CollectLogsButton({
             : config.diagnosticsUploadMode,
       };
 
-      const putRes = await authenticatedFetch(api.config.tenant(effectiveTenantId), getAccessToken, {
+      const putRes = await authenticatedFetch(api.config.tenantCollectLogsQuickConfig(effectiveTenantId), getAccessToken, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),

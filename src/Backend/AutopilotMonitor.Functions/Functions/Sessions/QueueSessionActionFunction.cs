@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.ApplicationInsights;
@@ -24,6 +25,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly ILogger<QueueSessionActionFunction> _logger;
         private readonly ISessionRepository _sessionRepo;
         private readonly TelemetryClient _telemetryClient;
+        private readonly OpsEventService _opsEventService;
 
         private static readonly HashSet<string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -57,11 +59,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         public QueueSessionActionFunction(
             ILogger<QueueSessionActionFunction> logger,
             ISessionRepository sessionRepo,
-            TelemetryClient telemetryClient)
+            TelemetryClient telemetryClient,
+            OpsEventService opsEventService)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
             _telemetryClient = telemetryClient;
+            _opsEventService = opsEventService;
         }
 
         /// <summary>
@@ -130,6 +134,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     await notFound.WriteAsJsonAsync(new { success = false, message = $"Session {sessionId} not found for tenant" });
                     return notFound;
                 }
+
+                // Ops feed: who uses the on-demand session controls (Collect Logs, quick-config,
+                // terminate). App Insights alone is invisible to alert rules. Never throws.
+                await _opsEventService.RecordSessionActionQueuedAsync(
+                    tenantId, sessionId, action.Type, action.Reason, userIdentifier ?? "unknown");
 
                 _telemetryClient.TrackEvent("ServerActionQueued", new Dictionary<string, string>
                 {

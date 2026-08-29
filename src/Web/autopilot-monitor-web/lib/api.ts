@@ -132,6 +132,10 @@ export const api = {
   config: {
     all: () => `${API_BASE_URL}/api/config/all`,
     tenant: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}`,
+    // Same PUT, labelled: the session-detail Collect Logs quick-config dialog. The backend
+    // maps the intent to write source "portal-collect-logs" and emits the dedicated
+    // CollectLogsQuickConfigEnabled ops event instead of the generic DiagnosticsUploadEnabled.
+    tenantCollectLogsQuickConfig: (tenantId: string) => `${API_BASE_URL}/api/config/${tenantId}?intent=collect-logs`,
     /**
      * PATCH — transactional field-level config write (TenantAdminOrGA, own row):
      * { fields: { <wireFieldName>: value | null, ... }, reason?: string }. The backend

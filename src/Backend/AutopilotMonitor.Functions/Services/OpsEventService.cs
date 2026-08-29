@@ -717,7 +717,51 @@ namespace AutopilotMonitor.Functions.Services
                     lift,
                 });
 
+        /// <summary>
+        /// A tenant admin turned on-demand diagnostics upload on or off — the capability behind
+        /// the session-detail Collect Logs button (portal Settings, the Collect Logs quick-config
+        /// dialog, MCP update_tenant_config, or a config revert). Fires only on the flip, not on
+        /// every diagnostics edit (<see cref="DiagnosticsUploadConfigChange.Detect"/>).
+        /// Info-tier. The Collect Logs quick-config dialog (source <c>portal-collect-logs</c>)
+        /// gets its own type <c>CollectLogsQuickConfigEnabled</c> so a rule can push on exactly
+        /// "someone clicked Collect Logs and switched on Hosted upload" without also firing on
+        /// Settings-page edits; every other enable path is <c>DiagnosticsUploadEnabled</c>.
+        /// Dual-register per memory feedback_ops_event_types_dual_register.
+        /// </summary>
+        public Task RecordDiagnosticsUploadConfigChangedAsync(
+            string tenantId, string? domainName, DiagnosticsUploadConfigChange change, string changedBy, string source)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var quickConfig = string.Equals(source, Functions.Config.UpdateTenantConfigurationFunction.CollectLogsSource, StringComparison.Ordinal);
+            if (change.Enabled && quickConfig)
+            {
+                return WriteAsync(OpsEventCategory.Tenant, "CollectLogsQuickConfigEnabled", OpsEventSeverity.Info,
+                    $"Collect Logs: {changedBy} enabled diagnostics upload for tenant {tenantLabel} via the session quick-config dialog (destination {change.Destination ?? "?"}, mode {change.Mode})",
+                    tenantId, changedBy, new { domainName, change.Destination, change.Mode, source });
+            }
+
+            return change.Enabled
+                ? WriteAsync(OpsEventCategory.Tenant, "DiagnosticsUploadEnabled", OpsEventSeverity.Info,
+                    $"Diagnostics upload enabled for tenant {tenantLabel} (destination {change.Destination ?? "?"}, mode {change.Mode}) via {source} by {changedBy}",
+                    tenantId, changedBy, new { domainName, change.Destination, change.Mode, source })
+                : WriteAsync(OpsEventCategory.Tenant, "DiagnosticsUploadDisabled", OpsEventSeverity.Info,
+                    $"Diagnostics upload disabled for tenant {tenantLabel} (mode {change.Mode}) via {source} by {changedBy}",
+                    tenantId, changedBy, new { domainName, change.Destination, change.Mode, source });
+        }
+
         // ── Agent ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// A portal user queued a ServerAction for a live session (Collect Logs =
+        /// <c>request_diagnostics</c>, quick-config = <c>rotate_config</c>, admin
+        /// <c>terminate_session</c>). Rule-engine-queued actions do NOT pass through here —
+        /// this is the "who uses the on-demand controls, and how often" signal.
+        /// Dual-register per memory feedback_ops_event_types_dual_register.
+        /// </summary>
+        public Task RecordSessionActionQueuedAsync(string tenantId, string sessionId, string actionType, string? reason, string queuedBy)
+            => WriteAsync(OpsEventCategory.Agent, "SessionActionQueued", OpsEventSeverity.Info,
+                $"Server action '{actionType}' queued for session {sessionId} by {queuedBy}: {reason}",
+                tenantId, queuedBy, new { sessionId, actionType, reason });
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)
             => WriteAsync(OpsEventCategory.Agent, "SessionTimeouts", OpsEventSeverity.Info,

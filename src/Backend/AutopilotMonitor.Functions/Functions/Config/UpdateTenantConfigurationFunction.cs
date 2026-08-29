@@ -21,16 +21,31 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly ILogger<UpdateTenantConfigurationFunction> _logger;
         private readonly TenantConfigurationService _configService;
         private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly OpsEventService _opsEventService;
 
         public UpdateTenantConfigurationFunction(
             ILogger<UpdateTenantConfigurationFunction> logger,
             TenantConfigurationService configService,
-            IMaintenanceRepository maintenanceRepo)
+            IMaintenanceRepository maintenanceRepo,
+            OpsEventService opsEventService)
         {
             _logger = logger;
             _configService = configService;
             _maintenanceRepo = maintenanceRepo;
+            _opsEventService = opsEventService;
         }
+
+        /// <summary>
+        /// Write-path label for the session-detail Collect Logs quick-config dialog. The dialog
+        /// sends <c>?intent=collect-logs</c> so the backup snapshot and the ops event can name
+        /// the path — a plain Settings/Admin PUT is <c>portal-put</c>. Allow-listed, never echoed
+        /// from arbitrary input.
+        /// </summary>
+        internal const string CollectLogsIntent = "collect-logs";
+        internal const string CollectLogsSource = "portal-collect-logs";
+
+        internal static string ResolveWriteSource(string? intent) =>
+            string.Equals(intent, CollectLogsIntent, StringComparison.OrdinalIgnoreCase) ? CollectLogsSource : "portal-put";
 
         [Function("UpdateTenantConfiguration")]
         public async Task<HttpResponseData> Run(
@@ -183,7 +198,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 config.TrialGrantedBy = existingConfig.TrialGrantedBy;
 
                 // Save configuration (retention cap already enforced by ValidateModel above)
-                await _configService.SaveConfigurationAsync(config, "portal-put", null);
+                var writeSource = ResolveWriteSource(req.Query["intent"]);
+                await _configService.SaveConfigurationAsync(config, writeSource, null);
 
                 var changes = ConfigDiffHelper.GetChanges(existingConfig, config);
                 await _maintenanceRepo.LogAuditEntryAsync(
@@ -194,6 +210,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     userIdentifier,
                     changes.Count > 0 ? changes : null
                 );
+
+                // Operator visibility for the Collect Logs capability flip (the quick-config
+                // dialog writes through this PUT). OpsEventService never throws.
+                var diagChange = DiagnosticsUploadConfigChange.Detect(existingConfig, config);
+                if (diagChange != null)
+                {
+                    await _opsEventService.RecordDiagnosticsUploadConfigChangedAsync(
+                        requestCtx.TargetTenantId, config.DomainName, diagChange, userIdentifier ?? "unknown", writeSource);
+                }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new

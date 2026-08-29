@@ -92,6 +92,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IConfigBackupRepository _backupRepo;
         private readonly TenantConfigurationService _configService;
         private readonly IMaintenanceRepository _maintenanceRepo;
+        private readonly OpsEventService _opsEventService;
         private readonly ILogger<TenantConfigPatchService> _logger;
 
         public TenantConfigPatchService(
@@ -99,12 +100,14 @@ namespace AutopilotMonitor.Functions.Services
             IConfigBackupRepository backupRepo,
             TenantConfigurationService configService,
             IMaintenanceRepository maintenanceRepo,
+            OpsEventService opsEventService,
             ILogger<TenantConfigPatchService> logger)
         {
             _configRepo = configRepo;
             _backupRepo = backupRepo;
             _configService = configService;
             _maintenanceRepo = maintenanceRepo;
+            _opsEventService = opsEventService;
             _logger = logger;
         }
 
@@ -420,6 +423,15 @@ namespace AutopilotMonitor.Functions.Services
             var auditDetails = new Dictionary<string, string>(maskedDiff) { ["BackupId"] = backupId };
             await _maintenanceRepo.LogAuditEntryAsync(
                 tenantId, auditAction, "TenantConfiguration", tenantId, updatedBy, auditDetails);
+
+            // Operator visibility for the Collect Logs capability flip — the verified re-read is
+            // the truth of what landed, so detect on it rather than on the candidate.
+            var diagChange = DiagnosticsUploadConfigChange.Detect(initial, reread.Value.Config);
+            if (diagChange != null)
+            {
+                await _opsEventService.RecordDiagnosticsUploadConfigChangedAsync(
+                    tenantId, reread.Value.Config.DomainName, diagChange, updatedBy, source);
+            }
 
             var applied = expected.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
             return new PatchOutcome(true, PatchFailure.None, null, backupId, applied, maskedDiff, null);

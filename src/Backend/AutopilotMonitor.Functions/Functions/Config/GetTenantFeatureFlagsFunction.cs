@@ -86,10 +86,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // succeed right now (mode not Off + a usable destination). Members below Admin cannot
                 // read the full config, so this boolean is their only signal. Deliberately exposes no
                 // destination detail — just "would an upload work".
-                diagnosticsUploadConfigured =
-                    !string.Equals(config.DiagnosticsUploadMode ?? "Off", "Off", StringComparison.OrdinalIgnoreCase)
-                    && GetAgentConfigFunction.ResolveDiagnosticsUploadEnabled(
-                        config.DiagnosticsBlobSasUrl, config.DiagnosticsUploadDestination),
+                diagnosticsUploadConfigured = DiagnosticsUploadConfigChange.IsConfigured(config),
                 // Drives the "Autopilot Device Validation disabled" dashboard banner
                 // (useTenantSecurityConfig).
                 validateAutopilotDevice = config.ValidateAutopilotDevice,

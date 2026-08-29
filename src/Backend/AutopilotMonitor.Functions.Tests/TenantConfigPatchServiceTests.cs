@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -35,6 +37,8 @@ public class TenantConfigPatchServiceTests
         public Mock<IConfigRepository> Repo { get; } = new();
         public Mock<IConfigBackupRepository> Backup { get; } = new();
         public Mock<IMaintenanceRepository> Maintenance { get; } = new();
+        public Mock<IOpsEventRepository> OpsRepo { get; } = new();
+        public List<OpsEventEntry> OpsEvents { get; } = new();
         public TenantConfigPatchService Sut { get; }
 
         public TenantConfiguration? Current;
@@ -89,8 +93,23 @@ public class TenantConfigPatchServiceTests
                 Repo.Object, NullLogger<TenantConfigurationService>.Instance,
                 new MemoryCache(new MemoryCacheOptions()));
 
+            OpsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
+                .Callback<OpsEventEntry>(e => { lock (OpsEvents) OpsEvents.Add(e); })
+                .Returns(Task.CompletedTask);
+            var adminConfig = new Mock<AdminConfigurationService>(
+                Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance,
+                new MemoryCache(new MemoryCacheOptions())) { CallBase = false };
+            var alertDispatch = new OpsAlertDispatchService(
+                adminConfig.Object,
+                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(),
+                    NullLogger<TelegramNotificationService>.Instance),
+                new WebhookNotificationService(new HttpClient(),
+                    NullLogger<WebhookNotificationService>.Instance),
+                NullLogger<OpsAlertDispatchService>.Instance);
+            var opsService = new OpsEventService(OpsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
+
             Sut = new TenantConfigPatchService(
-                Repo.Object, Backup.Object, configService, Maintenance.Object,
+                Repo.Object, Backup.Object, configService, Maintenance.Object, opsService,
                 NullLogger<TenantConfigPatchService>.Instance);
         }
 
@@ -114,6 +133,41 @@ public class TenantConfigPatchServiceTests
         foreach (var (key, value) in fields)
             o[key] = value == null ? JValue.CreateNull() : JToken.FromObject(value);
         return o;
+    }
+
+    // ── Ops visibility: Collect Logs capability flip ────────────────────────
+
+    [Fact]
+    public async Task Patch_EnablingDiagnosticsUpload_EmitsOpsEvent_OnlyOnTheFlip()
+    {
+        var stored = Stored();
+        stored.DiagnosticsUploadMode = "Off";
+        var harness = new Harness(stored);
+
+        // Settings page / MCP: turn the capability on (mode + Hosted destination).
+        var on = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("diagnosticsUploadMode", "OnFailure"), ("diagnosticsUploadDestination", "Hosted")),
+            Ga, "mcp-patch", "enable collect logs");
+        Assert.True(on.Success, on.Error);
+
+        var enabled = Assert.Single(harness.OpsEvents);
+        Assert.Equal("DiagnosticsUploadEnabled", enabled.EventType);
+        Assert.Equal(TenantId, enabled.TenantId);
+        Assert.Contains("contoso.com", enabled.Message);
+        Assert.Contains("mcp-patch", enabled.Message);
+
+        // A further edit that keeps it on is not a flip.
+        var tweak = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("diagnosticsUploadMode", "Always")), Ga, "mcp-patch", null);
+        Assert.True(tweak.Success, tweak.Error);
+        Assert.Single(harness.OpsEvents);
+
+        // Turning it off is the opposite flip.
+        var off = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("diagnosticsUploadMode", "Off")), Ga, "mcp-patch", null);
+        Assert.True(off.Success, off.Error);
+        Assert.Equal(2, harness.OpsEvents.Count);
+        Assert.Equal("DiagnosticsUploadDisabled", harness.OpsEvents[1].EventType);
     }
 
     // ── Happy path ──────────────────────────────────────────────────────────

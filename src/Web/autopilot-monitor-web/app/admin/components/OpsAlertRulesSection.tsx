@@ -156,6 +156,17 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "WelcomeEmailSent",
     "WelcomeEmailSkipped",
     "WelcomeEmailFailed",
+    // A tenant admin turned on-demand diagnostics upload (the Collect Logs capability) on or
+    // off — portal Settings, the Collect Logs quick-config dialog, MCP update_tenant_config,
+    // or a config revert. Fires on the flip only. Backend
+    // RecordDiagnosticsUploadConfigChangedAsync. Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "DiagnosticsUploadEnabled",
+    "DiagnosticsUploadDisabled",
+    // Someone clicked Collect Logs on a session and switched on Hosted diagnostics upload
+    // through the quick-config dialog (PUT ?intent=collect-logs). Replaces
+    // DiagnosticsUploadEnabled for that path only — the targeted push signal.
+    "CollectLogsQuickConfigEnabled",
   ],
   Agent: [
     "BlobStorageMissing",
@@ -178,6 +189,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // EventIngestProcessor (RecordCmTraceTimeSkewRegressionAsync). Dual-register per memory
     // feedback_ops_event_types_dual_register.
     "CmTraceTimeSkewRegression",
+    // A portal user queued a server action for a live session — Collect Logs
+    // (request_diagnostics), quick-config (rotate_config) or terminate_session. Emitted by
+    // QueueSessionActionFunction (RecordSessionActionQueuedAsync); rule-engine actions are
+    // not included. Dual-register per memory feedback_ops_event_types_dual_register.
+    "SessionActionQueued",
   ],
   Platform: [
     // Azure Monitor alerts relayed through POST ops/alert-webhook (Common Alert Schema →
