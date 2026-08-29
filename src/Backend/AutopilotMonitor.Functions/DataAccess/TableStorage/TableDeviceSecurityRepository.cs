@@ -43,24 +43,44 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(serialNumber))
                 return (false, null, "Block", null);
 
+            var entity = await GetDeviceBlockEntityAsync(tenantId, serialNumber);
+            if (entity == null)
+                return (false, null, "Block", null);
+
+            var unblockAt = entity.GetDateTimeOffset("UnblockAt")?.UtcDateTime ?? DateTime.MinValue;
+            if (DateTime.UtcNow >= unblockAt)
+                return (false, null, "Block", null);
+
+            var action = entity.GetString("Action") ?? "Block";
+            var blockedSessionIds = entity.GetString("BlockedSessionIds");
+            return (true, unblockAt, action, blockedSessionIds);
+        }
+
+        /// <summary>
+        /// Point-reads the block row for a serial under its canonical key, falling back to the
+        /// legacy verbatim-case key for rows written before serials were canonicalized.
+        /// Returns null when neither exists.
+        /// </summary>
+        private async Task<TableEntity?> GetDeviceBlockEntityAsync(string tenantId, string serialNumber)
+        {
+            var entity = await TryGetEntityAsync(tenantId, DeviceRowKey(serialNumber));
+            if (entity != null)
+                return entity;
+
+            var legacyKey = LegacyDeviceRowKey(serialNumber);
+            return legacyKey == null ? null : await TryGetEntityAsync(tenantId, legacyKey);
+        }
+
+        private async Task<TableEntity?> TryGetEntityAsync(string partitionKey, string rowKey)
+        {
             try
             {
-                var response = await _blockedDevicesTable.GetEntityAsync<TableEntity>(tenantId, EncodeRowKey(serialNumber));
-                var entity = response?.Value;
-                if (entity == null)
-                    return (false, null, "Block", null);
-
-                var unblockAt = entity.GetDateTimeOffset("UnblockAt")?.UtcDateTime ?? DateTime.MinValue;
-                if (DateTime.UtcNow >= unblockAt)
-                    return (false, null, "Block", null);
-
-                var action = entity.GetString("Action") ?? "Block";
-                var blockedSessionIds = entity.GetString("BlockedSessionIds");
-                return (true, unblockAt, action, blockedSessionIds);
+                var response = await _blockedDevicesTable.GetEntityAsync<TableEntity>(partitionKey, rowKey);
+                return response?.Value;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
-                return (false, null, "Block", null);
+                return null;
             }
         }
 
@@ -81,6 +101,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 }
 
                 result.Add(MapToBlockedDeviceEntry(entity, tenantId, now));
+                await MigrateLegacyRowKeyAsync(entity);
             }
 
             // Clean up expired entries (fire-and-forget, best effort)
@@ -106,6 +127,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 }
 
                 result.Add(MapToBlockedDeviceEntry(entity, entity.PartitionKey, now));
+                await MigrateLegacyRowKeyAsync(entity);
             }
 
             // Clean up expired entries (fire-and-forget, best effort)
@@ -123,37 +145,31 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             var now = DateTime.UtcNow;
             var unblockAt = now.AddHours(durationHours);
+            var canonicalSerial = CanonicalizeSerial(serialNumber);
 
             // If a session-aware block already exists, merge session IDs
             string? blockedSessionIds = blockedSessionId;
             if (!string.IsNullOrEmpty(blockedSessionId))
             {
-                try
-                {
-                    var existing = await _blockedDevicesTable.GetEntityAsync<TableEntity>(tenantId, EncodeRowKey(serialNumber));
-                    var existingSessionIds = existing?.Value?.GetString("BlockedSessionIds");
+                var existing = await GetDeviceBlockEntityAsync(tenantId, serialNumber);
+                var existingSessionIds = existing?.GetString("BlockedSessionIds");
 
-                    if (existingSessionIds == null)
-                    {
-                        // Existing whole-device block takes precedence — don't downgrade to session-aware
-                        if (existing?.Value != null)
-                            blockedSessionIds = null;
-                    }
-                    else
-                    {
-                        // Merge: append new session ID if not already present
-                        blockedSessionIds = MergeSessionId(existingSessionIds, blockedSessionId);
-                    }
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
+                if (existingSessionIds == null)
                 {
-                    // No existing record — use single session ID
+                    // Existing whole-device block takes precedence — don't downgrade to session-aware
+                    if (existing != null)
+                        blockedSessionIds = null;
+                }
+                else
+                {
+                    // Merge: append new session ID if not already present
+                    blockedSessionIds = MergeSessionId(existingSessionIds, blockedSessionId);
                 }
             }
 
-            var entity = new TableEntity(tenantId, EncodeRowKey(serialNumber))
+            var entity = new TableEntity(tenantId, DeviceRowKey(serialNumber))
             {
-                ["SerialNumber"] = serialNumber,
+                ["SerialNumber"] = canonicalSerial,
                 ["BlockedAt"] = now,
                 ["UnblockAt"] = unblockAt,
                 ["BlockedByEmail"] = blockedByEmail ?? string.Empty,
@@ -166,7 +182,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 entity["BlockedSessionIds"] = blockedSessionIds;
 
             await _blockedDevicesTable.UpsertEntityAsync(entity);
-            await _publisher.PublishAsync("device.blocked", new { tenantId, serialNumber, action, durationHours }, tenantId);
+            await DeleteLegacyRowAsync(tenantId, serialNumber);
+            await _publisher.PublishAsync("device.blocked", new { tenantId, serialNumber = canonicalSerial, action, durationHours }, tenantId);
         }
 
         internal static string MergeSessionId(string? existingList, string newSessionId)
@@ -189,16 +206,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public async Task UnblockDeviceAsync(string tenantId, string serialNumber)
         {
-            try
-            {
-                await _blockedDevicesTable.DeleteEntityAsync(tenantId, EncodeRowKey(serialNumber));
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                // Already removed
-            }
+            await DeleteIgnoringNotFoundAsync(tenantId, DeviceRowKey(serialNumber));
+            await DeleteLegacyRowAsync(tenantId, serialNumber);
 
-            await _publisher.PublishAsync("device.unblocked", new { tenantId, serialNumber }, tenantId);
+            await _publisher.PublishAsync("device.unblocked", new { tenantId, serialNumber = CanonicalizeSerial(serialNumber) }, tenantId);
         }
 
         // -----------------------------------------------------------------------
@@ -393,6 +404,85 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             {
                 try { await _blockedDevicesTable.DeleteEntityAsync(tenantId, rowKey); }
                 catch { /* best effort */ }
+            }
+        }
+
+        /// <summary>
+        /// Serial numbers are matched case-insensitively everywhere else (agent inventory
+        /// validation, BlockedDeviceService cache), so the storage key must not depend on the
+        /// casing the admin typed or the agent reported: trim + upper-case invariant.
+        /// </summary>
+        internal static string CanonicalizeSerial(string? serialNumber)
+            => (serialNumber ?? string.Empty).Trim().ToUpperInvariant();
+
+        /// <summary>Canonical BlockedDevices RowKey for a serial number.</summary>
+        internal static string DeviceRowKey(string? serialNumber)
+            => EncodeRowKey(CanonicalizeSerial(serialNumber));
+
+        /// <summary>
+        /// RowKey a pre-canonicalization row would have been written under (verbatim case),
+        /// or null when it is identical to the canonical key.
+        /// </summary>
+        internal static string? LegacyDeviceRowKey(string? serialNumber)
+        {
+            var legacy = EncodeRowKey(serialNumber ?? string.Empty);
+            return string.Equals(legacy, DeviceRowKey(serialNumber), StringComparison.Ordinal) ? null : legacy;
+        }
+
+        /// <summary>
+        /// Re-keys a row written under a non-canonical RowKey to its canonical key (best effort).
+        /// Runs from the list paths so the pre-canonicalization backlog drains over time.
+        /// </summary>
+        private async Task MigrateLegacyRowKeyAsync(TableEntity entity)
+        {
+            var serial = entity.GetString("SerialNumber") ?? DecodeRowKey(entity.RowKey);
+            var canonicalKey = DeviceRowKey(serial);
+            if (string.Equals(entity.RowKey, canonicalKey, StringComparison.Ordinal))
+                return;
+
+            try
+            {
+                var migrated = new TableEntity(entity.PartitionKey, canonicalKey);
+                foreach (var kv in entity)
+                {
+                    if (kv.Key is "PartitionKey" or "RowKey" or "Timestamp" or "odata.etag" or "ETag")
+                        continue;
+                    migrated[kv.Key] = kv.Value;
+                }
+                migrated["SerialNumber"] = CanonicalizeSerial(serial);
+
+                // Never clobber a canonical row that already exists (it is the newer write).
+                await _blockedDevicesTable.AddEntityAsync(migrated);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Canonical row already present — just drop the legacy duplicate below.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to migrate legacy BlockedDevices row {PartitionKey}/{RowKey}", entity.PartitionKey, entity.RowKey);
+                return;
+            }
+
+            await DeleteIgnoringNotFoundAsync(entity.PartitionKey, entity.RowKey);
+        }
+
+        private async Task DeleteLegacyRowAsync(string tenantId, string serialNumber)
+        {
+            var legacyKey = LegacyDeviceRowKey(serialNumber);
+            if (legacyKey != null)
+                await DeleteIgnoringNotFoundAsync(tenantId, legacyKey);
+        }
+
+        private async Task DeleteIgnoringNotFoundAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                await _blockedDevicesTable.DeleteEntityAsync(partitionKey, rowKey);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                // Already removed
             }
         }
 
