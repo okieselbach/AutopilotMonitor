@@ -58,6 +58,8 @@ export interface AdminConfiguration {
   vulnerabilityCorrelationEnabled?: boolean;
   vulnerabilityDataLastSyncUtc?: string;
   msrcLastSyncUtc?: string;
+  nvdCacheLastRefreshUtc?: string;
+  epssLastSyncUtc?: string;
   opsAlertRulesJson?: string;
   opsAlertTelegramEnabled?: boolean;
   opsAlertTelegramChatId?: string;

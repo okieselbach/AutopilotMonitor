@@ -51,7 +51,9 @@
       "selfServiceAppHomingEnabled",
       "sessionDeletionKillSwitch",
       "vulnerabilityDataLastSyncUtc",
-      "msrcLastSyncUtc"
+      "msrcLastSyncUtc",
+      "nvdCacheLastRefreshUtc",
+      "epssLastSyncUtc"
     ]
   },
   "tenantConfiguration": {

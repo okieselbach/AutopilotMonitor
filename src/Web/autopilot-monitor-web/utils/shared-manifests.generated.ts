@@ -55,7 +55,9 @@ export const SHARED_MANIFEST = {
       "selfServiceAppHomingEnabled",
       "sessionDeletionKillSwitch",
       "vulnerabilityDataLastSyncUtc",
-      "msrcLastSyncUtc"
+      "msrcLastSyncUtc",
+      "nvdCacheLastRefreshUtc",
+      "epssLastSyncUtc"
     ]
   },
   "tenantConfiguration": {

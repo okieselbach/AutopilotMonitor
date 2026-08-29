@@ -410,6 +410,7 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.EpssApiClient>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.MsrcCorrelationService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCacheRefreshService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelationService>();
 // Hydrate MSRC + KEV in-memory caches from blob snapshots at app startup (fire-and-forget;
 // keeps cold-start fast for re-deploys, see VulnerabilityCacheWarmer for the contract).

@@ -547,6 +547,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "vulnerability/software-inventory", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("POST",   "vulnerability/sync",              EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/sync-msrc",         EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "vulnerability/sync-nvd",          EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "vulnerability/sync-epss",         EndpointPolicy.GlobalAdminOnly),
         new("GET",    "vulnerability/sync-status",       EndpointPolicy.GlobalReadOrAdmin),
         new("POST",   "vulnerability/cpe-mapping",       EndpointPolicy.GlobalAdminOnly),
         new("POST",   "vulnerability/cpe-mapping/auto-resolve", EndpointPolicy.GlobalAdminOnly),

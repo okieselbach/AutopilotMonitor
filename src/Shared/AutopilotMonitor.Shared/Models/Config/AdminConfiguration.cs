@@ -522,6 +522,19 @@ namespace AutopilotMonitor.Shared.Models
         public string MsrcLastSyncUtc { get; set; } = default!;
 
         /// <summary>
+        /// Last COMPLETED refresh of the stale NVD CVE cache rows (UTC ISO 8601) — a run that walked
+        /// every stale row without being cut short by an NVD throttle cooldown. Updated by
+        /// VulnerabilityDataSyncFunction (daily timer) and the manual /api/vulnerability/sync-nvd.
+        /// </summary>
+        public string NvdCacheLastRefreshUtc { get; set; } = default!;
+
+        /// <summary>
+        /// Last successful FIRST EPSS re-score of the cached CVEs (UTC ISO 8601). Updated by
+        /// VulnerabilityDataSyncFunction (daily timer) and the manual /api/vulnerability/sync-epss.
+        /// </summary>
+        public string EpssLastSyncUtc { get; set; } = default!;
+
+        /// <summary>
         /// Returns a shallow copy with all secret-bearing string fields replaced by
         /// <see cref="Constants.RedactedSecretPlaceholder"/> (empty values are left empty). Used when
         /// serving the global config to a read-only GlobalReader so SAS URLs / API keys / webhook URLs
