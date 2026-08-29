@@ -3,7 +3,7 @@
 import { useState } from "react";
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
-import { joinList, parseList, toWhitelistEntry } from "../lib/hardwareWhitelist";
+import { joinList, parseList } from "../lib/hardwareWhitelist";
 
 interface HardwareWhitelistSectionProps {
   manufacturerWhitelist: string;
@@ -31,15 +31,17 @@ function WhitelistEditor({
   setItems: (items: string[]) => void;
 }) {
   const [newItem, setNewItem] = useState("");
-  // One typed value = one pattern; a ',' would otherwise split into several entries.
-  const trimmed = toWhitelistEntry(newItem);
-  const isDuplicate =
-    trimmed !== "" &&
-    items.some((a) => a.toLowerCase() === trimmed.toLowerCase());
+  // Admin-typed input is a LIST: "Dell*, *" adds two patterns (the placeholder invites
+  // exactly that). Only the insights buttons neutralize ',' — their values are untrusted.
+  const existing = new Set(items.map((a) => a.toLowerCase()));
+  const typed = parseList(newItem);
+  const fresh = typed.filter((t, i) =>
+    !existing.has(t.toLowerCase()) && typed.findIndex((u) => u.toLowerCase() === t.toLowerCase()) === i);
+  const isDuplicate = typed.length > 0 && fresh.length === 0;
 
   const addItem = () => {
-    if (!trimmed || isDuplicate) return;
-    setItems([...items, trimmed]);
+    if (fresh.length === 0) return;
+    setItems([...items, ...fresh]);
     setNewItem("");
   };
 
@@ -104,7 +106,7 @@ function WhitelistEditor({
         />
         <button
           onClick={addItem}
-          disabled={!trimmed || isDuplicate}
+          disabled={fresh.length === 0}
           className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
         >
           Add
