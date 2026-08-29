@@ -273,18 +273,21 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[200px]">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate"
+                          title={entry.upn}
+                        >
                           {entry.upn}
                         </span>
                         {entry.submitted ? renderStars(entry.rating) : (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">dismissed</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 italic flex-shrink-0">dismissed</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                         <span>{formatTimeAgo(entry.interactedAt)}</span>
                         <span className="hidden sm:inline">·</span>
-                        <span className="hidden sm:inline truncate max-w-[120px]">
+                        <span className="hidden sm:inline" title={entry.tenantId}>
                           {entry.tenantId.substring(0, 8)}...
                         </span>
                       </div>
@@ -313,10 +316,10 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                           {entry.domainName || entry.tenantId.substring(0, 8) + "…"}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <span>{formatTimeAgo(entry.interactedAt)}</span>
-                        <span className="hidden sm:inline">·</span>
-                        <span className="hidden sm:inline truncate max-w-[200px]">
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                        <span className="flex-shrink-0">{formatTimeAgo(entry.interactedAt)}</span>
+                        <span className="hidden sm:inline flex-shrink-0">·</span>
+                        <span className="hidden sm:inline truncate" title={entry.upn}>
                           {entry.upn}
                         </span>
                       </div>
