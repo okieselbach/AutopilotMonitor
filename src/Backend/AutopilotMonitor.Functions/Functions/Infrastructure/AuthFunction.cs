@@ -34,6 +34,7 @@ public class AuthFunction
     private readonly Services.Activation.ITenantAutoApproveEnqueuer _tenantAutoApproveEnqueuer;
     private readonly EntraAppRegistry _appRegistry;
     private readonly AdminIdentityResolver _identityResolver;
+    private readonly ISignalRNotificationService _signalRService;
 
     public AuthFunction(
         ILogger<AuthFunction> logger,
@@ -48,10 +49,12 @@ public class AuthFunction
         McpUserService mcpUserService,
         Services.Activation.ITenantAutoApproveEnqueuer tenantAutoApproveEnqueuer,
         EntraAppRegistry appRegistry,
-        AdminIdentityResolver identityResolver)
+        AdminIdentityResolver identityResolver,
+        ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _identityResolver = identityResolver;
+        _signalRService = signalRService;
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
         _tenantConfigService = tenantConfigService;
@@ -315,6 +318,12 @@ public class AuthFunction
         }
 
         await _globalAdminService.RemoveGlobalAdminAsync(upn);
+
+        // SignalR group authorization is join-time only: a removed Global Admin/Reader with a live
+        // connection in 'global-admins' would keep receiving cross-tenant pushes until the socket
+        // drops. Cut the UPN's connections (negotiate binds userId = lowercased UPN); a reconnect
+        // re-runs the join gates against the now-missing platform role.
+        await _signalRService.DisconnectUserAsync(upn.ToLowerInvariant());
 
         _logger.LogInformation($"Global Admin removed: {upn} by {currentUpn}");
 

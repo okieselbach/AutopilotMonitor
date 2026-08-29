@@ -6,6 +6,11 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
+using System.Net;
+using System.Security.Claims;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -26,6 +31,7 @@ public class AuthFunctionSideEffectTests
     private readonly Mock<GlobalNotificationService> _globalNotificationMock;
     private readonly Mock<IMetricsRepository> _metricsRepoMock;
     private readonly Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer> _autoApproveEnqueuerMock;
+    private readonly FakeSignalRNotificationService _signalR;
     private readonly AuthFunction _sut;
 
     public AuthFunctionSideEffectTests()
@@ -82,6 +88,7 @@ public class AuthFunctionSideEffectTests
         _metricsRepoMock = new Mock<IMetricsRepository>();
         _autoApproveEnqueuerMock = new Mock<AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer>();
 
+        _signalR = new FakeSignalRNotificationService();
         _sut = new AuthFunction(
             Mock.Of<ILogger<AuthFunction>>(),
             globalAdminMock.Object,
@@ -98,7 +105,8 @@ public class AuthFunctionSideEffectTests
                 new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
                 Mock.Of<ILogger<AutopilotMonitor.Functions.Security.EntraAppRegistry>>()),
             new Mock<AdminIdentityResolver>(
-                _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object);
+                _metricsRepoMock.Object, _tenantConfigMock.Object, Mock.Of<ILogger<AdminIdentityResolver>>()) { CallBase = false }.Object,
+            _signalR);
 
         // Default: all fire-and-forget calls succeed
         _tenantConfigMock
@@ -122,6 +130,63 @@ public class AuthFunctionSideEffectTests
     // -------------------------------------------------------------------------
     // HandleNewTenantDomainAsync
     // -------------------------------------------------------------------------
+
+    // ── RemoveGlobalAdmin cuts live SignalR streams (join-time-only group authz) ──
+
+    [Fact]
+    public async Task RemoveGlobalAdmin_DisconnectsTheRemovedAdminsSignalRConnections()
+    {
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: "operator@contoso.com");
+
+        var response = await _sut.RemoveGlobalAdmin(req, "Removed@Contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new[] { "removed@contoso.com" }, _signalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task RemoveGlobalAdmin_SelfRemovalIsRejectedWithoutDisconnect()
+    {
+        var (req, ctx) = BuildAuthenticatedRequest(callerUpn: "operator@contoso.com");
+
+        var response = await _sut.RemoveGlobalAdmin(req, "operator@contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(_signalR.DisconnectedUsers);
+    }
+
+    private static (HttpRequestData Req, FunctionContext Ctx) BuildAuthenticatedRequest(string callerUpn)
+    {
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.Configure<WorkerOptions>(o => o.Serializer =
+            new Azure.Core.Serialization.JsonObjectSerializer(
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        var provider = services.BuildServiceProvider();
+
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim("preferred_username", callerUpn) }, "test"));
+
+        var context = new Mock<FunctionContext>();
+        context.SetupGet(c => c.Items).Returns(
+            new Dictionary<object, object> { ["ClaimsPrincipal"] = principal });
+        context.SetupGet(c => c.InstanceServices).Returns(provider);
+
+        var req = new Mock<HttpRequestData>(context.Object);
+        req.SetupGet(r => r.Headers).Returns(new HttpHeadersCollection());
+        req.SetupGet(r => r.Body).Returns(new MemoryStream());
+        req.Setup(r => r.CreateResponse()).Returns(() => new FakeHttpResponseData(context.Object));
+        return (req.Object, context.Object);
+    }
+
+    private sealed class FakeHttpResponseData : HttpResponseData
+    {
+        public FakeHttpResponseData(FunctionContext context) : base(context) { }
+        public override HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
+        public override HttpHeadersCollection Headers { get; set; } = new();
+        public override Stream Body { get; set; } = new MemoryStream();
+        public override HttpCookies Cookies { get; } = new Mock<HttpCookies>().Object;
+    }
 
     [Fact]
     public async Task HandleNewTenantDomain_WhenUpnDomainIsNotAHostName_DoesNotSeed()

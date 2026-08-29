@@ -18,16 +18,30 @@ public class TenantAdminManagementFunction
     private readonly ILogger<TenantAdminManagementFunction> _logger;
     private readonly TenantAdminsService _tenantAdminsService;
     private readonly IMaintenanceRepository _maintenanceRepo;
+    private readonly ISignalRNotificationService _signalRService;
 
     public TenantAdminManagementFunction(
         ILogger<TenantAdminManagementFunction> logger,
         TenantAdminsService tenantAdminsService,
-        IMaintenanceRepository maintenanceRepo)
+        IMaintenanceRepository maintenanceRepo,
+        ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _tenantAdminsService = tenantAdminsService;
         _maintenanceRepo = maintenanceRepo;
+        _signalRService = signalRService;
     }
+
+    /// <summary>
+    /// SignalR group authorization is evaluated only at join time (SignalRAddToGroupFunction), so a
+    /// member whose role was removed, disabled or lowered would keep their already-joined
+    /// 'tenant-{tid}' broadcast, notify-group and session-group streams until the socket drops.
+    /// Cutting the UPN's connections (negotiate binds userId = lowercased UPN) forces a reconnect that
+    /// re-runs the join gates against the new role. Coarse by design — a still-authorized client
+    /// simply reconnects — and mirrors the delegated-admin / tenant-group revoke paths.
+    /// </summary>
+    private Task CutLiveStreamsAsync(string adminUpn) =>
+        _signalRService.DisconnectUserAsync(adminUpn.ToLowerInvariant());
 
     /// <summary>
     /// GET /api/tenants/{tenantId}/admins
@@ -158,6 +172,8 @@ public class TenantAdminManagementFunction
             upn!
         );
 
+        await CutLiveStreamsAsync(adminUpn);
+
         _logger.LogInformation($"Tenant Admin removed: {adminUpn} from tenant {requestCtx.TargetTenantId} by {upn}");
 
         var response = req.CreateResponse(HttpStatusCode.OK);
@@ -193,6 +209,8 @@ public class TenantAdminManagementFunction
             upn!,
             new Dictionary<string, string> { { "Action", "Disable" } }
         );
+
+        await CutLiveStreamsAsync(adminUpn);
 
         _logger.LogInformation($"Tenant Admin disabled: {adminUpn} for tenant {requestCtx.TargetTenantId} by {upn}");
 
@@ -307,6 +325,10 @@ public class TenantAdminManagementFunction
                 { "CanManageBootstrapTokens", body.CanManageBootstrapTokens.ToString() }
             }
         );
+
+        // Only Admin holds the admin-tier notify group; any other target role may have lost it.
+        if (role != AutopilotMonitor.Shared.Constants.TenantRoles.Admin)
+            await CutLiveStreamsAsync(adminUpn);
 
         _logger.LogInformation("Member permissions updated: {AdminUpn} -> role={Role} in tenant {TenantId} by {Upn}", adminUpn, role, requestCtx.TargetTenantId, upn);
 

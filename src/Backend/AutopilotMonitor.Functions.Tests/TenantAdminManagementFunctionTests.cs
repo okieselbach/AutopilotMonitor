@@ -133,12 +133,64 @@ public class TenantAdminManagementFunctionTests
             TenantId, CallerUpn, Constants.TenantRoles.Admin, true), Times.Once);
     }
 
+    // ── revocation cuts live SignalR streams (join-time-only group authz) ────
+
+    [Fact]
+    public async Task Remove_disconnects_the_removed_members_signalr_connections()
+    {
+        var h = BuildHarness();
+        var (req, ctx) = BuildRequest(new { });
+
+        var response = await h.Function.RemoveTenantAdmin(req, TenantId, "Demoted@Contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new[] { "demoted@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Disable_disconnects_the_disabled_members_signalr_connections()
+    {
+        var h = BuildHarness();
+        var (req, ctx) = BuildRequest(new { });
+
+        var response = await h.Function.DisableTenantAdmin(req, TenantId, "Demoted@Contoso.com", ctx);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new[] { "demoted@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Enable_does_not_disconnect()
+    {
+        var h = BuildHarness();
+        var (req, ctx) = BuildRequest(new { });
+
+        await h.Function.EnableTenantAdmin(req, TenantId, "user@contoso.com", ctx);
+
+        Assert.Empty(h.SignalR.DisconnectedUsers);
+    }
+
+    [Fact]
+    public async Task Demotion_below_admin_disconnects_but_promotion_to_admin_does_not()
+    {
+        var h = BuildHarness();
+
+        var (demote, ctx1) = BuildRequest(new { role = "viewer", canManageBootstrapTokens = false });
+        await h.Function.UpdateMemberPermissions(demote, TenantId, "User@Contoso.com", ctx1);
+        Assert.Equal(new[] { "user@contoso.com" }, h.SignalR.DisconnectedUsers);
+
+        var (promote, ctx2) = BuildRequest(new { role = "admin", canManageBootstrapTokens = false });
+        await h.Function.UpdateMemberPermissions(promote, TenantId, "other@contoso.com", ctx2);
+        Assert.Equal(new[] { "user@contoso.com" }, h.SignalR.DisconnectedUsers);
+    }
+
     // ── harness ─────────────────────────────────────────────────────────────
 
     private sealed class Harness
     {
         public TenantAdminManagementFunction Function = default!;
         public Mock<IAdminRepository> AdminRepo = default!;
+        public FakeSignalRNotificationService SignalR = default!;
     }
 
     private static Harness BuildHarness()
@@ -157,12 +209,14 @@ public class TenantAdminManagementFunctionTests
             NullLogger<TenantAdminsService>.Instance);
 
         var maintenanceRepo = new Mock<IMaintenanceRepository>(MockBehavior.Loose);
+        var signalR = new FakeSignalRNotificationService();
 
         return new Harness
         {
             Function = new TenantAdminManagementFunction(
-                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object),
+                NullLogger<TenantAdminManagementFunction>.Instance, service, maintenanceRepo.Object, signalR),
             AdminRepo = adminRepo,
+            SignalR = signalR,
         };
     }
 
