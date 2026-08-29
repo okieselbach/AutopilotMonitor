@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/OliverKieselbach/Autopilot-Monitor/main/rules/schema/guardrails.schema.json",
+  "title": "Autopilot Monitor Gather-Rule Guardrails",
+  "description": "Agent-side collection allowlists/blocklists. Every string is emitted verbatim into generated TypeScript (web + MCP), so values are single-line and must not contain control characters or the U+2028/U+2029 line terminators.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "registryPrefixes": { "$ref": "#/$defs/categorizedList" },
+    "filePrefixes": { "$ref": "#/$defs/stringList" },
+    "wmiQueryPrefixes": { "$ref": "#/$defs/stringList" },
+    "eventLogChannels": { "$ref": "#/$defs/categorizedList" },
+    "blockedEventLogChannels": { "$ref": "#/$defs/stringList" },
+    "allowedCommands": { "$ref": "#/$defs/categorizedList" },
+    "diagnosticsPathPrefixes": { "$ref": "#/$defs/stringList" },
+    "blockedFilePrefixes": { "$ref": "#/$defs/stringList" },
+    "blockedCommandPatterns": { "$ref": "#/$defs/stringList" },
+    "blockedInterimTriggerEventTypes": { "$ref": "#/$defs/stringList" },
+    "maxCommandLength": { "type": "integer", "minimum": 1, "maximum": 100000 }
+  },
+  "required": [
+    "registryPrefixes",
+    "filePrefixes",
+    "wmiQueryPrefixes",
+    "eventLogChannels",
+    "blockedEventLogChannels",
+    "allowedCommands",
+    "diagnosticsPathPrefixes",
+    "blockedFilePrefixes",
+    "blockedCommandPatterns",
+    "maxCommandLength"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "safeString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^[^\\u0000-\\u001F\\u007F\\u2028\\u2029]+$"
+    },
+    "stringList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/safeString" }
+    },
+    "categorizedList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": { "$ref": "#/$defs/safeString" },
+          "prefixes": { "$ref": "#/$defs/stringList" },
+          "channels": { "$ref": "#/$defs/stringList" },
+          "commands": { "$ref": "#/$defs/stringList" }
+        },
+        "required": ["category"],
+        "minProperties": 2,
+        "maxProperties": 2,
+        "additionalProperties": false
+      }
+    }
+  }
+}

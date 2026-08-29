@@ -54,6 +54,12 @@ jobs:
             ajv validate -s rules/schema/ime-log-pattern.schema.json -d "$f" --spec=draft2020 -c ajv-formats
           done
 
+      # guardrails.json values are baked verbatim into generated TypeScript that is
+      # auto-committed to main and shipped to the portal - the schema forbids control
+      # and line-terminator characters so a "data" PR can never become code.
+      - name: Validate Guardrails
+        run: ajv validate -s rules/schema/guardrails.schema.json -d rules/guardrails.json --spec=draft2020 -c ajv-formats
+
       - name: Combine rules into dist/
         run: node rules/scripts/combine.js
 

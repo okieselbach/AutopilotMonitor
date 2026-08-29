@@ -97,18 +97,71 @@ const guardrailsOutput = path.resolve(
 if (fs.existsSync(guardrailsPath)) {
   const guardrails = JSON.parse(fs.readFileSync(guardrailsPath, 'utf8'));
 
-  /** Escape a string for use inside a TS string literal (double-quoted). */
-  const esc = (s) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  // Every value below is emitted into a TypeScript module that ships in the
+  // portal bundle (and is auto-committed + auto-deployed from main). A string
+  // containing a raw newline / CR / U+2028 / U+2029 inside a naive "..." literal
+  // would terminate the literal and turn the remainder of the value into CODE.
+  // Two independent defences: (1) reject any control/line-terminator character
+  // outright — no legitimate prefix, command or channel name contains one —
+  // and (2) render every literal through a complete encoder (JSON.stringify),
+  // so even a value that slipped past (1) stays an inert string constant.
+  // rules/schema/guardrails.schema.json enforces the same constraints in CI
+  // before this script runs; this in-process check keeps local runs honest.
+  const UNSAFE_CHAR = /[\u0000-\u001F\u007F\u2028\u2029]/;
+  const fail = (msg) => {
+    console.error(`ERROR: guardrails.json ${msg}`);
+    process.exit(1);
+  };
+  const assertSafeString = (value, where) => {
+    if (typeof value !== 'string' || value.length === 0) {
+      fail(`${where}: expected a non-empty string, got ${JSON.stringify(value)}`);
+    }
+    if (UNSAFE_CHAR.test(value)) {
+      fail(`${where}: control or line-terminator character in ${JSON.stringify(value)}`);
+    }
+  };
+  const assertStringList = (list, where) => {
+    if (!Array.isArray(list)) fail(`${where}: expected an array`);
+    list.forEach((s, i) => assertSafeString(s, `${where}[${i}]`));
+  };
+  const assertCategorized = (groups, itemsKey, where) => {
+    if (!Array.isArray(groups)) fail(`${where}: expected an array`);
+    groups.forEach((g, i) => {
+      assertSafeString(g && g.category, `${where}[${i}].category`);
+      assertStringList(g[itemsKey], `${where}[${i}].${itemsKey}`);
+    });
+  };
+
+  assertCategorized(guardrails.registryPrefixes, 'prefixes', 'registryPrefixes');
+  assertCategorized(guardrails.allowedCommands, 'commands', 'allowedCommands');
+  assertCategorized(guardrails.eventLogChannels, 'channels', 'eventLogChannels');
+  for (const key of [
+    'filePrefixes', 'wmiQueryPrefixes', 'diagnosticsPathPrefixes', 'blockedFilePrefixes',
+    'blockedEventLogChannels', 'blockedCommandPatterns'
+  ]) {
+    assertStringList(guardrails[key], key);
+  }
+  assertStringList(guardrails.blockedInterimTriggerEventTypes ?? [], 'blockedInterimTriggerEventTypes');
+  if (!Number.isInteger(guardrails.maxCommandLength) || guardrails.maxCommandLength < 1) {
+    fail(`maxCommandLength: expected a positive integer, got ${JSON.stringify(guardrails.maxCommandLength)}`);
+  }
+
+  /**
+   * Render a string as a complete, self-contained TS double-quoted literal.
+   * JSON.stringify escapes backslash, quote and every C0 control character;
+   * U+2028/U+2029 are escaped on top because JSON does not require it.
+   */
+  const lit = (s) => JSON.stringify(s).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
   /** Render an array of strings as a TS readonly array. */
   const flatArray = (items) =>
-    items.map((s) => `  "${esc(s)}",`).join('\n');
+    items.map((s) => `  ${lit(s)},`).join('\n');
 
   /** Render a categorized list as a TS readonly array of { category, items }. */
   const categorizedArray = (groups, itemsKey) =>
     groups.map((g) => {
-      const items = g[itemsKey].map((s) => `      "${esc(s)}",`).join('\n');
-      return `  {\n    category: "${esc(g.category)}",\n    items: [\n${items}\n    ],\n  },`;
+      const items = g[itemsKey].map((s) => `      ${lit(s)},`).join('\n');
+      return `  {\n    category: ${lit(g.category)},\n    items: [\n${items}\n    ],\n  },`;
     }).join('\n');
 
   // Flatten categorized lists for validation
