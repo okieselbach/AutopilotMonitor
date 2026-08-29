@@ -124,6 +124,22 @@ public class AuthFunctionSideEffectTests
     // -------------------------------------------------------------------------
 
     [Fact]
+    public async Task HandleNewTenantDomain_WhenUpnDomainIsNotAHostName_DoesNotSeed()
+    {
+        var config = DefaultConfig();
+        config.DomainName = null!;
+        config.OnboardedBy = null;
+
+        // The seed is rendered into transactional mails: anything but a strict host name is refused.
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, "user@<b>contoso.com</b>");
+
+        Assert.True(string.IsNullOrEmpty(config.DomainName));
+        Assert.Null(config.OnboardedBy);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        _telegramMock.Verify(x => x.SendNewTenantSignupAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
     public async Task HandleNewTenantDomain_WhenDomainEmpty_ExtractsAndSaves()
     {
         var config = DefaultConfig();

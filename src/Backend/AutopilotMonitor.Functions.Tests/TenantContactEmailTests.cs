@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -385,5 +387,41 @@ public class TenantContactEmailTests
         harness.Table.Verify(c => c.GetEntityAsync<TableEntity>(
             It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // -------------------------------------------------------------------------
+    // IsValidDomainName — the only shape DomainName may be persisted in
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("contoso.com")]
+    [InlineData("sub.domain.org")]
+    [InlineData("x-y.example")]
+    [InlineData("A1.B2.c3")]
+    public void IsValidDomainName_AcceptsHostNames(string domain)
+        => Assert.True(TenantConfigValidation.IsValidDomainName(domain));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("localhost")]
+    [InlineData(".contoso.com")]
+    [InlineData("contoso.com.")]
+    [InlineData("con..toso.com")]
+    [InlineData("-contoso.com")]
+    [InlineData("contoso-.com")]
+    [InlineData("con toso.com")]
+    [InlineData("<b>contoso.com</b>")]
+    [InlineData("contoso.com\"onerror=\"x")]
+    [InlineData("contoso.com/path")]
+    [InlineData("user@contoso.com")]
+    public void IsValidDomainName_RejectsNonHostNames(string? domain)
+        => Assert.False(TenantConfigValidation.IsValidDomainName(domain));
+
+    [Fact]
+    public void IsValidDomainName_RejectsOverlongNamesAndLabels()
+    {
+        Assert.False(TenantConfigValidation.IsValidDomainName(new string('a', 64) + ".com"));
+        Assert.False(TenantConfigValidation.IsValidDomainName(string.Join(".", Enumerable.Repeat(new string('a', 60), 5))));
     }
 }

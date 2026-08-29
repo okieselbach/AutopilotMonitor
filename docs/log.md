@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (10)
+
+* **Update**: `backend/tenant-activation-welcome-mail.md` — welcome/farewell mails HTML-encode the domain at substitution; `DomainName` is frozen on the full-model config PUT (was persisted verbatim) and the first-login seed only accepts a strict DNS host name.
+
 ## 2026-08-29 (9)
 
 * **Update**: `agent/decision-engine.md`, `agent/overview.md` — `SignalIngress.Post` is worker-thread re-entrancy-safe: signals the worker posts to itself from inside `ApplyStep` (EffectRunner `ClassifierVerdictIssued`) go to a worker-local follow-up queue drained ahead of the bounded channel instead of blocking on it, so a full channel can no longer deadlock the single consumer.

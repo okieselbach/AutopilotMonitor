@@ -1,3 +1,4 @@
+using System.Net;
 using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Services;
@@ -26,7 +27,7 @@ public static class EmailTemplates
     /// </summary>
     public static string GetOffboardingFarewellHtml(string domainName)
     {
-        var displayDomain = string.IsNullOrWhiteSpace(domainName) ? "your organization" : domainName;
+        var displayDomain = string.IsNullOrWhiteSpace(domainName) ? "your organization" : WebUtility.HtmlEncode(domainName);
 
         return $@"
 <!DOCTYPE html>
@@ -125,7 +126,7 @@ public static class EmailTemplates
     /// </summary>
     public static string GetPreviewApprovedHtml(string domainName)
     {
-        var displayDomain = string.IsNullOrWhiteSpace(domainName) ? "your organization" : domainName;
+        var displayDomain = string.IsNullOrWhiteSpace(domainName) ? "your organization" : WebUtility.HtmlEncode(domainName);
 
         return $@"
 <!DOCTYPE html>

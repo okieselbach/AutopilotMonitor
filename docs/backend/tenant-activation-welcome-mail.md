@@ -107,6 +107,13 @@ properties `Html`, `UpdatedBy`, `UpdatedUtc`), cached 5 minutes, invalidated on 
 
 * The only placeholder is `{{domainName}}`; an empty domain renders as "your organization",
   matching the built-ins. Subjects are not editable (pinned constants).
+* The domain is HTML-encoded at the point of substitution (`EmailTemplateService.Render` and the
+  built-in template builders) — the mail goes out under the product's signed sender to a
+  tenant-chosen recipient, so no writer of `DomainName` may ever inject markup into it.
+  `DomainName` itself is tenant identity: seeded once at first login from the UPN domain
+  (`AuthFunction`, only when it passes `TenantConfigValidation.IsValidDomainName` — a strict
+  dotted host name), preserved from the stored row on the full-model config PUT for every
+  caller, and "never writable" in the field-patch flow.
 * Limit 30 000 characters (Table string property cap is 32K UTF-16 chars).
 * The send path is fail-soft: a storage error falls back to the built-in body. The admin
   read path is not — a broken store surfaces as an error instead of silently showing the

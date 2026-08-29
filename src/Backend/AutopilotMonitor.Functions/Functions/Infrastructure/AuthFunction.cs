@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Functions.Admin;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -335,6 +336,14 @@ public class AuthFunction
         var domain = ExtractDomainFromUpn(upn);
         if (string.IsNullOrEmpty(domain))
             return;
+
+        // The seeded value is rendered into transactional mails — persist only a strict host name,
+        // regardless of what the identity provider's UPN charset happens to allow.
+        if (!TenantConfigValidation.IsValidDomainName(domain))
+        {
+            _logger.LogWarning("Refusing to seed DomainName for tenant {TenantId}: UPN domain is not a valid host name", tenantId);
+            return;
+        }
 
         _logger.LogInformation("Setting domain name for tenant {TenantId}: {Domain}", tenantId, domain);
         tenantConfig.DomainName = domain;

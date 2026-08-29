@@ -29,6 +29,30 @@ public sealed class EmailTemplateServiceTests
         Assert.DoesNotContain(EmailTemplateService.DomainPlaceholder, html);
     }
 
+    [Theory]
+    [InlineData("<b>x</b>", "&lt;b&gt;x&lt;/b&gt;")]
+    [InlineData("a\"b&c", "a&quot;b&amp;c")]
+    public void Render_HtmlEncodesDomain_ForOverrideTemplates(string domain, string expected)
+    {
+        var html = EmailTemplateService.Render("<p>{{domainName}}</p>", domain);
+
+        Assert.Equal($"<p>{expected}</p>", html);
+    }
+
+    [Theory]
+    [InlineData(EmailTemplateKind.Welcome)]
+    [InlineData(EmailTemplateKind.Farewell)]
+    public async Task BuiltIn_HtmlEncodesDomain_NoDoubleEncoding(EmailTemplateKind kind)
+    {
+        var (sut, _) = Build();
+
+        var html = await sut.GetHtmlAsync(kind, "<img src=x onerror=alert(1)>&\"");
+
+        Assert.DoesNotContain("<img", html);
+        Assert.Contains("&lt;img src=x onerror=alert(1)&gt;&amp;&quot;", html);
+        Assert.DoesNotContain("&amp;lt;", html);
+    }
+
     [Fact]
     public async Task Override_WinsAndRendersPlaceholder()
     {

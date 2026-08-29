@@ -110,6 +110,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // admins are served the FULL config so this is normally a no-op for them.)
                 config.RestoreRedactedSecretsFrom(existingConfig);
 
+                // DomainName is tenant identity: seeded once from the first login's UPN (AuthFunction)
+                // and never client-writable — for ANY caller, GA included — mirroring the patch flow
+                // ("identity — never writable"). Without this preserve the full-model PUT persisted an
+                // arbitrary string here, which is rendered into the welcome/farewell mails.
+                config.DomainName = existingConfig.DomainName;
+
                 // Shared model validation (rate limits, contact address, webhook/Teams SSRF, custom
                 // headers, notification channels, diagnostics SAS, retention cap) — single source
                 // with the transactional field-patch flow (TenantConfigValidation).

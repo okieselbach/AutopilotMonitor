@@ -248,6 +248,18 @@ public sealed class EmailServiceTests
     }
 
     [Fact]
+    public void BuiltInTemplates_HtmlEncodeDomain()
+    {
+        const string hostile = "<a href=\"https://evil.invalid\">x</a>";
+
+        foreach (var html in new[] { EmailTemplates.GetOffboardingFarewellHtml(hostile), EmailTemplates.GetPreviewApprovedHtml(hostile) })
+        {
+            Assert.DoesNotContain(hostile, html);
+            Assert.Contains("&lt;a href=&quot;https://evil.invalid&quot;&gt;x&lt;/a&gt;", html);
+        }
+    }
+
+    [Fact]
     public void FarewellTemplate_EmptyDomain_FallsBackToGenericLabel()
     {
         var html = EmailTemplates.GetOffboardingFarewellHtml("");

@@ -2,6 +2,7 @@ using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace AutopilotMonitor.Functions.Services;
 
@@ -73,10 +74,15 @@ public class EmailTemplateService : IEmailTemplateProvider
         ? EmailTemplates.GetPreviewApprovedHtml(DomainPlaceholder)
         : EmailTemplates.GetOffboardingFarewellHtml(DomainPlaceholder);
 
-    /// <summary>Substitutes the placeholder; an empty domain becomes "your organization".</summary>
+    /// <summary>
+    /// Substitutes the placeholder; an empty domain becomes "your organization". The value is
+    /// HTML-encoded at the point of substitution: the mail goes out under the product's signed
+    /// sender to a tenant-chosen recipient, so no writer of DomainName — current or future — may
+    /// ever be able to inject markup into it.
+    /// </summary>
     public static string Render(string rawHtml, string? domainName)
     {
-        var display = string.IsNullOrWhiteSpace(domainName) ? EmptyDomainLabel : domainName.Trim();
+        var display = string.IsNullOrWhiteSpace(domainName) ? EmptyDomainLabel : WebUtility.HtmlEncode(domainName.Trim());
         return rawHtml.Replace(DomainPlaceholder, display, StringComparison.Ordinal);
     }
 

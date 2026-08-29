@@ -21,6 +21,40 @@ namespace AutopilotMonitor.Functions.Helpers
         // RFC 5321 caps a forward path at 254 characters.
         internal const int MaxContactEmailLength = 254;
 
+        // RFC 1035: a host name is at most 253 characters, labels at most 63.
+        internal const int MaxDomainNameLength = 253;
+
+        /// <summary>
+        /// True when <paramref name="domainName"/> is a strict DNS host name: dotted labels of
+        /// ASCII letters, digits and inner hyphens only. This is the ONLY shape DomainName may
+        /// ever be persisted in — it is rendered into transactional mails and admin views.
+        /// </summary>
+        internal static bool IsValidDomainName(string? domainName)
+        {
+            if (string.IsNullOrEmpty(domainName) || domainName.Length > MaxDomainNameLength)
+                return false;
+
+            var labels = domainName.Split('.');
+            if (labels.Length < 2)
+                return false;
+
+            foreach (var label in labels)
+            {
+                if (label.Length == 0 || label.Length > 63)
+                    return false;
+                if (label[0] == '-' || label[label.Length - 1] == '-')
+                    return false;
+                foreach (var ch in label)
+                {
+                    var ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-';
+                    if (!ok)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Validates a candidate configuration against the stored one. Returns a
         /// user-facing error message (same wording the PUT endpoint always produced),
