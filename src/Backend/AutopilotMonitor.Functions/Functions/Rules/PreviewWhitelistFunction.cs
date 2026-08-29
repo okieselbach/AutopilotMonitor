@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
@@ -11,7 +12,8 @@ namespace AutopilotMonitor.Functions.Functions.Rules;
 
 /// <summary>
 /// CRUD endpoints for managing the tenant-activation whitelist (table: PreviewWhitelist).
-/// All endpoints are Global Admin only (except notification-email which is AuthenticatedUser).
+/// All endpoints are Global Admin only, except PUT notification-email: that one is
+/// AuthenticatedUserWithRole and gated in-function (member role, or the tenant has no members yet).
 /// </summary>
 public class PreviewWhitelistFunction
 {
@@ -19,6 +21,7 @@ public class PreviewWhitelistFunction
     private readonly PreviewWhitelistService _previewWhitelistService;
     private readonly TenantApprovalService _tenantApprovalService;
     private readonly TenantConfigurationService _tenantConfigurationService;
+    private readonly TenantAdminsService _tenantAdminsService;
     private readonly IEmailService _emailService;
 
     public PreviewWhitelistFunction(
@@ -26,12 +29,14 @@ public class PreviewWhitelistFunction
         PreviewWhitelistService previewWhitelistService,
         TenantApprovalService tenantApprovalService,
         TenantConfigurationService tenantConfigurationService,
+        TenantAdminsService tenantAdminsService,
         IEmailService emailService)
     {
         _logger = logger;
         _previewWhitelistService = previewWhitelistService;
         _tenantApprovalService = tenantApprovalService;
         _tenantConfigurationService = tenantConfigurationService;
+        _tenantAdminsService = tenantAdminsService;
         _emailService = emailService;
     }
 
@@ -156,7 +161,8 @@ public class PreviewWhitelistFunction
     /// <summary>
     /// PUT /api/preview/notification-email
     /// Saves the caller's notification email for the activation notice.
-    /// AuthenticatedUser policy — preview-blocked users can call this.
+    /// AuthenticatedUserWithRole policy — preview-blocked users can call this, but only while the
+    /// tenant has no members (see <see cref="MayWriteNotificationEmailAsync"/>).
     /// </summary>
     [Function("SavePreviewNotificationEmail")]
     [Authorize]
@@ -172,6 +178,16 @@ public class PreviewWhitelistFunction
             var bad = req.CreateResponse(HttpStatusCode.BadRequest);
             await bad.WriteAsJsonAsync(new { error = "Could not determine tenant" });
             return bad;
+        }
+
+        if (!await MayWriteNotificationEmailAsync(req.GetRequestContext(), tenantId, _tenantAdminsService))
+        {
+            _logger.LogWarning(
+                "Preview notification email write denied for roleless caller {Upn} — tenant {TenantId} already has members",
+                principal?.GetUserPrincipalName() ?? "unknown", tenantId);
+            var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
+            await forbidden.WriteAsJsonAsync(new { error = "A tenant member role is required to change the notification email" });
+            return forbidden;
         }
 
         var body = await req.ReadFromJsonAsync<SaveNotificationEmailRequest>();
@@ -206,6 +222,25 @@ public class PreviewWhitelistFunction
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { message = "Notification email saved", email, welcomeEmailSent });
         return response;
+    }
+
+    /// <summary>
+    /// The notification email is tenant-shared state consumed by privileged flows (welcome mail,
+    /// offboarding farewell, operator contact). A member role (or platform scope) always may write
+    /// it. A roleless caller may write it ONLY while the tenant has no enabled member at all — the
+    /// first-touch signup window, where the activating user is still roleless because the requester
+    /// is auto-promoted to Admin only on approval. Once any member exists, that window is closed for
+    /// good: an ordinary employee with a valid JWT but no product role must not be able to redirect
+    /// or suppress the tenant's correspondence.
+    /// </summary>
+    internal static async Task<bool> MayWriteNotificationEmailAsync(
+        RequestContext ctx, string tenantId, TenantAdminsService tenantAdminsService)
+    {
+        if (ctx.IsTenantMemberOrGlobalAdmin())
+            return true;
+
+        var members = await tenantAdminsService.GetTenantAdminsAsync(tenantId);
+        return !members.Any(m => m.IsEnabled);
     }
 
     /// <summary>

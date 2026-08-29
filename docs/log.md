@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (12)
+
+* **Update**: `backend/tenant-activation-welcome-mail.md` — `PUT preview/notification-email` moved to `AuthenticatedUserWithRole`; roleless callers may write the address only while the tenant has no enabled member (signup window), afterwards a member role is required.
+
 ## 2026-08-29 (11)
 
 * **Update**: `rules/gather-rule-phase-scoping.md` — `on_event` feedback-loop guard: `TimelineEventStream` publishes the event source and `GatherRuleExecutorHost` never dispatches `on_event` for gather-emitted events (a rule triggering on its own output type looped for the whole session); per-rule on_event execution cap (100/session); backend rejects `on_event` rules whose trigger equals their output type or `gather_result`.

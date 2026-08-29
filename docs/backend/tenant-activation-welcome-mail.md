@@ -36,6 +36,14 @@ same table) — the only reliable address: it is typed by the user on the activa
 page (`PUT /api/preview/notification-email`). The signup admin UPN may have no mailbox and
 `ContactEmail` is merely seeded from the notification email.
 
+The PUT is `AuthenticatedUserWithRole`, not a member tier, because the signup user is still
+roleless until approval auto-promotes them to Admin. The function re-gates on the resolved
+role (`PreviewWhitelistFunction.MayWriteNotificationEmailAsync`): a member role or platform
+scope always may write; a roleless caller may write only while the tenant has **no enabled
+member** at all. Once any member exists the window is closed for good — the address feeds the
+welcome and farewell mails and is shown to operators as the tenant contact, so an ordinary
+employee with a JWT but no product role must not be able to redirect or clear it (403).
+
 That makes activation and address entry concurrent writers. With auto-approve, activation
 usually wins (observed in production: approve at T+64 s, address saved at T+69 s → the
 approval path found no address and the mail was silently skipped).

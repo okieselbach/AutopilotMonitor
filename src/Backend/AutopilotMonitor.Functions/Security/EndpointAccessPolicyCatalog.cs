@@ -223,7 +223,11 @@ public static class EndpointAccessPolicyCatalog
         // ProgressPortalFunction; regression history c4dabeee).
         new("GET",    "progress/sessions/lookup",  EndpointPolicy.AuthenticatedUserWithRole, TenantScoping.QueryParam),
         new("GET",    "progress/sessions/{sessionId}/events", EndpointPolicy.AuthenticatedUser, TenantScoping.QueryParam),
-        new("PUT",    "preview/notification-email", EndpointPolicy.AuthenticatedUser),
+        // AuthenticatedUserWithRole (not plain AuthenticatedUser): the activating user is still
+        // roleless during first-touch signup, so the tier must admit non-members — but the address is
+        // tenant-shared state feeding the welcome/farewell mails, so the function re-gates on the
+        // resolved role: roleless callers may only write while the tenant has no member yet.
+        new("PUT",    "preview/notification-email", EndpointPolicy.AuthenticatedUserWithRole),
         new("GET",    "feedback/status",           EndpointPolicy.AuthenticatedUser),
         new("POST",   "feedback",                  EndpointPolicy.AuthenticatedUser),
         new("GET",    "config/latest-versions",    EndpointPolicy.AuthenticatedUser),
