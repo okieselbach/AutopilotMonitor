@@ -102,6 +102,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         // hundreds of MB of fixture data. Production callers leave this at Default.
         internal DiagnosticsBudget Budget { get; set; } = DiagnosticsBudget.Default;
 
+        // Test seam: invoked with each candidate path right before it is opened, so a test can
+        // reproduce the enumerate-then-open race (a subdirectory swapped for a junction) at the
+        // exact point production is exposed. Null in production.
+        internal Action<string> BeforeSourceFileOpen { get; set; }
+
         // Tracks per-build inclusion totals + skip reasons. Threaded through every
         // AddLogFiles call so caps are global across all sections, not per section.
         private sealed class BudgetTracker
@@ -562,138 +567,162 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         private void AddLogFiles(ZipArchive archive, string sourceFolder, string zipFolder, string searchPattern,
             BudgetTracker tracker, bool includeSubfolders = false)
         {
-            if (!Directory.Exists(sourceFolder))
+            // The folder stays pinned (open handle) for this whole section. The path guards and
+            // the enumeration below only ever judge path strings; every byte that reaches the
+            // archive comes from a handle that PinnedSourceFolder verified to point inside the
+            // validated location at the moment it was opened.
+            using (var pinned = PinnedSourceFolder.TryOpen(sourceFolder, out var folderRejection))
             {
-                _logger.Debug($"Log folder not found, skipping: {sourceFolder}");
-                ManifestLine($"FOLDER MISSING: {sourceFolder} (pattern '{searchPattern}')");
-                return;
-            }
+                if (pinned == null)
+                {
+                    if (folderRejection == PinnedSourceFolder.RejectMissing)
+                    {
+                        _logger.Debug($"Log folder not found, skipping: {sourceFolder}");
+                        ManifestLine($"FOLDER MISSING: {sourceFolder} (pattern '{searchPattern}')");
+                    }
+                    else
+                    {
+                        _logger.Warning($"Diagnostics source folder rejected ({folderRejection}): {sourceFolder}");
+                        ManifestLine($"FOLDER REJECTED ({folderRejection}): {sourceFolder} (pattern '{searchPattern}')");
+                    }
+                    return;
+                }
 
-            List<string> files;
-            try
-            {
-                files = EnumerateFilesNoReparseDirs(sourceFolder, searchPattern, includeSubfolders);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"Failed to enumerate log files in {sourceFolder}: {ex.Message}");
-                ManifestLine($"ENUMERATION FAILED: {sourceFolder} (pattern '{searchPattern}'): {ex.Message}");
-                return;
-            }
-
-            if (files.Count == 0)
-                ManifestLine($"NO MATCH: {sourceFolder} pattern '{searchPattern}'");
-
-            foreach (var file in files)
-            {
+                List<string> files;
                 try
                 {
-                    // Per-file reparse check: a top-level file in the folder may itself be a
-                    // symlink/junction even though its parent directory is real.
-                    FileAttributes attrs;
-                    try { attrs = File.GetAttributes(file); }
-                    catch (Exception ex)
-                    {
-                        _logger.Warning($"Failed to read attributes for {file}: {ex.Message}");
-                        continue;
-                    }
-                    if (IsReparsePoint(attrs))
-                    {
-                        _logger.Warning($"Skipping reparse-point file: {file}");
-                        tracker.RecordSkip(file, "reparse", 0);
-                        ManifestLine($"SKIPPED (reparse point): {file}");
-                        continue;
-                    }
-
-                    long length;
-                    try { length = new FileInfo(file).Length; }
-                    catch (Exception ex)
-                    {
-                        _logger.Warning($"Failed to stat {file}: {ex.Message}");
-                        continue;
-                    }
-
-                    // Active event-log channels hold their .evtx exclusively locked — a raw
-                    // FileStream open fails with a sharing violation. Export the channel via
-                    // wevtutil instead and stream the export (deleted below). Session a11102f4:
-                    // the tenant-configured BootstrapperAgent channel never made it into the ZIP.
-                    string streamSource = file;
-                    string tempExport = null;
-                    if (file.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
-                    {
-                        tempExport = TryExportEventLogChannel(file);
-                        if (tempExport != null)
-                        {
-                            streamSource = tempExport;
-                            try { length = new FileInfo(tempExport).Length; }
-                            catch { /* keep original length estimate */ }
-                        }
-                        else
-                        {
-                            // Export failed (channel not resolvable / wevtutil error) — fall through
-                            // to the raw copy. Inactive or archived evtx files are not locked, so
-                            // the plain FileStream often still succeeds; if the channel IS active
-                            // and locked, the existing per-file catch logs the failure.
-                            _logger.Warning($"Event log export unavailable for {file} — attempting raw copy.");
-                            ManifestLine($"EVTX EXPORT FAILED (falling back to raw copy): {file}");
-                        }
-                    }
-
-                    try
-                    {
-                        if (length > tracker.Budget.MaxSingleFileBytes)
-                        {
-                            _logger.Warning($"Skipping oversized file ({length} bytes > {tracker.Budget.MaxSingleFileBytes} cap): {file}");
-                            tracker.RecordSkip(file, "size", length);
-                            ManifestLine($"SKIPPED (single-file cap, {length} bytes): {file}");
-                            continue;
-                        }
-                        if (tracker.WouldExceedCount())
-                        {
-                            _logger.Warning($"Skipping file (file-count cap {tracker.Budget.MaxFileCount} reached): {file}");
-                            tracker.RecordSkip(file, "count", length);
-                            ManifestLine($"SKIPPED (file-count cap): {file}");
-                            continue;
-                        }
-                        if (tracker.WouldExceedTotal(length))
-                        {
-                            _logger.Warning($"Skipping file (total-bytes cap {tracker.Budget.MaxTotalUncompressedBytes} reached): {file}");
-                            tracker.RecordSkip(file, "total", length);
-                            ManifestLine($"SKIPPED (total-bytes cap): {file}");
-                            continue;
-                        }
-
-                        // Preserve subfolder structure in the ZIP when includeSubfolders is enabled
-                        var relativePath = file.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar);
-                        var entryName = $"{zipFolder}/{relativePath.Replace(Path.DirectorySeparatorChar, '/')}";
-
-                        var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
-                        // Stream directly from disk into the entry — no per-file MemoryStream/byte[]
-                        // copy. FileShare.ReadWrite avoids locking conflicts with active log writers.
-                        using (var fs = new FileStream(streamSource, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        using (var entryStream = entry.Open())
-                        {
-                            fs.CopyTo(entryStream);
-                        }
-
-                        tracker.RecordIncluded(length);
-                        _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
-                        ManifestLine($"ADDED: {entryName} ({length} bytes)");
-                    }
-                    finally
-                    {
-                        if (tempExport != null)
-                        {
-                            try { File.Delete(tempExport); } catch { }
-                        }
-                    }
+                    files = EnumerateFilesNoReparseDirs(pinned.LexicalPath, searchPattern, includeSubfolders);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warning($"Failed to add log file to diagnostics package: {file} - {ex.Message}");
-                    ManifestLine($"FAILED (copy): {file}: {ex.Message}");
+                    _logger.Warning($"Failed to enumerate log files in {sourceFolder}: {ex.Message}");
+                    ManifestLine($"ENUMERATION FAILED: {sourceFolder} (pattern '{searchPattern}'): {ex.Message}");
+                    return;
+                }
+
+                if (files.Count == 0)
+                    ManifestLine($"NO MATCH: {sourceFolder} pattern '{searchPattern}'");
+
+                foreach (var file in files)
+                    AddLogFile(archive, pinned, file, zipFolder, tracker);
+            }
+        }
+
+        private void AddLogFile(ZipArchive archive, PinnedSourceFolder pinned, string file, string zipFolder, BudgetTracker tracker)
+        {
+            string tempExport = null;
+            try
+            {
+                // Active event-log channels hold their .evtx exclusively locked — a raw
+                // FileStream open fails with a sharing violation. Export the channel via
+                // wevtutil instead and stream the export (deleted below). Session a11102f4:
+                // the tenant-configured BootstrapperAgent channel never made it into the ZIP.
+                if (file.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
+                {
+                    tempExport = TryExportEventLogChannel(file);
+                    if (tempExport == null)
+                    {
+                        // Export failed (channel not resolvable / wevtutil error) — fall through
+                        // to the raw copy. Inactive or archived evtx files are not locked, so
+                        // the validated open often still succeeds; if the channel IS active
+                        // and locked, the open failure is recorded below.
+                        _logger.Warning($"Event log export unavailable for {file} — attempting raw copy.");
+                        ManifestLine($"EVTX EXPORT FAILED (falling back to raw copy): {file}");
+                    }
+                }
+
+                BeforeSourceFileOpen?.Invoke(file);
+
+                using (var source = OpenSource(pinned, file, tempExport, tracker))
+                {
+                    if (source == null) return;
+
+                    var length = source.Length;
+                    if (length > tracker.Budget.MaxSingleFileBytes)
+                    {
+                        _logger.Warning($"Skipping oversized file ({length} bytes > {tracker.Budget.MaxSingleFileBytes} cap): {file}");
+                        tracker.RecordSkip(file, "size", length);
+                        ManifestLine($"SKIPPED (single-file cap, {length} bytes): {file}");
+                        return;
+                    }
+                    if (tracker.WouldExceedCount())
+                    {
+                        _logger.Warning($"Skipping file (file-count cap {tracker.Budget.MaxFileCount} reached): {file}");
+                        tracker.RecordSkip(file, "count", length);
+                        ManifestLine($"SKIPPED (file-count cap): {file}");
+                        return;
+                    }
+                    if (tracker.WouldExceedTotal(length))
+                    {
+                        _logger.Warning($"Skipping file (total-bytes cap {tracker.Budget.MaxTotalUncompressedBytes} reached): {file}");
+                        tracker.RecordSkip(file, "total", length);
+                        ManifestLine($"SKIPPED (total-bytes cap): {file}");
+                        return;
+                    }
+
+                    // Preserve subfolder structure in the ZIP when includeSubfolders is enabled
+                    var relativePath = file.Substring(pinned.LexicalPath.Length).TrimStart(Path.DirectorySeparatorChar);
+                    var entryName = $"{zipFolder}/{relativePath.Replace(Path.DirectorySeparatorChar, '/')}";
+
+                    var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                    // Stream straight from the validated handle into the entry — no per-file
+                    // MemoryStream/byte[] copy.
+                    using (var entryStream = entry.Open())
+                    {
+                        source.Stream.CopyTo(entryStream);
+                    }
+
+                    tracker.RecordIncluded(length);
+                    _logger.Debug($"Added to diagnostics package: {entryName} ({length / 1024} KB)");
+                    ManifestLine($"ADDED: {entryName} ({length} bytes)");
                 }
             }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to add log file to diagnostics package: {file} - {ex.Message}");
+                ManifestLine($"FAILED (copy): {file}: {ex.Message}");
+            }
+            finally
+            {
+                if (tempExport != null)
+                {
+                    try { File.Delete(tempExport); } catch { }
+                }
+            }
+        }
+
+        // The readable source behind one candidate, or null once the skip has been recorded.
+        // An event-log export is the agent's own temp file and is streamed as-is; everything
+        // else must come back from the pinned folder's validated open.
+        private SourceFile OpenSource(PinnedSourceFolder pinned, string file, string tempExport, BudgetTracker tracker)
+        {
+            if (tempExport != null)
+                return SourceFile.OpenAgentOwned(tempExport);
+
+            var source = pinned.TryOpenFile(file, out var rejection);
+            if (source != null) return source;
+
+            switch (rejection)
+            {
+                case PinnedSourceFolder.RejectReparsePoint:
+                    _logger.Warning($"Skipping reparse-point file: {file}");
+                    tracker.RecordSkip(file, "reparse", 0);
+                    ManifestLine($"SKIPPED (reparse point): {file}");
+                    break;
+                case PinnedSourceFolder.RejectResolvedElsewhere:
+                    // The path was inside the folder when it was enumerated; the handle is not.
+                    // A directory in between became a junction or symlink — nothing from behind
+                    // it is copied, and the manifest names only the path we were asked for.
+                    _logger.Warning($"Skipping file that resolves outside its validated folder (reparse point introduced during packaging): {file}");
+                    tracker.RecordSkip(file, "resolved-outside-folder", 0);
+                    ManifestLine($"SKIPPED (resolved outside validated folder): {file}");
+                    break;
+                default:
+                    _logger.Warning($"Failed to open {file}: {rejection}");
+                    ManifestLine($"FAILED (open): {file}: {rejection}");
+                    break;
+            }
+            return null;
         }
 
         /// <summary>

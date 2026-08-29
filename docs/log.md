@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (1)
+
+* **Update**: `agent/diagnostics-package.md` — reads are validated on the handle, not the path: `PinnedSourceFolder` pins each section folder (its final path must equal the validated path; held open so the chain cannot be renamed) and opens every file with `FILE_FLAG_OPEN_REPARSE_POINT`, requiring the handle's final path to be `<canonical folder>\<relative path>`. A subdirectory swapped for a junction between enumeration and open is skipped (`SKIPPED (resolved outside validated folder)`) instead of copied into the package.
+
 ## 2026-08-29 (12)
 
 * **Update**: `backend/tenant-activation-welcome-mail.md` — `PUT preview/notification-email` moved to `AuthenticatedUserWithRole`; roleless callers may write the address only while the tenant has no enabled member (signup window), afterwards a member role is required.

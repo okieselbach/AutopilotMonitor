@@ -811,5 +811,97 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             Assert.False(DiagnosticsPackageService.IsReparsePoint(FileAttributes.ReadOnly | FileAttributes.Hidden));
             Assert.False(DiagnosticsPackageService.IsReparsePoint(FileAttributes.Archive));
         }
+
+        // ========================================== handle-validated reads (TOCTOU) ====
+        // Every guard up to here inspects a PATH: the config guard, the enumeration's reparse
+        // skip, the per-file attribute check. A local user who can write under a recursive
+        // source folder swaps a subdirectory for a junction between enumeration and open, and
+        // the bytes would come from the junction target. The read is validated on the handle
+        // that is actually copied, so the swapped file is skipped and the manifest says why.
+
+        private static string AllZipEntryTexts(byte[] zipBytes)
+        {
+            using var ms = new MemoryStream(zipBytes);
+            using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
+            var sb = new StringBuilder();
+            foreach (var entry in archive.Entries)
+            {
+                using var reader = new StreamReader(entry.Open(), Encoding.UTF8);
+                sb.AppendLine(reader.ReadToEnd());
+            }
+            return sb.ToString();
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_skips_file_whose_parent_became_a_junction_after_enumeration()
+        {
+            using var rig = new Rig();
+            using var outside = new TempDirectory();
+            var sub1 = Path.Combine(rig.StateFolder, "sub1");
+            var sub2 = Path.Combine(rig.StateFolder, "sub2");
+            Directory.CreateDirectory(sub1);
+            Directory.CreateDirectory(sub2);
+            File.WriteAllText(Path.Combine(sub1, "decoy.txt"), "decoy");
+            File.WriteAllText(Path.Combine(sub2, "x.txt"), "harmless");
+            File.WriteAllText(Path.Combine(outside.Path, "x.txt"), "OUTSIDE-THE-VALIDATED-FOLDER");
+
+            var svc = rig.Build();
+            var swapped = false;
+            svc.BeforeSourceFileOpen = candidate =>
+            {
+                if (swapped || !candidate.EndsWith(Path.Combine("sub2", "x.txt"), System.StringComparison.OrdinalIgnoreCase))
+                    return;
+                // Enumeration is done and sub2 passed its reparse check — now it becomes a junction.
+                Directory.Delete(sub2, recursive: true);
+                NtfsLinks.CreateJunction(sub2, outside.Path);
+                swapped = true;
+            };
+
+            try
+            {
+                var bytes = svc.BuildArchiveBytes(enrollmentSucceeded: true);
+
+                Assert.True(swapped, "race seam never fired for sub2/x.txt");
+                var entries = ZipEntryNames(bytes);
+                Assert.Contains("AgentState/sub1/decoy.txt", entries);
+                Assert.DoesNotContain("AgentState/sub2/x.txt", entries);
+                Assert.DoesNotContain("OUTSIDE-THE-VALIDATED-FOLDER", AllZipEntryTexts(bytes));
+
+                var manifest = ReadZipEntryText(bytes, "package-manifest.txt");
+                Assert.NotNull(manifest);
+                Assert.Contains("SKIPPED (resolved outside validated folder)", manifest!);
+                Assert.Contains("ADDED: AgentState/sub1/decoy.txt", manifest!);
+            }
+            finally
+            {
+                NtfsLinks.RemoveLink(sub2);
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_rejects_source_folder_that_is_a_junction()
+        {
+            using var rig = new Rig();
+            using var outside = new TempDirectory();
+            File.WriteAllText(Path.Combine(outside.Path, "snapshot.json"), "{\"leak\":true}");
+            var link = Path.Combine(rig.Tmp.Path, "StateLink");
+            NtfsLinks.CreateJunction(link, outside.Path);
+
+            try
+            {
+                var bytes = rig.Build(sectionFolderOverrides: new Dictionary<string, string> { ["AgentState"] = link })
+                    .BuildArchiveBytes(enrollmentSucceeded: true);
+
+                var entries = ZipEntryNames(bytes);
+                Assert.DoesNotContain(entries, e => e.StartsWith("AgentState/"));
+                var manifest = ReadZipEntryText(bytes, "package-manifest.txt");
+                Assert.NotNull(manifest);
+                Assert.Contains("FOLDER REJECTED (reparse point)", manifest!);
+            }
+            finally
+            {
+                NtfsLinks.RemoveLink(link);
+            }
+        }
     }
 }
