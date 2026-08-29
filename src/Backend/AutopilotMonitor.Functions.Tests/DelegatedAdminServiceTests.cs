@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -16,6 +17,8 @@ namespace AutopilotMonitor.Functions.Tests;
 public class DelegatedAdminServiceTests
 {
     private const string Upn = "msp-admin@partner.example";
+    private const string HomeTenant = "99999999-9999-9999-9999-999999999999";
+    private const string Oid = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa";
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
 
@@ -34,13 +37,19 @@ public class DelegatedAdminServiceTests
         var cache = new MemoryCache(new MemoryCacheOptions());
         // Entitlements stubbed to Enterprise for every tenant — these tests pin ROLE resolution;
         // the edition filter has its own dedicated tests (DelegatedAdminEditionGateTests).
+        // Binding stubbed to "bound" — these tests pin ROW resolution; the identity check has its own
+        // tests (AdminIdentityBindingServiceTests / AdminIdentityBindingAuthorizationTests).
         var svc = new DelegatedAdminService(
             repo.Object,
+            new StubAdminIdentityBindingService(bound: true),
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache,
             NullLogger<DelegatedAdminService>.Instance);
         return (svc, repo);
     }
+
+    /// <summary>The caller identity for a UPN: homed in <see cref="HomeTenant"/> with <see cref="Oid"/>.</summary>
+    private static AdminIdentity Id(string upn) => new(upn.ToLowerInvariant(), HomeTenant, Oid);
 
     private static TenantGroupAssignment Assignment(
         string groupId,
@@ -78,13 +87,17 @@ public class DelegatedAdminServiceTests
         repo.Setup(r => r.GetDelegatedTenantsAsync(It.IsAny<string>())).ReturnsAsync(rows.ToList());
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public async Task GetScope_BlankUpn_ReturnsEmpty(string? upn)
+    [InlineData(null, HomeTenant, Oid)]
+    [InlineData("", HomeTenant, Oid)]
+    [InlineData("   ", HomeTenant, Oid)]
+    [InlineData(Upn, null, Oid)]
+    [InlineData(Upn, HomeTenant, null)]
+    public async Task GetScope_IncompleteIdentity_ReturnsEmpty_WithoutTouchingStorage(string? upn, string? tid, string? oid)
     {
+        // upn + tid + oid are all required: a token missing any of them (app-only, or a foreign IdP shape)
+        // resolves no delegated scope and does not even read the assignment rows.
         var (svc, repo) = Build();
-        var scope = await svc.GetScopeAsync(upn);
+        var scope = await svc.GetScopeAsync(AdminIdentity.Create(upn, tid, oid));
         Assert.True(scope.IsEmpty);
         repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Never);
     }
@@ -93,7 +106,7 @@ public class DelegatedAdminServiceTests
     public async Task GetScope_NoRows_ReturnsEmpty()
     {
         var (svc, _) = Build();
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
         Assert.True(scope.IsEmpty);
         Assert.False(scope.Covers(TenantA));
     }
@@ -104,7 +117,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, Constants.DelegatedRoles.DelegatedReader));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.Covers(TenantA));
         Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantA));
@@ -118,7 +131,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, Constants.DelegatedRoles.DelegatedAdmin));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.CanWrite(TenantA));
     }
@@ -131,7 +144,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, status: status));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.False(scope.Covers(TenantA));
         Assert.True(scope.IsEmpty);
@@ -143,7 +156,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, enabled: false));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.False(scope.Covers(TenantA));
     }
@@ -154,7 +167,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, role: ""));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.Equal(Constants.DelegatedRoles.DelegatedReader, scope.RoleFor(TenantA));
     }
@@ -165,7 +178,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA, role: "SuperRoot"));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.False(scope.Covers(TenantA));
         Assert.True(scope.IsEmpty);
@@ -179,7 +192,7 @@ public class DelegatedAdminServiceTests
             Row(TenantA, Constants.DelegatedRoles.DelegatedReader),
             Row(TenantB, Constants.DelegatedRoles.DelegatedAdmin));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.Equal(2, scope.TenantIds.Count);
         Assert.False(scope.CanWrite(TenantA));
@@ -192,7 +205,7 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA.ToLowerInvariant()));
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.Covers(TenantA.ToUpperInvariant()));
     }
@@ -203,8 +216,8 @@ public class DelegatedAdminServiceTests
         var (svc, repo) = Build();
         Returns(repo, Row(TenantA));
 
-        await svc.GetScopeAsync(Upn);
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
+        await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Once);
     }
@@ -219,10 +232,11 @@ public class DelegatedAdminServiceTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
-        await svc.GetScopeAsync(Upn); // primes cache
+        await svc.GetScopeAsync(Id(Upn)); // primes cache
         await svc.UpsertAsync(Upn, TenantB, Constants.DelegatedRoles.DelegatedReader,
-            Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, "ga@vendor.example");
-        await svc.GetScopeAsync(Upn); // must re-query after invalidation
+            Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, "ga@vendor.example",
+            HomeTenant, null);
+        await svc.GetScopeAsync(Id(Upn)); // must re-query after invalidation
 
         repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Exactly(2));
     }
@@ -235,9 +249,9 @@ public class DelegatedAdminServiceTests
         repo.Setup(r => r.SetDelegatedAdminStatusAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
         await svc.SetStatusAsync(Upn, TenantA, Constants.DelegatedStatus.Revoked);
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetDelegatedTenantsAsync(It.IsAny<string>()), Times.Exactly(2));
     }
@@ -251,7 +265,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1, Constants.DelegatedRoles.DelegatedReader));
         GroupTenants(repo, GroupId1, TenantA, TenantB);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.Equal(2, scope.TenantIds.Count);
         Assert.True(scope.Covers(TenantA));
@@ -267,7 +281,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1));
         GroupTenants(repo, GroupId1, TenantB, TenantC);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.Equal(3, scope.TenantIds.Count);
         Assert.True(scope.Covers(TenantA));
@@ -282,7 +296,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1, enabled: false));
         GroupTenants(repo, GroupId1, TenantA);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.IsEmpty);
         Assert.False(scope.Covers(TenantA));
@@ -295,7 +309,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1, role: "SuperRoot"));
         GroupTenants(repo, GroupId1, TenantA);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.IsEmpty);
     }
@@ -307,7 +321,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1));
         GroupTenants(repo, GroupId1); // no tenants
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.IsEmpty);
     }
@@ -320,7 +334,7 @@ public class DelegatedAdminServiceTests
         GroupTenants(repo, GroupId1, TenantA);
         GroupTenants(repo, GroupId2, TenantA, TenantB);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.Equal(2, scope.TenantIds.Count);
         Assert.True(scope.Covers(TenantA));
@@ -335,7 +349,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1, Constants.DelegatedRoles.DelegatedAdmin));
         GroupTenants(repo, GroupId1, TenantA);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.CanWrite(TenantA)); // stronger DelegatedAdmin wins across sources
     }
@@ -348,7 +362,7 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1, Constants.DelegatedRoles.DelegatedReader));
         GroupTenants(repo, GroupId1, TenantA);
 
-        var scope = await svc.GetScopeAsync(Upn);
+        var scope = await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(scope.CanWrite(TenantA)); // direct DelegatedAdmin not downgraded by group reader
     }
@@ -360,8 +374,8 @@ public class DelegatedAdminServiceTests
         ReturnsGroups(repo, Assignment(GroupId1));
         GroupTenants(repo, GroupId1, TenantA);
 
-        await svc.GetScopeAsync(Upn);
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
+        await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Once);
         repo.Verify(r => r.GetGroupTenantsAsync(GroupId1), Times.Once);
@@ -380,9 +394,9 @@ public class DelegatedAdminServiceTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>()))
             .ReturnsAsync(true);
 
-        await svc.GetScopeAsync(Upn); // primes cache
-        await svc.AssignGroupAsync(Upn, GroupId2, Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example");
-        await svc.GetScopeAsync(Upn); // must re-resolve after invalidation
+        await svc.GetScopeAsync(Id(Upn)); // primes cache
+        await svc.AssignGroupAsync(Upn, GroupId2, Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example", HomeTenant, null);
+        await svc.GetScopeAsync(Id(Upn)); // must re-resolve after invalidation
 
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Exactly(2));
     }
@@ -397,7 +411,7 @@ public class DelegatedAdminServiceTests
             .ReturnsAsync(true);
 
         var assigned = await svc.AssignGroupAsync(
-            Upn, GroupId1, Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example");
+            Upn, GroupId1, Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example", HomeTenant, null);
 
         Assert.False(assigned);
         repo.Verify(r => r.AssignGroupAsync(
@@ -412,9 +426,9 @@ public class DelegatedAdminServiceTests
         GroupTenants(repo, GroupId1, TenantA);
         repo.Setup(r => r.UnassignGroupAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
 
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
         var unassigned = await svc.UnassignGroupAsync(Upn, GroupId1);
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
 
         Assert.True(unassigned);
         // Verify re-resolution via the tenant expansion (the unassign now also reads assignments itself,
@@ -459,11 +473,11 @@ public class DelegatedAdminServiceTests
             new() { Upn = upnB, GroupId = GroupId1, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
         });
 
-        await svc.GetScopeAsync(Upn);   // primes A
-        await svc.GetScopeAsync(upnB);  // primes B
+        await svc.GetScopeAsync(Id(Upn));   // primes A
+        await svc.GetScopeAsync(Id(upnB));  // primes B
         var removed = await svc.RemoveTenantFromGroupAsync(GroupId1, TenantA);
-        await svc.GetScopeAsync(Upn);   // re-resolves A
-        await svc.GetScopeAsync(upnB);  // re-resolves B
+        await svc.GetScopeAsync(Id(Upn));   // re-resolves A
+        await svc.GetScopeAsync(Id(upnB));  // re-resolves B
 
         Assert.True(removed);
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(Upn), Times.Exactly(2));
@@ -536,9 +550,9 @@ public class DelegatedAdminServiceTests
             new() { Upn = Upn, GroupId = GroupId1, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
         });
 
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
         await svc.DeleteGroupAsync(GroupId1);
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(Upn), Times.Exactly(2));
     }
@@ -555,7 +569,7 @@ public class DelegatedAdminServiceTests
             .ReturnsAsync(true);
 
         var assigned = await svc.AssignGroupAsync(
-            Upn, "TPL-LOWER", Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example");
+            Upn, "TPL-LOWER", Constants.DelegatedRoles.DelegatedReader, true, "ga@vendor.example", HomeTenant, null);
 
         Assert.True(assigned);
         // Repo was looked up + written with the normalized (lowercase) id.
@@ -572,9 +586,9 @@ public class DelegatedAdminServiceTests
         GroupTenants(repo, GroupId1, TenantA);
         repo.Setup(r => r.RenameTenantGroupAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
 
-        await svc.GetScopeAsync(Upn);
+        await svc.GetScopeAsync(Id(Upn));
         await svc.RenameGroupAsync(GroupId1, "Renamed");
-        await svc.GetScopeAsync(Upn); // name-only change → scope stays cached
+        await svc.GetScopeAsync(Id(Upn)); // name-only change → scope stays cached
 
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Once);
     }

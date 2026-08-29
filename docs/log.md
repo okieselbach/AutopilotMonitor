@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (5)
+
+* **Creation**: Added `backend/admin-identity-binding.md` — cross-tenant roles (GlobalAdmin / GlobalReader, delegated MSP) were resolved from the UPN string alone while the API accepts tokens from every Entra tenant. New `AdminIdentityBindings` table (RK = UPN → home `TenantId` + `ObjectId`), `AdminIdentity` (upn + tid + oid) as the key both role services resolve on, binding checked after the row and before the Pro gate, object id pinned on the first sign-in from the bound tenant (ETag-guarded), grants require `homeTenantId` and refuse to re-home (409), `global/identity-bindings` GET/PUT/DELETE as the audited rebind path, `RequestContext.ObjectId`, throttle bucket keyed on oid. Legacy rows are inert until bound — seed bindings before the backend deploy.
+
 ## 2026-08-29 (4)
 
 * **Creation**: Added `backend/ime-msi-archive.md` — the version-verified, multi-host IME installer archive: MsiProductVersionReader (managed CFB/MSI Property reader), candidate host walk, Failed:VersionMismatch, sighting re-queue with 24 h backoff, and the 2026-08-29 1.105.103.0 poisoning that motivated it.

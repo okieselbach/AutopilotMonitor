@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using Azure.Data.Tables;
@@ -8,11 +9,19 @@ namespace AutopilotMonitor.Functions.Services;
 
 /// <summary>
 /// Service for managing Global Admin permissions
-/// Global Admins can access cross-tenant data and perform platform-wide operations
+/// Global Admins can access cross-tenant data and perform platform-wide operations.
+/// <para>
+/// Role RESOLUTION is keyed on the caller's full <see cref="AdminIdentity"/>, never on the UPN string alone:
+/// the GlobalAdmins row is looked up by UPN, but it confers the role only when the caller's validated JWT
+/// tid + oid match the UPN's <see cref="AdminIdentityBinding"/> (see <see cref="AdminIdentityBindingService"/>).
+/// The API accepts tokens from any Entra tenant, and upn/preferred_username are mutable — a foreign-tenant
+/// token with a matching UPN must resolve to no role.
+/// </para>
 /// </summary>
 public class GlobalAdminService
 {
     private readonly IAdminRepository _adminRepo;
+    private readonly AdminIdentityBindingService _bindings;
     private readonly IMemoryCache _cache;
     private readonly ILogger<GlobalAdminService> _logger;
     // Per-process cache: on scaled-out Flex Consumption, the _cache.Remove on add/remove/disable
@@ -28,42 +37,51 @@ public class GlobalAdminService
 
     public GlobalAdminService(
         IAdminRepository adminRepo,
+        AdminIdentityBindingService bindings,
         IMemoryCache cache,
         ILogger<GlobalAdminService> logger)
     {
         _adminRepo = adminRepo;
+        _bindings = bindings;
         _cache = cache;
         _logger = logger;
     }
 
     /// <summary>
-    /// Checks if a UPN is a Global Admin
-    /// Uses caching for performance
+    /// Checks whether the caller is a Global Admin (the GlobalAdmin platform role, identity-bound).
     /// </summary>
-    /// <param name="upn">User Principal Name (e.g., oliver@contoso.com)</param>
-    /// <returns>True if the user is a Global Admin</returns>
-    public virtual async Task<bool> IsGlobalAdminAsync(string? upn)
+    /// <param name="identity">The caller's validated identity; null (missing upn/tid/oid) ⇒ false.</param>
+    public virtual async Task<bool> IsGlobalAdminAsync(AdminIdentity? identity)
     {
         // Single source of truth: GlobalAdmin == the GlobalAdmin platform role.
-        return await GetGlobalRoleAsync(upn) == Constants.GlobalRoles.GlobalAdmin;
+        return await GetGlobalRoleAsync(identity) == Constants.GlobalRoles.GlobalAdmin;
     }
 
     /// <summary>
-    /// Resolves the caller's platform role from the GlobalAdmins table.
-    /// Returns <see cref="Constants.GlobalRoles.GlobalAdmin"/>, <see cref="Constants.GlobalRoles.GlobalReader"/>,
-    /// or <c>null</c> when the UPN has no enabled GlobalAdmins row. Cached briefly (see _cacheDuration).
+    /// Resolves the caller's platform role: <see cref="Constants.GlobalRoles.GlobalAdmin"/>,
+    /// <see cref="Constants.GlobalRoles.GlobalReader"/>, or <c>null</c> when the UPN has no enabled
+    /// GlobalAdmins row OR the caller's tid/oid do not match the UPN's identity binding (fail-closed —
+    /// an unbound row is inert). The row lookup is cached briefly (see _cacheDuration); the binding check
+    /// runs only for UPNs that actually hold a row, so ordinary tenant users cost one cached read.
     /// </summary>
-    public virtual async Task<string?> GetGlobalRoleAsync(string? upn)
+    public virtual async Task<string?> GetGlobalRoleAsync(AdminIdentity? identity)
     {
-        if (string.IsNullOrWhiteSpace(upn))
+        if (identity == null)
         {
-            _logger.LogDebug("GetGlobalRoleAsync: UPN is null or empty");
+            _logger.LogDebug("GetGlobalRoleAsync: incomplete caller identity (upn/tid/oid)");
             return null;
         }
 
-        // Normalize UPN to lowercase for case-insensitive comparison
-        upn = upn.ToLowerInvariant();
+        var role = await GetRowRoleAsync(identity.Upn);
+        if (role == null)
+            return null;
 
+        return await _bindings.IsBoundAsync(identity) ? role : null;
+    }
+
+    /// <summary>The role the GlobalAdmins ROW carries for a UPN, ignoring identity binding. Cached briefly.</summary>
+    private async Task<string?> GetRowRoleAsync(string upn)
+    {
         var cacheKey = $"global-role:{upn}";
         if (_cache.TryGetValue<string>(cacheKey, out var cached) && cached != null)
         {
@@ -82,15 +100,21 @@ public class GlobalAdminService
     }
 
     /// <summary>
-    /// Adds a user as a Global Admin
+    /// Adds a user as a Global Admin, binding the UPN to its home tenant (and object id, when known) FIRST —
+    /// a role row without a binding is inert, and a binding conflict (UPN already homed elsewhere) aborts
+    /// before any row is written.
     /// </summary>
     /// <param name="upn">User Principal Name</param>
     /// <param name="addedBy">UPN of the admin who is adding this user</param>
-    public async Task<GlobalAdminEntity> AddGlobalAdminAsync(string upn, string addedBy)
+    /// <param name="homeTenantId">The Entra tenant the person signs in from (JWT tid).</param>
+    /// <param name="objectId">The person's Entra object id, or null to pin it on their first sign-in.</param>
+    /// <exception cref="IdentityBindingConflictException">The UPN is already bound to a different identity.</exception>
+    public async Task<GlobalAdminEntity> AddGlobalAdminAsync(string upn, string addedBy, string homeTenantId, string? objectId)
     {
         upn = upn.ToLowerInvariant();
         addedBy = addedBy.ToLowerInvariant();
 
+        await _bindings.EnsureBoundAsync(upn, homeTenantId, objectId, addedBy);
         await _adminRepo.AddGlobalAdminAsync(upn, addedBy);
 
         // Invalidate cache

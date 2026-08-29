@@ -1,4 +1,5 @@
 using AutopilotMonitor.Functions.Functions.Infrastructure;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -39,16 +40,18 @@ public class AuthFunctionSideEffectTests
             configRepo, Mock.Of<ILogger<TenantConfigurationService>>(), cache)
         { CallBase = false };
 
+        var bindings = new StubAdminIdentityBindingService(bound: true);
         var globalAdminMock = new Mock<GlobalAdminService>(
-            adminRepo, cache, Mock.Of<ILogger<GlobalAdminService>>())
+            adminRepo, bindings, cache, Mock.Of<ILogger<GlobalAdminService>>())
         { CallBase = false };
 
         var delegatedAdminMock = new Mock<DelegatedAdminService>(
             adminRepo,
+            bindings,
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache, Mock.Of<ILogger<DelegatedAdminService>>())
         { CallBase = false };
-        delegatedAdminMock.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>()))
+        delegatedAdminMock.Setup(x => x.GetScopeAsync(It.IsAny<AdminIdentity?>()))
             .ReturnsAsync(DelegatedScope.Empty);
 
         _tenantAdminsMock = new Mock<TenantAdminsService>(

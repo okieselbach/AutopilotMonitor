@@ -250,6 +250,8 @@ builder.Services.AddSingleton<PlatformMetricsService>();
 builder.Services.AddSingleton<AgentEfficiencyMetricsService>();
 builder.Services.AddSingleton<SlaMetricsService>();
 builder.Services.AddSingleton<SlaBreachEvaluationService>();
+// Identity binding (tid + oid behind every cross-tenant-role UPN) — consulted by both role services.
+builder.Services.AddSingleton<AdminIdentityBindingService>();
 builder.Services.AddSingleton<GlobalAdminService>();
 builder.Services.AddSingleton<DelegatedAdminService>();
 builder.Services.AddSingleton<McpUserService>();

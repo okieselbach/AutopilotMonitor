@@ -17,8 +17,12 @@ public sealed record RequestContext
     /// <summary>The user's Azure AD tenant ID (from JWT tid claim).</summary>
     public string TenantId { get; init; } = string.Empty;
 
-    /// <summary>The user's UPN (from JWT upn/preferred_username claim).</summary>
+    /// <summary>The user's UPN (from JWT upn/preferred_username claim). Display/audit/row-key use — mutable.</summary>
     public string UserPrincipalName { get; init; } = string.Empty;
+
+    /// <summary>The user's Entra object id (JWT oid). Together with <see cref="TenantId"/> the immutable half of
+    /// <see cref="Security.AdminIdentity"/>; empty when the token carried none (app-only) or no JWT at all.</summary>
+    public string ObjectId { get; init; } = string.Empty;
 
     /// <summary>
     /// Stable identity of the authenticated caller, for THROTTLING keys only — never authorization,

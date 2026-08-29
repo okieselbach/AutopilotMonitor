@@ -166,8 +166,9 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         var isScopedRoute = catalogEntry.TenantScoping is TenantScoping.RouteParam or TenantScoping.QueryParam;
         if (!hasGlobalScope && !string.IsNullOrEmpty(upn) && isScopedRoute && crossTenant)
         {
-            // Home-tenant (JWT tid) gates the delegated scope: MSP seats require a Pro home tenant.
-            var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
+            // Full identity (upn + tid + oid): the scope resolves only for the bound identity, and the home
+            // tenant (JWT tid) gates it — MSP seats require a Pro home tenant.
+            var scope = await _delegatedAdminService.GetScopeAsync(AdminIdentity.FromPrincipal(principal));
             delegatedRole = scope.RoleFor(namedTarget);
             if (delegatedRole != null)
                 allowedTenantIds = scope.TenantIds;
@@ -229,6 +230,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             // user_ratelimit_anonymous bucket and 429'd agent telemetry fleet-wide. It stays on
             // decision.UserIdentifier for log lines, where "anonymous" is the useful rendering.
             UserPrincipalName = upn ?? string.Empty,
+            ObjectId = principal?.GetObjectId() ?? string.Empty,
             // Throttle identity — NOT the same thing as the UPN. Empty only when the request carried
             // no JWT at all (device/anonymous routes, which bring their own limits). An authenticated
             // caller ALWAYS gets a non-empty value, including app-only tokens that carry no upn:
@@ -346,13 +348,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 return await EvaluateBootstrapManagerOrGAAsync(tenantId, upn, principal, userIdentifier);
 
             case EndpointPolicy.GlobalReadOrAdmin:
-                return await EvaluateGlobalReadOrAdminAsync(upn, userIdentifier);
+                return await EvaluateGlobalReadOrAdminAsync(principal, upn, userIdentifier);
 
             case EndpointPolicy.GlobalReadOrDelegatedSubset:
-                return await EvaluateGlobalReadOrDelegatedSubsetAsync(tenantId, upn, userIdentifier);
+                return await EvaluateGlobalReadOrDelegatedSubsetAsync(principal, upn, userIdentifier);
 
             case EndpointPolicy.GlobalAdminOnly:
-                return await EvaluateGlobalAdminOnlyAsync(upn, userIdentifier);
+                return await EvaluateGlobalAdminOnlyAsync(principal, upn, userIdentifier);
 
             default:
                 return CatalogDecisionResult.Deny(userIdentifier, "N/A", $"UnknownPolicy:{entry.Policy}");
@@ -379,7 +381,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // (admin notification group, admin-audience notifications).
         if (!string.IsNullOrEmpty(upn))
         {
-            var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+            var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
             if (globalRole != null)
             {
                 var tenantRole = !string.IsNullOrEmpty(tenantId)
@@ -413,7 +415,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // Any platform role (GlobalAdmin or read-only GlobalReader) satisfies a member-read. ADDITIVE:
         // also resolve the own-tenant role and carry it separately so IsTenantAdmin stays correct for a
         // GlobalReader who is also their tenant's admin (drives admin-audience on /api/notifications).
-        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
         if (globalRole != null)
         {
             var tenantRole = (await ResolveEffectiveRoleAsync(tenantId, upn, principal))?.Role;
@@ -442,7 +444,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
         if (globalRole != null)
         {
             var tenantRole = (await ResolveEffectiveRoleAsync(tenantId, upn, principal))?.Role;
@@ -462,7 +464,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        if (await _globalAdminService.IsGlobalAdminAsync(upn))
+        if (await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal)))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
         var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
@@ -484,7 +486,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        if (await _globalAdminService.IsGlobalAdminAsync(upn))
+        if (await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal)))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
         var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
@@ -500,7 +502,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        if (await _globalAdminService.IsGlobalAdminAsync(upn))
+        if (await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal)))
             return CatalogDecisionResult.Allow(userIdentifier, "GlobalAdmin", "GABypass");
 
         var role = await ResolveEffectiveRoleAsync(tenantId, upn, principal);
@@ -549,12 +551,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// Reader (e.g. for any in-function write gate).
     /// </summary>
     private async Task<CatalogDecisionResult> EvaluateGlobalReadOrAdminAsync(
-        string? upn, string userIdentifier)
+        ClaimsPrincipal? principal, string? upn, string userIdentifier)
     {
         if (string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
         if (globalRole != null)
             return CatalogDecisionResult.Allow(userIdentifier, globalRole, "GlobalScope");
 
@@ -570,17 +572,18 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// denied. Used by aggregate endpoints whose body can be filtered per tenant (e.g. config/all).
     /// </summary>
     private async Task<CatalogDecisionResult> EvaluateGlobalReadOrDelegatedSubsetAsync(
-        string? jwtTenantId, string? upn, string userIdentifier)
+        ClaimsPrincipal? principal, string? upn, string userIdentifier)
     {
         if (string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
         if (globalRole != null)
             return CatalogDecisionResult.Allow(userIdentifier, globalRole, "GlobalScope");
 
-        // Home-tenant (JWT tid) gates the delegated scope: MSP seats require a Pro home tenant.
-        var scope = await _delegatedAdminService.GetScopeAsync(upn, jwtTenantId);
+        // Full identity (upn + tid + oid): the scope resolves only for the bound identity, and the home
+        // tenant (JWT tid) gates it — MSP seats require a Pro home tenant.
+        var scope = await _delegatedAdminService.GetScopeAsync(AdminIdentity.FromPrincipal(principal));
         if (!scope.IsEmpty)
             return CatalogDecisionResult.Allow(
                 userIdentifier, Constants.DelegatedRoles.DelegatedReader, "DelegatedSubset",
@@ -590,12 +593,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     }
 
     private async Task<CatalogDecisionResult> EvaluateGlobalAdminOnlyAsync(
-        string? upn, string userIdentifier)
+        ClaimsPrincipal? principal, string? upn, string userIdentifier)
     {
         if (string.IsNullOrEmpty(upn))
             return CatalogDecisionResult.Deny(userIdentifier, "N/A", "MissingClaims");
 
-        if (await _globalAdminService.IsGlobalAdminAsync(upn))
+        if (await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal)))
             return CatalogDecisionResult.Allow(userIdentifier, Constants.GlobalRoles.GlobalAdmin, "IsGA");
 
         return CatalogDecisionResult.Deny(userIdentifier, "NonGA", "NotGlobalAdmin");

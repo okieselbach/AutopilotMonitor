@@ -19,6 +19,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         private readonly TableClient _delegatedAdminsTableClient;
         private readonly TableClient _tenantGroupsTableClient;
         private readonly TableClient _tenantGroupAssignmentsTableClient;
+        private readonly TableClient _identityBindingsTableClient;
         private readonly ILogger<TableAdminRepository> _logger;
 
         public TableAdminRepository(
@@ -32,6 +33,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _delegatedAdminsTableClient = storage.GetTableClient(Constants.TableNames.DelegatedAdmins);
             _tenantGroupsTableClient = storage.GetTableClient(Constants.TableNames.TenantGroups);
             _tenantGroupAssignmentsTableClient = storage.GetTableClient(Constants.TableNames.TenantGroupAssignments);
+            _identityBindingsTableClient = storage.GetTableClient(Constants.TableNames.AdminIdentityBindings);
         }
 
         // --- Global Admins ---
@@ -668,6 +670,112 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 entries.Add(MapToGroupAssignment(entity));
             }
             return entries;
+        }
+
+        // --- Admin identity bindings ---
+
+        public async Task<AdminIdentityBinding?> GetIdentityBindingAsync(string upn)
+        {
+            if (string.IsNullOrWhiteSpace(upn))
+                return null;
+
+            try
+            {
+                var result = await _identityBindingsTableClient.GetEntityAsync<AdminIdentityBindingEntity>(
+                    AdminIdentityBindingEntity.Partition, upn.ToLowerInvariant());
+                return result.Value == null ? null : MapToBinding(result.Value);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+            // Any other storage failure propagates: the callers treat "unknown binding" as no role, so a
+            // swallowed error here would only turn an outage into a silent, confusing 403.
+        }
+
+        public async Task<List<AdminIdentityBinding>> GetAllIdentityBindingsAsync()
+        {
+            var bindings = new List<AdminIdentityBinding>();
+            await foreach (var entity in _identityBindingsTableClient.QueryAsync<AdminIdentityBindingEntity>(
+                filter: $"PartitionKey eq '{AdminIdentityBindingEntity.Partition}'"))
+            {
+                bindings.Add(MapToBinding(entity));
+            }
+            return bindings;
+        }
+
+        public async Task<bool> UpsertIdentityBindingAsync(string upn, string tenantId, string? objectId, string boundBy)
+        {
+            var now = DateTime.UtcNow;
+            var pinned = !string.IsNullOrWhiteSpace(objectId);
+            var entity = new AdminIdentityBindingEntity
+            {
+                PartitionKey = AdminIdentityBindingEntity.Partition,
+                RowKey = upn.ToLowerInvariant(),
+                Upn = upn.ToLowerInvariant(),
+                TenantId = tenantId.ToLowerInvariant(),
+                ObjectId = pinned ? objectId!.ToLowerInvariant() : string.Empty,
+                BoundBy = boundBy?.ToLowerInvariant() ?? string.Empty,
+                BoundDate = now,
+                ObjectIdPinnedDate = pinned ? now : null
+            };
+            // Replace (not merge): a rebind must drop a previously pinned object id, never inherit it.
+            await _identityBindingsTableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+            return true;
+        }
+
+        public async Task<AdminIdentityBinding?> TryPinIdentityObjectIdAsync(string upn, string tenantId, string objectId)
+        {
+            upn = upn.ToLowerInvariant();
+            try
+            {
+                var result = await _identityBindingsTableClient.GetEntityAsync<AdminIdentityBindingEntity>(
+                    AdminIdentityBindingEntity.Partition, upn);
+                var entity = result.Value;
+                if (entity == null)
+                    return null;
+
+                // Pin only onto an unpinned binding homed in the caller's tenant; anything else is returned
+                // untouched so the caller's verdict (mismatch) is based on what is actually stored.
+                if (!string.IsNullOrEmpty(entity.ObjectId)
+                    || !string.Equals(entity.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+                    return MapToBinding(entity);
+
+                entity.ObjectId = objectId.ToLowerInvariant();
+                entity.ObjectIdPinnedDate = DateTime.UtcNow;
+                // ETag-conditional: if another instance pinned concurrently (412), re-read and let the
+                // caller compare against whatever won — never overwrite a competing pin.
+                await _identityBindingsTableClient.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Replace);
+                return MapToBinding(entity);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return null;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412)
+            {
+                _logger.LogWarning("[IdentityBinding] Concurrent object-id pin for {Upn} — re-reading stored binding", upn);
+                return await GetIdentityBindingAsync(upn);
+            }
+        }
+
+        public async Task<bool> RemoveIdentityBindingAsync(string upn)
+        {
+            await DeleteIfPresentAsync(_identityBindingsTableClient, AdminIdentityBindingEntity.Partition, upn.ToLowerInvariant());
+            return true;
+        }
+
+        private static AdminIdentityBinding MapToBinding(AdminIdentityBindingEntity entity)
+        {
+            return new AdminIdentityBinding
+            {
+                Upn = entity.Upn,
+                TenantId = entity.TenantId,
+                ObjectId = entity.ObjectId ?? string.Empty,
+                BoundBy = entity.BoundBy,
+                BoundAt = entity.BoundDate,
+                ObjectIdPinnedAt = entity.ObjectIdPinnedDate
+            };
         }
 
         // --- Tenant Members ---

@@ -23,6 +23,10 @@ public class DelegatedAdminEditionGateTests
     private const string CommunityHomeTenant = "22222222-2222-2222-2222-222222222222";
     private const string ManagedTenantA = "33333333-3333-3333-3333-333333333333";
     private const string ManagedTenantB = "44444444-4444-4444-4444-444444444444";
+    private const string Oid = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa";
+
+    /// <summary>Caller identity homed in <paramref name="homeTenantId"/>; null/blank ⇒ incomplete identity (null).</summary>
+    private static AdminIdentity? Id(string? homeTenantId) => AdminIdentity.Create(Upn, homeTenantId, Oid);
 
     private static DelegatedAdminEntry Row(string tenantId) => new()
     {
@@ -43,6 +47,8 @@ public class DelegatedAdminEditionGateTests
             .ReturnsAsync(new List<TenantGroupAssignment>());
         return new DelegatedAdminService(
             repo.Object,
+            // Binding stubbed to "bound": these tests pin the EDITION gate, not the identity check.
+            new StubAdminIdentityBindingService(bound: true),
             new StubTenantEntitlementService(
                 tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Pro : TenantEdition.Community),
             new MemoryCache(new MemoryCacheOptions()),
@@ -55,7 +61,7 @@ public class DelegatedAdminEditionGateTests
         // Managed targets resolve Community in the stub — they must NOT be dropped.
         var svc = Build(Row(ManagedTenantA), Row(ManagedTenantB));
 
-        var scope = await svc.GetScopeAsync(Upn, EnterpriseHomeTenant);
+        var scope = await svc.GetScopeAsync(Id(EnterpriseHomeTenant));
 
         Assert.True(scope.Covers(ManagedTenantA));
         Assert.True(scope.Covers(ManagedTenantB));
@@ -66,7 +72,7 @@ public class DelegatedAdminEditionGateTests
     {
         var svc = Build(Row(ManagedTenantA), Row(ManagedTenantB));
 
-        var scope = await svc.GetScopeAsync(Upn, CommunityHomeTenant);
+        var scope = await svc.GetScopeAsync(Id(CommunityHomeTenant));
 
         Assert.True(scope.IsEmpty);
     }
@@ -76,8 +82,8 @@ public class DelegatedAdminEditionGateTests
     {
         var svc = Build(Row(ManagedTenantA));
 
-        Assert.True((await svc.GetScopeAsync(Upn, null)).IsEmpty);
-        Assert.True((await svc.GetScopeAsync(Upn, "")).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(null))).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(""))).IsEmpty);
     }
 
     [Fact]
@@ -89,9 +95,9 @@ public class DelegatedAdminEditionGateTests
         // practice but the cache must stay pure either way).
         var svc = Build(Row(ManagedTenantA));
 
-        Assert.True((await svc.GetScopeAsync(Upn, CommunityHomeTenant)).IsEmpty);
-        Assert.True((await svc.GetScopeAsync(Upn, EnterpriseHomeTenant)).Covers(ManagedTenantA));
-        Assert.True((await svc.GetScopeAsync(Upn, CommunityHomeTenant)).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(CommunityHomeTenant))).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(EnterpriseHomeTenant))).Covers(ManagedTenantA));
+        Assert.True((await svc.GetScopeAsync(Id(CommunityHomeTenant))).IsEmpty);
     }
 
     [Fact]
@@ -117,14 +123,16 @@ public class DelegatedAdminEditionGateTests
 
         var svc = new DelegatedAdminService(
             repo.Object,
+            // Binding stubbed to "bound": these tests pin the EDITION gate, not the identity check.
+            new StubAdminIdentityBindingService(bound: true),
             new StubTenantEntitlementService(
                 tenantId => tenantId == EnterpriseHomeTenant ? TenantEdition.Pro : TenantEdition.Community),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
 
-        Assert.True((await svc.GetScopeAsync(Upn, CommunityHomeTenant)).IsEmpty);
+        Assert.True((await svc.GetScopeAsync(Id(CommunityHomeTenant))).IsEmpty);
 
-        var enterpriseScope = await svc.GetScopeAsync(Upn, EnterpriseHomeTenant);
+        var enterpriseScope = await svc.GetScopeAsync(Id(EnterpriseHomeTenant));
         Assert.True(enterpriseScope.Covers(ManagedTenantA));
         Assert.True(enterpriseScope.Covers(ManagedTenantB));
     }

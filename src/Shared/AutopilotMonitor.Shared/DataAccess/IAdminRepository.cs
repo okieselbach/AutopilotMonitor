@@ -71,6 +71,21 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>All UPNs assigned to one group (cross-partition RowKey scan — management UI, not hot path).</summary>
         Task<List<TenantGroupAssignment>> GetGroupAssigneesAsync(string groupId);
 
+        // --- Admin identity bindings (tid + oid behind every cross-tenant-role UPN) ---
+        /// <summary>The binding for a UPN, or null when none exists (⇒ no cross-tenant role resolves).</summary>
+        Task<AdminIdentityBinding?> GetIdentityBindingAsync(string upn);
+        /// <summary>Every binding — for the operator management UI (small table, not a hot path).</summary>
+        Task<List<AdminIdentityBinding>> GetAllIdentityBindingsAsync();
+        /// <summary>Creates or replaces the binding for a UPN. <paramref name="objectId"/> null/empty ⇒ pinned on first sign-in.</summary>
+        Task<bool> UpsertIdentityBindingAsync(string upn, string tenantId, string? objectId, string boundBy);
+        /// <summary>
+        /// Pins <paramref name="objectId"/> onto an existing binding ONLY IF the binding is homed in
+        /// <paramref name="tenantId"/> and has no object id yet (optimistic-concurrency guarded). Returns the
+        /// binding as stored after the attempt (null when no binding exists) so the caller can re-verify.
+        /// </summary>
+        Task<AdminIdentityBinding?> TryPinIdentityObjectIdAsync(string upn, string tenantId, string objectId);
+        Task<bool> RemoveIdentityBindingAsync(string upn);
+
         // --- Tenant Members ---
         Task<List<TenantMember>> GetTenantMembersAsync(string tenantId);
         Task<bool> AddTenantMemberAsync(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens = false);
@@ -127,6 +142,25 @@ namespace AutopilotMonitor.Shared.DataAccess
         public int AssigneeCount { get; set; }
         /// <summary>The UPNs assigned to this group (for the management UI).</summary>
         public List<TenantGroupAssignment> Assignees { get; set; } = new();
+    }
+
+    /// <summary>
+    /// The immutable Entra identity behind a cross-tenant-role UPN: the HOME tenant the UPN was granted for
+    /// and, once known, the user's object id. A role row (GlobalAdmins / DelegatedAdmins / TenantGroupAssignments)
+    /// confers nothing unless the caller's validated JWT matches this binding.
+    /// </summary>
+    public class AdminIdentityBinding
+    {
+        public string Upn { get; set; } = string.Empty;
+        /// <summary>The admin's home Entra tenant id (lowercase GUID) — must equal the JWT tid.</summary>
+        public string TenantId { get; set; } = string.Empty;
+        /// <summary>The admin's Entra object id (lowercase GUID) — must equal the JWT oid. Empty ⇒ pinned on first sign-in.</summary>
+        public string ObjectId { get; set; } = string.Empty;
+        public string BoundBy { get; set; } = string.Empty;
+        public DateTime BoundAt { get; set; }
+        /// <summary>When the object id was pinned (grant time, or the first matching sign-in). Null while unpinned.</summary>
+        public DateTime? ObjectIdPinnedAt { get; set; }
+        public bool IsObjectIdPinned => !string.IsNullOrEmpty(ObjectId);
     }
 
     /// <summary>One UPN→group assignment. PK=UPN, RK=groupId in storage.</summary>

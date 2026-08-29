@@ -6,6 +6,7 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { bindingLabel, bindingsByUpn, isGuid, type IdentityBinding } from "@/lib/identityBinding";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
 interface DelegatedAssignment {
@@ -36,6 +37,7 @@ export function SectionDelegatedAdmins() {
   const tenants = useTenantList(true);
 
   const [assignments, setAssignments] = useState<DelegatedAssignment[]>([]);
+  const [bindings, setBindings] = useState<IdentityBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -43,6 +45,8 @@ export function SectionDelegatedAdmins() {
   const [newUpn, setNewUpn] = useState("");
   const [newTenantId, setNewTenantId] = useState("");
   const [newRole, setNewRole] = useState("DelegatedReader");
+  const [newHomeTenantId, setNewHomeTenantId] = useState("");
+  const [newObjectId, setNewObjectId] = useState("");
   const [granting, setGranting] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -71,6 +75,7 @@ export function SectionDelegatedAdmins() {
       if (!response.ok) throw new Error(`Failed to load delegated admins: ${response.statusText}`);
       const data = await response.json();
       setAssignments(data.assignments ?? []);
+      setBindings(data.bindings ?? []);
     } catch (err) {
       handleError(err, "Failed to load delegated admins");
     } finally {
@@ -86,16 +91,26 @@ export function SectionDelegatedAdmins() {
     void run();
   }, [fetchAssignments]);
 
+  const bindingOf = useMemo(() => bindingsByUpn(bindings), [bindings]);
+  const homeTenantValid = isGuid(newHomeTenantId);
+  const objectIdValid = newObjectId.trim() === "" || isGuid(newObjectId);
+
   const handleGrant = useCallback(async () => {
     const upn = newUpn.trim();
-    if (!upn || !newTenantId) return;
+    if (!upn || !newTenantId || !homeTenantValid || !objectIdValid) return;
     try {
       setGranting(true);
       setError(null);
       const response = await authenticatedFetch(api.delegatedAdmins.grant(), getAccessToken, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upn, tenantId: newTenantId, role: newRole }),
+        body: JSON.stringify({
+          upn,
+          tenantId: newTenantId,
+          role: newRole,
+          homeTenantId: newHomeTenantId.trim(),
+          objectId: newObjectId.trim() || undefined,
+        }),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
@@ -106,6 +121,8 @@ export function SectionDelegatedAdmins() {
       setNewUpn("");
       setNewTenantId("");
       setNewRole("DelegatedReader");
+      setNewHomeTenantId("");
+      setNewObjectId("");
       await fetchAssignments();
     } catch (err) {
       handleError(err, "Failed to grant");
@@ -113,7 +130,7 @@ export function SectionDelegatedAdmins() {
       setGranting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newUpn, newTenantId, newRole, getAccessToken, fetchAssignments, domainOf]);
+  }, [newUpn, newTenantId, newRole, newHomeTenantId, newObjectId, homeTenantValid, objectIdValid, getAccessToken, fetchAssignments, domainOf]);
 
   const handleToggle = useCallback(async (a: DelegatedAssignment) => {
     const key = `${a.upn}|${a.tenantId}`;
@@ -247,9 +264,33 @@ export function SectionDelegatedAdmins() {
               <option value="DelegatedReader">{ROLE_LABELS.DelegatedReader}</option>
               <option value="DelegatedAdmin">{ROLE_LABELS.DelegatedAdmin}</option>
             </select>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <input
+              type="text"
+              value={newHomeTenantId}
+              onChange={(e) => setNewHomeTenantId(e.target.value)}
+              placeholder="Home tenant ID (GUID) — the Entra tenant they sign in from"
+              autoComplete="off"
+              spellCheck={false}
+              className={`flex-1 min-w-0 px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors ${
+                newHomeTenantId && !homeTenantValid ? "border-red-300" : "border-gray-300"
+              }`}
+            />
+            <input
+              type="text"
+              value={newObjectId}
+              onChange={(e) => setNewObjectId(e.target.value)}
+              placeholder="Object ID (GUID, optional — pinned on first sign-in)"
+              autoComplete="off"
+              spellCheck={false}
+              className={`flex-1 min-w-0 px-4 py-2 border rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors ${
+                newObjectId && !objectIdValid ? "border-red-300" : "border-gray-300"
+              }`}
+            />
             <button
               onClick={handleGrant}
-              disabled={granting || !newUpn.trim() || !newTenantId}
+              disabled={granting || !newUpn.trim() || !newTenantId || !homeTenantValid || !objectIdValid}
               className="px-6 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
             >
               {granting ? (
@@ -264,6 +305,8 @@ export function SectionDelegatedAdmins() {
           </div>
           <p className="text-xs text-sky-700">
             Reader is read-only (secrets redacted). The tenant must be onboarded to appear in the list above.
+            The grant only works from the person&rsquo;s home tenant and account: a sign-in with the same UPN from
+            another tenant or another account is refused. Leave the object ID empty to pin it on their first sign-in.
           </p>
         </div>
 
@@ -287,10 +330,16 @@ export function SectionDelegatedAdmins() {
           <div className="space-y-4">
             {grouped.map(([upn, rows]) => (
               <div key={upn} className="border border-gray-200 rounded-lg">
-                <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
+                <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="font-medium text-gray-900">{upn}</span>
-                  <span className="ml-2 text-xs text-gray-500">
+                  <span className="text-xs text-gray-500">
                     {rows.length} tenant{rows.length === 1 ? "" : "s"}
+                  </span>
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded text-xs border border-gray-300 text-gray-600"
+                    title={bindingOf.get(upn.toLowerCase())?.tenantId ?? "No identity binding"}
+                  >
+                    {bindingLabel(bindingOf.get(upn.toLowerCase()), domainOf)}
                   </span>
                 </div>
                 <div className="divide-y divide-gray-100">

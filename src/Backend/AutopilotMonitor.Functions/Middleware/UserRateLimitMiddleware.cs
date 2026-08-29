@@ -11,8 +11,9 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// <summary>
 /// Per-caller rate limiting for authenticated (JWT) requests.
 /// Runs after PolicyEnforcementMiddleware so RequestContext (CallerId, IsGlobalAdmin) is already resolved.
-/// Buckets on RequestContext.CallerId — the throttle identity, which is the UPN for a human caller and
-/// the token subject (oid/sub/appid) for a token that carries none. Device/bootstrap and anonymous
+/// Buckets on RequestContext.CallerId — the throttle identity, which is the Entra object id for a human caller
+/// (unique per account, so identical UPN strings from different tenants never share a bucket) and the
+/// UPN / token subject (sub/appid) for a token that carries none. Device/bootstrap and anonymous
 /// routes resolve to an EMPTY CallerId and are skipped here; they carry their own limits (per cert
 /// thumbprint / per bootstrap token in SecurityValidator, per client IP on the public endpoints).
 /// Keying on CallerId rather than UserPrincipalName is what keeps BOTH holes shut: the agent fleet out

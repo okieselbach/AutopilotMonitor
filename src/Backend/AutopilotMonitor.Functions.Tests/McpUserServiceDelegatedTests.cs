@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
@@ -20,6 +21,7 @@ public class McpUserServiceDelegatedTests
     private const string DelegatedUpn = "msp@contoso.com";
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
+    private const string Oid = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa";
 
     private readonly Mock<GlobalAdminService> _globalAdmin;
     private readonly Mock<DelegatedAdminService> _delegatedAdmin;
@@ -32,18 +34,20 @@ public class McpUserServiceDelegatedTests
         var cache = new MemoryCache(new MemoryCacheOptions());
         _adminRepo = new Mock<IAdminRepository>();
 
+        var bindings = new StubAdminIdentityBindingService(bound: true);
         _globalAdmin = new Mock<GlobalAdminService>(
-            _adminRepo.Object, cache, NullLogger<GlobalAdminService>.Instance) { CallBase = false };
+            _adminRepo.Object, bindings, cache, NullLogger<GlobalAdminService>.Instance) { CallBase = false };
         _delegatedAdmin = new Mock<DelegatedAdminService>(
             _adminRepo.Object,
+            bindings,
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache, NullLogger<DelegatedAdminService>.Instance) { CallBase = false };
         _adminConfig = new Mock<AdminConfigurationService>(
             Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache) { CallBase = false };
 
         // Defaults: no platform role, no delegated scope, WhitelistOnly, no McpUsers row (NotPresent).
-        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<string>())).ReturnsAsync((string?)null);
-        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>())).ReturnsAsync(DelegatedScope.Empty);
+        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<AdminIdentity?>())).ReturnsAsync((string?)null);
+        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<AdminIdentity?>())).ReturnsAsync(DelegatedScope.Empty);
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>())).ReturnsAsync((McpUserEntry?)null);
         SetPolicy(McpAccessPolicy.WhitelistOnly);
 
@@ -61,7 +65,7 @@ public class McpUserServiceDelegatedTests
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (tenant, role) in assignments)
             map[tenant.ToLowerInvariant()] = role;
-        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<string>(), It.IsAny<string?>()))
+        _delegatedAdmin.Setup(x => x.GetScopeAsync(It.IsAny<AdminIdentity?>()))
             .ReturnsAsync(new DelegatedScope(map));
     }
 
@@ -71,7 +75,7 @@ public class McpUserServiceDelegatedTests
         SetDelegated((TenantA, Constants.DelegatedRoles.DelegatedReader),
                      (TenantB, Constants.DelegatedRoles.DelegatedReader));
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.True(result.IsAllowed);
         Assert.False(result.IsGlobalAdmin);
@@ -93,7 +97,7 @@ public class McpUserServiceDelegatedTests
         SetDelegated((TenantA, Constants.DelegatedRoles.DelegatedReader),
                      (TenantB, Constants.DelegatedRoles.DelegatedAdmin));
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.True(result.IsAllowed);
         Assert.Equal(Constants.DelegatedRoles.DelegatedAdmin, result.DelegatedRole);
@@ -105,7 +109,7 @@ public class McpUserServiceDelegatedTests
         SetPolicy(McpAccessPolicy.Disabled);
         SetDelegated((TenantA, Constants.DelegatedRoles.DelegatedReader));
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.False(result.IsAllowed);
     }
@@ -113,11 +117,11 @@ public class McpUserServiceDelegatedTests
     [Fact]
     public async Task GlobalAdmin_WhoIsAlsoDelegated_ReportsBothPlatformAndDelegatedScope()
     {
-        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<string>()))
+        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<AdminIdentity?>()))
             .ReturnsAsync(Constants.GlobalRoles.GlobalAdmin);
         SetDelegated((TenantA, Constants.DelegatedRoles.DelegatedReader));
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.True(result.IsAllowed);
         Assert.True(result.IsGlobalAdmin);
@@ -129,7 +133,7 @@ public class McpUserServiceDelegatedTests
     [Fact]
     public async Task NoScope_NotWhitelisted_UnderWhitelistOnly_IsDenied_WithNoDelegatedInfo()
     {
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.False(result.IsAllowed);
         Assert.Null(result.DelegatedTenantIds);
@@ -142,7 +146,7 @@ public class McpUserServiceDelegatedTests
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
             .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = true });
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.True(result.IsAllowed);
         Assert.Equal("McpUser", result.AccessGrant);
@@ -160,7 +164,7 @@ public class McpUserServiceDelegatedTests
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
             .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = false });
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.False(result.IsAllowed);
     }
@@ -174,7 +178,7 @@ public class McpUserServiceDelegatedTests
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
             .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = false });
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.False(result.IsAllowed);
     }
@@ -186,7 +190,7 @@ public class McpUserServiceDelegatedTests
         // still be granted — only an explicit Disabled row denies.
         SetPolicy(McpAccessPolicy.AllMembers);
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.True(result.IsAllowed);
         Assert.Equal("AllMembers", result.AccessGrant);
@@ -197,12 +201,12 @@ public class McpUserServiceDelegatedTests
     {
         // The Disabled row wins over EVERY grant path, including a platform role — the kill-switch
         // is absolute, so an operator never has to reason about which grant path a user holds.
-        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<string>()))
+        _globalAdmin.Setup(x => x.GetGlobalRoleAsync(It.IsAny<AdminIdentity?>()))
             .ReturnsAsync(Constants.GlobalRoles.GlobalAdmin);
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>()))
             .ReturnsAsync(new McpUserEntry { Upn = DelegatedUpn, IsEnabled = false });
 
-        var result = await _sut.IsAllowedAsync(DelegatedUpn);
+        var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 
         Assert.False(result.IsAllowed);
     }

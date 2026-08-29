@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
@@ -99,12 +100,14 @@ public class AuthFunction
         // A delegated-only external MSP login must not phantom-onboard its home tenant (see the side-effect
         // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
         var tenantConfigTask = _tenantConfigService.TryGetConfigurationAsync(tenantId);
-        var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(upn);
-        // tenantId = JWT tid = the caller's home tenant — gates the delegated (MSP) scope (Pro-only seat).
-        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(upn, tenantId);
+        // Cross-tenant roles resolve on the FULL identity (upn + tid + oid) against the UPN's identity
+        // binding — never on the UPN alone. Null (no oid in the token) ⇒ no platform/delegated role.
+        var identity = AdminIdentity.FromPrincipal(principal);
+        var globalRoleTask = _globalAdminService.GetGlobalRoleAsync(identity);
+        var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(identity);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
         var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId);
+        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId, objectId);
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,
@@ -200,7 +203,7 @@ public class AuthFunction
         }
 
         var upn = principal.GetUserPrincipalName();
-        var isAdmin = await _globalAdminService.IsGlobalAdminAsync(upn);
+        var isAdmin = await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal));
 
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(new { isGlobalAdmin = isAdmin, upn });
@@ -248,8 +251,27 @@ public class AuthFunction
             await badRequestResponse.WriteAsJsonAsync(new { error = "UPN is required" });
             return badRequestResponse;
         }
+        // The grantee's home tenant is mandatory: the row is inert until the UPN is bound to the identity
+        // that may use it, and the UPN string alone cannot tell which tenant that is.
+        var bindingError = IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId);
+        if (bindingError != null)
+        {
+            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequestResponse.WriteAsJsonAsync(new { error = bindingError });
+            return badRequestResponse;
+        }
 
-        var newAdmin = await _globalAdminService.AddGlobalAdminAsync(body.Upn, currentUpn!);
+        GlobalAdminEntity newAdmin;
+        try
+        {
+            newAdmin = await _globalAdminService.AddGlobalAdminAsync(body.Upn, currentUpn!, body.HomeTenantId!, body.ObjectId);
+        }
+        catch (IdentityBindingConflictException ex)
+        {
+            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+            await conflict.WriteAsJsonAsync(new { error = ex.Message });
+            return conflict;
+        }
 
         _logger.LogInformation($"Global Admin added: {body.Upn} by {currentUpn}");
 
@@ -614,4 +636,8 @@ internal class AuthDecisionResult
 public class AddGlobalAdminRequest
 {
     public string Upn { get; set; } = string.Empty;
+    /// <summary>The grantee's home Entra tenant id (required) — the JWT tid their tokens will carry.</summary>
+    public string? HomeTenantId { get; set; }
+    /// <summary>The grantee's Entra object id (optional) — pinned on their first sign-in when omitted.</summary>
+    public string? ObjectId { get; set; }
 }

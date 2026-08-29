@@ -28,6 +28,8 @@ public class PolicyEnforcementMiddlewareTests
 {
     private const string TenantA = "11111111-1111-1111-1111-111111111111";
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
+    /// <summary>The oid every <see cref="AuthedPrincipal"/> carries and the default identity binding pins.</summary>
+    private const string TestOid = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa";
 
     private sealed class Harness
     {
@@ -37,6 +39,18 @@ public class PolicyEnforcementMiddlewareTests
 
         public void AsGlobalRole(string role) =>
             Repo.Setup(r => r.GetGlobalRoleAsync(It.IsAny<string>())).ReturnsAsync(role);
+
+        /// <summary>
+        /// Re-homes the caller's identity binding (default: TenantA + <see cref="TestOid"/>). Cross-tenant roles
+        /// resolve ONLY for a principal whose tid/oid match this — use it for principals minted in TenantB.
+        /// </summary>
+        public void BoundTo(string tenantId, string objectId = TestOid) =>
+            Repo.Setup(r => r.GetIdentityBindingAsync(It.IsAny<string>()))
+                .ReturnsAsync(new AdminIdentityBinding
+                {
+                    TenantId = tenantId.ToLowerInvariant(),
+                    ObjectId = objectId.ToLowerInvariant(),
+                });
 
         public void AsTenantAdmin(string tenantId, string upn) =>
             Repo.Setup(r => r.GetTenantMemberAsync(It.IsAny<string>(), It.IsAny<string>()))
@@ -76,6 +90,10 @@ public class PolicyEnforcementMiddlewareTests
         // No group assignments by default (delegated scope resolves direct grants + group tenants).
         repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
             .ReturnsAsync(new List<TenantGroupAssignment>());
+        // Every UPN is identity-bound to TenantA + TestOid by default (matches AuthedPrincipal(TenantA, …));
+        // tests that mint the caller in TenantB re-home it via Harness.BoundTo.
+        repo.Setup(r => r.GetIdentityBindingAsync(It.IsAny<string>()))
+            .ReturnsAsync(new AdminIdentityBinding { TenantId = TenantA, ObjectId = TestOid });
 
         // Captured config repo: GetTenantConfigurationAsync returns null (tenant has no config row) so we can
         // assert that authorization role resolution never PERSISTS a default row as a side effect.
@@ -84,11 +102,14 @@ public class PolicyEnforcementMiddlewareTests
             .ReturnsAsync((TenantConfiguration?)null);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var globalAdmin = new GlobalAdminService(repo.Object, cache, NullLogger<GlobalAdminService>.Instance);
+        // REAL binding service on the mocked repo: the middleware tests must exercise the identity check.
+        var bindings = new AdminIdentityBindingService(repo.Object, cache, NullLogger<AdminIdentityBindingService>.Instance);
+        var globalAdmin = new GlobalAdminService(repo.Object, bindings, cache, NullLogger<GlobalAdminService>.Instance);
         // Entitlements stubbed to Enterprise — the delegated-rescue tests here pin AUTHORIZATION
         // mechanics; the Enterprise-only edition gate is covered by DelegatedAdminEditionGateTests.
         var delegatedAdmin = new DelegatedAdminService(
             repo.Object,
+            bindings,
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             cache,
             NullLogger<DelegatedAdminService>.Instance);
@@ -102,8 +123,8 @@ public class PolicyEnforcementMiddlewareTests
         return new Harness { Middleware = mw, Repo = repo, ConfigRepo = configRepo };
     }
 
-    private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn)
-        => new(new ClaimsIdentity(new[] { new Claim("tid", tenantId), new Claim("upn", upn) }, "TestAuth"));
+    private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn, string objectId = TestOid)
+        => new(new ClaimsIdentity(new[] { new Claim("tid", tenantId), new Claim("upn", upn), new Claim("oid", objectId) }, "TestAuth"));
 
     // ── ADDITIVE: GlobalReader + own-tenant Admin keeps IsTenantAdmin ──────────────
 
@@ -675,11 +696,13 @@ public class PolicyEnforcementMiddlewareTests
 
             var reader = BuildHarness();
             reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+            reader.BoundTo(TenantB);
             var readerResult = await reader.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantB, "reader@vendor.example"));
             Assert.False(readerResult.Allowed, $"{method} {path} must deny a read-only Global Reader");
 
             var delegated = BuildHarness();
             delegated.AsDelegated(TenantA, Constants.DelegatedRoles.DelegatedAdmin);
+            delegated.BoundTo(TenantB);
             var delegatedResult = await delegated.Middleware.DecideAsync(method, path, null, AuthedPrincipal(TenantB, "msp@partner.example"));
             Assert.False(delegatedResult.Allowed, $"{method} {path} must deny a delegated (MSP) admin");
         }
@@ -713,12 +736,14 @@ public class PolicyEnforcementMiddlewareTests
 
         var reader = BuildHarness();
         reader.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+        reader.BoundTo(TenantB);
         var readerResult = await reader.Middleware.DecideAsync(
             "PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantB, "reader@vendor.example"));
         Assert.False(readerResult.Allowed, "read-only Global Reader must not patch config fields");
 
         var delegated = BuildHarness();
         delegated.AsDelegated(TenantA, Constants.DelegatedRoles.DelegatedAdmin);
+        delegated.BoundTo(TenantB);
         var delegatedResult = await delegated.Middleware.DecideAsync(
             "PATCH", $"/api/config/{TenantA}/fields", null, AuthedPrincipal(TenantB, "msp@partner.example"));
         Assert.False(delegatedResult.Allowed, "delegated (MSP) admin must not patch config fields");
@@ -1193,7 +1218,10 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.True(result.Allowed);
         Assert.Equal(upn, result.Context!.UserPrincipalName);
-        Assert.Equal(upn, result.Context!.CallerId);
+        // Throttle identity prefers the oid — unique per account, so two tenants sharing a UPN string
+        // (the API accepts tokens from any tenant) no longer share a bucket.
+        Assert.Equal(TestOid, result.Context!.CallerId);
+        Assert.Equal(TestOid, result.Context!.ObjectId);
     }
 
     // ── CallerId: throttle identity survives tokens that carry no UPN ──────────────

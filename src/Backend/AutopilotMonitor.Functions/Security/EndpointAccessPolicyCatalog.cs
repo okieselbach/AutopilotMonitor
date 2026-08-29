@@ -590,6 +590,12 @@ public static class EndpointAccessPolicyCatalog
         new("DELETE", "global/tenant-groups/{groupId}/tenants/{tenantId}",    EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("POST",   "global/tenant-groups/{groupId}/assignees",             EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "global/tenant-groups/{groupId}/assignees/{upn}",       EndpointPolicy.GlobalAdminOnly),
+        // Admin identity bindings — the tid+oid behind every cross-tenant-role UPN. List is GlobalReadOrAdmin
+        // (audit "who can actually use this grant, from which tenant"); rebind/remove are GlobalAdminOnly and
+        // are the ONLY way to re-home a UPN or re-pin its object id (grants refuse to overwrite a binding).
+        new("GET",    "global/identity-bindings",                               EndpointPolicy.GlobalReadOrAdmin),
+        new("PUT",    "global/identity-bindings/{upn}",                         EndpointPolicy.GlobalAdminOnly),
+        new("DELETE", "global/identity-bindings/{upn}",                         EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "config/{tenantId}/plan",                            EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         // Self-service Pro trial — a tenant admin may start their own tenant's one-time
         // trial; the handler enforces the once-per-tenant + already-Pro conflicts (409).

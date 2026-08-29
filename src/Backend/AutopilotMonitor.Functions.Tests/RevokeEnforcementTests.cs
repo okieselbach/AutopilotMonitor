@@ -26,9 +26,12 @@ public class RevokeEnforcementTests
     private const string TenantB = "22222222-2222-2222-2222-222222222222";
     private const string GroupId = "tpl-aaaaaaaa";
 
+    private static readonly StubAdminIdentityBindingService Bindings = new(bound: true);
+
     private static DelegatedAdminService BuildService(Mock<IAdminRepository> repo) =>
         new(
             repo.Object,
+            Bindings,
             new StubTenantEntitlementService(AutopilotMonitor.Functions.Security.TenantEdition.Pro),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
@@ -55,7 +58,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new DelegatedAdminManagementFunction(
-            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), audit.Object, signalR);
+            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Bindings, audit.Object, signalR);
         return (fn, repo, audit, signalR);
     }
 
@@ -72,7 +75,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
-            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), audit.Object, signalR);
+            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Bindings, audit.Object, signalR);
         return (fn, repo, audit, signalR);
     }
 
@@ -101,11 +104,35 @@ public class RevokeEnforcementTests
             DelegatedAdminManagementFunction.ValidateGrantRequest(
                 new GrantDelegatedAdminRequest { Upn = Upn, TenantId = tenantId }, out _));
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("partner.example")]
+    [InlineData("11111111-1111-1111-1111")]
+    public void ValidateGrant_MissingOrNonGuidHomeTenant_Rejected(string? homeTenantId)
+    {
+        // The grantee's HOME tenant is what the identity binding is keyed on — without it the grant would be
+        // inert at best and UPN-only (the original cross-tenant hole) at worst. Required, GUID, fail-closed.
+        var error = DelegatedAdminManagementFunction.ValidateGrantRequest(
+            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = homeTenantId }, out _);
+        Assert.NotNull(error);
+        Assert.Contains("homeTenantId", error);
+    }
+
+    [Fact]
+    public void ValidateGrant_NonGuidObjectId_Rejected()
+    {
+        var error = DelegatedAdminManagementFunction.ValidateGrantRequest(
+            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = TenantB, ObjectId = "not-a-guid" }, out _);
+        Assert.NotNull(error);
+        Assert.Contains("objectId", error);
+    }
+
     [Fact]
     public void ValidateGrant_UnknownRole_Rejected()
     {
         var error = DelegatedAdminManagementFunction.ValidateGrantRequest(
-            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, Role = "GlobalAdmin" }, out _);
+            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = TenantB, Role = "GlobalAdmin" }, out _);
         Assert.NotNull(error);
         Assert.Contains(Constants.DelegatedRoles.DelegatedReader, error);
     }
@@ -114,7 +141,7 @@ public class RevokeEnforcementTests
     public void ValidateGrant_EmptyRole_DefaultsToLeastPrivilegedReader()
     {
         Assert.Null(DelegatedAdminManagementFunction.ValidateGrantRequest(
-            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA }, out var role));
+            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, HomeTenantId = TenantB }, out var role));
         Assert.Equal(Constants.DelegatedRoles.DelegatedReader, role);
     }
 
@@ -122,7 +149,11 @@ public class RevokeEnforcementTests
     public void ValidateGrant_ExplicitDelegatedAdmin_Accepted()
     {
         Assert.Null(DelegatedAdminManagementFunction.ValidateGrantRequest(
-            new GrantDelegatedAdminRequest { Upn = Upn, TenantId = TenantA, Role = Constants.DelegatedRoles.DelegatedAdmin },
+            new GrantDelegatedAdminRequest
+            {
+                Upn = Upn, TenantId = TenantA, HomeTenantId = TenantB,
+                ObjectId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa", Role = Constants.DelegatedRoles.DelegatedAdmin,
+            },
             out var role));
         Assert.Equal(Constants.DelegatedRoles.DelegatedAdmin, role);
     }

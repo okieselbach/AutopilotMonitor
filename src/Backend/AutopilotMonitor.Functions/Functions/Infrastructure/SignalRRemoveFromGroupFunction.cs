@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -92,7 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         var allowedCrossTenant = requestCtx.HasGlobalScope;
                         if (!allowedCrossTenant && !string.IsNullOrEmpty(userEmail))
                         {
-                            var scope = await _delegatedAdminService.GetScopeAsync(userEmail, userTenantId);
+                            var scope = await _delegatedAdminService.GetScopeAsync(AdminIdentity.FromRequestContext(requestCtx));
                             allowedCrossTenant = scope.RoleFor(requestedTenantId) != null;
                         }
 

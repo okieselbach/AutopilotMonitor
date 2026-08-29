@@ -29,6 +29,7 @@ public class TenantGroupManagementFunction
 {
     private readonly ILogger<TenantGroupManagementFunction> _logger;
     private readonly DelegatedAdminService _delegatedAdminService;
+    private readonly AdminIdentityBindingService _bindings;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
 
@@ -37,24 +38,30 @@ public class TenantGroupManagementFunction
     public TenantGroupManagementFunction(
         ILogger<TenantGroupManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
+        AdminIdentityBindingService bindings,
         IMaintenanceRepository maintenanceRepo,
         ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
+        _bindings = bindings;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
     }
 
-    /// <summary>GET /api/global/tenant-groups — list every group with tenants + assignee count. GlobalReadOrAdmin.</summary>
+    /// <summary>
+    /// GET /api/global/tenant-groups — list every group with tenants + assignee count, plus the identity
+    /// bindings of the assigned UPNs (which tenant/object id each assignment is usable from). GlobalReadOrAdmin.
+    /// </summary>
     [Function("GetTenantGroups")]
     [Authorize]
     public async Task<HttpResponseData> GetTenantGroups(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/tenant-groups")] HttpRequestData req)
     {
         var groups = await _delegatedAdminService.GetAllGroupsAsync();
+        var bindings = await _bindings.GetAllAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { groups });
+        await response.WriteAsJsonAsync(new { groups, bindings });
         return response;
     }
 
@@ -223,7 +230,10 @@ public class TenantGroupManagementFunction
 
     /// <summary>
     /// POST /api/global/tenant-groups/{groupId}/assignees — assign a UPN to the group. GlobalAdminOnly.
-    /// Body: { "upn": "user@domain.com", "role": "DelegatedReader" | "DelegatedAdmin" }.
+    /// Body: { "upn": "user@domain.com", "role": "DelegatedReader" | "DelegatedAdmin",
+    ///         "homeTenantId": "&lt;the assignee's Entra tenant&gt;", "objectId": "&lt;optional&gt;" }.
+    /// homeTenantId binds the UPN to the identity that may use the assignment (409 if the UPN is already
+    /// bound elsewhere — rebind explicitly via global/identity-bindings).
     /// </summary>
     [Function("AssignTenantGroup")]
     [Authorize]
@@ -242,6 +252,10 @@ public class TenantGroupManagementFunction
         if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
             return await Bad(req, $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'");
 
+        var bindingError = IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId);
+        if (bindingError != null)
+            return await Bad(req, bindingError);
+
         // Guard against assigning to a non-existent group (would create an orphan assignment row).
         var group = await _delegatedAdminService.GetGroupAsync(groupId);
         if (group == null)
@@ -249,7 +263,18 @@ public class TenantGroupManagementFunction
 
         var upn = body.Upn.ToLowerInvariant();
         // The service re-checks existence (covers a delete racing this assign) — skip the audit if it no-ops.
-        var assigned = await _delegatedAdminService.AssignGroupAsync(upn, groupId, role, true, currentUpn ?? "");
+        bool assigned;
+        try
+        {
+            assigned = await _delegatedAdminService.AssignGroupAsync(
+                upn, groupId, role, true, currentUpn ?? "", body.HomeTenantId!, body.ObjectId);
+        }
+        catch (IdentityBindingConflictException ex)
+        {
+            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+            await conflict.WriteAsJsonAsync(new { error = ex.Message });
+            return conflict;
+        }
         if (!assigned)
             return await NotFound(req);
 
@@ -365,4 +390,8 @@ public class AssignGroupRequest
 {
     public string Upn { get; set; } = string.Empty;
     public string? Role { get; set; }
+    /// <summary>The assignee's HOME Entra tenant id (required) — becomes the UPN's identity binding.</summary>
+    public string? HomeTenantId { get; set; }
+    /// <summary>The assignee's Entra object id (optional) — pinned on their first sign-in when omitted.</summary>
+    public string? ObjectId { get; set; }
 }

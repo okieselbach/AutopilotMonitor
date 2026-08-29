@@ -24,30 +24,37 @@ public class DelegatedAdminManagementFunction
 {
     private readonly ILogger<DelegatedAdminManagementFunction> _logger;
     private readonly DelegatedAdminService _delegatedAdminService;
+    private readonly AdminIdentityBindingService _bindings;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
 
     public DelegatedAdminManagementFunction(
         ILogger<DelegatedAdminManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
+        AdminIdentityBindingService bindings,
         IMaintenanceRepository maintenanceRepo,
         ISignalRNotificationService signalRService)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
+        _bindings = bindings;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
     }
 
-    /// <summary>GET /api/global/delegated-admins — list every delegated assignment. GlobalReadOrAdmin.</summary>
+    /// <summary>
+    /// GET /api/global/delegated-admins — list every delegated assignment plus the identity bindings of the
+    /// assigned UPNs (so the UI can show which tenant/object id each grant is actually usable from). GlobalReadOrAdmin.
+    /// </summary>
     [Function("GetDelegatedAdmins")]
     [Authorize]
     public async Task<HttpResponseData> GetDelegatedAdmins(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/delegated-admins")] HttpRequestData req)
     {
         var assignments = await _delegatedAdminService.GetAllAsync();
+        var bindings = await _bindings.GetAllAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { assignments });
+        await response.WriteAsJsonAsync(new { assignments, bindings });
         return response;
     }
 
@@ -69,13 +76,22 @@ public class DelegatedAdminManagementFunction
             return await Bad(req, validationError);
 
         // Edition note: TARGET tenants may be any edition — an MSP on Pro may manage Community
-        // customers. The Pro requirement applies to the delegated admin's HOME tenant and is
-        // enforced at resolve time (DelegatedAdminService.GetScopeAsync gates on the JWT tid). It cannot
-        // be checked here: at grant time only the UPN is known, and UPN-domain → tenant mapping is not
-        // reliable (multi-domain tenants). Grants to non-Pro-homed admins are simply inert.
-        var entry = await _delegatedAdminService.UpsertAsync(
-            body!.Upn, body.TenantId, role,
-            Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, currentUpn ?? "");
+        // customers. The Pro requirement applies to the delegated admin's HOME tenant (homeTenantId,
+        // which also becomes the UPN's identity binding) and is enforced at resolve time
+        // (DelegatedAdminService.GetScopeAsync gates on the JWT tid). Grants to non-Pro-homed admins are
+        // simply inert. A binding conflict (UPN already homed in another tenant) is a 409, never a silent rebind.
+        DelegatedAdminEntry entry;
+        try
+        {
+            entry = await _delegatedAdminService.UpsertAsync(
+                body!.Upn, body.TenantId, role,
+                Constants.DelegatedStatus.Active, Constants.DelegatedSource.OperatorGranted, currentUpn ?? "",
+                body.HomeTenantId!, body.ObjectId);
+        }
+        catch (IdentityBindingConflictException ex)
+        {
+            return await Conflict(req, ex.Message);
+        }
 
         await _maintenanceRepo.LogAuditEntryAsync(
             entry.TenantId, "CREATE", "DelegatedAdmin", entry.Upn, currentUpn ?? "",
@@ -84,6 +100,7 @@ public class DelegatedAdminManagementFunction
                 { "Role", entry.Role },
                 { "Status", entry.Status },
                 { "Source", entry.Source },
+                { "HomeTenantId", body.HomeTenantId!.ToLowerInvariant() },
             });
 
         _logger.LogInformation("Delegated grant: {Upn} -> {TenantId} ({Role}) by {By}",
@@ -211,6 +228,10 @@ public class DelegatedAdminManagementFunction
         if (!Guid.TryParse(body.TenantId, out _))
             return "a valid tenantId (GUID) is required";
 
+        var bindingError = IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId);
+        if (bindingError != null)
+            return bindingError;
+
         role = string.IsNullOrWhiteSpace(body.Role) ? Constants.DelegatedRoles.DelegatedReader : body.Role!;
         if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
             return $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'";
@@ -224,11 +245,23 @@ public class DelegatedAdminManagementFunction
         await bad.WriteAsJsonAsync(new { error });
         return bad;
     }
+
+    private static async Task<HttpResponseData> Conflict(HttpRequestData req, string error)
+    {
+        var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+        await conflict.WriteAsJsonAsync(new { error });
+        return conflict;
+    }
 }
 
 public class GrantDelegatedAdminRequest
 {
     public string Upn { get; set; } = string.Empty;
+    /// <summary>The MANAGED (target) tenant the UPN may read.</summary>
     public string TenantId { get; set; } = string.Empty;
     public string? Role { get; set; }
+    /// <summary>The grantee's HOME Entra tenant id (required) — the JWT tid their tokens carry; becomes the identity binding.</summary>
+    public string? HomeTenantId { get; set; }
+    /// <summary>The grantee's Entra object id (optional) — pinned on their first sign-in when omitted.</summary>
+    public string? ObjectId { get; set; }
 }

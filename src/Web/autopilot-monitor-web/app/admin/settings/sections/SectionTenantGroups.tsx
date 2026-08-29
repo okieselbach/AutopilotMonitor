@@ -6,6 +6,7 @@ import { useNotifications } from "@/contexts/NotificationContext";
 import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { bindingLabel, bindingsByUpn, isGuid, type IdentityBinding } from "@/lib/identityBinding";
 
 /** One UPN assigned to a group (camelCase JSON from the backend). */
 interface GroupAssignee {
@@ -42,6 +43,7 @@ export function SectionTenantGroups() {
   const tenants = useTenantList(true);
 
   const [groups, setGroups] = useState<TenantGroup[]>([]);
+  const [bindings, setBindings] = useState<IdentityBinding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -54,6 +56,8 @@ export function SectionTenantGroups() {
   const [tenantToAdd, setTenantToAdd] = useState<Record<string, string>>({});
   const [assignUpn, setAssignUpn] = useState<Record<string, string>>({});
   const [assignRole, setAssignRole] = useState<Record<string, string>>({});
+  const [assignHomeTenantId, setAssignHomeTenantId] = useState<Record<string, string>>({});
+  const [assignObjectId, setAssignObjectId] = useState<Record<string, string>>({});
 
   const domainOf = useMemo(() => {
     const map = new Map(tenants.map((t) => [t.tenantId.toLowerCase(), t.domainName]));
@@ -80,6 +84,7 @@ export function SectionTenantGroups() {
       if (!response.ok) throw new Error(`Failed to load groups: ${response.statusText}`);
       const data = await response.json();
       setGroups(data.groups ?? []);
+      setBindings(data.bindings ?? []);
     } catch (err) {
       handleError(err, "Failed to load groups");
     } finally {
@@ -183,21 +188,45 @@ export function SectionTenantGroups() {
     [mutate, domainOf],
   );
 
+  const bindingOf = useMemo(() => bindingsByUpn(bindings), [bindings]);
+
+  /** True when the per-group assign form is complete: UPN, GUID home tenant, and an empty-or-GUID object id. */
+  const canAssign = useCallback(
+    (groupId: string) => {
+      const objectId = (assignObjectId[groupId] || "").trim();
+      return (
+        !!(assignUpn[groupId] || "").trim() &&
+        isGuid(assignHomeTenantId[groupId] || "") &&
+        (objectId === "" || isGuid(objectId))
+      );
+    },
+    [assignUpn, assignHomeTenantId, assignObjectId],
+  );
+
   const handleAssign = useCallback(
     async (t: TenantGroup) => {
       const upn = (assignUpn[t.groupId] || "").trim();
-      if (!upn) return;
+      if (!canAssign(t.groupId)) return;
       const role = assignRole[t.groupId] || "DelegatedReader";
       const ok = await mutate(
         `assign:${t.groupId}`,
         api.tenantGroups.assign(t.groupId),
         "POST",
-        { upn, role },
+        {
+          upn,
+          role,
+          homeTenantId: (assignHomeTenantId[t.groupId] || "").trim(),
+          objectId: (assignObjectId[t.groupId] || "").trim() || undefined,
+        },
         `Assigned ${upn} to "${t.name}".`,
       );
-      if (ok) setAssignUpn((prev) => ({ ...prev, [t.groupId]: "" }));
+      if (ok) {
+        setAssignUpn((prev) => ({ ...prev, [t.groupId]: "" }));
+        setAssignHomeTenantId((prev) => ({ ...prev, [t.groupId]: "" }));
+        setAssignObjectId((prev) => ({ ...prev, [t.groupId]: "" }));
+      }
     },
-    [assignUpn, assignRole, mutate],
+    [assignUpn, assignRole, assignHomeTenantId, assignObjectId, canAssign, mutate],
   );
 
   const handleUnassign = useCallback(
@@ -403,6 +432,12 @@ export function SectionTenantGroups() {
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800">
                                 {ROLE_LABELS[a.role] ?? a.role}
                               </span>
+                              <span
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-xs border border-gray-300 text-gray-600"
+                                title={bindingOf.get(a.upn.toLowerCase())?.tenantId ?? "No identity binding"}
+                              >
+                                {bindingLabel(bindingOf.get(a.upn.toLowerCase()), domainOf)}
+                              </span>
                               <button
                                 onClick={() => handleUnassign(t, a.upn)}
                                 disabled={busyKey === `unassign:${t.groupId}:${a.upn}`}
@@ -440,11 +475,31 @@ export function SectionTenantGroups() {
                         </select>
                         <button
                           onClick={() => handleAssign(t)}
-                          disabled={!(assignUpn[t.groupId] || "").trim() || busyKey === `assign:${t.groupId}`}
+                          disabled={!canAssign(t.groupId) || busyKey === `assign:${t.groupId}`}
                           className="shrink-0 px-3 py-1.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
                         >
                           Assign
                         </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <input
+                          type="text"
+                          value={assignHomeTenantId[t.groupId] || ""}
+                          onChange={(e) => setAssignHomeTenantId((p) => ({ ...p, [t.groupId]: e.target.value }))}
+                          placeholder="Home tenant ID (GUID) — the Entra tenant they sign in from"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="w-full sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                        />
+                        <input
+                          type="text"
+                          value={assignObjectId[t.groupId] || ""}
+                          onChange={(e) => setAssignObjectId((p) => ({ ...p, [t.groupId]: e.target.value }))}
+                          placeholder="Object ID (optional — pinned on first sign-in)"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="w-full sm:flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 font-mono focus:outline-none focus:ring-2 focus:ring-sky-500 transition-colors"
+                        />
                       </div>
                     </div>
                   </div>

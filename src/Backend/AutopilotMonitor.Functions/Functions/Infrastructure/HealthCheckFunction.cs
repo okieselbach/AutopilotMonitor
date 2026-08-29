@@ -110,7 +110,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             // The route is registered as AuthenticatedUser, so PolicyEnforcementMiddleware
             // does NOT compute IsGlobalAdmin; resolve it directly via GlobalAdminService.
             var requestCtx = context.GetRequestContext();
-            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(requestCtx.UserPrincipalName);
+            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromRequestContext(requestCtx));
 
             // Perform comprehensive health checks (endpoint URLs only for Global Admins)
             var healthCheckResult = await _healthCheckService.PerformAllChecksAsync(includeEndpointUrls: isGlobalAdmin);
@@ -154,7 +154,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             // Authentication enforced by PolicyEnforcementMiddleware (AuthenticatedUser).
             // The MCP server URL is infrastructure topology — include it only for Global Admins.
             var requestCtx = context.GetRequestContext();
-            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(requestCtx.UserPrincipalName);
+            var isGlobalAdmin = await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromRequestContext(requestCtx));
             var check = await _healthCheckService.CheckMcpServerAsync(includeEndpointUrl: isGlobalAdmin);
 
             var response = req.CreateResponse(HttpStatusCode.OK);

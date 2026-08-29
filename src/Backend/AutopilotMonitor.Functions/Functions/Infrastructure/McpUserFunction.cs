@@ -163,8 +163,9 @@ public class McpUserFunction
         var principal = context.GetUser();
         var upn = principal?.GetUserPrincipalName();
 
-        // JWT tid = the caller's home tenant — gates the delegated (MSP) auto-grant (Pro-only seat).
-        var result = await _mcpUserService.IsAllowedAsync(upn, principal?.GetTenantId());
+        // JWT tid + oid complete the caller's identity: platform-role and delegated (MSP) grants resolve on
+        // the identity binding (never the UPN alone); the delegated seat additionally requires a Pro home tenant.
+        var result = await _mcpUserService.IsAllowedAsync(upn, principal?.GetTenantId(), principal?.GetObjectId());
 
         var response = req.CreateResponse(result.IsAllowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
         var payload = new Dictionary<string, object?>

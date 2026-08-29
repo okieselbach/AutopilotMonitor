@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using Azure.Data.Tables;
@@ -12,15 +13,18 @@ namespace AutopilotMonitor.Functions.Services;
 /// SUBSET of tenants: exactly the tenants for which it holds an Active, enabled DelegatedAdmins row.
 /// Externally this is surfaced as "MSP mode".
 ///
-/// The scope is keyed on UPN; assignment RESOLUTION is tid-agnostic (identical to <see cref="GlobalAdminService"/>),
-/// but the effective scope is GATED on the caller's home tenant (JWT tid) being Pro — the MSP
-/// seat is a Pro capability of the tenant the admin is homed in, while the managed targets may
-/// be any edition. Resolution is cached briefly (UPN-keyed, gate applied per call); every mutation
-/// invalidates the cache.
+/// Assignment rows are keyed on UPN, but RESOLUTION is keyed on the caller's full <see cref="AdminIdentity"/>
+/// (identical to <see cref="GlobalAdminService"/>): the resolved rows confer scope only when the caller's
+/// validated JWT tid + oid match the UPN's identity binding (<see cref="AdminIdentityBindingService"/>) — a
+/// foreign-tenant token carrying a matching UPN string resolves an empty scope. The effective scope is then
+/// GATED on the caller's home tenant (JWT tid) being Pro — the MSP seat is a Pro capability of the tenant
+/// the admin is homed in, while the managed targets may be any edition. Row resolution is cached briefly
+/// (UPN-keyed; binding + gate applied per call); every mutation invalidates the cache.
 /// </summary>
 public class DelegatedAdminService
 {
     private readonly IAdminRepository _adminRepo;
+    private readonly AdminIdentityBindingService _bindings;
     private readonly TenantEntitlementService _entitlementService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<DelegatedAdminService> _logger;
@@ -33,11 +37,13 @@ public class DelegatedAdminService
 
     public DelegatedAdminService(
         IAdminRepository adminRepo,
+        AdminIdentityBindingService bindings,
         TenantEntitlementService entitlementService,
         IMemoryCache cache,
         ILogger<DelegatedAdminService> logger)
     {
         _adminRepo = adminRepo;
+        _bindings = bindings;
         _entitlementService = entitlementService;
         _cache = cache;
         _logger = logger;
@@ -47,27 +53,43 @@ public class DelegatedAdminService
     /// Resolves the caller's effective delegated scope: the set of tenants it may access and the role per
     /// tenant. Only <see cref="Constants.DelegatedStatus.Active"/> + enabled rows with a recognized role
     /// contribute; pending/revoked/disabled/unknown-role rows are ignored (fail-closed). Cached briefly (see _cacheDuration).
-    /// Returns an empty (never null) scope for a UPN with no effective assignments.
+    /// Returns an empty (never null) scope for a caller with no effective assignments — including a caller
+    /// whose identity is incomplete (null) or whose tid/oid do not match the UPN's identity binding.
     /// <para>
     /// <b>Entitlement gate (single choke-point for ALL delegated-scope consumers):</b> delegated ("MSP")
     /// access is a Pro capability of the caller's HOME tenant — the tenant that pays for the MSP
-    /// seat (<paramref name="callerHomeTenantId"/> = the validated JWT tid, unforgeable). The MANAGED
+    /// seat (<see cref="AdminIdentity.TenantId"/> = the validated JWT tid, unforgeable). The MANAGED
     /// (target) tenants may be any edition — an MSP on Pro may manage Community customers.
-    /// Null/empty home tid or a non-Pro home tenant ⇒ empty scope (fail-closed). Grant rows stay
+    /// A non-Pro home tenant ⇒ empty scope (fail-closed). Grant rows stay
     /// untouched; they become inert and resurrect when the home tenant upgrades / trials.
-    /// The gate sits AFTER the cache read so the cached scope stays pure (keyed on UPN only) and a
-    /// home-tenant edition change converges within the entitlement service's own config-cache TTL.
+    /// Binding check and gate sit AFTER the cache read so the cached scope stays pure (keyed on UPN only)
+    /// and a rebind / home-tenant edition change converges within the respective cache TTLs.
     /// </para>
     /// </summary>
-    public virtual async Task<DelegatedScope> GetScopeAsync(string? upn, string? callerHomeTenantId = null)
+    public virtual async Task<DelegatedScope> GetScopeAsync(AdminIdentity? identity)
     {
-        if (string.IsNullOrWhiteSpace(upn))
+        if (identity == null)
             return DelegatedScope.Empty;
 
-        upn = upn.ToLowerInvariant();
+        var scope = await GetRowScopeAsync(identity.Upn);
+        if (scope.IsEmpty)
+            return scope;
+
+        // Identity binding BEFORE the entitlement gate: an unbound/mismatched caller must not even trigger
+        // a home-tenant edition lookup, and the mismatch Warning is the more important signal.
+        if (!await _bindings.IsBoundAsync(identity))
+            return DelegatedScope.Empty;
+
+        return await ApplyHomeTenantGateAsync(scope, identity.Upn, identity.TenantId);
+    }
+
+    /// <summary>The scope the assignment ROWS (direct + group-derived) confer on a UPN, ignoring identity binding
+    /// and entitlement. Cached briefly (UPN-keyed).</summary>
+    private async Task<DelegatedScope> GetRowScopeAsync(string upn)
+    {
         var cacheKey = $"delegated-scope:{upn}";
         if (_cache.TryGetValue<DelegatedScope>(cacheKey, out var cached) && cached != null)
-            return await ApplyHomeTenantGateAsync(cached, upn, callerHomeTenantId);
+            return cached;
 
         var rows = await _adminRepo.GetDelegatedTenantsAsync(upn);
         var tenantRoles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -121,7 +143,7 @@ public class DelegatedAdminService
         // service), which empties the scope. Grant rows stay untouched — inert until upgrade/trial.
         var scope = new DelegatedScope(tenantRoles);
         _cache.Set(cacheKey, scope, _cacheDuration);
-        return await ApplyHomeTenantGateAsync(scope, upn, callerHomeTenantId);
+        return scope;
     }
 
     /// <summary>
@@ -129,28 +151,32 @@ public class DelegatedAdminService
     /// every cache read/write so the cached scope stays pure (UPN-keyed) — the edition lookup has
     /// its own 5-minute config cache, so this adds no per-request storage I/O in the steady state.
     /// </summary>
-    private async Task<DelegatedScope> ApplyHomeTenantGateAsync(DelegatedScope scope, string upn, string? callerHomeTenantId)
+    private async Task<DelegatedScope> ApplyHomeTenantGateAsync(DelegatedScope scope, string upn, string callerHomeTenantId)
     {
-        if (scope.IsEmpty)
-            return scope;
-
         if (await _entitlementService.GetEditionAsync(callerHomeTenantId) == Security.TenantEdition.Pro)
             return scope;
 
         _logger.LogInformation(
             "[DelegatedAdmin] Suppressing delegated scope for {Upn} — home tenant {HomeTenantId} is not Pro (MSP seat requires the Pro plan)",
-            upn, string.IsNullOrWhiteSpace(callerHomeTenantId) ? "(unknown)" : callerHomeTenantId);
+            upn, callerHomeTenantId);
         return DelegatedScope.Empty;
     }
 
-    /// <summary>Creates or replaces an assignment, then invalidates the UPN's cached scope.</summary>
+    /// <summary>
+    /// Creates or replaces an assignment, then invalidates the UPN's cached scope. Binds the UPN to its home
+    /// tenant (and object id, when known) FIRST — an assignment without a binding is inert, and a binding
+    /// conflict (UPN already homed elsewhere) aborts before any row is written.
+    /// </summary>
+    /// <exception cref="IdentityBindingConflictException">The UPN is already bound to a different identity.</exception>
     public async Task<DelegatedAdminEntry> UpsertAsync(
-        string upn, string tenantId, string role, string status, string source, string grantedBy)
+        string upn, string tenantId, string role, string status, string source, string grantedBy,
+        string homeTenantId, string? objectId)
     {
         upn = upn.ToLowerInvariant();
         tenantId = tenantId.ToLowerInvariant();
         grantedBy = grantedBy.ToLowerInvariant();
 
+        await _bindings.EnsureBoundAsync(upn, homeTenantId, objectId, grantedBy);
         await _adminRepo.UpsertDelegatedAdminAsync(upn, tenantId, role, status, source, grantedBy);
         Invalidate(upn);
 
@@ -286,13 +312,17 @@ public class DelegatedAdminService
     /// not exist (meta-backed) — so the service fully owns the existence invariant, independent of any caller
     /// pre-check, and a delete racing an assign can't leave a dangling assignment row.
     /// </summary>
-    public async Task<bool> AssignGroupAsync(string upn, string groupId, string role, bool isEnabled, string assignedBy)
+    /// <exception cref="IdentityBindingConflictException">The UPN is already bound to a different identity.</exception>
+    public async Task<bool> AssignGroupAsync(
+        string upn, string groupId, string role, bool isEnabled, string assignedBy, string homeTenantId, string? objectId)
     {
         groupId = NormalizeGroupId(groupId);
         if (await _adminRepo.GetTenantGroupAsync(groupId) == null)
             return false;
 
         upn = upn.ToLowerInvariant();
+        // Binding first (see UpsertAsync): an assignment without a binding is inert; a conflict aborts.
+        await _bindings.EnsureBoundAsync(upn, homeTenantId, objectId, assignedBy);
         var ok = await _adminRepo.AssignGroupAsync(upn, groupId, role, isEnabled, assignedBy);
         Invalidate(upn);
         return ok;

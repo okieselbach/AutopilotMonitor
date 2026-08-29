@@ -1020,6 +1020,14 @@ namespace AutopilotMonitor.Shared
             // UPN's groups into the effective tenant set. NOT tenant-id-keyed (offboarding never touches it).
             public const string TenantGroupAssignments = "TenantGroupAssignments";
 
+            // Admin identity bindings — the immutable Entra identity (tid + oid) behind every UPN that holds a
+            // cross-tenant role (GlobalAdmins, DelegatedAdmins, TenantGroupAssignments). PK="Bindings",
+            // RK=UPN (lowercase). The API accepts tokens from ANY Entra tenant and upn/preferred_username are
+            // mutable and reusable across tenants, so a role row alone must never confer access: the role
+            // services resolve a role ONLY when the caller's JWT tid (and, once pinned, oid) match this row.
+            // TenantId = the admin's HOME tenant; tenant offboarding purges bindings homed in that tenant.
+            public const string AdminIdentityBindings = "AdminIdentityBindings";
+
             // Preview gating (temporary — remove after GA)
             public const string PreviewWhitelist = "PreviewWhitelist";
             public const string PreviewConfig    = "PreviewConfig";
@@ -1212,6 +1220,7 @@ namespace AutopilotMonitor.Shared
                 DelegatedAdmins,
                 TenantGroups,
                 TenantGroupAssignments,
+                AdminIdentityBindings,
                 PreviewWhitelist,
                 PreviewConfig,
                 Feedback,
@@ -1455,6 +1464,7 @@ namespace AutopilotMonitor.Shared
             public static readonly string[] All = new[]
             {
                 TableNames.AdminConfiguration,
+                TableNames.AdminIdentityBindings,
                 TableNames.AnalyzeRules,
                 TableNames.ConfigurationBackups,
                 TableNames.DelegatedAdmins,
@@ -1485,6 +1495,7 @@ namespace AutopilotMonitor.Shared
                 TableNames.TenantAdmins,
                 TableNames.McpUsers,
                 TableNames.DelegatedAdmins,
+                TableNames.AdminIdentityBindings,
             };
 
             /// <summary>

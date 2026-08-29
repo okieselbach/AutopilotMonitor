@@ -43,7 +43,12 @@ public static class ClaimsPrincipalExtensions
     /// <summary>
     /// Gets the user's UPN (User Principal Name) from token claims
     /// Falls back to preferred_username if upn is not available
-    /// Supports both v1.0 and v2.0 token formats
+    /// Supports both v1.0 and v2.0 token formats.
+    /// <para>
+    /// Display / audit / row-key use only. Both claims are mutable and reusable across tenants, so no
+    /// cross-tenant authorization is keyed on this value alone — role resolution takes the full
+    /// <see cref="Security.AdminIdentity"/> (upn + tid + oid) and verifies it against the identity binding.
+    /// </para>
     /// </summary>
     public static string? GetUserPrincipalName(this ClaimsPrincipal principal)
     {
@@ -55,8 +60,10 @@ public static class ClaimsPrincipalExtensions
     /// <summary>
     /// Stable per-caller identity for THROTTLING keys — never for authorization or audit.
     /// <para>
-    /// Prefers the UPN so a human caller keeps the same bucket as before. Falls back to the token
-    /// subject (<c>oid</c> → <c>sub</c> → <c>appid</c>/<c>azp</c>) because a valid token need not carry
+    /// Prefers the object id (<c>oid</c>): it is unique per Entra account, so two accounts in different
+    /// tenants that happen to share a UPN string (the API accepts tokens from any tenant) get separate
+    /// buckets instead of throttling each other. Falls back to the UPN, then to the remaining token
+    /// subject claims (<c>sub</c> → <c>appid</c>/<c>azp</c>) because a valid token need not carry
     /// a user identity at all: AuthenticationMiddleware validates issuer/audience/lifetime/signature
     /// but requires no <c>upn</c>, so an app-only (client-credentials) token authenticates fine and
     /// reaches every AuthenticatedUser route. Without this fallback such a caller would present an
@@ -71,9 +78,8 @@ public static class ClaimsPrincipalExtensions
     /// </summary>
     public static string? GetCallerId(this ClaimsPrincipal principal)
     {
-        return principal.GetUserPrincipalName()
-               ?? principal.FindFirst("oid")?.Value
-               ?? principal.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
+        return principal.GetObjectId()
+               ?? principal.GetUserPrincipalName()
                ?? principal.FindFirst("sub")?.Value
                ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
                ?? principal.FindFirst("appid")?.Value

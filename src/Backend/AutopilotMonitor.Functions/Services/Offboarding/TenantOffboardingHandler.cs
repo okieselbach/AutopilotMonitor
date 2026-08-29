@@ -156,6 +156,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // itself and its other tenants survive. The assignments table is per-UPN (no TenantId) and is
             // intentionally NOT wiped here.
             Constants.TableNames.TenantGroups,
+            // Identity bindings HOMED in this tenant (PK="Bindings", RK=UPN, TenantId = the admin's home
+            // tenant). Once the home tenant is gone its admins' cross-tenant role rows must be inert; the
+            // rows themselves are UPN-keyed and survive, but without a binding they resolve nothing.
+            Constants.TableNames.AdminIdentityBindings,
         };
 
         // PR3.B plan §3 — Customs rules tables: archive each row to

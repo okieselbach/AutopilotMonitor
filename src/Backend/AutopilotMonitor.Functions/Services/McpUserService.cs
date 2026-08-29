@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -49,23 +50,26 @@ public class McpUserService
 
     /// <summary>
     /// Checks if a user is allowed to access the MCP server based on current policy.
-    /// <paramref name="homeTenantId"/> is the caller's JWT tid (home tenant) — it gates the
-    /// delegated (MSP) auto-grant path, which requires a Pro home tenant. Null (unknown)
-    /// fails closed to an empty delegated scope; the other grant paths are unaffected.
+    /// <paramref name="homeTenantId"/> and <paramref name="objectId"/> are the caller's JWT tid and oid:
+    /// together with the UPN they form the <see cref="AdminIdentity"/> the platform-role and delegated
+    /// (MSP) grant paths resolve on — both are keyed on the identity binding, never on the UPN alone, and
+    /// the delegated path additionally requires a Pro home tenant. Null tid/oid fails closed to no platform
+    /// role and an empty delegated scope; the whitelist (McpUsers) and AllMembers paths are unaffected.
     /// </summary>
-    public virtual async Task<McpAccessCheckResult> IsAllowedAsync(string? upn, string? homeTenantId = null)
+    public virtual async Task<McpAccessCheckResult> IsAllowedAsync(string? upn, string? homeTenantId, string? objectId)
     {
         if (string.IsNullOrWhiteSpace(upn))
             return McpAccessCheckResult.Denied("Missing UPN");
 
         upn = upn.ToLowerInvariant();
+        var identity = AdminIdentity.Create(upn, homeTenantId, objectId);
 
         // Always resolve the platform role — needed by the MCP server for cross-tenant routing
         // decisions (global scope → /api/global/* with tenantId-as-filter; non-global → /api/* JWT-bound).
         // GlobalReader has the SAME cross-tenant read scope as GA in the (read-only) MCP, so both
         // platform roles route the same way; only isGlobalAdmin (write power) differs. Resolved
         // unconditionally so downstream consumers don't need to re-check.
-        var globalRole = await _globalAdminService.GetGlobalRoleAsync(upn);
+        var globalRole = await _globalAdminService.GetGlobalRoleAsync(identity);
         var isGlobalAdmin = globalRole == Constants.GlobalRoles.GlobalAdmin;
 
         // Resolve the delegated (scoped-global / MSP) scope unconditionally — independent of which policy
@@ -73,7 +77,7 @@ public class McpUserService
         // a delegated assignment; both are reported. The MCP server uses delegatedTenantIds to route a
         // delegated caller to /api/global/*?tenantId=<managed> (the path the auth middleware authorizes)
         // and to reject any tool call that does not name one of the managed tenants.
-        var delegatedScope = await _delegatedAdminService.GetScopeAsync(upn, homeTenantId);
+        var delegatedScope = await _delegatedAdminService.GetScopeAsync(identity);
         var delegatedTenantIds = delegatedScope.IsEmpty ? null : delegatedScope.TenantIds;
         var delegatedRole = delegatedScope.IsEmpty ? null : StrongestDelegatedRole(delegatedScope);
 

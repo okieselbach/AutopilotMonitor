@@ -649,6 +649,13 @@ export const api = {
       `${API_BASE_URL}/api/global/delegated-admins/${encodeURIComponent(upn)}/${encodeURIComponent(tenantId)}/disable`,
   },
 
+  // ── Admin identity bindings (the Entra tenant + object id behind every cross-tenant-role UPN) ──
+  identityBindings: {
+    list: () => `${API_BASE_URL}/api/global/identity-bindings`,
+    put: (upn: string) => `${API_BASE_URL}/api/global/identity-bindings/${encodeURIComponent(upn)}`,
+    remove: (upn: string) => `${API_BASE_URL}/api/global/identity-bindings/${encodeURIComponent(upn)}`,
+  },
+
   // ── Tenant Groups (MSP mode — named bundles of tenants for delegated admins) ──
   tenantGroups: {
     list: () => `${API_BASE_URL}/api/global/tenant-groups`,
