@@ -36,14 +36,14 @@ public class ImeMsiArchiveQueueWorkerTests
         var harness = new Harness();
         harness.Archiver.Result = new ImeMsiArchiveResult(
             true, ImeMsiArchiver.Statuses.Archived, Retryable: false,
-            $"{Version}/IntuneWindowsAgent.msi", "abc123", 42L, ImeMsiArchiver.CanonicalMsiUrl);
+            $"{Version}/IntuneWindowsAgent.msi", "abc123", 42L, ImeMsiArchiver.FallbackMsiUrls[1]);
         harness.EnqueueMessage(JsonConvert.SerializeObject(Envelope()));
 
         await harness.RunUntilAsync(() => harness.MainQueueDeleted());
 
         harness.Repo.Verify(r => r.UpdateImeVersionArchiveInfoAsync(
             Version, ImeMsiArchiver.Statuses.Archived,
-            $"{Version}/IntuneWindowsAgent.msi", "abc123", 42L, ImeMsiArchiver.CanonicalMsiUrl),
+            $"{Version}/IntuneWindowsAgent.msi", "abc123", 42L, ImeMsiArchiver.FallbackMsiUrls[1]),
             Times.Once);
         harness.MainQueue.Verify(q => q.DeleteMessageAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -56,7 +56,7 @@ public class ImeMsiArchiveQueueWorkerTests
         var harness = new Harness();
         harness.Archiver.Result = new ImeMsiArchiveResult(
             false, ImeMsiArchiver.Statuses.FailedDownload, Retryable: true,
-            null, null, null, ImeMsiArchiver.CanonicalMsiUrl);
+            null, null, null, ImeMsiArchiver.FallbackMsiUrls[1]);
         harness.EnqueueMessage(JsonConvert.SerializeObject(Envelope()));
 
         await harness.RunUntilAsync(() => harness.Archiver.Calls > 0);
@@ -64,7 +64,7 @@ public class ImeMsiArchiveQueueWorkerTests
         // Row always tells the truth — the failure status IS merged...
         harness.Repo.Verify(r => r.UpdateImeVersionArchiveInfoAsync(
             Version, ImeMsiArchiver.Statuses.FailedDownload,
-            null, null, null, ImeMsiArchiver.CanonicalMsiUrl),
+            null, null, null, ImeMsiArchiver.FallbackMsiUrls[1]),
             Times.AtLeastOnce);
         // ...but the message stays for the visibility-timeout retry → poison ladder.
         harness.MainQueue.Verify(q => q.DeleteMessageAsync(
@@ -78,14 +78,14 @@ public class ImeMsiArchiveQueueWorkerTests
         var harness = new Harness();
         harness.Archiver.Result = new ImeMsiArchiveResult(
             false, ImeMsiArchiver.Statuses.FailedTooLarge, Retryable: false,
-            null, null, 999L, ImeMsiArchiver.CanonicalMsiUrl);
+            null, null, 999L, ImeMsiArchiver.FallbackMsiUrls[1]);
         harness.EnqueueMessage(JsonConvert.SerializeObject(Envelope()));
 
         await harness.RunUntilAsync(() => harness.MainQueueDeleted());
 
         harness.Repo.Verify(r => r.UpdateImeVersionArchiveInfoAsync(
             Version, ImeMsiArchiver.Statuses.FailedTooLarge,
-            null, null, 999L, ImeMsiArchiver.CanonicalMsiUrl),
+            null, null, 999L, ImeMsiArchiver.FallbackMsiUrls[1]),
             Times.Once);
         harness.MainQueue.Verify(q => q.DeleteMessageAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
@@ -131,7 +131,7 @@ public class ImeMsiArchiveQueueWorkerTests
     private static ImeMsiArchiveEnvelope Envelope() => new()
     {
         Version = Version,
-        MsiDownloadUrl = ImeMsiArchiver.CanonicalMsiUrl,
+        MsiDownloadUrl = ImeMsiArchiver.FallbackMsiUrls[1],
         MsiMatchedBy = "productVersion",
         TenantId = "11111111-1111-1111-1111-111111111111",
         SessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

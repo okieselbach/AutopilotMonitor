@@ -1,5 +1,6 @@
 using System.Linq;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Ime;
 using AutopilotMonitor.Functions.Services.Notifications;
 using AutopilotMonitor.Functions.Services.Vulnerability;
 using AutopilotMonitor.Shared.DataAccess;
@@ -155,23 +156,27 @@ namespace AutopilotMonitor.Functions.Services
                                 _logger.LogWarning(t.Exception?.InnerException,
                                     "ImeVersionHistory update failed (non-fatal)");
                             }
-                            else if (t.Result)
+                            else if (t.Result?.IsNew == true)
                             {
                                 await _opsEventService.RecordNewImeVersionDetectedAsync(
                                     imeVersion, request.TenantId, request.SessionId);
 
-                                // First fleet-wide sighting → archive the installer binary while
-                                // Microsoft's versionless CDN still serves exactly this build.
+                                // First fleet-wide sighting → archive the installer binary. The
+                                // archiver verifies the package's ProductVersion against every
+                                // candidate host, so a first sighting without a CSP URL is fine.
                                 // Producer is fail-soft; worker pauses on ImeMsiArchivingEnabled=false.
-                                await _imeMsiArchiveProducer.EnqueueAsync(new ImeMsiArchiveEnvelope
-                                {
-                                    Version = imeVersion,
-                                    MsiDownloadUrl = msiDownloadUrl,
-                                    MsiMatchedBy = msiMatchedBy,
-                                    TenantId = request.TenantId,
-                                    SessionId = request.SessionId,
-                                    EnqueuedAt = DateTime.UtcNow,
-                                });
+                                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
+                            }
+                            else if (ImeMsiArchiver.ShouldRequeueOnSighting(t.Result, msiDownloadUrl, msiMatchedBy, DateTime.UtcNow))
+                            {
+                                // Known but not archived (no host served the build at first sighting,
+                                // or the version predates the archiver) and THIS session brings a
+                                // version-authoritative CSP URL → one more try, at most once per
+                                // backoff window. The Queued stamp is what other sessions of the
+                                // same version see, so they don't pile on.
+                                await _sessionRepo.UpdateImeVersionArchiveInfoAsync(
+                                    imeVersion, ImeMsiArchiver.Statuses.Queued, null, null, null, null);
+                                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
                             }
                         }, TaskScheduler.Default);
                 }
@@ -496,6 +501,23 @@ namespace AutopilotMonitor.Functions.Services
         /// never match (net_total_latency_ms absent) — no fallback, fleet turns over
         /// per-enrollment. Exposed as internal for unit testing.
         /// </summary>
+        /// <summary>
+        /// Fire-and-forget enqueue of the installer-archive job for an IME version; the
+        /// producer is fail-soft (a lost message means "not auto-archived", the /ime-decompile
+        /// skill's blob backfill is the manual fallback).
+        /// </summary>
+        private Task EnqueueImeMsiArchiveAsync(
+            string imeVersion, string? msiDownloadUrl, string? msiMatchedBy, IngestEventsRequest request)
+            => _imeMsiArchiveProducer.EnqueueAsync(new ImeMsiArchiveEnvelope
+            {
+                Version = imeVersion,
+                MsiDownloadUrl = msiDownloadUrl,
+                MsiMatchedBy = msiMatchedBy,
+                TenantId = request.TenantId,
+                SessionId = request.SessionId,
+                EnqueuedAt = DateTime.UtcNow,
+            });
+
         internal static bool TryComputeSessionApiLatency(
             List<EnrollmentEvent> events, out double avgLatencyMs, out int requestCount)
         {

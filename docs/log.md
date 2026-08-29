@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-29 (4)
+
+* **Creation**: Added `backend/ime-msi-archive.md` — the version-verified, multi-host IME installer archive: MsiProductVersionReader (managed CFB/MSI Property reader), candidate host walk, Failed:VersionMismatch, sighting re-queue with 24 h backoff, and the 2026-08-29 1.105.103.0 poisoning that motivated it.
+
 ## 2026-08-29 (3)
 
 * **Update**: `backend/vulnerability-correlation-sources.md` - the admin page's Data Sync Status is complete: next to Sync KEV / Sync MSRC there are now Refresh NVD Cache and Sync EPSS, each with its own last-sync line (`NvdCacheLastRefreshUtc`, `EpssLastSyncUtc` on AdminConfiguration; shared manifest regenerated). The NVD and EPSS walks moved out of the timer into `VulnerabilityCacheRefreshService` (singleton, one in-flight slot per walk) so the button and the nightly run are literally the same code; the NVD walk is minutes long and rate-limited, so `POST vulnerability/sync-nvd` answers 202 and the page polls `sync-status` (`nvdRefreshRunning`, `nvdLastRun`) while it runs, `sync-epss` runs synchronously. 409 while a walk is in flight; the timer skips a slot a manual run holds. Operator-only surface - no customer docs.

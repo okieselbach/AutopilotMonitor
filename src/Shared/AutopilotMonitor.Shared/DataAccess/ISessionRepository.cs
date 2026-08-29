@@ -192,13 +192,20 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<SessionSummary>> GetOpenSessionsForDeviceAsync(string tenantId, string serialNumber);
 
         // --- IME Version History ---
-        Task<bool> RecordImeVersionAsync(string version, string tenantId, string sessionId);
+
+        /// <summary>
+        /// Records one sighting: inserts the version (IsNew) or bumps LastSeenAt/SessionCount.
+        /// Also returns the row's archive status/timestamp so the caller can decide on an
+        /// installer-archive re-queue without a second read. Fail-soft on the merge path.
+        /// </summary>
+        Task<ImeVersionSighting> RecordImeVersionAsync(string version, string tenantId, string sessionId);
         Task<List<ImeVersionHistoryEntry>> GetImeVersionHistoryAsync();
 
         /// <summary>
         /// Merges the installer-archiving outcome (<c>ImeMsiArchiver</c>) into the version's
-        /// <c>ImeVersionHistory</c> row. Fail-soft: storage errors are logged, never thrown.
-        /// Blob path / hash / size / URL are only written on success (null leaves them absent).
+        /// <c>ImeVersionHistory</c> row and stamps <c>MsiArchiveUpdatedAt</c>. Fail-soft:
+        /// storage errors are logged, never thrown. Blob path / hash / size / URL are only
+        /// written on success (null leaves them absent).
         /// </summary>
         Task UpdateImeVersionArchiveInfoAsync(
             string version, string status, string? blobPath, string? sha256, long? sizeBytes, string? sourceUrl);

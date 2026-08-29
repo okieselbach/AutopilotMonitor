@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
@@ -15,15 +16,21 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// The IME-installer archiver downloads a newly sighted IME build into the permanent
 /// ime-archive container. Its contract: NEVER throw (worker decides retry from the result),
-/// treat the agent-supplied URL as untrusted (allowlist, else canonical fallback), enforce
-/// the size cap both at Content-Length preflight and mid-stream, and stay idempotent under
-/// queue re-delivery (409 on the write-once upload == archived). Tests pin every status
-/// branch via a recording subclass — no Azurite, no HTTP.
+/// treat the agent-supplied URL as untrusted (allowlist, else distribution hosts only),
+/// enforce the size cap both at Content-Length preflight and mid-stream, stay idempotent
+/// under queue re-delivery (409 on the write-once upload == archived) — and, since
+/// 2026-08-29, NEVER file bytes under a version they are not: every candidate download's
+/// ProductVersion is checked against the observed version and the hosts are walked in
+/// order until one matches. Tests pin every status branch via a recording subclass — no
+/// Azurite, no HTTP, no disk.
 /// </summary>
 public class ImeMsiArchiverTests
 {
     private const string Version = "1.104.102.0";
     private const string EventUrl = "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi";
+    private const string PrimaryUrl = "https://imeswda-afd-primary.manage.microsoft.com/IntuneWindowsAgent.msi";
+    private const string SecondaryUrl = "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi";
+    private const string HotfixUrl = "https://imeswda-afd-hotfix.manage.microsoft.com/IntuneWindowsAgent.msi";
 
     // =========================================================================
     // URL allowlist (static — the SSRF boundary)
@@ -50,6 +57,83 @@ public class ImeMsiArchiverTests
     }
 
     // =========================================================================
+    // Candidate order — event URL first, then every distribution host, no duplicates
+    // =========================================================================
+
+    [Fact]
+    public void BuildCandidateUrls_EventUrlFirst_ThenHosts_Deduplicated()
+    {
+        var custom = "https://swda01-mscdn.manage.microsoft.com/IntuneWindowsAgent.msi";
+
+        Assert.Equal(new[] { custom, PrimaryUrl, SecondaryUrl, HotfixUrl }, ImeMsiArchiver.BuildCandidateUrls(custom));
+        // Event URL equal to a host (any casing) is not tried twice.
+        Assert.Equal(new[] { SecondaryUrl.ToUpperInvariant(), PrimaryUrl, HotfixUrl },
+            ImeMsiArchiver.BuildCandidateUrls(SecondaryUrl.ToUpperInvariant()));
+        Assert.Equal(new[] { PrimaryUrl, SecondaryUrl, HotfixUrl }, ImeMsiArchiver.BuildCandidateUrls(null));
+        Assert.Equal(new[] { PrimaryUrl, SecondaryUrl, HotfixUrl },
+            ImeMsiArchiver.BuildCandidateUrls("https://evil.example.com/IntuneWindowsAgent.msi"));
+    }
+
+    [Theory]
+    [InlineData("1.105.103.0", "1.105.103.0", true)]
+    [InlineData("1.105.103.0", "1.105.103", true)]   // trailing zero dropped by the MSI
+    [InlineData("1.105.103", "1.105.103.0", true)]
+    [InlineData(" 1.105.103.0 ", "1.105.103.0", true)]
+    [InlineData("1.105.103.0", "1.104.102.0", false)]
+    [InlineData("1.105.103.0", null, false)]         // unreadable package never matches
+    [InlineData("1.105.103.0", "", false)]
+    [InlineData("1.105.103.0", "latest", false)]
+    public void VersionsMatch_cases(string observed, string? productVersion, bool expected)
+    {
+        Assert.Equal(expected, ImeMsiArchiver.VersionsMatch(observed, productVersion));
+    }
+
+    // =========================================================================
+    // Re-queue rule for later sightings of a known version
+    // =========================================================================
+
+    public static IEnumerable<object?[]> RequeueCases()
+    {
+        var now = new DateTime(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc);
+        var fresh = now.AddHours(-1);
+        var stale = now.AddHours(-25);
+        static object?[] Case(bool isNew, string? status, DateTime? updatedAt, string? url, string? matchedBy, bool expected) =>
+            new object?[] { isNew, status, updatedAt, url, matchedBy, expected };
+
+        yield return Case(false, "Failed:VersionMismatch", stale, HotfixUrl, "productVersion", true);
+        yield return Case(false, "Failed:VersionMismatch", null, HotfixUrl, "productVersion", true);   // never stamped
+        yield return Case(false, null, null, HotfixUrl, "productVersion", true);                        // predates archiver / manual backfill
+        yield return Case(false, "Queued", stale, HotfixUrl, "productVersion", true);                   // lost message, backoff elapsed
+        yield return Case(false, "Failed:Download", stale, HotfixUrl, "productVersion", true);          // poisoned after retries
+        yield return Case(false, "Failed:TooLarge", stale, HotfixUrl, "productVersion", true);          // cap may have changed
+        yield return Case(false, "Failed:VersionMismatch", fresh, HotfixUrl, "productVersion", false);  // backoff
+        yield return Case(false, "Queued", fresh, HotfixUrl, "productVersion", false);                  // already in flight
+        yield return Case(false, "Archived", stale, HotfixUrl, "productVersion", false);
+        yield return Case(false, "Failed:BadVersion", stale, HotfixUrl, "productVersion", false);       // permanent
+        yield return Case(false, "Failed:VersionMismatch", stale, HotfixUrl, "fileName", false);        // URL not authoritative
+        yield return Case(false, "Failed:VersionMismatch", stale, HotfixUrl, null, false);
+        yield return Case(false, "Failed:VersionMismatch", stale, null, "productVersion", false);       // no URL
+        yield return Case(false, "Failed:VersionMismatch", stale, "https://evil.example.com/IntuneWindowsAgent.msi", "productVersion", false);
+        yield return Case(true, null, null, HotfixUrl, "productVersion", false);                        // first sighting has its own path
+    }
+
+    [Theory]
+    [MemberData(nameof(RequeueCases))]
+    public void ShouldRequeueOnSighting_cases(bool isNew, string? status, DateTime? updatedAt, string? url, string? matchedBy, bool expected)
+    {
+        var now = new DateTime(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc);
+        var sighting = new ImeVersionSighting { IsNew = isNew, MsiArchiveStatus = status, MsiArchiveUpdatedAt = updatedAt };
+
+        Assert.Equal(expected, ImeMsiArchiver.ShouldRequeueOnSighting(sighting, url, matchedBy, now));
+    }
+
+    [Fact]
+    public void ShouldRequeueOnSighting_NullSighting_False()
+    {
+        Assert.False(ImeMsiArchiver.ShouldRequeueOnSighting(null, HotfixUrl, "productVersion", DateTime.UtcNow));
+    }
+
+    // =========================================================================
     // Version guard (blob path is built from untrusted input)
     // =========================================================================
 
@@ -72,33 +156,131 @@ public class ImeMsiArchiverTests
     }
 
     // =========================================================================
-    // URL selection
+    // URL selection + version verification
     // =========================================================================
 
     [Fact]
-    public async Task ArchiveAsync_AllowedEventUrl_IsUsed()
+    public async Task ArchiveAsync_AllowedEventUrl_ServingObservedVersion_IsUsedFirst()
     {
         var archiver = new RecordingArchiver();
 
         var result = await archiver.ArchiveAsync(Envelope(url: EventUrl));
 
         Assert.True(result.Success);
-        Assert.Equal(EventUrl, archiver.DownloadLastUrl);
+        Assert.Equal(1, archiver.DownloadCalls);
+        Assert.Equal(EventUrl, archiver.DownloadUrls.Single());
         Assert.Equal(EventUrl, result.SourceUrl);
     }
 
     [Theory]
     [InlineData("https://evil.example.com/IntuneWindowsAgent.msi")] // allowlist reject
     [InlineData(null)]                                              // pre-enrichment agent
-    public async Task ArchiveAsync_MissingOrRejectedEventUrl_FallsBackToCanonical(string? url)
+    public async Task ArchiveAsync_MissingOrRejectedEventUrl_StartsWithPrimaryHost(string? url)
     {
         var archiver = new RecordingArchiver();
 
         var result = await archiver.ArchiveAsync(Envelope(url: url));
 
         Assert.True(result.Success);
-        Assert.Equal(ImeMsiArchiver.CanonicalMsiUrl, archiver.DownloadLastUrl);
-        Assert.Equal(ImeMsiArchiver.CanonicalMsiUrl, result.SourceUrl);
+        Assert.Equal(PrimaryUrl, archiver.DownloadUrls.Single());
+        Assert.Equal(PrimaryUrl, result.SourceUrl);
+    }
+
+    /// <summary>
+    /// THE 2026-08-29 incident: the event carried no URL, the secondary host still served
+    /// the previous build and it got archived under the new version. Now the wrong build is
+    /// detected and the walk continues to the host that actually serves the version.
+    /// </summary>
+    [Fact]
+    public async Task ArchiveAsync_HostsServeOtherBuilds_WalksUntilProductVersionMatches()
+    {
+        var archiver = new RecordingArchiver
+        {
+            ProductVersionByUrl =
+            {
+                [PrimaryUrl] = "1.105.101.0",
+                [SecondaryUrl] = "1.104.102.0",
+                [HotfixUrl] = "1.105.103.0",
+            },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(version: "1.105.103.0", url: null));
+
+        Assert.True(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.Archived, result.Status);
+        Assert.Equal(new[] { PrimaryUrl, SecondaryUrl, HotfixUrl }, archiver.DownloadUrls);
+        Assert.Equal(HotfixUrl, result.SourceUrl);
+        Assert.Equal("1.105.103.0/IntuneWindowsAgent.msi", result.BlobPath);
+        Assert.Equal(1, archiver.UploadCalls);
+        // Provenance records the verified version and the full walk.
+        Assert.Contains("\"productVersion\": \"1.105.103.0\"", archiver.ProvenanceLastJson);
+        Assert.Contains("version-mismatch", archiver.ProvenanceLastJson);
+        Assert.Contains("1.105.101.0", archiver.ProvenanceLastJson);
+        Assert.Contains("\"urlFromEvent\": false", archiver.ProvenanceLastJson);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_EventUrlServesWrongBuild_FallsThroughToHosts()
+    {
+        var custom = "https://swda01-mscdn.manage.microsoft.com/IntuneWindowsAgent.msi";
+        var archiver = new RecordingArchiver
+        {
+            ProductVersionByUrl = { [custom] = "1.103.101.0", [PrimaryUrl] = Version },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(url: custom));
+
+        Assert.True(result.Success);
+        Assert.Equal(new[] { custom, PrimaryUrl }, archiver.DownloadUrls);
+        Assert.Equal(PrimaryUrl, result.SourceUrl);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_NoHostServesVersion_VersionMismatch_NotRetryable_NoUpload()
+    {
+        var archiver = new RecordingArchiver { DefaultProductVersion = "1.104.102.0" };
+
+        var result = await archiver.ArchiveAsync(Envelope(version: "1.105.103.0", url: EventUrl));
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedVersionMismatch, result.Status);
+        Assert.False(result.Retryable);
+        Assert.Null(result.SourceUrl);
+        Assert.Equal(3, archiver.DownloadCalls); // event URL == secondary → deduped
+        Assert.Equal(0, archiver.UploadCalls);
+        Assert.Equal(0, archiver.ProvenanceCalls);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_UnreadablePackage_TreatedAsMismatch()
+    {
+        var archiver = new RecordingArchiver { DefaultProductVersion = null };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedVersionMismatch, result.Status);
+        Assert.Equal(0, archiver.UploadCalls);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_UploadReceivesTheVerifiedBytes()
+    {
+        var right = new byte[4096];
+        new Random(1).NextBytes(right);
+        var wrong = new byte[4096];
+        new Random(2).NextBytes(wrong);
+        var archiver = new RecordingArchiver
+        {
+            PayloadByUrl = { [PrimaryUrl] = wrong, [SecondaryUrl] = right },
+            ProductVersionByUrl = { [PrimaryUrl] = "0.0.0.1", [SecondaryUrl] = Version },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(url: null));
+
+        Assert.True(result.Success);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(right)).ToLowerInvariant(), result.Sha256);
+        Assert.Equal(right, archiver.UploadedBytes);
     }
 
     // =========================================================================
@@ -127,14 +309,15 @@ public class ImeMsiArchiverTests
         Assert.Equal($"{Version}/provenance.json", archiver.ProvenanceLastPath);
         Assert.Contains(expectedSha, archiver.ProvenanceLastJson);
         Assert.Contains(Version, archiver.ProvenanceLastJson);
+        Assert.Contains("\"urlFromEvent\": true", archiver.ProvenanceLastJson);
     }
 
     // =========================================================================
-    // Size cap — preflight and mid-stream
+    // Size cap — preflight and mid-stream (applies per candidate)
     // =========================================================================
 
     [Fact]
-    public async Task ArchiveAsync_ContentLengthAboveCap_Rejected_NoUpload()
+    public async Task ArchiveAsync_ContentLengthAboveCap_OnEveryHost_Rejected_NoUpload()
     {
         var archiver = new RecordingArchiver
         {
@@ -168,6 +351,22 @@ public class ImeMsiArchiverTests
         Assert.Equal(ImeMsiArchiver.Statuses.FailedTooLarge, result.Status);
         Assert.False(result.Retryable);
         Assert.Equal(0, archiver.ProvenanceCalls);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_OversizedFirstHost_SmallerMatchingHostStillArchives()
+    {
+        var archiver = new RecordingArchiver
+        {
+            MaxDownloadSizeMB = 1,
+            PayloadByUrl = { [PrimaryUrl] = new byte[2 * 1024 * 1024], [SecondaryUrl] = new byte[2048] },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(url: null));
+
+        Assert.True(result.Success);
+        Assert.Equal(SecondaryUrl, result.SourceUrl);
+        Assert.Contains("too-large", archiver.ProvenanceLastJson);
     }
 
     [Fact]
@@ -301,11 +500,11 @@ public class ImeMsiArchiverTests
     }
 
     // =========================================================================
-    // Transient failures — retryable, never thrown
+    // Transient failures — retryable, never thrown; one bad host does not end the walk
     // =========================================================================
 
     [Fact]
-    public async Task ArchiveAsync_DownloadFails_RetryableDownloadStatus()
+    public async Task ArchiveAsync_AllHostsFailToDownload_RetryableDownloadStatus()
     {
         var archiver = new RecordingArchiver
         {
@@ -313,6 +512,40 @@ public class ImeMsiArchiverTests
         };
 
         var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedDownload, result.Status);
+        Assert.True(result.Retryable);
+        Assert.Equal(3, archiver.DownloadCalls);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_FirstHostDown_NextHostArchives()
+    {
+        var archiver = new RecordingArchiver
+        {
+            DownloadExceptionByUrl = { [PrimaryUrl] = new HttpRequestException("503") },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(url: null));
+
+        Assert.True(result.Success);
+        Assert.Equal(SecondaryUrl, result.SourceUrl);
+        Assert.Contains("download-failed", archiver.ProvenanceLastJson);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_TransientFailurePlusMismatch_ReportsTransient_SoTheQueueRetries()
+    {
+        // One host down, the rest serving another build: the down host might have had the
+        // version — worth the queue's retry ladder rather than a permanent mismatch.
+        var archiver = new RecordingArchiver
+        {
+            DefaultProductVersion = "0.0.0.1",
+            DownloadExceptionByUrl = { [HotfixUrl] = new HttpRequestException("503") },
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope(url: null));
 
         Assert.False(result.Success);
         Assert.Equal(ImeMsiArchiver.Statuses.FailedDownload, result.Status);
@@ -380,23 +613,32 @@ public class ImeMsiArchiverTests
     private sealed class RecordingArchiver : ImeMsiArchiver
     {
         public byte[] Payload { get; set; } = new byte[2048];
+        public Dictionary<string, byte[]> PayloadByUrl { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>ProductVersion the fake reader reports for a URL's bytes; falls back to <see cref="DefaultProductVersion"/>.</summary>
+        public Dictionary<string, string?> ProductVersionByUrl { get; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Default = the envelope version under test, i.e. every host serves the right build unless told otherwise.</summary>
+        public string? DefaultProductVersion { get; set; } = Version;
         public bool ReportContentLength { get; set; } = true;
         public int MaxDownloadSizeMB { get; set; } = 250;
         public Exception? DownloadException { get; set; }
+        public Dictionary<string, Exception> DownloadExceptionByUrl { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Exception? UploadException { get; set; }
         public Exception? ProvenanceException { get; set; }
         public bool ProvenanceExists { get; set; } = true;
         public byte[]? ArchivedPayload { get; set; }
         public Exception? ArchivedOpenException { get; set; }
 
-        public int DownloadCalls { get; private set; }
-        public string? DownloadLastUrl { get; private set; }
+        public int DownloadCalls => DownloadUrls.Count;
+        public List<string> DownloadUrls { get; } = new();
         public int UploadCalls { get; private set; }
         public string? UploadLastPath { get; private set; }
         public long UploadedByteCount { get; private set; }
+        public byte[] UploadedBytes { get; private set; } = Array.Empty<byte>();
         public int ProvenanceCalls { get; private set; }
         public string? ProvenanceLastPath { get; private set; }
         public string ProvenanceLastJson { get; private set; } = string.Empty;
+
+        private string? _currentUrl;
 
         protected override Task<AdminConfiguration> GetAdminConfigurationAsync()
             => Task.FromResult(new AdminConfiguration { MaxImeMsiDownloadSizeMB = MaxDownloadSizeMB });
@@ -404,23 +646,35 @@ public class ImeMsiArchiverTests
         protected override Task<(Stream Content, long ContentLength)> OpenDownloadAsync(
             string url, CancellationToken cancellationToken)
         {
-            DownloadCalls++;
-            DownloadLastUrl = url;
+            DownloadUrls.Add(url);
+            _currentUrl = url;
+            if (DownloadExceptionByUrl.TryGetValue(url, out var perUrl)) throw perUrl;
             if (DownloadException is not null) throw DownloadException;
+            var payload = PayloadByUrl.TryGetValue(url, out var p) ? p : Payload;
             return Task.FromResult(
-                ((Stream)new MemoryStream(Payload), ReportContentLength ? Payload.LongLength : -1L));
+                ((Stream)new MemoryStream(payload), ReportContentLength ? payload.LongLength : -1L));
+        }
+
+        protected override Stream CreateSpool() => new MemoryStream();
+
+        protected override string? ReadProductVersion(Stream msi)
+        {
+            // The bytes are opaque test payloads — resolve "what version is this" by origin.
+            Assert.True(msi.CanSeek);
+            Assert.Equal(0, msi.Position);
+            return _currentUrl is not null && ProductVersionByUrl.TryGetValue(_currentUrl, out var v)
+                ? v
+                : DefaultProductVersion;
         }
 
         protected override async Task UploadMsiAsync(string blobPath, Stream content, CancellationToken cancellationToken)
         {
             UploadCalls++;
             UploadLastPath = blobPath;
-            // Drain the stream like the real blob upload would — this is what drives the
-            // hashing/cap wrapper (and mid-stream aborts surface here as exceptions).
-            var buffer = new byte[64 * 1024];
-            int read;
-            while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
-                UploadedByteCount += read;
+            using var ms = new MemoryStream();
+            await content.CopyToAsync(ms, cancellationToken);
+            UploadedBytes = ms.ToArray();
+            UploadedByteCount += UploadedBytes.Length;
             if (UploadException is not null) throw UploadException;
         }
 

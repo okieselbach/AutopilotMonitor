@@ -169,7 +169,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task MarkExcessiveEventsAutoActionedAsync(string tenantId, string sessionId)
             => _storage.MarkExcessiveEventsAutoActionedAsync(tenantId, sessionId);
 
-        public Task<bool> RecordImeVersionAsync(string version, string tenantId, string sessionId)
+        public Task<ImeVersionSighting> RecordImeVersionAsync(string version, string tenantId, string sessionId)
             => _storage.RecordImeVersionAsync(version, tenantId, sessionId);
 
         public Task<List<ImeVersionHistoryEntry>> GetImeVersionHistoryAsync()

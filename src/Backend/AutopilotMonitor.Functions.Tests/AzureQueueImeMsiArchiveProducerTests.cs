@@ -35,7 +35,7 @@ public class AzureQueueImeMsiArchiveProducerTests
         Assert.Equal(2, sentBodies.Count);
         var roundTripped = JsonConvert.DeserializeObject<ImeMsiArchiveEnvelope>(sentBodies[0])!;
         Assert.Equal(Version, roundTripped.Version);
-        Assert.Equal(ImeMsiArchiver.CanonicalMsiUrl, roundTripped.MsiDownloadUrl);
+        Assert.Equal(ImeMsiArchiver.FallbackMsiUrls[1], roundTripped.MsiDownloadUrl);
         Assert.Equal("11111111-1111-1111-1111-111111111111", roundTripped.TenantId);
         // Queue existence is ensured once, then latched — not re-checked per message.
         queue.Verify(q => q.CreateIfNotExistsAsync(
@@ -92,7 +92,7 @@ public class AzureQueueImeMsiArchiveProducerTests
     private static ImeMsiArchiveEnvelope Envelope() => new()
     {
         Version = Version,
-        MsiDownloadUrl = ImeMsiArchiver.CanonicalMsiUrl,
+        MsiDownloadUrl = ImeMsiArchiver.FallbackMsiUrls[1],
         MsiMatchedBy = "productVersion",
         TenantId = "11111111-1111-1111-1111-111111111111",
         SessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

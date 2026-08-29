@@ -632,11 +632,15 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Outcome of the automatic installer archiving (<c>ImeMsiArchiver</c>):
-        /// <c>Archived</c> or a <c>Failed:*</c> status; null for versions sighted before the
-        /// feature existed or while the archive job is still queued. Like the FirstSeen*
-        /// identifiers, the archive fields are only serialized for Global Admin callers.
+        /// <c>Archived</c>, <c>Queued</c> (re-queued by a later sighting) or a <c>Failed:*</c>
+        /// status; null for versions sighted before the feature existed or while the first
+        /// archive job is still queued. Like the FirstSeen* identifiers, the archive fields
+        /// are only serialized for Global Admin callers.
         /// </summary>
         public string? MsiArchiveStatus { get; set; }
+
+        /// <summary>UTC time of the last archive-status change (queue/attempt); drives the re-queue backoff.</summary>
+        public DateTime? MsiArchiveUpdatedAt { get; set; }
 
         /// <summary>Blob path inside the <c>ime-archive</c> container, e.g. <c>1.104.102.0/IntuneWindowsAgent.msi</c>.</summary>
         public string? MsiArchiveBlobPath { get; set; }
@@ -647,7 +651,24 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Size of the archived installer in bytes.</summary>
         public long? MsiBytes { get; set; }
 
-        /// <summary>The URL the installer was downloaded from (CSP-reported or canonical fallback).</summary>
+        /// <summary>The URL the installer was downloaded from (CSP-reported or one of the distribution hosts).</summary>
         public string? MsiSourceUrl { get; set; }
+    }
+
+    /// <summary>
+    /// Result of recording one IME version sighting (<c>RecordImeVersionAsync</c>): whether
+    /// the version is new to the fleet, plus the archive columns the ingest path needs to
+    /// decide on a re-queue of the installer archive job without a second table read.
+    /// </summary>
+    public sealed class ImeVersionSighting
+    {
+        /// <summary>True when this sighting inserted the version (first fleet-wide sighting).</summary>
+        public bool IsNew { get; set; }
+
+        /// <summary>Current <c>MsiArchiveStatus</c> of the row (null when new or never archived).</summary>
+        public string? MsiArchiveStatus { get; set; }
+
+        /// <summary>Current <c>MsiArchiveUpdatedAt</c> of the row (null when new or never touched).</summary>
+        public DateTime? MsiArchiveUpdatedAt { get; set; }
     }
 }

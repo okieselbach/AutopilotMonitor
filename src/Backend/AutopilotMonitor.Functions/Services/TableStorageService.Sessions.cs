@@ -3501,10 +3501,11 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Records an IME version sighting. If the version is new, inserts it with FirstSeenAt.
-        /// If already known, updates LastSeenAt and increments SessionCount via Merge.
-        /// Returns true if this was a newly discovered version.
+        /// If already known, updates LastSeenAt and increments SessionCount via Merge and
+        /// returns the row's archive status/timestamp (read in the same point read as
+        /// SessionCount) so the ingest path can decide on an installer-archive re-queue.
         /// </summary>
-        public async Task<bool> RecordImeVersionAsync(string version, string tenantId, string sessionId)
+        public async Task<ImeVersionSighting> RecordImeVersionAsync(string version, string tenantId, string sessionId)
         {
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeVersionHistory);
             var now = DateTime.UtcNow;
@@ -3522,7 +3523,7 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 await tableClient.AddEntityAsync(newEntity);
-                return true; // New version discovered
+                return new ImeVersionSighting { IsNew = true }; // New version discovered
             }
             catch (RequestFailedException ex) when (ex.Status == 409)
             {
@@ -3530,11 +3531,14 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             // Merge-update for known versions: bump LastSeenAt + SessionCount
+            var sighting = new ImeVersionSighting { IsNew = false };
             try
             {
                 var existing = await tableClient.GetEntityAsync<TableEntity>("Global", version,
-                    select: new[] { "SessionCount" });
+                    select: new[] { "SessionCount", "MsiArchiveStatus", "MsiArchiveUpdatedAt" });
                 var currentCount = existing.Value.GetInt32("SessionCount") ?? 0;
+                sighting.MsiArchiveStatus = existing.Value.GetString("MsiArchiveStatus");
+                sighting.MsiArchiveUpdatedAt = existing.Value.GetDateTime("MsiArchiveUpdatedAt");
 
                 var mergeEntity = new TableEntity("Global", version)
                 {
@@ -3548,7 +3552,7 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "Failed to update ImeVersionHistory for version {Version}", version);
             }
 
-            return false;
+            return sighting;
         }
 
         /// <summary>
@@ -3575,6 +3579,7 @@ namespace AutopilotMonitor.Functions.Services
                         LastSeenAt = entity.GetDateTime("LastSeenAt") ?? DateTime.MinValue,
                         SessionCount = entity.GetInt32("SessionCount") ?? 0,
                         MsiArchiveStatus = entity.GetString("MsiArchiveStatus"),
+                        MsiArchiveUpdatedAt = entity.GetDateTime("MsiArchiveUpdatedAt"),
                         MsiArchiveBlobPath = entity.GetString("MsiArchiveBlobPath"),
                         MsiSha256 = entity.GetString("MsiSha256"),
                         MsiBytes = entity.GetInt64("MsiBytes"),
@@ -3605,7 +3610,8 @@ namespace AutopilotMonitor.Functions.Services
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeVersionHistory);
                 var mergeEntity = new TableEntity("Global", version)
                 {
-                    ["MsiArchiveStatus"] = status
+                    ["MsiArchiveStatus"] = status,
+                    ["MsiArchiveUpdatedAt"] = DateTime.UtcNow
                 };
                 if (!string.IsNullOrEmpty(blobPath)) mergeEntity["MsiArchiveBlobPath"] = blobPath;
                 if (!string.IsNullOrEmpty(sha256)) mergeEntity["MsiSha256"] = sha256;

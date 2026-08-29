@@ -1,6 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Azure;
@@ -10,13 +17,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AutopilotMonitor.Functions.Services.Ime
 {
-    /// <summary>
-    /// Outcome of an IME-installer archive attempt. <see cref="Status"/> is one of the
-    /// <see cref="ImeMsiArchiver.Statuses"/> constants and is merged verbatim onto the
-    /// ImeVersionHistory row. <see cref="Retryable"/> tells the queue worker whether to
-    /// trigger a visibility-timeout retry (transient download problems) or complete the
-    /// message (permanent rejections).
-    /// </summary>
+    /// <summary>Outcome of one archive attempt. Statuses are persisted verbatim on the ImeVersionHistory row.</summary>
     public sealed record ImeMsiArchiveResult(
         bool Success, string Status, bool Retryable,
         string? BlobPath, string? Sha256, long? SizeBytes, string? SourceUrl);
@@ -29,14 +30,24 @@ namespace AutopilotMonitor.Functions.Services.Ime
     /// fail-soft by contract (never throws), Statuses constants persisted verbatim,
     /// admin-configured size cap, typed catch ladder, <c>protected virtual</c> test seams.
     /// <para>
-    /// The download URL comes from agent telemetry and is therefore untrusted: only HTTPS
-    /// URLs on <c>*.manage.microsoft.com</c> whose path filename is exactly
-    /// <c>IntuneWindowsAgent.msi</c> are accepted; anything else falls back to the canonical
-    /// versionless CDN URL — safe for a NEW version, because "new" is by definition what
-    /// that URL currently serves. The blob write uses If-None-Match:* so a queue re-delivery
-    /// can never overwrite an existing archive entry; the 409 path additionally heals a
-    /// provenance sidecar the first attempt failed to write (see
-    /// <see cref="CompleteExistingArchiveAsync"/>).
+    /// <b>The blob folder is named after the version the fleet OBSERVED, so the bytes inside
+    /// must be that version.</b> Microsoft serves IME from several versionless CDN hosts that
+    /// carry different rollout rings at the same time (2026-08-29: <c>imeswdb-afd-secondary</c>
+    /// served 1.104.102.0 while <c>imeswda-afd-primary</c> served 1.105.101.0 and
+    /// <c>imeswda-afd-hotfix</c> 1.105.103.0), so no URL is trusted blindly: every candidate
+    /// download is spooled to a temp file, its <c>ProductVersion</c> is read out of the MSI
+    /// (<see cref="MsiProductVersionReader"/>) and only a matching package is uploaded.
+    /// Candidates are tried in order — the agent-reported CSP URL first (untrusted input:
+    /// only HTTPS on <c>*.manage.microsoft.com</c> with the exact installer filename passes
+    /// the allowlist), then the known distribution hosts. When none serves the observed
+    /// version the attempt ends as <see cref="Statuses.FailedVersionMismatch"/>; a later
+    /// sighting that carries a version-authoritative URL re-queues it
+    /// (<see cref="ShouldRequeueOnSighting"/>).
+    /// </para>
+    /// <para>
+    /// The blob write uses If-None-Match:* so a queue re-delivery can never overwrite an
+    /// existing archive entry; the 409 path additionally heals a provenance sidecar the
+    /// first attempt failed to write (see <see cref="CompleteExistingArchiveAsync"/>).
     /// </para>
     /// </summary>
     public class ImeMsiArchiver
@@ -45,23 +56,43 @@ namespace AutopilotMonitor.Functions.Services.Ime
         public static class Statuses
         {
             public const string Archived = "Archived";
+            /// <summary>Set by the ingest path when a later sighting re-queues the archive job.</summary>
+            public const string Queued = "Queued";
             public const string FailedBadVersion = "Failed:BadVersion";
             public const string FailedTooLarge = "Failed:TooLarge";
             public const string FailedDownload = "Failed:Download";
             public const string FailedTimeout = "Failed:Timeout";
             public const string FailedError = "Failed:Error";
+            /// <summary>No candidate URL served a package whose ProductVersion equals the observed version.</summary>
+            public const string FailedVersionMismatch = "Failed:VersionMismatch";
         }
 
         /// <summary>
-        /// The CSP's versionless distribution endpoint — always serves the currently rolled-out
-        /// build. Fallback when the event carried no (acceptable) URL.
+        /// Microsoft's versionless IME distribution hosts, tried in this order after the
+        /// event-reported URL. Each host carries its own rollout ring, so the same URL shape
+        /// serves different builds at the same time — the version check decides, not the order.
         /// </summary>
-        public const string CanonicalMsiUrl = "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi";
+        public static readonly IReadOnlyList<string> FallbackMsiUrls = new[]
+        {
+            "https://imeswda-afd-primary.manage.microsoft.com/IntuneWindowsAgent.msi",
+            "https://imeswdb-afd-secondary.manage.microsoft.com/IntuneWindowsAgent.msi",
+            "https://imeswda-afd-hotfix.manage.microsoft.com/IntuneWindowsAgent.msi",
+        };
+
+        /// <summary>
+        /// Minimum gap between archive attempts triggered by later sightings of a version that
+        /// is not archived yet. Bounds the worst case (a version no host serves any more) to
+        /// one download per host per day instead of one per enrollment session.
+        /// </summary>
+        public static readonly TimeSpan RequeueBackoff = TimeSpan.FromHours(24);
+
+        /// <summary>The event's <c>msiMatchedBy</c> value that makes its URL version-authoritative.</summary>
+        public const string MatchedByProductVersion = "productVersion";
 
         private const string MsiFileName = "IntuneWindowsAgent.msi";
         private const string AllowedHostSuffix = ".manage.microsoft.com";
 
-        /// <summary>Hard ceiling for one download attempt; the worker's heartbeat covers it.</summary>
+        /// <summary>Hard ceiling for one candidate download; the worker's heartbeat covers it.</summary>
         private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(10);
 
         /// <summary>Blob folder name = version — must be plain dotted digits (untrusted input).</summary>
@@ -116,6 +147,60 @@ namespace AutopilotMonitor.Functions.Services.Ime
             return fileName.Equals(MsiFileName, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Candidate download URLs in trial order: the allowlisted event URL (if any) followed
+        /// by <see cref="FallbackMsiUrls"/>, de-duplicated case-insensitively.
+        /// </summary>
+        public static IReadOnlyList<string> BuildCandidateUrls(string? eventUrl)
+        {
+            var candidates = new List<string>(FallbackMsiUrls.Count + 1);
+            if (IsAllowedMsiUrl(eventUrl)) candidates.Add(eventUrl!);
+            foreach (var url in FallbackMsiUrls)
+            {
+                if (!candidates.Contains(url, StringComparer.OrdinalIgnoreCase)) candidates.Add(url);
+            }
+            return candidates;
+        }
+
+        /// <summary>
+        /// Version equality tolerant of component count: <c>1.105.103</c> equals
+        /// <c>1.105.103.0</c> (the CSP registry and the MSI both drop/keep trailing zeros
+        /// inconsistently). Unparseable input never matches.
+        /// </summary>
+        public static bool VersionsMatch(string? observed, string? productVersion)
+        {
+            if (string.IsNullOrWhiteSpace(observed) || string.IsNullOrWhiteSpace(productVersion)) return false;
+            if (!Version.TryParse(observed.Trim(), out var a) || !Version.TryParse(productVersion.Trim(), out var b)) return false;
+            return Normalize(a) == Normalize(b);
+
+            static Version Normalize(Version v) =>
+                new(v.Major, Math.Max(v.Minor, 0), Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+        }
+
+        /// <summary>
+        /// Decides whether a sighting of an ALREADY KNOWN version should re-queue the archive
+        /// job: only when the event carries a version-authoritative CSP URL
+        /// (<c>msiMatchedBy=productVersion</c>, allowlisted), the version is not archived (and
+        /// not permanently rejected as a bad version string), and the last archive activity is
+        /// older than <see cref="RequeueBackoff"/> — or there never was any (versions sighted
+        /// before the archiver existed, or archived by hand via the /ime-decompile skill; the
+        /// 409 path then heals the row to Archived).
+        /// </summary>
+        public static bool ShouldRequeueOnSighting(
+            ImeVersionSighting? sighting, string? msiDownloadUrl, string? msiMatchedBy, DateTime nowUtc)
+        {
+            if (sighting is null || sighting.IsNew) return false;
+            if (!IsAllowedMsiUrl(msiDownloadUrl)) return false;
+            if (!string.Equals(msiMatchedBy, MatchedByProductVersion, StringComparison.OrdinalIgnoreCase)) return false;
+
+            var status = sighting.MsiArchiveStatus;
+            if (string.Equals(status, Statuses.Archived, StringComparison.Ordinal)) return false;
+            if (string.Equals(status, Statuses.FailedBadVersion, StringComparison.Ordinal)) return false;
+
+            return sighting.MsiArchiveUpdatedAt is null
+                || nowUtc - sighting.MsiArchiveUpdatedAt.Value >= RequeueBackoff;
+        }
+
         public virtual async Task<ImeMsiArchiveResult> ArchiveAsync(
             ImeMsiArchiveEnvelope envelope, CancellationToken cancellationToken = default)
         {
@@ -131,94 +216,128 @@ namespace AutopilotMonitor.Functions.Services.Ime
             var version = envelope.Version!;
             var blobPath = $"{version}/{MsiFileName}";
 
-            string sourceUrl;
-            if (IsAllowedMsiUrl(envelope.MsiDownloadUrl))
+            if (!string.IsNullOrEmpty(envelope.MsiDownloadUrl) && !IsAllowedMsiUrl(envelope.MsiDownloadUrl))
             {
-                sourceUrl = envelope.MsiDownloadUrl!;
+                _logger.LogWarning(
+                    "ImeMsiArchiver: event URL rejected by allowlist for version {Version} — using distribution hosts only",
+                    version);
             }
-            else
-            {
-                if (!string.IsNullOrEmpty(envelope.MsiDownloadUrl))
-                {
-                    _logger.LogWarning(
-                        "ImeMsiArchiver: event URL rejected by allowlist for version {Version} — using canonical URL",
-                        version);
-                }
-                sourceUrl = CanonicalMsiUrl;
-            }
+            var candidates = BuildCandidateUrls(envelope.MsiDownloadUrl);
+            var attempts = new List<CandidateAttempt>(candidates.Count);
+            string? transientStatus = null;
 
             try
             {
                 var adminConfig = await GetAdminConfigurationAsync();
                 var maxSizeBytes = (long)adminConfig.MaxImeMsiDownloadSizeMB * 1024 * 1024;
 
-                using var cts = new CancellationTokenSource(DownloadTimeout);
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
-
-                var (content, contentLength) = await OpenDownloadAsync(sourceUrl, linked.Token);
-
-                string sha256;
-                long totalBytes;
-                using (content)
+                foreach (var sourceUrl in candidates)
                 {
-                    // Same fast-reject as the diagnostics proxy: cap of 0 means unlimited.
-                    if (maxSizeBytes > 0 && contentLength > maxSizeBytes)
-                    {
-                        _logger.LogWarning(
-                            "ImeMsiArchiver: download for {Version} rejected — Content-Length {SizeBytes} exceeds limit {MaxSizeBytes}",
-                            version, contentLength, maxSizeBytes);
-                        return new ImeMsiArchiveResult(false, Statuses.FailedTooLarge, Retryable: false,
-                            null, null, contentLength, sourceUrl);
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var cts = new CancellationTokenSource(DownloadTimeout);
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-                    // Hash + count while streaming into the blob; the wrapper enforces the cap
-                    // mid-stream too (a lying/absent Content-Length cannot bypass it).
-                    using var guarded = new HashingCappedReadStream(content, maxSizeBytes);
                     try
                     {
-                        await UploadMsiAsync(blobPath, guarded, linked.Token);
+                        var (content, contentLength) = await OpenDownloadAsync(sourceUrl, linked.Token);
+                        using (content)
+                        {
+                            // Same fast-reject as the diagnostics proxy: cap of 0 means unlimited.
+                            if (maxSizeBytes > 0 && contentLength > maxSizeBytes)
+                            {
+                                _logger.LogWarning(
+                                    "ImeMsiArchiver: candidate {SourceUrl} for {Version} rejected — Content-Length {SizeBytes} exceeds limit {MaxSizeBytes}",
+                                    sourceUrl, version, contentLength, maxSizeBytes);
+                                attempts.Add(new CandidateAttempt(sourceUrl, "too-large", null));
+                                continue;
+                            }
+
+                            // Spool to disk while hashing/capping (a lying/absent Content-Length
+                            // cannot bypass the cap) — the version check needs random access.
+                            using var spool = CreateSpool();
+                            string sha256;
+                            long totalBytes;
+                            using (var guarded = new HashingCappedReadStream(content, maxSizeBytes))
+                            {
+                                await guarded.CopyToAsync(spool, linked.Token);
+                                sha256 = guarded.Sha256Hex;
+                                totalBytes = guarded.TotalBytes;
+                            }
+
+                            spool.Position = 0;
+                            var productVersion = ReadProductVersion(spool);
+                            if (!VersionsMatch(version, productVersion))
+                            {
+                                _logger.LogWarning(
+                                    "ImeMsiArchiver: candidate {SourceUrl} serves ProductVersion {ProductVersion} — not the observed {Version}; trying next host",
+                                    sourceUrl, productVersion ?? "(unreadable)", version);
+                                attempts.Add(new CandidateAttempt(sourceUrl, "version-mismatch", productVersion));
+                                continue;
+                            }
+                            attempts.Add(new CandidateAttempt(sourceUrl, "match", productVersion));
+
+                            spool.Position = 0;
+                            try
+                            {
+                                await UploadMsiAsync(blobPath, spool, linked.Token);
+                            }
+                            catch (RequestFailedException ex) when (ex.Status == 409)
+                            {
+                                // Queue re-delivery after a successful upload: the archive already has
+                                // this version — that IS the desired end state. But if the first
+                                // attempt died between the MSI and the provenance upload, the sidecar
+                                // is missing and this 409 pre-empts the happy path's provenance write
+                                // on every future retry — so it must be healed here.
+                                return await CompleteExistingArchiveAsync(
+                                    envelope, version, blobPath, sourceUrl, attempts, linked.Token);
+                            }
+
+                            await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, productVersion, attempts, linked.Token);
+
+                            _logger.LogInformation(
+                                "ImeMsiArchiver: archived {Version} ({SizeBytes} bytes, sha256 {Sha256}, ProductVersion {ProductVersion}) from {SourceUrl} after {Attempts} candidate(s)",
+                                version, totalBytes, sha256, productVersion, sourceUrl, attempts.Count);
+                            return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
+                                blobPath, sha256, totalBytes, sourceUrl);
+                        }
                     }
-                    catch (RequestFailedException ex) when (ex.Status == 409)
+                    catch (SizeCapExceededException)
                     {
-                        // Queue re-delivery after a successful upload: the archive already has
-                        // this version — that IS the desired end state. But if the first
-                        // attempt died between the MSI and the provenance upload, the sidecar
-                        // is missing and this 409 pre-empts the happy path's provenance write
-                        // on every future retry — so it must be healed here.
-                        return await CompleteExistingArchiveAsync(
-                            envelope, version, blobPath, sourceUrl, linked.Token);
+                        _logger.LogWarning(
+                            "ImeMsiArchiver: candidate {SourceUrl} for {Version} exceeded the size cap mid-stream — aborted",
+                            sourceUrl, version);
+                        attempts.Add(new CandidateAttempt(sourceUrl, "too-large", null));
                     }
-                    sha256 = guarded.Sha256Hex;
-                    totalBytes = guarded.TotalBytes;
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        _logger.LogWarning("ImeMsiArchiver: candidate {SourceUrl} for {Version} timed out", sourceUrl, version);
+                        attempts.Add(new CandidateAttempt(sourceUrl, "timeout", null));
+                        transientStatus ??= Statuses.FailedTimeout;
+                    }
+                    catch (HttpRequestException ex)
+                    {
+                        _logger.LogWarning(ex, "ImeMsiArchiver: candidate {SourceUrl} for {Version} failed to download", sourceUrl, version);
+                        attempts.Add(new CandidateAttempt(sourceUrl, "download-failed", null));
+                        transientStatus ??= Statuses.FailedDownload;
+                    }
                 }
 
-                await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, linked.Token);
-
-                _logger.LogInformation(
-                    "ImeMsiArchiver: archived {Version} ({SizeBytes} bytes, sha256 {Sha256}) from {SourceUrl}",
-                    version, totalBytes, sha256, sourceUrl);
-                return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
-                    blobPath, sha256, totalBytes, sourceUrl);
-            }
-            catch (SizeCapExceededException)
-            {
-                _logger.LogWarning(
-                    "ImeMsiArchiver: download for {Version} exceeded the size cap mid-stream — aborted",
-                    version);
-                return new ImeMsiArchiveResult(false, Statuses.FailedTooLarge, Retryable: false,
-                    null, null, null, sourceUrl);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning("ImeMsiArchiver: download for {Version} timed out", version);
-                return new ImeMsiArchiveResult(false, Statuses.FailedTimeout, Retryable: true,
-                    null, null, null, sourceUrl);
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogWarning(ex, "ImeMsiArchiver: download for {Version} failed", version);
-                return new ImeMsiArchiveResult(false, Statuses.FailedDownload, Retryable: true,
-                    null, null, null, sourceUrl);
+                // No candidate produced an archive entry. Transient host problems are worth the
+                // queue's retry ladder; "every host served another build" is not — the ingest
+                // path re-queues that once a later sighting brings an authoritative URL.
+                var summary = string.Join(", ", attempts.Select(a => $"{a.Url} → {a.Outcome}{(a.ProductVersion is null ? string.Empty : $" ({a.ProductVersion})")}"));
+                if (transientStatus is not null)
+                {
+                    _logger.LogWarning("ImeMsiArchiver: no candidate archived {Version} — transient failures: {Attempts}", version, summary);
+                    return new ImeMsiArchiveResult(false, transientStatus, Retryable: true, null, null, null, null);
+                }
+                if (attempts.Count > 0 && attempts.All(a => a.Outcome == "too-large"))
+                {
+                    _logger.LogWarning("ImeMsiArchiver: every candidate for {Version} exceeded the size cap: {Attempts}", version, summary);
+                    return new ImeMsiArchiveResult(false, Statuses.FailedTooLarge, Retryable: false, null, null, null, null);
+                }
+                _logger.LogWarning("ImeMsiArchiver: no distribution host serves {Version} right now: {Attempts}", version, summary);
+                return new ImeMsiArchiveResult(false, Statuses.FailedVersionMismatch, Retryable: false, null, null, null, null);
             }
             catch (OperationCanceledException)
             {
@@ -229,7 +348,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
             {
                 _logger.LogWarning(ex, "ImeMsiArchiver: archiving {Version} failed", version);
                 return new ImeMsiArchiveResult(false, Statuses.FailedError, Retryable: true,
-                    null, null, null, sourceUrl);
+                    null, null, null, null);
             }
         }
 
@@ -246,7 +365,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
         /// </summary>
         private async Task<ImeMsiArchiveResult> CompleteExistingArchiveAsync(
             ImeMsiArchiveEnvelope envelope, string version, string blobPath, string sourceUrl,
-            CancellationToken cancellationToken)
+            IReadOnlyList<CandidateAttempt> attempts, CancellationToken cancellationToken)
         {
             if (await ProvenanceExistsAsync($"{version}/provenance.json", cancellationToken))
             {
@@ -259,35 +378,44 @@ namespace AutopilotMonitor.Functions.Services.Ime
 
             string sha256;
             long totalBytes;
+            string? archivedProductVersion;
             using (var archived = await OpenArchivedMsiAsync(blobPath, cancellationToken))
-            using (var hashing = new HashingCappedReadStream(archived, maxBytes: 0))
+            using (var spool = CreateSpool())
             {
-                await hashing.CopyToAsync(Stream.Null, cancellationToken);
-                sha256 = hashing.Sha256Hex;
-                totalBytes = hashing.TotalBytes;
+                using (var hashing = new HashingCappedReadStream(archived, maxBytes: 0))
+                {
+                    await hashing.CopyToAsync(spool, cancellationToken);
+                    sha256 = hashing.Sha256Hex;
+                    totalBytes = hashing.TotalBytes;
+                }
+                spool.Position = 0;
+                archivedProductVersion = ReadProductVersion(spool);
             }
 
-            await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, cancellationToken);
+            await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, archivedProductVersion, attempts, cancellationToken);
 
             _logger.LogInformation(
-                "ImeMsiArchiver: healed missing provenance for already-archived {Version} ({SizeBytes} bytes, sha256 {Sha256})",
-                version, totalBytes, sha256);
+                "ImeMsiArchiver: healed missing provenance for already-archived {Version} ({SizeBytes} bytes, sha256 {Sha256}, ProductVersion {ProductVersion})",
+                version, totalBytes, sha256, archivedProductVersion ?? "(unreadable)");
             return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
                 blobPath, sha256, totalBytes, sourceUrl);
         }
 
         private async Task WriteProvenanceAsync(
             ImeMsiArchiveEnvelope envelope, string version, string sourceUrl,
-            string sha256, long totalBytes, CancellationToken cancellationToken)
+            string sha256, long totalBytes, string? productVersion,
+            IReadOnlyList<CandidateAttempt> attempts, CancellationToken cancellationToken)
         {
             var provenance = new
             {
                 version,
+                productVersion,
                 url = sourceUrl,
-                urlFromEvent = sourceUrl != CanonicalMsiUrl,
+                urlFromEvent = string.Equals(sourceUrl, envelope.MsiDownloadUrl, StringComparison.OrdinalIgnoreCase),
                 msiMatchedBy = envelope.MsiMatchedBy,
                 sha256,
                 msiBytes = totalBytes,
+                candidates = attempts.Select(a => new { a.Url, a.Outcome, a.ProductVersion }).ToList(),
                 firstSeenTenantId = envelope.TenantId,
                 firstSeenSessionId = envelope.SessionId,
                 archivedAtUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
@@ -295,11 +423,17 @@ namespace AutopilotMonitor.Functions.Services.Ime
             await UploadProvenanceAsync(
                 $"{version}/provenance.json",
                 System.Text.Json.JsonSerializer.Serialize(provenance,
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                    }),
                 cancellationToken);
         }
 
-        // -------- Test seams (production defaults hit Azure / the network) --------
+        private sealed record CandidateAttempt(string Url, string Outcome, string? ProductVersion);
+
+        // -------- Test seams (production defaults hit Azure / the network / the disk) --------
 
         /// <summary>Fetches the platform admin configuration (size cap).</summary>
         protected virtual Task<AdminConfiguration> GetAdminConfigurationAsync()
@@ -315,6 +449,19 @@ namespace AutopilotMonitor.Functions.Services.Ime
             var content = await response.Content.ReadAsStreamAsync(cancellationToken);
             return (content, response.Content.Headers.ContentLength ?? -1);
         }
+
+        /// <summary>
+        /// Seekable scratch stream for one candidate download (the version check needs random
+        /// access; the blob upload benefits from a known length). A delete-on-close temp file
+        /// keeps a 13 MB installer — or a 250 MB cap-sized one — off the heap.
+        /// </summary>
+        protected virtual Stream CreateSpool()
+            => new FileStream(Path.GetTempFileName(), FileMode.Create, FileAccess.ReadWrite, FileShare.None,
+                bufferSize: 81920, FileOptions.DeleteOnClose);
+
+        /// <summary>Reads the package's ProductVersion; null when the bytes are not a readable MSI.</summary>
+        protected virtual string? ReadProductVersion(Stream msi)
+            => MsiProductVersionReader.TryReadProductVersion(msi);
 
         /// <summary>
         /// Uploads the installer stream write-once (If-None-Match:*). Implementations must

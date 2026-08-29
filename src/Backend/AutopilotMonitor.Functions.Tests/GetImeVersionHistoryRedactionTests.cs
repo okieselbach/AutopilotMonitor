@@ -124,7 +124,7 @@ public class GetImeVersionHistoryRedactionTests
             new[]
             {
                 "firstSeenAt", "firstSeenSessionId", "firstSeenTenantId", "lastSeenAt",
-                "msiArchiveBlobPath", "msiArchiveStatus", "msiBytes", "msiSha256", "msiSourceUrl",
+                "msiArchiveBlobPath", "msiArchiveStatus", "msiArchiveUpdatedAt", "msiBytes", "msiSha256", "msiSourceUrl",
                 "sessionCount", "version",
             },
             keys);
@@ -211,6 +211,7 @@ public class GetImeVersionHistoryRedactionTests
             LastSeenAt = Last,
             SessionCount = 3109,
             MsiArchiveStatus = "Archived",
+            MsiArchiveUpdatedAt = Last,
             MsiArchiveBlobPath = $"{version}/IntuneWindowsAgent.msi",
             MsiSha256 = "4d6b85fd3c49cf227ab4711308bca1f3c701cad9bff1799da4c6b6616066bb5e",
             MsiBytes = 13_107_200,
