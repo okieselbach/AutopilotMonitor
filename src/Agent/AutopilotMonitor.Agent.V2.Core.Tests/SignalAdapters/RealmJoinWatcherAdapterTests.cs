@@ -600,5 +600,138 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.DoesNotContain(ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinPackageCompleted);
         }
 
+
+        // ---- auto-update (Uninstall\RealmJoin) -----------------------------------------------
+
+        private sealed class VersionSource
+        {
+            public RealmJoinVersionInfo Info = RealmJoinVersionInfo.Empty;
+            public string? DisplayVersion;
+            public RealmJoinVersionInfo Read() => Info;
+            public string? ReadDisplayVersion() => DisplayVersion;
+        }
+
+        private sealed class AutoUpdateHarness : IDisposable
+        {
+            private readonly TempDirectory _tmp = new TempDirectory();
+            public FakeSignalIngressSink Ingress { get; } = new FakeSignalIngressSink();
+            public VersionSource Versions { get; } = new VersionSource();
+            public RealmJoinWatcher Watcher { get; }
+            public RealmJoinWatcherAdapter Adapter { get; }
+
+            public AutoUpdateHarness()
+            {
+                var logger = new AgentLogger(_tmp.Path, AgentLogLevel.Info);
+                var registry = new FakeRealmJoinRegistry();
+                Watcher = new RealmJoinWatcher(
+                    logger,
+                    enumeratePackageIds: registry.Enumerate,
+                    tryReadPackage: registry.TryRead,
+                    keyExists: registry.KeyExists,
+                    readVersionInfo: Versions.Read,
+                    readUninstallDisplayVersion: Versions.ReadDisplayVersion);
+                Adapter = new RealmJoinWatcherAdapter(Watcher, Ingress, new VirtualClock(Fixed));
+            }
+
+            public void Dispose()
+            {
+                Adapter.Dispose();
+                Watcher.Dispose();
+                _tmp.Dispose();
+            }
+        }
+
+        [Fact]
+        public void AutoUpdate_fires_once_with_previous_and_new_version_when_binary_version_changes_after_detection()
+        {
+            // gktatooine session 946ccbd6: realmjoin_detected read 4.21.4 from the MSI-shipped
+            // binary; nine minutes later the tray AppUpdater swapped it for 4.21.18 and rewrote
+            // Uninstall\RealmJoin. The Detected read is the baseline; the re-read after the
+            // Uninstall-key change must surface exactly one auto-update event.
+            using var h = new AutoUpdateHarness();
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.4", "canary");
+            h.Watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 0);
+            Assert.Equal("4.21.4", h.Watcher.BaselineVersionForTest);
+
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.18", "canary");
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+
+            var signal = Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.4", signal.Payload![DecisionEngine.RealmJoinPayloadKeys.PreviousVersion]);
+            Assert.Equal("4.21.18", signal.Payload[DecisionEngine.RealmJoinPayloadKeys.ProductVersion]);
+            Assert.Equal("canary", signal.Payload[DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel]);
+
+            var info = Assert.Single(h.Ingress.Posted, p =>
+                p.Kind == DecisionSignalKind.InformationalEvent
+                && p.Payload != null
+                && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                && et == SharedEventTypes.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.4", info.Payload!["previousVersion"]);
+            Assert.Equal("4.21.18", info.Payload["newVersion"]);
+            Assert.Equal("canary", info.Payload["releaseChannel"]);
+            Assert.Contains("4.21.4 -> 4.21.18", info.Payload[SignalPayloadKeys.Message]);
+
+            // Same version again (updater rewrote more values) — no duplicate.
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+            Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.18", h.Watcher.BaselineVersionForTest);
+        }
+
+        [Fact]
+        public void AutoUpdate_stays_silent_when_version_is_unchanged_or_unreadable()
+        {
+            using var h = new AutoUpdateHarness();
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.4", "release");
+            h.Watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 0);
+
+            // Unchanged (e.g. the tray creating the Uninstall entry on first start).
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+            // Unreadable (binary locked mid-swap, registry value not there yet) — baseline kept.
+            h.Versions.Info = RealmJoinVersionInfo.Empty;
+            h.Versions.DisplayVersion = null;
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+
+            Assert.DoesNotContain(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.4", h.Watcher.BaselineVersionForTest);
+        }
+
+        [Fact]
+        public void AutoUpdate_falls_back_to_Uninstall_DisplayVersion_and_keeps_baseline_channel()
+        {
+            using var h = new AutoUpdateHarness();
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.4", "canary");
+            h.Watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 0);
+
+            h.Versions.Info = RealmJoinVersionInfo.Empty;   // RealmJoin.exe still held by the updater
+            h.Versions.DisplayVersion = "4.21.18";           // registry already rewritten
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+
+            var signal = Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.18", signal.Payload![DecisionEngine.RealmJoinPayloadKeys.ProductVersion]);
+            // DisplayVersion carries no channel tag — the Detected channel is the best evidence.
+            Assert.Equal("canary", signal.Payload[DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel]);
+        }
+
+        [Fact]
+        public void AutoUpdate_seeds_baseline_silently_when_Detected_could_not_read_the_binary()
+        {
+            using var h = new AutoUpdateHarness();
+            h.Versions.Info = RealmJoinVersionInfo.Empty;
+            h.Watcher.TriggerNotifyRealmJoinPresenceFromTest(phase: 0);
+            Assert.Null(h.Watcher.BaselineVersionForTest);
+
+            // First successful read has nothing to compare against — no phantom update.
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.18", "canary");
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+            Assert.DoesNotContain(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.18", h.Watcher.BaselineVersionForTest);
+
+            // A later genuine change is still reported against the seeded baseline.
+            h.Versions.Info = new RealmJoinVersionInfo("4.21.19", "canary");
+            h.Watcher.TriggerCheckAutoUpdateFromTest();
+            var signal = Assert.Single(h.Ingress.Posted, p => p.Kind == DecisionSignalKind.RealmJoinAutoUpdateDetected);
+            Assert.Equal("4.21.18", signal.Payload![DecisionEngine.RealmJoinPayloadKeys.PreviousVersion]);
+        }
+
     }
 }

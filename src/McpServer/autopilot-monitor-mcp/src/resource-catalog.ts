@@ -128,6 +128,7 @@ export const EVENT_TYPES_CATALOG = {
     'realmjoin_first_deployment_incomplete',
     'realmjoin_package_started',
     'realmjoin_package_completed',
+    'realmjoin_autoupdate_detected',
   ],
   deployment_events: [
     'modern_deployment_log',

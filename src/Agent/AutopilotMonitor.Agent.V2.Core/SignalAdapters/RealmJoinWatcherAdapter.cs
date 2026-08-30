@@ -21,6 +21,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
     {
         private const string SourceLabel = "RealmJoinWatcher";
         private const string RegistryKeyHint = @"HKLM\SYSTEM\CurrentControlSet\Services\realmjoin\Parameters";
+        private const string UninstallRegistryKeyHint = @"HKLM\" + RealmJoinInfo.UninstallRealmJoinPath;
 
         private readonly RealmJoinWatcher _watcher;
         private readonly ISignalIngressSink _ingress;
@@ -39,6 +40,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _watcher.RealmJoinPhaseChanged += OnPhaseChanged;
             _watcher.RealmJoinPackageStarted += OnPackageStarted;
             _watcher.RealmJoinPackageCompleted += OnPackageCompleted;
+            _watcher.RealmJoinAutoUpdateDetected += OnAutoUpdateDetected;
         }
 
         public void Dispose()
@@ -48,6 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _watcher.RealmJoinPhaseChanged -= OnPhaseChanged;
             _watcher.RealmJoinPackageStarted -= OnPackageStarted;
             _watcher.RealmJoinPackageCompleted -= OnPackageCompleted;
+            _watcher.RealmJoinAutoUpdateDetected -= OnAutoUpdateDetected;
         }
 
         // Test seams
@@ -57,6 +60,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         internal void TriggerPhaseChangedFromTest(int prev, int curr) => OnPhaseChanged(this, new RealmJoinPhaseChangedEventArgs(prev, curr));
         internal void TriggerPackageStartedFromTest(string scope, RealmJoinPackageSnapshot snap) => OnPackageStarted(this, new RealmJoinPackageEventArgs(scope, snap));
         internal void TriggerPackageCompletedFromTest(string scope, RealmJoinPackageSnapshot snap) => OnPackageCompleted(this, new RealmJoinPackageEventArgs(scope, snap));
+        internal void TriggerAutoUpdateDetectedFromTest(string previousVersion, string newVersion, string? releaseChannel) =>
+            OnAutoUpdateDetected(this, new RealmJoinAutoUpdateDetectedEventArgs(previousVersion, newVersion, releaseChannel));
 
         private void OnDetected(object? sender, RealmJoinDetectedEventArgs e)
         {
@@ -173,6 +178,56 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 message: $"RealmJoin DeploymentPhase {previousName} -> {currentName}",
                 severity: EventSeverity.Info,
                 immediateUpload: false,
+                data: data,
+                occurredAtUtc: _clock.UtcNow);
+        }
+
+        private void OnAutoUpdateDetected(object? sender, RealmJoinAutoUpdateDetectedEventArgs e)
+        {
+            // Dual-emission: (1) the typed signal overrides the persisted version facts so
+            // final-status / replay carry the build that ran the deployment; (2) the timeline
+            // entry makes the self-update visible next to realmjoin_detected.
+            var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [DecisionEngine.RealmJoinPayloadKeys.PreviousVersion] = e.PreviousVersion,
+                [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = e.NewVersion,
+            };
+            if (!string.IsNullOrEmpty(e.ReleaseChannel))
+            {
+                payload[DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = e.ReleaseChannel!;
+            }
+
+            _ingress.Post(
+                kind: DecisionSignalKind.RealmJoinAutoUpdateDetected,
+                occurredAtUtc: _clock.UtcNow,
+                sourceOrigin: SourceLabel,
+                evidence: new Evidence(
+                    kind: EvidenceKind.Derived,
+                    identifier: "realmjoin-autoupdate-detected-v1",
+                    summary: $"RealmJoin self-update observed ({e.PreviousVersion} -> {e.NewVersion}, releaseChannel={e.ReleaseChannel ?? "<unknown>"})",
+                    derivationInputs: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["registryKey"] = UninstallRegistryKeyHint,
+                    }),
+                payload: payload);
+
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["previousVersion"] = e.PreviousVersion,
+                ["newVersion"] = e.NewVersion,
+                ["registryKey"] = UninstallRegistryKeyHint,
+            };
+            if (!string.IsNullOrEmpty(e.ReleaseChannel))
+            {
+                data["releaseChannel"] = e.ReleaseChannel!;
+            }
+            var channelTail = string.IsNullOrEmpty(e.ReleaseChannel) ? string.Empty : $", channel={e.ReleaseChannel}";
+            _post.Emit(
+                eventType: SharedConstants.EventTypes.RealmJoinAutoUpdateDetected,
+                source: SourceLabel,
+                message: $"RealmJoin auto-updated {e.PreviousVersion} -> {e.NewVersion}{channelTail}",
+                severity: EventSeverity.Info,
+                immediateUpload: true,
                 data: data,
                 occurredAtUtc: _clock.UtcNow);
         }

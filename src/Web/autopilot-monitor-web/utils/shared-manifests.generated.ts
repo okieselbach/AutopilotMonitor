@@ -623,6 +623,7 @@ export const SHARED_MANIFEST = {
     "prior_run_died_with_state",
     "provisioning_package_scan",
     "proxy_configuration",
+    "realmjoin_autoupdate_detected",
     "realmjoin_detected",
     "realmjoin_first_deployment_incomplete",
     "realmjoin_package_completed",

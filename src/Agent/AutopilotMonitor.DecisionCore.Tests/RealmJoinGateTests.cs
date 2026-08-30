@@ -837,5 +837,73 @@ namespace AutopilotMonitor.DecisionCore.Tests
             Assert.True(data.ContainsKey("realmjoinDetectedUtc"));
             Assert.True(data.ContainsKey("realmjoinResolvedUtc"));
         }
+
+        [Fact]
+        public void RealmJoinAutoUpdateDetected_overrides_version_facts_without_touching_gate_or_deadline()
+        {
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+
+            var detected = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "0",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "4.21.4",
+                    [DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = "canary",
+                }));
+            var deadlineBefore = Assert.Single(detected.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+
+            // Channel omitted (registry DisplayVersion fallback) — the Detected channel must survive.
+            var updated = engine.Reduce(detected.NewState, MakeSignal(6, DecisionSignalKind.RealmJoinAutoUpdateDetected, T0.AddMinutes(14),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousVersion] = "4.21.4",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "4.21.18",
+                }));
+
+            Assert.Null(updated.Transition.DeadEndReason);
+            Assert.Equal("4.21.18", updated.NewState.RealmJoinFacts.ProductVersion!.Value);
+            Assert.Equal("canary", updated.NewState.RealmJoinFacts.ReleaseChannel!.Value);
+            Assert.Equal(detected.NewState.Stage, updated.NewState.Stage);
+            Assert.False(DecisionEngine.RealmJoinGateOpen(updated.NewState));
+            var deadlineAfter = Assert.Single(updated.NewState.Deadlines, d => d.Name == DeadlineNames.RealmJoinTimeout);
+            Assert.Equal(deadlineBefore.DueAtUtc, deadlineAfter.DueAtUtc);
+            Assert.Null(updated.NewState.RealmJoinFacts.LastActivityUtc);
+            Assert.Empty(updated.Effects);
+
+            // Channel supplied — overrides too.
+            var again = engine.Reduce(updated.NewState, MakeSignal(7, DecisionSignalKind.RealmJoinAutoUpdateDetected, T0.AddMinutes(15),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousVersion] = "4.21.18",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "4.22.0",
+                    [DecisionEngine.RealmJoinPayloadKeys.ReleaseChannel] = "release",
+                }));
+            Assert.Equal("4.22.0", again.NewState.RealmJoinFacts.ProductVersion!.Value);
+            Assert.Equal("release", again.NewState.RealmJoinFacts.ReleaseChannel!.Value);
+        }
+
+        [Fact]
+        public void RealmJoinAutoUpdateDetected_without_version_dead_ends_and_keeps_facts()
+        {
+            var engine = new DecisionEngine();
+            var state = PrimeClassicAwaitingDesktop(engine);
+            var detected = engine.Reduce(state, MakeSignal(5, DecisionSignalKind.RealmJoinDetected, T0.AddMinutes(5),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.DeploymentPhase] = "0",
+                    [DecisionEngine.RealmJoinPayloadKeys.ProductVersion] = "4.21.4",
+                }));
+
+            var step = engine.Reduce(detected.NewState, MakeSignal(6, DecisionSignalKind.RealmJoinAutoUpdateDetected, T0.AddMinutes(14),
+                new Dictionary<string, string>
+                {
+                    [DecisionEngine.RealmJoinPayloadKeys.PreviousVersion] = "4.21.4",
+                }));
+
+            Assert.Equal("realmjoin_autoupdate_missing_version", step.Transition.DeadEndReason);
+            Assert.Equal("4.21.4", step.NewState.RealmJoinFacts.ProductVersion!.Value);
+        }
+
     }
 }

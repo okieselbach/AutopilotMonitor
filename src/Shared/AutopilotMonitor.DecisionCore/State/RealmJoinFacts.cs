@@ -167,6 +167,29 @@ namespace AutopilotMonitor.DecisionCore.State
                 lastActivityUtc: LastActivityUtc);
         }
 
+        /// <summary>
+        /// Auto-update override of the set-once version facts (<see cref="WithProductVersion"/> /
+        /// <see cref="WithReleaseChannel"/> deliberately refuse replays of Detected; a self-update
+        /// is the one legitimate later write). Empty <paramref name="productVersion"/> is a no-op;
+        /// a <c>null</c> <paramref name="releaseChannel"/> keeps the existing channel fact.
+        /// </summary>
+        public RealmJoinFacts WithVersionOverride(string productVersion, string? releaseChannel, long sourceSignalOrdinal)
+        {
+            if (string.IsNullOrEmpty(productVersion)) return this;
+            return new RealmJoinFacts(
+                detectedUtc: DetectedUtc,
+                resolvedUtc: ResolvedUtc,
+                lastDeploymentPhase: LastDeploymentPhase,
+                outcome: Outcome,
+                selfDeployingDeferredCompletion: SelfDeployingDeferredCompletion,
+                productVersion: new SignalFact<string>(productVersion, sourceSignalOrdinal),
+                releaseChannel: string.IsNullOrEmpty(releaseChannel)
+                    ? ReleaseChannel
+                    : new SignalFact<string>(releaseChannel!, sourceSignalOrdinal),
+                packages: Packages,
+                lastActivityUtc: LastActivityUtc);
+        }
+
         public RealmJoinFacts WithResolved(DateTime utc, int phase, long sourceSignalOrdinal)
         {
             if (ResolvedUtc != null) return this; // set-once

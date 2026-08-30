@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (13)
+
+* **Update**: `agent/decision-engine.md` — RealmJoin self-update observation. `realmjoin_detected` reported the MSI-shipped build (4.21.4) although the tray auto-updated to 4.21.18 nine minutes later and ran the whole deployment on it (gktatooine session 946ccbd6). `RealmJoinWatcher` now watches `HKLM\...\Uninstall\RealmJoin` (the updater's only registry write) after detection, re-reads the binary version on change and emits `realmjoin_autoupdate_detected` (`previousVersion`, `newVersion`, `releaseChannel`); the typed `RealmJoinAutoUpdateDetected` signal overrides `RealmJoinFacts.ProductVersion`/`ReleaseChannel` and nothing else. Portal device card shows the updated version with an "auto-updated from" note.
+
 ## 2026-08-30 (12)
 
 * **Update**: `web/portal-navigation-prefetch.md` — hosting citation now points at `deploy-web.yml`: the portal is built in CI (setup-node 22, `npm ci`, `next build`) and uploaded with the pinned SWA CLI; the Azure/static-web-apps-deploy action, its Oryx in-container build and the per-PR preview environments are gone. All non-GitHub-owned actions are SHA-pinned; the release and rules auto-commit steps use first-party `gh`/`git`.

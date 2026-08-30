@@ -103,6 +103,49 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public const string RealmJoinExePathX86 = @"C:\Program Files (x86)\RealmJoin\RealmJoin.exe";
 
         /// <summary>
+        /// Always-existing parent of the RJ Add/Remove-Programs entry — the appearance-watch
+        /// anchor when <see cref="UninstallRealmJoinPath"/> does not exist yet (the tray creates
+        /// the entry on its first start, after the service key is already present).
+        /// </summary>
+        public const string UninstallRootPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+
+        /// <summary>Sub-key name of the RJ entry under <see cref="UninstallRootPath"/>.</summary>
+        public const string UninstallRealmJoinKeyName = "RealmJoin";
+
+        /// <summary>
+        /// RJ's Add/Remove-Programs entry. The in-app updater (<c>RealmJoin.Core.AppUpdater</c>)
+        /// rewrites this key (<c>DisplayVersion</c>, <c>InstallDate</c>) in the same second it
+        /// swaps <c>RealmJoin.exe</c> — the only registry write that reflects an RJ self-update.
+        /// Neither <c>SOFTWARE\RealmJoin</c> nor <c>Services\realmjoin\Parameters</c> carry a version.
+        /// </summary>
+        public const string UninstallRealmJoinPath = UninstallRootPath + @"\" + UninstallRealmJoinKeyName;
+
+        /// <summary>Bare version string under <see cref="UninstallRealmJoinPath"/>, e.g. <c>4.21.18</c> (no channel tag).</summary>
+        public const string DisplayVersionValueName = "DisplayVersion";
+
+        /// <summary>
+        /// Best-effort read of <c>DisplayVersion</c> under <see cref="UninstallRealmJoinPath"/>.
+        /// Fallback for the auto-update watcher when <c>RealmJoin.exe</c> is momentarily locked by
+        /// the updater; carries no release channel. <c>null</c> when absent or unreadable.
+        /// </summary>
+        public static string? TryReadUninstallDisplayVersion()
+        {
+            try
+            {
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(UninstallRealmJoinPath, writable: false))
+                {
+                    var raw = key?.GetValue(DisplayVersionValueName) as string;
+                    return string.IsNullOrWhiteSpace(raw) ? null : raw!.Trim();
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Release-channel name reported when the version string carries no SemVer prerelease
         /// tag. Per the RJ developer, only beta/canary builds are tagged — untagged == stable.
         /// </summary>

@@ -35,6 +35,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
     }
 
+    /// <summary>
+    /// RJ replaced its own binary after detection (tray <c>AppUpdater</c> "New version found …,
+    /// update required" on first start). <see cref="PreviousVersion"/> is the version reported
+    /// on <see cref="RealmJoinDetectedEventArgs"/> (or the last auto-update), <see cref="NewVersion"/>
+    /// the version now installed. Observability-only — the deployment lifecycle is unaffected.
+    /// </summary>
+    public sealed class RealmJoinAutoUpdateDetectedEventArgs : EventArgs
+    {
+        public string PreviousVersion { get; }
+        public string NewVersion { get; }
+        /// <summary>Channel of the new build; <c>null</c> when only the registry fallback was readable.</summary>
+        public string? ReleaseChannel { get; }
+
+        public RealmJoinAutoUpdateDetectedEventArgs(string previousVersion, string newVersion, string? releaseChannel)
+        {
+            PreviousVersion = previousVersion;
+            NewVersion = newVersion;
+            ReleaseChannel = releaseChannel;
+        }
+    }
+
     public sealed class RealmJoinResolvedEventArgs : EventArgs
     {
         public int DeploymentPhase { get; }
@@ -104,12 +125,33 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal delegate IReadOnlyList<string> EnumeratePackageIdsDelegate(RegistryHive hive, string packagesPath);
         internal delegate bool TryReadPackageDelegate(RegistryHive hive, string packagesPath, string packageId, out RealmJoinPackageSnapshot snapshot);
         internal delegate bool KeyExistsDelegate(RegistryHive hive, string subPath);
+        internal delegate RealmJoinVersionInfo ReadVersionInfoDelegate();
+        internal delegate string? ReadUninstallDisplayVersionDelegate();
+
+        /// <summary>
+        /// Debounce for the Uninstall-key watcher. Longer than <see cref="DebounceMilliseconds"/>:
+        /// the updater rewrites several values and swaps <c>RealmJoin.exe</c> in the same window,
+        /// so the version re-read should land after the binary is back in place.
+        /// </summary>
+        internal const int AutoUpdateDebounceMilliseconds = 2000;
 
         private readonly AgentLogger _logger;
         private readonly EnumeratePackageIdsDelegate _enumeratePackageIds;
         private readonly TryReadPackageDelegate _tryReadPackage;
         private readonly KeyExistsDelegate _keyExists;
+        private readonly ReadVersionInfoDelegate _readVersionInfo;
+        private readonly ReadUninstallDisplayVersionDelegate _readUninstallDisplayVersion;
         private readonly object _stateLock = new object();
+
+        // Auto-update stage (armed once Detected fired, held until Stop).
+        private RegistryWatcher? _uninstallAppearanceWatcher;
+        private RegistryWatcher? _uninstallWatcher;
+        private Timer? _uninstallDebounce;
+        // Version baseline the next Uninstall-key change is compared against. Seeded from the
+        // Detected read; null when the binary was unreadable then — the first successful
+        // re-read seeds it silently instead of reporting a phantom update.
+        private string? _baselineVersion;
+        private string? _baselineChannel;
 
         // Stage-1 parent-watchers (disposed on appearance).
         private RegistryWatcher? _servicesAppearanceWatcher;
@@ -149,6 +191,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public event EventHandler<RealmJoinPhaseChangedEventArgs>? RealmJoinPhaseChanged;
         public event EventHandler<RealmJoinPackageEventArgs>? RealmJoinPackageStarted;
         public event EventHandler<RealmJoinPackageEventArgs>? RealmJoinPackageCompleted;
+        public event EventHandler<RealmJoinAutoUpdateDetectedEventArgs>? RealmJoinAutoUpdateDetected;
 
         public RealmJoinWatcher(AgentLogger logger)
             : this(logger, RealmJoinInfo.EnumeratePackageIds, RealmJoinInfo.TryReadPackage, KeyExistsViaRegistry)
@@ -159,12 +202,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             AgentLogger logger,
             EnumeratePackageIdsDelegate enumeratePackageIds,
             TryReadPackageDelegate tryReadPackage,
-            KeyExistsDelegate keyExists)
+            KeyExistsDelegate keyExists,
+            ReadVersionInfoDelegate? readVersionInfo = null,
+            ReadUninstallDisplayVersionDelegate? readUninstallDisplayVersion = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _enumeratePackageIds = enumeratePackageIds ?? throw new ArgumentNullException(nameof(enumeratePackageIds));
             _tryReadPackage = tryReadPackage ?? throw new ArgumentNullException(nameof(tryReadPackage));
             _keyExists = keyExists ?? throw new ArgumentNullException(nameof(keyExists));
+            _readVersionInfo = readVersionInfo ?? RealmJoinInfo.TryReadRealmJoinVersionInfo;
+            _readUninstallDisplayVersion = readUninstallDisplayVersion ?? RealmJoinInfo.TryReadUninstallDisplayVersion;
         }
 
         public void Start()
@@ -224,14 +271,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     DisposeAndNull(ref _servicesAppearanceWatcher);
                     DisposeAndNull(ref _machineSoftwareAppearanceWatcher);
                     DisposeAndNull(ref _userSoftwareAppearanceWatcher);
+                    DisposeAndNull(ref _uninstallAppearanceWatcher);
 
                     _serviceRealmjoinDebounce?.Dispose(); _serviceRealmjoinDebounce = null;
                     _machineRealmJoinDebounce?.Dispose(); _machineRealmJoinDebounce = null;
                     _userRealmJoinDebounce?.Dispose(); _userRealmJoinDebounce = null;
+                    _uninstallDebounce?.Dispose(); _uninstallDebounce = null;
 
                     DisposeAndNull(ref _serviceRealmjoinWatcher);
                     DisposeAndNull(ref _machineRealmJoinWatcher);
                     DisposeAndNull(ref _userRealmJoinWatcher);
+                    DisposeAndNull(ref _uninstallWatcher);
                 }
                 _logger.Info($"RealmJoinWatcher: stopped ({reason})");
             }
@@ -555,13 +605,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (fireDetected)
             {
                 var initial = phase ?? 0;
-                // Read RJ version + release channel best-effort (fail-soft to null) ONLY when
-                // the Detected event actually fires — single read per session lifetime keeps
-                // any potential file-system cost to a single hit.
-                var versionInfo = RealmJoinInfo.TryReadRealmJoinVersionInfo();
+                // Read RJ version + release channel best-effort (fail-soft to null) when the
+                // Detected event fires. The result seeds the auto-update baseline; later reads
+                // only happen when the Uninstall key changes (see CheckAutoUpdate).
+                var versionInfo = _readVersionInfo();
+                lock (_stateLock)
+                {
+                    _baselineVersion = versionInfo.ProductVersion;
+                    _baselineChannel = versionInfo.ReleaseChannel;
+                }
                 _logger.Info($"RealmJoinWatcher: RJ detected (phase={initial}, productVersion={versionInfo.ProductVersion ?? "<unknown>"}, releaseChannel={versionInfo.ReleaseChannel ?? "<unknown>"})");
                 try { RealmJoinDetected?.Invoke(this, new RealmJoinDetectedEventArgs(initial, versionInfo.ProductVersion, versionInfo.ReleaseChannel)); }
                 catch (Exception ex) { _logger.Error("RealmJoinWatcher: RealmJoinDetected handler threw", ex); }
+
+                EnsureUninstallStage();
             }
 
             if (firePhaseChange && prevPhase.HasValue && phase.HasValue)
@@ -590,6 +647,115 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     // as a started+completed pair before the seed had a chance to suppress them.
                     EnsureUserRealmJoinStage();
                 }
+            }
+        }
+
+        // ---- auto-update stage (Uninstall\RealmJoin) ---------------------------------------
+
+        /// <summary>
+        /// Arm the RJ self-update observer. The tray's <c>AppUpdater</c> rewrites
+        /// <see cref="RealmJoinInfo.UninstallRealmJoinPath"/> whenever it swaps the binary — on a
+        /// first start with a stale MSI payload this happens minutes after Detected, so the
+        /// version reported on <see cref="RealmJoinDetected"/> would otherwise be wrong for the
+        /// rest of the session. Same appearance-then-subtree pattern as the other stages; the
+        /// entry is created by the tray on first start, i.e. it may not exist at Detected time.
+        /// </summary>
+        private void EnsureUninstallStage()
+        {
+            if (_disposed) return;
+            if (_keyExists(RegistryHive.LocalMachine, RealmJoinInfo.UninstallRealmJoinPath))
+            {
+                AttachUninstallWatcher();
+                return;
+            }
+            ArmAppearanceParentWatcher(
+                role: "uninstall",
+                hive: RegistryHive.LocalMachine,
+                parentPath: RealmJoinInfo.UninstallRootPath,
+                targetSubKeyName: RealmJoinInfo.UninstallRealmJoinKeyName,
+                targetFullPath: RealmJoinInfo.UninstallRealmJoinPath,
+                slot: w => { lock (_stateLock) { _uninstallAppearanceWatcher = w; } },
+                clearSlot: () => { lock (_stateLock) { _uninstallAppearanceWatcher = null; } },
+                onAppeared: AttachUninstallWatcher);
+        }
+
+        private void AttachUninstallWatcher()
+        {
+            lock (_stateLock)
+            {
+                if (_disposed || _uninstallWatcher != null) return;
+                try
+                {
+                    _uninstallDebounce = new Timer(_ => CheckAutoUpdate(), null, Timeout.Infinite, Timeout.Infinite);
+                    _uninstallWatcher = new RegistryWatcher(
+                        RegistryHive.LocalMachine,
+                        RealmJoinInfo.UninstallRealmJoinPath,
+                        watchSubtree: false,
+                        view: RegistryView.Registry64,
+                        filter: RegistryNativeMethods.RegChangeNotifyFilter.LastSet,
+                        trace: msg => _logger.Trace($"RealmJoinWatcher(uninstall): {msg}"));
+                    _uninstallWatcher.Changed += (s, e) => _uninstallDebounce?.Change(AutoUpdateDebounceMilliseconds, Timeout.Infinite);
+                    _uninstallWatcher.Error += (s, ex) => _logger.Warning($"RealmJoinWatcher(uninstall): {ex.Message}");
+                    _uninstallWatcher.Start();
+                    _logger.Info("RealmJoinWatcher: attached auto-update watcher on Uninstall\\RealmJoin");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"RealmJoinWatcher: failed to attach Uninstall\\RealmJoin watcher: {ex.Message}");
+                }
+            }
+
+            // The key may already carry a newer version than the Detected read (update raced
+            // the appearance), so sweep once on attach — same as the other stages.
+            CheckAutoUpdate();
+        }
+
+        /// <summary>
+        /// Re-read the installed RJ version and fire <see cref="RealmJoinAutoUpdateDetected"/>
+        /// when it differs from the baseline. Primary source is the binary's file-version
+        /// resource (carries the channel); the Uninstall key's <c>DisplayVersion</c> is the
+        /// fallback while the updater still holds the file. Unreadable ⇒ no event, baseline kept.
+        /// </summary>
+        private void CheckAutoUpdate()
+        {
+            try
+            {
+                var info = _readVersionInfo();
+                var newVersion = info.ProductVersion;
+                var newChannel = info.ReleaseChannel;
+                if (string.IsNullOrEmpty(newVersion))
+                {
+                    newVersion = _readUninstallDisplayVersion();
+                    newChannel = null;
+                    if (string.IsNullOrEmpty(newVersion)) return;
+                }
+
+                string? previousVersion;
+                string? channelForEvent;
+                lock (_stateLock)
+                {
+                    previousVersion = _baselineVersion;
+                    if (previousVersion == null)
+                    {
+                        // Detected could not read the binary — seed silently, nothing to compare.
+                        _baselineVersion = newVersion;
+                        _baselineChannel = newChannel;
+                        return;
+                    }
+                    if (string.Equals(previousVersion, newVersion, StringComparison.OrdinalIgnoreCase)) return;
+
+                    channelForEvent = newChannel ?? _baselineChannel;
+                    _baselineVersion = newVersion;
+                    _baselineChannel = channelForEvent;
+                }
+
+                _logger.Info($"RealmJoinWatcher: RJ auto-update detected ({previousVersion} -> {newVersion}, releaseChannel={channelForEvent ?? "<unknown>"})");
+                try { RealmJoinAutoUpdateDetected?.Invoke(this, new RealmJoinAutoUpdateDetectedEventArgs(previousVersion, newVersion!, channelForEvent)); }
+                catch (Exception ex) { _logger.Error("RealmJoinWatcher: RealmJoinAutoUpdateDetected handler threw", ex); }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"RealmJoinWatcher: CheckAutoUpdate threw: {ex.Message}");
             }
         }
 
@@ -766,6 +932,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             MaybeFirePackageEvents(RealmJoinPackageScope.User, snap, _hkuPackagesStarted, _hkuPackagesCompleted);
 
         internal void TriggerNotifyRealmJoinPresenceFromTest(int? phase) => NotifyRealmJoinPresence(phase);
+        internal void TriggerCheckAutoUpdateFromTest() => CheckAutoUpdate();
+        internal string? BaselineVersionForTest { get { lock (_stateLock) { return _baselineVersion; } } }
 
         // Test seam — directly seed the dedup sets without touching the registry, so that a
         // subsequent MaybeFirePackageEvents observation can verify suppression behavior.

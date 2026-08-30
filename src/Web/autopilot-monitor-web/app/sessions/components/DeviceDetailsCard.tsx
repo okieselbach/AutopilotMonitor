@@ -21,6 +21,7 @@ interface ProxyConfigData { [key: string]: unknown; proxyType?: string; type?: s
 interface AutopilotProfileData { [key: string]: unknown; PolicyDownloadDate?: string; AutopilotCreationDate?: string; autopilotModeLabel?: string; domainJoinMethodLabel?: string }
 interface ImeVersionData { [key: string]: unknown; version?: string; agentVersion?: string }
 interface RealmJoinInfoData { [key: string]: unknown; productVersion?: string; releaseChannel?: string }
+interface RealmJoinAutoUpdateData { [key: string]: unknown; previousVersion?: string; newVersion?: string; releaseChannel?: string }
 interface TpmStatusData { [key: string]: unknown; specVersion?: string }
 interface BitLockerStatusData { [key: string]: unknown; volumes?: unknown[] }
 interface DeviceLocationData { [key: string]: unknown; country?: string; Country?: string; timezone?: string; Timezone?: string }
@@ -189,7 +190,17 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
     session?.isCloudPc === true || `${autopilotProfileMissingEvent?.isCloudPc}` === "true";
   const aadJoinStatus = getEventData("aad_join_status");
   const imeVersion = getEventData<ImeVersionData>("ime_agent_version");
-  const realmJoinInfo = getEventData<RealmJoinInfoData>("realmjoin_detected");
+  // realmjoin_detected carries the MSI-shipped build; the tray often self-updates minutes later
+  // (realmjoin_autoupdate_detected). The latest auto-update is the version that ran the deployment.
+  const realmJoinDetected = getEventData<RealmJoinInfoData>("realmjoin_detected");
+  const realmJoinAutoUpdate = getEventData<RealmJoinAutoUpdateData>("realmjoin_autoupdate_detected");
+  const realmJoinInfo: RealmJoinInfoData | null = realmJoinAutoUpdate?.newVersion
+    ? { productVersion: realmJoinAutoUpdate.newVersion, releaseChannel: realmJoinAutoUpdate.releaseChannel ?? realmJoinDetected?.releaseChannel }
+    : realmJoinDetected;
+  const realmJoinInitialVersion =
+    realmJoinAutoUpdate?.newVersion && realmJoinDetected?.productVersion && realmJoinDetected.productVersion !== realmJoinAutoUpdate.newVersion
+      ? realmJoinDetected.productVersion
+      : null;
   const bitLockerStatus = getEventData<BitLockerStatusData>("bitlocker_status");
   const secureBootStatus = getEventData("secureboot_status");
   const tpmStatus = getEventData<TpmStatusData>("tpm_status");
@@ -478,9 +489,10 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                   <DetailRow
                     label="RealmJoin Agent Version"
                     value={
-                      realmJoinInfo.releaseChannel && realmJoinInfo.releaseChannel !== "release"
+                      (realmJoinInfo.releaseChannel && realmJoinInfo.releaseChannel !== "release"
                         ? `${realmJoinInfo.productVersion} (${realmJoinInfo.releaseChannel})`
-                        : realmJoinInfo.productVersion
+                        : realmJoinInfo.productVersion!) +
+                      (realmJoinInitialVersion ? ` — auto-updated from ${realmJoinInitialVersion}` : "")
                     }
                   />
                 )}

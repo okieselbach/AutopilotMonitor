@@ -125,5 +125,11 @@ namespace AutopilotMonitor.DecisionCore.Signals
         // the run as a secondary-user deployment, which writes 200/210 and NEVER 110 — the
         // gate would otherwise stay closed until the 60-min hard timeout.
         RealmJoinPhaseChanged,
+        // RJ replaced its own binary after detection (tray AppUpdater on first start: "New
+        // version found …, update required" → service restarts on the new build minutes after
+        // RealmJoinDetected captured the MSI-shipped version). Bookkeeping-only: overrides
+        // RealmJoinFacts.ProductVersion/ReleaseChannel so the persisted facts match what
+        // actually ran the deployment. Never touches the gate or the timeout deadline.
+        RealmJoinAutoUpdateDetected,
     }
 }

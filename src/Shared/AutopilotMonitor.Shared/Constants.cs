@@ -547,6 +547,11 @@ namespace AutopilotMonitor.Shared
             public const string RealmJoinFirstDeploymentIncomplete = "realmjoin_first_deployment_incomplete";
             public const string RealmJoinPackageStarted  = "realmjoin_package_started";
             public const string RealmJoinPackageCompleted = "realmjoin_package_completed";
+            // Info: RJ replaced its own binary after realmjoin_detected (tray AppUpdater on
+            // first start). Data: previousVersion, newVersion, releaseChannel. Source of truth
+            // for the version that ran the deployment — realmjoin_detected carries the
+            // MSI-shipped build.
+            public const string RealmJoinAutoUpdateDetected = "realmjoin_autoupdate_detected";
 
             // =====================================================================
             // Single-source consolidation (2026-05-29): event-type string literals

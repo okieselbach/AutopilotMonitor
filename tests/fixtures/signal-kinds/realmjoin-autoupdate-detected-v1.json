@@ -1,0 +1,7 @@
+# RealmJoinAutoUpdateDetected v1 — RealmJoin self-update after detection.
+# Posted by RealmJoinWatcherAdapter when the HKLM\...\Uninstall\RealmJoin key changes and the
+# re-read RealmJoin.exe version differs from the one reported on RealmJoinDetected (tray
+# AppUpdater on first start; gktatooine session 946ccbd6: 4.21.4 -> 4.21.18 nine minutes after
+# detection). Reducer: HandleRealmJoinAutoUpdateDetectedV1 → overrides
+# RealmJoinFacts.ProductVersion / ReleaseChannel. Bookkeeping-only: no gate, no deadline.
+{"SessionSignalOrdinal":2,"SessionTraceOrdinal":2,"Kind":"RealmJoinAutoUpdateDetected","KindSchemaVersion":1,"OccurredAtUtc":"2026-08-30T13:33:27.0000000Z","SourceOrigin":"RealmJoinWatcher","Evidence":{"Kind":"Derived","Identifier":"realmjoin-autoupdate-detected-v1","Summary":"RealmJoin self-update observed (4.21.4 -> 4.21.18, releaseChannel=canary)","DerivationInputs":{"registryKey":"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RealmJoin"}},"Payload":{"previousVersion":"4.21.4","productVersion":"4.21.18","releaseChannel":"canary"}}

@@ -8,7 +8,7 @@ tags:
   - decision-engine
   - reducer
   - completion
-timestamp: 2026-07-11T00:00:00+02:00
+timestamp: 2026-08-30T00:00:00+02:00
 ---
 
 # V2 Agent — Decision Engine (DecisionCore)
@@ -175,6 +175,20 @@ advisory backstop. All routes converge on `CompleteThroughFinalizingOrDefer`:
    scheduler contract) dead-ends as `realmjoin_timeout_stale_superseded_by_rearm`.
    The idle case (detected, no deployment activity ever) times out at 60 min
    unchanged, and phase 200/210 activity never extends.
+   **Self-update observation** (gktatooine session 946ccbd6): the version on
+   `RealmJoinDetected` is read once from `RealmJoin.exe`, but the tray's `AppUpdater`
+   often replaces the MSI-shipped binary on its first start — minutes after detection,
+   before the deployment begins. `RealmJoinWatcher` therefore arms a
+   `RegNotifyChangeKeyValue` watcher on `HKLM\...\Uninstall\RealmJoin` (the only
+   registry write of the updater; appearance-watch on the `Uninstall` parent when the
+   entry does not exist yet) once Detected fired, re-reads the binary version after a
+   2 s debounce (registry `DisplayVersion` as fallback while the file is locked) and
+   posts the typed `RealmJoinAutoUpdateDetected` signal plus the
+   `realmjoin_autoupdate_detected` timeline event when the version differs from the
+   baseline. The reducer overrides `RealmJoinFacts.ProductVersion` / `ReleaseChannel`
+   (`WithVersionOverride` — the one legitimate later write past the set-once helpers);
+   it never touches the gate, the deadline, or `LastActivityUtc`. An unreadable
+   baseline at detection is seeded silently by the first successful re-read.
    A closed gate also outranks the 30-minute `AdvisoryCompletion` backstop: that
    handler re-arms (trigger suffix `:CompletionGateHolding`) instead of failing while
    the RealmJoin gate is closed *and* its own deadline is still armed, because the gate

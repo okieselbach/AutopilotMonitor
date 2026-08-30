@@ -55,6 +55,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // — the SemVer prerelease tag, absent tag == stable release).
             public const string ProductVersion = "productVersion";
             public const string ReleaseChannel = "releaseChannel";
+            // Set on RealmJoinAutoUpdateDetected: the version the facts carried before the
+            // self-update (ProductVersion/ReleaseChannel then describe the NEW build).
+            public const string PreviousVersion = "previousVersion";
         }
 
         /// <summary>
@@ -387,6 +390,47 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// the <c>realmjoin_first_deployment_incomplete</c> Warning, cancels the hard-timeout
         /// deadline and releases the completion gate — for us RJ is finished at that point.
         /// </summary>
+        /// <summary>
+        /// RJ self-update observed after detection. Overrides the set-once version facts so
+        /// <see cref="RealmJoinFacts.ProductVersion"/> / <see cref="RealmJoinFacts.ReleaseChannel"/>
+        /// describe the build that actually ran the deployment. Pure bookkeeping: no gate, no
+        /// deadline, no activity credit (the update precedes the deployment, it is not
+        /// deployment progress). Missing <c>productVersion</c> dead-ends.
+        /// </summary>
+        private DecisionStep HandleRealmJoinAutoUpdateDetectedV1(DecisionState state, DecisionSignal signal)
+        {
+            var newVersion = TryReadString(signal, RealmJoinPayloadKeys.ProductVersion);
+            if (string.IsNullOrEmpty(newVersion))
+            {
+                var deadEnd = BumpStepBookkeeping(state, signal);
+                var deadEndTransition = BuildDeadEndTransition(
+                    state: state,
+                    signal: signal,
+                    nextStepIndex: deadEnd.StepIndex,
+                    trigger: nameof(DecisionSignalKind.RealmJoinAutoUpdateDetected),
+                    deadEndReason: "realmjoin_autoupdate_missing_version");
+                return new DecisionStep(deadEnd, deadEndTransition, Array.Empty<DecisionEffect>());
+            }
+
+            var nextStep = state.StepIndex + 1;
+            var builder = state.ToBuilder()
+                .WithStepIndex(nextStep)
+                .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal);
+            builder.RealmJoinFacts = state.RealmJoinFacts.WithVersionOverride(
+                newVersion!,
+                TryReadString(signal, RealmJoinPayloadKeys.ReleaseChannel),
+                signal.SessionSignalOrdinal);
+
+            var bookkept = builder.Build();
+            var transition = BuildTakenTransition(
+                before: state,
+                signal: signal,
+                toStage: state.Stage,
+                nextStepIndex: nextStep,
+                trigger: nameof(DecisionSignalKind.RealmJoinAutoUpdateDetected));
+            return new DecisionStep(bookkept, transition, Array.Empty<DecisionEffect>());
+        }
+
         private DecisionStep HandleRealmJoinPhaseChangedV1(DecisionState state, DecisionSignal signal)
         {
             var currentPhase = TryReadPhase(signal);
