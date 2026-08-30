@@ -326,6 +326,25 @@ public class TenantConfigPatchServiceTests
     }
 
     [Fact]
+    public async Task Patch_WrongJsonType_ErrorNamesFieldButNeverEchoesValue()
+    {
+        // A secret mistakenly sent into a numeric field must not be quoted back by the
+        // Newtonsoft conversion error — the response text ends up in MCP tool logs.
+        var harness = new Harness(Stored());
+        const string secret = "https://example.invalid/webhook/AAAA-SECRET-TOKEN";
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("dataRetentionDays", secret)), Ga, "mcp-patch", null);
+
+        Assert.False(outcome.Success);
+        Assert.Equal(PatchFailure.InvalidField, outcome.Failure);
+        Assert.Contains("dataRetentionDays", outcome.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SECRET-TOKEN", outcome.Error);
+        Assert.Empty(harness.Backups);
+        Assert.Equal(0, harness.ReplaceCalls);
+    }
+
+    [Fact]
     public async Task Patch_RedactedPlaceholderValue_Rejected()
     {
         var harness = new Harness(Stored());

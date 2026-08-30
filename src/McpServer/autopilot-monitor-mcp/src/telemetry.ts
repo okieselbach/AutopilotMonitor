@@ -14,17 +14,44 @@ function cap(s: string, max: number): string {
 }
 
 /**
+ * Per-argument logging policy, declared at the tool's withToolTelemetry call
+ * site so schema, handler and log policy are reviewed together.
+ *  - 'keys': log only the property NAMES of an object-valued argument. For
+ *    update_tenant_config.fields this keeps the useful signal (which fields a
+ *    Global Admin changes) while the clear-text values (webhook URLs, SAS URLs,
+ *    custom headers) never reach the container log stream — the backend keeps
+ *    them in the backup snapshot and the audit log, both GA-gated.
+ *  - 'drop': omit the argument entirely (for arguments whose key alone reveals
+ *    something, e.g. a plain-string secret).
+ * Arguments without a policy are rendered verbatim (capped).
+ */
+export type ArgPolicy = Record<string, 'keys' | 'drop'>;
+
+function renderKeysOnly(value: unknown): string {
+  if (Array.isArray(value)) return `[array:${value.length}]`;
+  if (typeof value === 'object' && value !== null) return Object.keys(value).join(',');
+  return `[${typeof value}]`;
+}
+
+/**
  * Compact, size-bounded view of the tool arguments for the log line. Values are
  * individually capped and the whole summary is bounded, so a pathological arg
  * object can never bloat a log line. Null/undefined entries are dropped.
  */
-export function summarizeArgs(args: Record<string, unknown>): Record<string, string> | undefined {
+export function summarizeArgs(
+  args: Record<string, unknown>,
+  policy?: ArgPolicy,
+): Record<string, string> | undefined {
   const out: Record<string, string> = {};
   let total = 0;
   for (const [key, value] of Object.entries(args)) {
     if (value === null || value === undefined) continue;
+    const mode = policy?.[key];
+    if (mode === 'drop') continue;
     const rendered =
-      typeof value === 'string' ? cap(value, ARG_VALUE_CAP) : cap(JSON.stringify(value) ?? '', ARG_VALUE_CAP);
+      mode === 'keys' ? cap(renderKeysOnly(value), ARG_VALUE_CAP)
+      : typeof value === 'string' ? cap(value, ARG_VALUE_CAP)
+      : cap(JSON.stringify(value) ?? '', ARG_VALUE_CAP);
     total += key.length + rendered.length;
     if (total > ARGS_TOTAL_CAP) {
       out['…'] = 'args summary truncated';
@@ -65,6 +92,7 @@ export async function withToolTelemetry<T>(
   toolName: string,
   args: Record<string, unknown>,
   fn: () => T | Promise<T>,
+  argPolicy?: ArgPolicy,
 ): Promise<T> {
   if (!toolLoggingEnabled) {
     return runWithToolName(toolName, fn) as Promise<T>;
@@ -104,7 +132,7 @@ export async function withToolTelemetry<T>(
         // that is frequently overCap needs tighter defaults or projections.
         overCap: Number.isFinite(capValue) && capValue > 0 ? resultChars > capValue : false,
         scope: callerScope(),
-        args: summarizeArgs(args),
+        args: summarizeArgs(args, argPolicy),
         timestamp: new Date().toISOString(),
       }));
     } catch {

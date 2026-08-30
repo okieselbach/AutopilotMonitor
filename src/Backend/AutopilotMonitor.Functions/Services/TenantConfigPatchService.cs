@@ -232,7 +232,16 @@ namespace AutopilotMonitor.Functions.Services
                 }
                 catch (JsonException ex)
                 {
-                    return PatchOutcome.Fail(PatchFailure.InvalidField, $"Field patch failed to apply: {ex.Message}");
+                    // Deliberately NOT ex.Message: Newtonsoft quotes the offending VALUE in
+                    // conversion errors, and a mistyped secret field (SAS/webhook URL sent
+                    // where a number is expected) would echo it into the response and every
+                    // log line downstream. The path names the field, which is all a caller
+                    // needs to self-correct.
+                    var path = (ex as JsonSerializationException)?.Path ?? (ex as JsonReaderException)?.Path;
+                    return PatchOutcome.Fail(PatchFailure.InvalidField,
+                        string.IsNullOrEmpty(path)
+                            ? "Field patch failed to apply: a value has the wrong JSON type for its field."
+                            : $"Field patch failed to apply: value for \"{path}\" has the wrong JSON type (check get_tenant_config_schema).");
                 }
 
                 // Same normalization as the PUT: never store surrounding whitespace, and an

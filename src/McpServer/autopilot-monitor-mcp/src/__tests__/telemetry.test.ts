@@ -59,6 +59,33 @@ describe('summarizeArgs', () => {
     const { summarizeArgs } = await loadTelemetry(false);
     expect(summarizeArgs({})).toBeUndefined();
   });
+
+  it("policy 'keys' renders only the property names of an object argument", async () => {
+    const { summarizeArgs } = await loadTelemetry(false);
+    const secret = 'https://example.invalid/webhook/AAAA-BBBB-SECRET';
+    const out = summarizeArgs(
+      { tenantId: 't1', fields: { teamsWebhookUrl: secret, dataRetentionDays: 90 }, reason: 'rotate' },
+      { fields: 'keys' },
+    )!;
+    expect(out.fields).toBe('teamsWebhookUrl,dataRetentionDays');
+    expect(JSON.stringify(out)).not.toContain('SECRET');
+    expect(JSON.stringify(out)).not.toContain('90');
+    expect(out.tenantId).toBe('t1');
+    expect(out.reason).toBe('rotate');
+  });
+
+  it("policy 'keys' never leaks a non-object value", async () => {
+    const { summarizeArgs } = await loadTelemetry(false);
+    const out = summarizeArgs({ s: 'top-secret', a: [1, 2] }, { s: 'keys', a: 'keys' })!;
+    expect(out.s).toBe('[string]');
+    expect(out.a).toBe('[array:2]');
+  });
+
+  it("policy 'drop' omits the argument entirely", async () => {
+    const { summarizeArgs } = await loadTelemetry(false);
+    const out = summarizeArgs({ token: 'abc', days: 7 }, { token: 'drop' })!;
+    expect(out).toEqual({ days: '7' });
+  });
 });
 
 describe('withToolTelemetry', () => {
@@ -86,6 +113,28 @@ describe('withToolTelemetry', () => {
     expect(line.resultChars).toBe(10);
     expect(line.overCap).toBe(false);
     expect(line.args).toEqual({ tenantId: 't1', days: '7' });
+  });
+
+  it('applies the arg policy to the log line — field names logged, secret values never', async () => {
+    const { withToolTelemetry } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const secret = 'https://example.invalid/webhook/AAAA-BBBB-SECRET?sig=abc';
+    const args = { tenantId: 't1', fields: { teamsWebhookUrl: secret }, reason: 'rotate' };
+    await withToolTelemetry('update_tenant_config', args, () => ({ content: [{ type: 'text', text: 'ok' }] }), { fields: 'keys' });
+    const raw = String(spy.mock.calls.at(-1)?.[0]);
+    expect(raw).toContain('teamsWebhookUrl');
+    expect(raw).not.toContain('SECRET');
+    expect(raw).not.toContain('sig=abc');
+  });
+
+  it('applies the arg policy on the soft-error path too', async () => {
+    const { withToolTelemetry } = await loadTelemetry(true);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const args = { tenantId: 't1', fields: { diagnosticsSasUrl: 'https://example.invalid/c?sv=SECRETSAS' }, reason: 'r' };
+    await withToolTelemetry('update_tenant_config', args, () => ({ isError: true, content: [{ type: 'text', text: 'Error: field not writable' }] }), { fields: 'keys' });
+    const raw = String(spy.mock.calls.at(-1)?.[0]);
+    expect(raw).toContain('diagnosticsSasUrl');
+    expect(raw).not.toContain('SECRETSAS');
   });
 
   it('flags overCap when the result exceeds the inline-size hint', async () => {

@@ -1360,7 +1360,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       } catch (error: unknown) {
         return toolError('update_tenant_config', args, error);
       }
-    })
+    // `fields` carries the REAL clear-text values (webhook/SAS URLs, custom
+    // headers). Tool logging records only the field names — values live in the
+    // GA-gated backup snapshot and audit log, never in the container log stream.
+    }, { fields: 'keys' })
   );
 
   if (strictGa) server.registerTool(
