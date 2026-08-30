@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (11)
+
+* **New**: `agent/ime-process-watcher.md` — `ImeProcessWatcher` no longer attaches to the first `IntuneManagementExtension` name match: `ImeProcessIdentity` requires session 0 + image under the IME install root (`QueryFullProcessImageName`, cross-bitness), prefers the oldest trusted candidate, logs untrusted matches once per PID, and re-arms discovery after every reported exit (previously one-shot — a fake in a user session could forge `ime_process_exited` and mute the real signal for the session; even an IME service restart was never watched again). Registered in `index.md`.
+
 ## 2026-08-30 (10)
 
 * **Update**: `agent/ime-log-tracker-matching-budget.md` — the per-line budget sums only `Regex.Match` time; the previous wall-clock window also counted match handlers and scheduler stalls and broke twice on genuine lines of a stalled Hyper-V guest (session 946ccbd6). `backend/ime-pattern-health.md` — `ime_pattern_hits` is Debug severity (operator signal, hidden from the default timeline; the IME Tracker card and the ingest fold read it regardless). The session page's "IME Tracker" card moved to the right column.
