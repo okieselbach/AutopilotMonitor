@@ -296,6 +296,10 @@ export const api = {
       `${API_BASE_URL}/api/metrics/device-journeys${qs({ days: String(days) })}`,
     globalDeviceJourneys: (days: number, tenantId?: string) =>
       `${API_BASE_URL}/api/global/metrics/device-journeys${qs({ days: String(days), tenantId })}`,
+    // IME pattern health (operator-only; GlobalReadOrAdmin): version × pattern hit-rate matrix
+    // from the agents' session-end ime_pattern_hits histograms, fleet baseline, open drift alerts.
+    globalImePatternHealth: () =>
+      `${API_BASE_URL}/api/metrics/ime-pattern-health`,
     // Verdict calibration matrix (operator-only; GlobalReadOrAdmin). Omit tenantId for the
     // cross-tenant aggregate. Daily rows are additive, so the window follows days honestly.
     globalVerdictCalibration: (days: number, tenantId?: string) =>

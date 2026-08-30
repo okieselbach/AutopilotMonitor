@@ -77,6 +77,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             SharedConstants.EventTypes.SpoolPressureDetected,
             SharedConstants.EventTypes.IngressBackpressure,
             SharedConstants.EventTypes.AgentShuttingDown,
+            // IME tracker self-observation: a degraded pass or the terminal pattern histogram
+            // says something about the agent, not about the device's enrollment progress.
+            SharedConstants.EventTypes.ImeTrackerDegraded,
+            SharedConstants.EventTypes.ImePatternHits,
         };
 
         /// <summary>

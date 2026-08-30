@@ -102,6 +102,16 @@ literal (`[Win32App DO] DO downloading is not finished within timeout, jobId = â
 instead of two lookaheads; `IME-DO-TEL` has no emitter from 1.104 on and stays only while
 1.101/1.103 devices are in the fleet (`get_ime_version_history`).
 
+## Observability (2026-08-30)
+
+Everything the loop skips is counted (`ImeTrackerHealth`: lines read, entries matched, oversized
+lines, regex timeouts, budget breaks, held tails, unanchored patterns, files tailed, backlog
+bytes) and, together with a per-pattern match histogram, persisted in `ImeTrackerState`. The
+periodic `agent_metrics_snapshot` carries the counters as `ime_*` keys, the first pass that
+skipped work raises the one-shot `ime_tracker_degraded` Warning (immediate upload), and the
+termination handler emits `ime_pattern_hits` â€” the input of the backend's pattern-drift loop
+([IME Pattern Health](../backend/ime-pattern-health.md)).
+
 # Verification
 
 * `ImeLogPatternPackLinearityTests` loads the shipped pack, asserts the `^` invariant, runs four

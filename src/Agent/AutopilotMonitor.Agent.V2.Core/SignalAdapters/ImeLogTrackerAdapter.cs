@@ -196,9 +196,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _prevOnScriptCompleted = _tracker.OnScriptCompleted;
             _prevOnScriptStarted = _tracker.OnScriptStarted;
             _prevOnImeTokenFailure = _tracker.OnImeTokenFailure;
+            _prevOnTrackerDegraded = _tracker.OnTrackerDegraded;
 
             // Store our delegate instances once — implicit method-group conversions
             // create a new delegate each time, which would break Dispose's reference check.
+            _ourOnTrackerDegraded = OnTrackerDegraded;
             _ourOnEspPhaseChanged = OnEspPhaseChanged;
             _ourOnUserSessionCompleted = OnUserSessionCompleted;
             _ourOnAppStateChanged = OnAppStateChanged;
@@ -218,10 +220,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _tracker.OnScriptCompleted = _ourOnScriptCompleted;
             _tracker.OnScriptStarted = _ourOnScriptStarted;
             _tracker.OnImeTokenFailure = _ourOnImeTokenFailure;
+            _tracker.OnTrackerDegraded = _ourOnTrackerDegraded;
         }
 
         public void Dispose()
         {
+            if (ReferenceEquals(_tracker.OnTrackerDegraded, _ourOnTrackerDegraded))
+                _tracker.OnTrackerDegraded = _prevOnTrackerDegraded;
             // Restore only if we're still the current handler; otherwise leave it alone
             // (someone else re-wired after us and owns it now).
             if (ReferenceEquals(_tracker.OnEspPhaseChanged, _ourOnEspPhaseChanged))
@@ -296,6 +301,49 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             _prevOnImeTokenFailure?.Invoke(errorCode, message);
             EmitImeTokenFailure(errorCode, message);
+        }
+
+        private readonly Action<ImeTrackerHealth, string, string>? _prevOnTrackerDegraded;
+        private readonly Action<ImeTrackerHealth, string, string> _ourOnTrackerDegraded;
+
+        private void OnTrackerDegraded(ImeTrackerHealth health, string fileName, string firstSkippedPatternId)
+        {
+            _prevOnTrackerDegraded?.Invoke(health, fileName, firstSkippedPatternId);
+            EmitTrackerDegraded(health, fileName, firstSkippedPatternId);
+        }
+
+        // The tracker skipped work on a pass (oversized lines dropped, regex timeouts, per-line
+        // budget breaks). Tracker-side one-shot per session; ImmediateUpload so the condition is
+        // on the timeline while the enrollment is still running, not after the next drain.
+        private void EmitTrackerDegraded(ImeTrackerHealth health, string fileName, string firstSkippedPatternId)
+        {
+            var data = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["file"] = fileName ?? string.Empty,
+                ["oversizedLines"] = health.OversizedLines,
+                ["regexTimeouts"] = health.RegexTimeouts,
+                ["lineBudgetBreaks"] = health.BudgetBreaks,
+                ["heldTails"] = health.HeldTails,
+                ["linesRead"] = health.LinesRead,
+                ["entriesMatched"] = health.EntriesMatched,
+                ["unanchoredPatterns"] = health.UnanchoredPatterns,
+                ["ImmediateUpload"] = true,
+            };
+            if (!string.IsNullOrEmpty(firstSkippedPatternId))
+                data["firstSkippedPattern"] = firstSkippedPatternId;
+
+            _post.Emit(new EnrollmentEvent
+            {
+                EventType = SharedEventTypes.ImeTrackerDegraded,
+                Severity = EventSeverity.Warning,
+                Source = SourceLabel,
+                Phase = EnrollmentPhase.Unknown,
+                Timestamp = _clock.UtcNow,
+                Message = $"IME log tracker skipped work in {fileName}: oversizedLines={health.OversizedLines}, regexTimeouts={health.RegexTimeouts}, lineBudgetBreaks={health.BudgetBreaks}",
+                Data = data,
+                ImmediateUpload = true,
+            });
+            _logger?.Warning($"ImeAdapter: emitted {SharedEventTypes.ImeTrackerDegraded} (one-shot per session) for {fileName}");
         }
 
         internal void TriggerEspPhaseFromTest(string phase) => EmitEspPhase(phase);

@@ -69,6 +69,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             files.Sort(StringComparer.OrdinalIgnoreCase);
 
+            // Σ(file length − bookmark) after this pass — the tracker's queue depth.
+            long backlogBytes = 0;
+
             foreach (var filePath in files)
             {
                 if (token.IsCancellationRequested) break;
@@ -149,6 +152,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                 // dropping it and raw-matching its remaining lines next pass.
                                 if (multiLineBuffer != null && HoldBackTail(filePath, entryStart, fileInfo.Length, passNowUtc))
                                 {
+                                    _heldTailCount++;
                                     resumePos = entryStart;
                                     break;
                                 }
@@ -167,6 +171,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             if (multiLineBuffer == null)
                                 entryStart = reader.LastLineStart;
 
+                            _linesRead++;
+
                             // A physical line over the cap is never matched: its captures would be
                             // cut and the regexes would run over attacker-sized input. The capped
                             // prefix is enough to tell whether it opened an entry whose remaining
@@ -174,6 +180,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             if (reader.LastLineTruncated)
                             {
                                 stats.OversizedLines++;
+                                _oversizedLines++;
                                 if (multiLineBuffer != null)
                                 {
                                     multiLineBuffer = null;
@@ -191,6 +198,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                 && HoldBackTail(filePath, reader.LastLineStart, fileInfo.Length, passNowUtc))
                             {
                                 // Unterminated single line at EOF: the writer is mid-line.
+                                _heldTailCount++;
                                 resumePos = reader.LastLineStart;
                                 break;
                             }
@@ -282,6 +290,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         ClearHeldTailIfConsumed(filePath, resumePos);
                         _positionTracker.SetPosition(filePath, resumePos);
                         _stateDirty = true;
+                        backlogBytes += Math.Max(0, fileInfo.Length - resumePos);
 
                         // One line per pass and file, never per hostile line: the counters are
                         // the operator's only trace that matching was skipped or cut short.
@@ -292,6 +301,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                                 $"oversizedLines={stats.OversizedLines} (cap {MaxEntryBytes} bytes), " +
                                 $"regexTimeouts={stats.RegexTimeouts}, lineBudgetBreaks={stats.BudgetBreaks}" +
                                 (stats.FirstSkippedPatternId != null ? $", firstSkippedPattern={stats.FirstSkippedPatternId}" : string.Empty));
+                            RaiseTrackerDegradedOnce(Path.GetFileName(filePath), stats.FirstSkippedPatternId);
                         }
 
                         // Calibrate AFTER the pass: this pass's lines were resolved with the
@@ -309,6 +319,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     _logger.Debug($"ImeLogTracker: IO error reading {filePath}: {ex.Message}");
                 }
+            }
+
+            lock (_healthLock)
+            {
+                _filesTailed = files.Count;
+                _backlogBytes = backlogBytes;
             }
         }
 
@@ -335,6 +351,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 if (Stopwatch.GetTimestamp() - started > LineMatchBudgetTicks)
                 {
                     stats.BudgetBreaks++;
+                    _budgetBreaks++;
                     if (stats.FirstSkippedPatternId == null) stats.FirstSkippedPatternId = pattern.PatternId;
                     return;
                 }
@@ -344,6 +361,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     var match = pattern.Regex.Match(messageToMatch);
                     if (match.Success)
                     {
+                        RecordPatternHit(pattern.PatternId);
                         WriteMatchLog(filePath, line, pattern.PatternId);
                         HandlePatternMatch(pattern, match, messageToMatch, entry);
                     }
@@ -351,6 +369,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 catch (RegexMatchTimeoutException)
                 {
                     stats.RegexTimeouts++;
+                    _regexTimeouts++;
                     if (_timeoutLoggedPatternIds.Add(pattern.PatternId))
                         _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' (message length {messageToMatch.Length}) — skipped; further timeouts of this pattern are only counted");
                 }
@@ -393,6 +412,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             HeldTail held;
             if (_heldTails.TryGetValue(filePath, out held) && held.Start != resumePos)
                 _heldTails.Remove(filePath);
+        }
+
+        /// <summary>
+        /// One-shot per session (persisted): the first pass that skipped work raises
+        /// <see cref="OnTrackerDegraded"/> so the condition reaches the timeline — the client
+        /// log Warning alone is invisible until someone pulls diagnostics.
+        /// </summary>
+        private void RaiseTrackerDegradedOnce(string fileName, string firstSkippedPatternId)
+        {
+            lock (_healthLock)
+            {
+                if (_trackerDegradedFired) return;
+                _trackerDegradedFired = true;
+            }
+            _stateDirty = true;
+            try { OnTrackerDegraded?.Invoke(GetHealthSnapshot(), fileName, firstSkippedPatternId); }
+            catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnTrackerDegraded handler failed: {ex.Message}"); }
         }
 
         // Actions that mutate app/phase tracking state (_packageStates, _phasePackageSnapshots,
@@ -529,7 +565,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     case "imeagentversion":
                         var version = match.Groups["agentVersion"]?.Value;
                         if (!string.IsNullOrEmpty(version))
+                        {
+                            lock (_healthLock) { _imeAgentVersionSeen = version; }
                             OnImeAgentVersion?.Invoke(version);
+                        }
                         break;
 
                     case "imetokenfailure":

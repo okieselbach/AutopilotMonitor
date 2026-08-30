@@ -45,6 +45,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         int IgnoredCount { get; }
 
         /// <summary>
+        /// IME tracker health counters + per-pattern match histogram (every enabled pattern,
+        /// zeros included) for the session-end <c>ime_pattern_hits</c> event — the backend's
+        /// per-IME-version pattern-drift signal. Null when no IME surface exists.
+        /// </summary>
+        ImeTrackerHealth? ImeTrackerHealth { get; }
+
+        /// <summary>
         /// c117946b debrief (2026-05-12): on terminal ESP-Apps failure, promote any apps the
         /// agent observed in <c>Installing</c> to Error so the user sees a name (not just an
         /// opaque "installing: 1" counter) and the app_install_failed event carries the

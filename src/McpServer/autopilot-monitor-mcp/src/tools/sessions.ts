@@ -796,6 +796,35 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
   );
   } // end if (ga) — list_blocked_devices
 
+  // Tool: get_ime_pattern_health — operator-only (GA + Global Reader; GlobalReadOrAdmin endpoint).
+  // The pattern-drift loop's read side: which shipped IME log patterns still match on which IME
+  // version, the fleet baseline, and the open ImePatternDriftSuspected alerts.
+  if (ga) server.registerTool(
+    'get_ime_pattern_health',
+    {
+      title: 'IME Pattern Health',
+      description:
+        'Operator view of IME log-pattern drift: for every IME agent version, how many sessions reported the ' +
+        'session-end pattern histogram and in what share of them each shipped pattern matched (cells), which ' +
+        'version is the fleet baseline, which patterns are EXPECTED (>= expectedHitRate on the baseline), and the ' +
+        'open drift alerts (an expected pattern that matched in none of >= minCandidateSessions sessions on a newer ' +
+        'version — Microsoft probably changed the log wording). Workflow on an alert: search_sessions with ' +
+        'imeAgentVersion=<version> -> get_session_diagnostics on a session with a package -> validate the pattern ' +
+        'against the real IME log -> compare with the IME decompile -> fix the pattern in rules/ime-log-patterns. ' +
+        'Only sessions that reached a terminal run report a histogram (crashes/kills are excluded from the denominator).',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_ime_pattern_health', args, async () => {
+      try {
+        const data = await apiFetch('/api/metrics/ime-pattern-health');
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('get_ime_pattern_health', args, error);
+      }
+    })
+  );
+
   // Tool: get_ime_version_history — a global (non-tenant) archive available to all tenant members.
   // Hidden for a delegated (MSP) caller: their surface is the tenant-boundable managed-tenant subset,
   // and a platform-wide archive with no tenantId to bound is outside that contract (§2.2). A platform

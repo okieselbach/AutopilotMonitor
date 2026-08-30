@@ -108,6 +108,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<bool> SaveRuleStatsEntryAsync(RuleStatsEntry entry)
             => _storage.SaveRuleStatsEntryAsync(entry);
 
+        public Task UpsertImePatternStatsAsync(string imeVersion, IReadOnlyDictionary<string, int> hits, DateTime nowUtc)
+            => _storage.UpsertImePatternStatsAsync(imeVersion, hits, nowUtc);
+
+        public Task<List<ImePatternStatsEntry>> GetImePatternStatsAsync()
+            => _storage.GetImePatternStatsAsync();
+
+        public Task<bool> TryMarkImePatternDriftFlaggedAsync(string imeVersion, string patternId, DateTime nowUtc)
+            => _storage.TryMarkImePatternDriftFlaggedAsync(imeVersion, patternId, nowUtc);
+
         public Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResults = 10000)
             => _storage.GetRuleStatsAsync(tenantId, startDate, endDate, ruleType, maxResults);

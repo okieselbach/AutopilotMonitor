@@ -33,6 +33,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
 
         public int IgnoredCount => _orchestrator.CollectorSurfaces?.ImeIgnoredCount ?? 0;
 
+        public ImeTrackerHealth? ImeTrackerHealth => _orchestrator.CollectorSurfaces?.ImeTrackerHealth;
+
         public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message, string? errorCode) =>
             _orchestrator.CollectorSurfaces?.PromoteActiveInstallsToStuck(failureType, message, errorCode)
             ?? Array.Empty<string>();

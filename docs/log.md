@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (9)
+
+* **New**: `backend/ime-pattern-health.md` — the pattern-drift loop: `ImeTrackerHealth` counters + per-pattern histogram in the agent (restart-safe via `ImeTrackerState`), `ime_*` keys in `agent_metrics_snapshot`, one-shot `ime_tracker_degraded` Warning, session-end `ime_pattern_hits` (every enabled pattern, zeros included, `imeVersion`), backend `ImePatternStats` (PK = IME version, batch upsert, permanent), `ImePatternDriftEvaluator` (baseline = biggest version ≥100 sessions, expected = ≥0.8 hit rate, drift = 0 hits in ≥25 sessions, once per cell) → `ImePatternDriftSuspected` ops event, `GET metrics/ime-pattern-health` (GlobalReadOrAdmin), web section `admin/metrics/ime-pattern-health` + session-page "IME Tracker" rows, MCP `get_ime_pattern_health`. Registered in `index.md`.
+
 ## 2026-08-30 (8)
 
 * **Update**: `agent/ime-log-tracker-matching-budget.md` — pattern-pack hygiene against the IME decompiles (1.97.107.0 / 1.104.102.0 / 1.105.103.0, spot checks 1.50 / 1.83): no wording drift in any shipped pattern; the 11 disabled legacy patterns (IME-DETECTED-OLD, IME-SET-CURRENT-1/2/3, IME-SKIP-APPLICABILITY-NOTMET, IME-SKIP-DEPENDENCY-DETECT, IME-SKIP-DETECTED, IME-SKIP-UNINSTALL-NOTDETECTED-2, IME-UPDATE-NAME-1/2/3) are deleted — their literals last existed in IME 1.50, the fleet starts at 1.97; IME-DO-TIMEOUT-1/2 match the exact source literal (`DO downloading is not finished within timeout, jobId = …, fileId = …`) instead of two lookaheads; IME-DO-TEL is documented as dead from 1.104 on and kept only for the 1.101/1.103 fleet share.

@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly string _agentVersion;
         private readonly ITelemetrySpool? _telemetrySpool;
         private readonly Persistence.StartupEventGate? _startupGate;
+        private readonly Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? _imeTrackerHealthProbe;
 
         // Codex Finding 4 — reference to the concrete SignalIngress (when available) so we
         // can subscribe to its SignalPosted event. This lets us observe activity from
@@ -88,8 +89,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             NetworkMetrics? networkMetrics,
             string agentVersion,
             ITelemetrySpool? telemetrySpool = null,
-            Persistence.StartupEventGate? startupGate = null)
+            Persistence.StartupEventGate? startupGate = null,
+            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null)
         {
+            _imeTrackerHealthProbe = imeTrackerHealthProbe;
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             _sessionId = sessionId;
@@ -194,7 +197,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (_selfMetricsEnabled && _selfMetricsCollector == null && _networkMetrics != null)
             {
                 _selfMetricsCollector = new AgentSelfMetricsCollector(
-                    _sessionId, _tenantId, _post, _networkMetrics, _logger, _agentVersion, _selfMetricsIntervalSeconds, _telemetrySpool);
+                    _sessionId, _tenantId, _post, _networkMetrics, _logger, _agentVersion, _selfMetricsIntervalSeconds, _telemetrySpool,
+                    imeTrackerHealthProbe: _imeTrackerHealthProbe);
                 _selfMetricsCollector.Start();
             }
             _idleStopped = false;

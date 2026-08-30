@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using AutopilotMonitor.Shared.Models;
 using Newtonsoft.Json;
@@ -13,6 +15,15 @@ namespace AutopilotMonitor.Functions.Services
     /// </summary>
     public static class BuiltInImeLogPatterns
     {
+        /// <summary>
+        /// IDs of the shipped patterns, resolved once. The ingest path filters the agent's
+        /// <c>ime_pattern_hits</c> histogram against this set per batch — a device may only
+        /// CLAIM an ID, and tenant custom IDs never reach the global statistics.
+        /// </summary>
+        public static readonly Lazy<HashSet<string>> BuiltInPatternIds = new(() =>
+            new HashSet<string>(GetAll().Select(p => p.PatternId).Where(id => !string.IsNullOrEmpty(id)),
+                StringComparer.OrdinalIgnoreCase));
+
         public static List<ImeLogPattern> GetAll()
         {
             var assembly = Assembly.GetExecutingAssembly();

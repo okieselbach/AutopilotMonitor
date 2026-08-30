@@ -145,6 +145,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public List<string> PlatformScriptResultEmitted { get; set; }
         public List<ScriptExecutionState> PendingPlatformScripts { get; set; }
         public List<string> ScriptTimeoutSuspectedPosted { get; set; }
+
+        // Cumulative tracker health + per-pattern histogram (ime_pattern_hits / ime_tracker_degraded,
+        // 2026-08-30). Restart-safe on purpose: WhiteGlove Part 2 reports the whole session and the
+        // one-shot degraded event must not fire twice. Null on older state files → zero.
+        public TrackerHealthData Health { get; set; }
+        public Dictionary<string, int> PatternHits { get; set; }
+    }
+
+    public class TrackerHealthData
+    {
+        public long LinesRead { get; set; }
+        public long EntriesMatched { get; set; }
+        public long OversizedLines { get; set; }
+        public long RegexTimeouts { get; set; }
+        public long BudgetBreaks { get; set; }
+        public long HeldTails { get; set; }
+        public int HealthScriptResultParseFailures { get; set; }
+        public string ImeAgentVersion { get; set; }
+        public bool TrackerDegradedFired { get; set; }
     }
 
     public class PackageStateData

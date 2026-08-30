@@ -853,6 +853,17 @@ namespace AutopilotMonitor.Functions.Services
                 $"New IME agent version detected: {version}",
                 tenantId, "System.Ingest", new { version, sessionId });
 
+        /// <summary>
+        /// An IME log pattern that matches in ≥80 % of sessions on the baseline IME version has
+        /// matched in NONE of ≥25 reporting sessions on <paramref name="version"/> — Microsoft
+        /// probably changed the log wording. Once per version×pattern (ImePatternStats.DriftFlaggedAt).
+        /// Dual-registered in the web OPS_EVENT_TYPES list (OpsAlertRulesSection.tsx).
+        /// </summary>
+        public Task RecordImePatternDriftSuspectedAsync(string version, string patternId, string baselineVersion, double baselineRate, int sessions)
+            => WriteAsync(OpsEventCategory.Agent, "ImePatternDriftSuspected", OpsEventSeverity.Warning,
+                $"IME pattern {patternId} never matched in {sessions} sessions on IME {version} (baseline {baselineVersion}: {baselineRate:P0} of sessions) — log wording may have changed",
+                null, "System.Ingest", new { version, patternId, baselineVersion, baselineRate, sessions });
+
         public Task RecordBlobStorageMissingAsync(string missingItem, int statusCode)
             => WriteAsync(OpsEventCategory.Agent, "BlobStorageMissing", OpsEventSeverity.Critical,
                 $"Agent blob storage check failed: {missingItem} is missing or unreachable (HTTP {statusCode})",

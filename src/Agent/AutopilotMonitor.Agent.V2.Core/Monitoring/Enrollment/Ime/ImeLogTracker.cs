@@ -271,6 +271,65 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // metrics so we can detect IME log-format drift in production.
         internal int HealthScriptResultParseFailures;
 
+        // Cumulative session health (restart-safe via ImeTrackerState) — see ImeTrackerHealth.
+        // Written only on the poll thread; GetHealthSnapshot copies under _healthLock so the
+        // periodic metrics collector and the termination handler read a consistent histogram.
+        private readonly object _healthLock = new object();
+        private long _linesRead;
+        private long _entriesMatched;
+        private long _oversizedLines;
+        private long _regexTimeouts;
+        private long _budgetBreaks;
+        private long _heldTailCount;
+        private int _unanchoredPatterns;
+        private int _filesTailed;
+        private long _backlogBytes;
+        private string _imeAgentVersionSeen;
+        private bool _trackerDegradedFired;
+        private readonly Dictionary<string, int> _patternHits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Fires once per session (persisted) the first time a pass skipped work — oversized
+        /// lines dropped, regex timeouts or per-line budget breaks. Args: health snapshot at that
+        /// moment, source file name, first skipped pattern ID (may be null).
+        /// </summary>
+        public Action<ImeTrackerHealth, string, string> OnTrackerDegraded { get; set; }
+
+        /// <summary>Consistent copy of the cumulative health counters and the per-pattern histogram.</summary>
+        public ImeTrackerHealth GetHealthSnapshot()
+        {
+            lock (_healthLock)
+            {
+                return new ImeTrackerHealth
+                {
+                    LinesRead = _linesRead,
+                    EntriesMatched = _entriesMatched,
+                    OversizedLines = _oversizedLines,
+                    RegexTimeouts = _regexTimeouts,
+                    BudgetBreaks = _budgetBreaks,
+                    HeldTails = _heldTailCount,
+                    HealthScriptResultParseFailures = HealthScriptResultParseFailures,
+                    UnanchoredPatterns = _unanchoredPatterns,
+                    FilesTailed = _filesTailed,
+                    BacklogBytes = _backlogBytes,
+                    ImeAgentVersion = _imeAgentVersionSeen,
+                    PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase),
+                };
+            }
+        }
+
+        private void RecordPatternHit(string patternId)
+        {
+            if (string.IsNullOrEmpty(patternId)) return;
+            lock (_healthLock)
+            {
+                int n;
+                _patternHits.TryGetValue(patternId, out n);
+                _patternHits[patternId] = n + 1;
+                _entriesMatched++;
+            }
+        }
+
         // Set synchronously during HandlePatternMatch so callbacks can read it.
         // Setters are `internal` so V2.Core.Tests can drive the source-timestamp path
         // through the adapter's TriggerXxxFromTest seams without spinning up a real log file.
@@ -718,6 +777,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (unanchored.Count > 0)
                 _logger.Info($"ImeLogTracker: {unanchored.Count} enabled pattern(s) are not anchored at the message start and run as full scans: {string.Join(", ", unanchored)}");
 
+            // Every enabled pattern gets a histogram slot up front (zeros included): the
+            // session-end ime_pattern_hits event must list what was ACTIVE and never matched,
+            // not only what matched — that is the pattern-drift signal.
+            lock (_healthLock)
+            {
+                _unanchoredPatterns = unanchored.Count;
+                foreach (var p in patterns.Where(p => p.Enabled && !string.IsNullOrEmpty(p.PatternId)))
+                {
+                    if (!_patternHits.ContainsKey(p.PatternId))
+                        _patternHits[p.PatternId] = 0;
+                }
+            }
+
             // Re-activate with current phase state
             ActivatePatterns(_logPhaseIsCurrentPhase, force: true);
         }
@@ -917,6 +989,30 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _scriptTimeoutSuspectedPosted.Add(id);
             }
 
+            // Health counters + histogram: a restart (or WhiteGlove Part 2) must report the
+            // whole session, not only the lines seen since the last start. Null on state files
+            // written before these fields existed → counters start at zero.
+            lock (_healthLock)
+            {
+                if (state.Health != null)
+                {
+                    _linesRead = state.Health.LinesRead;
+                    _entriesMatched = state.Health.EntriesMatched;
+                    _oversizedLines = state.Health.OversizedLines;
+                    _regexTimeouts = state.Health.RegexTimeouts;
+                    _budgetBreaks = state.Health.BudgetBreaks;
+                    _heldTailCount = state.Health.HeldTails;
+                    HealthScriptResultParseFailures = state.Health.HealthScriptResultParseFailures;
+                    _imeAgentVersionSeen = state.Health.ImeAgentVersion;
+                    _trackerDegradedFired = state.Health.TrackerDegradedFired;
+                }
+                if (state.PatternHits != null)
+                {
+                    foreach (var kv in state.PatternHits)
+                        _patternHits[kv.Key] = kv.Value;
+                }
+            }
+
             // Re-activate patterns based on restored phase state
             ActivatePatterns(_logPhaseIsCurrentPhase, force: true);
 
@@ -963,6 +1059,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 PendingPlatformScripts = _pendingPlatformScripts.Values.ToList(),
                 ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
             };
+
+            lock (_healthLock)
+            {
+                state.Health = new TrackerHealthData
+                {
+                    LinesRead = _linesRead,
+                    EntriesMatched = _entriesMatched,
+                    OversizedLines = _oversizedLines,
+                    RegexTimeouts = _regexTimeouts,
+                    BudgetBreaks = _budgetBreaks,
+                    HeldTails = _heldTailCount,
+                    HealthScriptResultParseFailures = HealthScriptResultParseFailures,
+                    ImeAgentVersion = _imeAgentVersionSeen,
+                    TrackerDegradedFired = _trackerDegradedFired,
+                };
+                state.PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase);
+            }
 
             // Store file positions by filename only (log folder is known)
             foreach (var kvp in _positionTracker.GetAllPositions())

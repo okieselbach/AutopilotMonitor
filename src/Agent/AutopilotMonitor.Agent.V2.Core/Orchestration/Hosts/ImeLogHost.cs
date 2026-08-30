@@ -46,6 +46,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public IReadOnlyDictionary<string, AppInstallTiming> AppTimings => _adapter.AppTimings;
 
         /// <summary>
+        /// Cumulative tracker health + per-pattern histogram (ime_pattern_hits / metrics
+        /// snapshot). Consistent copy; cheap (≤ ~80 dictionary entries).
+        /// </summary>
+        public ImeTrackerHealth GetTrackerHealth() => _tracker.GetHealthSnapshot();
+
+        /// <summary>
         /// Reference to the wrapped IME tracker for co-collector wiring. Used by
         /// <c>DeliveryOptimizationHost</c> to set <c>OnDoTelemetryReceived</c> and to chain
         /// <c>OnAppStateChanged</c> for dormant/wake-up transitions.

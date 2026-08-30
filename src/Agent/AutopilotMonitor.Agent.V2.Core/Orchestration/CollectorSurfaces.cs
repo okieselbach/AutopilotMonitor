@@ -94,6 +94,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public int ImeIgnoredCount => _imeLogHost?.PackageStates?.IgnoreList?.Count ?? 0;
 
         /// <summary>
+        /// IME tracker health counters + per-pattern match histogram for the session-end
+        /// <c>ime_pattern_hits</c> emission. Null when no IME host exists.
+        /// </summary>
+        public ImeTrackerHealth? ImeTrackerHealth => _imeLogHost?.GetTrackerHealth();
+
+        /// <summary>
         /// c117946b debrief (2026-05-12) — bridge for the V2 EnrollmentTerminationHandler
         /// pre-hook. Delegates to <c>ImeLogHost.PromoteActiveInstallsToStuck</c> which calls
         /// the tracker directly so the standard <c>OnAppStateChanged</c> path fires and the

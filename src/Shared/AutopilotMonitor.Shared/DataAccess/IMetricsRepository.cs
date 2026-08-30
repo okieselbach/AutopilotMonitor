@@ -98,6 +98,19 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,
             string ruleTitle, string category, string severity, bool fired, int? confidenceScore);
         Task<bool> SaveRuleStatsEntryAsync(RuleStatsEntry entry);
+
+        /// <summary>
+        /// Folds one session's IME pattern histogram (patternId → matches, zeros included) into
+        /// the global per-version statistics: every listed pattern gets Sessions+1, matched ones
+        /// SessionsWithHit+1 and Hits+count. One partition read + one transactional batch.
+        /// </summary>
+        Task UpsertImePatternStatsAsync(string imeVersion, IReadOnlyDictionary<string, int> hits, DateTime nowUtc);
+
+        /// <summary>All ImePatternStats rows across versions (lean projection).</summary>
+        Task<List<ImePatternStatsEntry>> GetImePatternStatsAsync();
+
+        /// <summary>Stamps DriftFlaggedAt on one version×pattern cell; returns false when it was already stamped (lost race).</summary>
+        Task<bool> TryMarkImePatternDriftFlaggedAsync(string imeVersion, string patternId, DateTime nowUtc);
         // maxResults is a runaway backstop, not a page size: a 31-day window easily holds
         // 1400+ per-day rows (rules × days), and the scan runs date-ascending, so a low cap
         // silently drops the NEWEST dates — newly added rules then vanish from stats entirely.

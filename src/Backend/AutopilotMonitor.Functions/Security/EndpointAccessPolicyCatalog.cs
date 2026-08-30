@@ -280,6 +280,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "metrics/mcp-usage/user/{userId}", EndpointPolicy.TenantAdminOrGlobalReader),
         new("GET",    "metrics/geographic/sessions", EndpointPolicy.MemberRead),
         new("GET",    "metrics/ime-versions",      EndpointPolicy.MemberRead),
+        new("GET",    "metrics/ime-pattern-health", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "audit/logs",                EndpointPolicy.MemberRead),
         new("GET",    "audit/hardware-rejected", EndpointPolicy.MemberRead),
         new("GET",    "audit/device-not-registered", EndpointPolicy.MemberRead),

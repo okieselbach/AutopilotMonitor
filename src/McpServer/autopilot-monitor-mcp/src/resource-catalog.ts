@@ -183,8 +183,9 @@ export const EVENT_TYPES_CATALOG = {
     'disk_space_low',
     'esp_policy_provider_stalled',
     'agent_late_start',
+    'ime_tracker_degraded',
   ],
-  metrics_events: ['performance_snapshot', 'agent_metrics_snapshot', 'ingress_backpressure'],
+  metrics_events: ['performance_snapshot', 'agent_metrics_snapshot', 'ingress_backpressure', 'ime_pattern_hits'],
   security_events: [
     'integrity_bypass_analysis',
     'local_admin_analysis',

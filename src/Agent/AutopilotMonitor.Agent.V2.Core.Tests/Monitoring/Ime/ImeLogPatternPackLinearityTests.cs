@@ -29,9 +29,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         private const RegexOptions AgentOptions = RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline;
         private static readonly TimeSpan AgentTimeout = TimeSpan.FromSeconds(1);
 
-        // Generous for a loaded CI box; a super-linear pattern on these inputs takes the full
+        // Generous for a loaded CI box (a parallel dotnet build pushed a linear pattern to ~200 ms once); a super-linear pattern on these inputs takes the full
         // 1 s timeout (or throws), never tens of milliseconds.
-        private const int MaxMillisPerMatch = 150;
+        private const int MaxMillisPerMatch = 300;
         private const int HostileBytes = 512 * 1024;
         private const string Guid1 = "5c95bf94-1cf4-4629-88d1-3f616e7a405c";
 

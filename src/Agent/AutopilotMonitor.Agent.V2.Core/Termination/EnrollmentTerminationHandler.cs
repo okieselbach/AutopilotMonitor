@@ -244,6 +244,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     MaybeEmitAgentLateStart(args);
 
                     EmitAppTrackingSummary();
+
+                    // Pattern-drift signal: which IME log patterns matched how often in this
+                    // session (zeros included) + tracker health. Same slot as the app summary —
+                    // once per session, in the terminal flush; WhiteGlove Part 2 carries Part 1's
+                    // counts through the persisted tracker state.
+                    EmitImePatternHits();
                 }
 
                 // WhiteGlove Part-1 exit: keep the session alive, but announce the handoff so
@@ -532,6 +538,70 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             catch (Exception ex)
             {
                 _logger.Warning($"EnrollmentTerminationHandler: app_tracking_summary emit failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Emits <c>ime_pattern_hits</c>: per-pattern match counts for every enabled IME log
+        /// pattern (zeros included — "active but never matched" IS the drift signal) plus the
+        /// tracker's cumulative health counters. Best-effort like the app summary.
+        /// </summary>
+        private void EmitImePatternHits()
+        {
+            if (_post == null) return;
+
+            try
+            {
+                var health = _appTracking.ImeTrackerHealth;
+                if (health == null || health.PatternHits == null || health.PatternHits.Count == 0)
+                {
+                    _logger.Debug("EnrollmentTerminationHandler: no IME tracker health surface — ime_pattern_hits skipped");
+                    return;
+                }
+
+                var hits = new Dictionary<string, object>(health.PatternHits.Count, StringComparer.Ordinal);
+                var matchedPatterns = 0;
+                foreach (var kv in health.PatternHits)
+                {
+                    hits[kv.Key] = kv.Value;
+                    if (kv.Value > 0) matchedPatterns++;
+                }
+
+                var data = new Dictionary<string, object>(StringComparer.Ordinal)
+                {
+                    ["hits"] = hits,
+                    ["patternCount"] = health.PatternHits.Count,
+                    ["matchedPatterns"] = matchedPatterns,
+                    ["linesRead"] = health.LinesRead,
+                    ["entriesMatched"] = health.EntriesMatched,
+                    ["oversizedLines"] = health.OversizedLines,
+                    ["regexTimeouts"] = health.RegexTimeouts,
+                    ["lineBudgetBreaks"] = health.BudgetBreaks,
+                    ["heldTails"] = health.HeldTails,
+                    ["unanchoredPatterns"] = health.UnanchoredPatterns,
+                    ["hsParseFailures"] = health.HealthScriptResultParseFailures,
+                    ["agentVersion"] = _agentVersion ?? string.Empty,
+                };
+                if (!string.IsNullOrEmpty(health.ImeAgentVersion))
+                    data["imeVersion"] = health.ImeAgentVersion;
+
+                _post.Emit(new EnrollmentEvent
+                {
+                    SessionId = _configuration.SessionId,
+                    TenantId = _configuration.TenantId,
+                    EventType = Constants.EventTypes.ImePatternHits,
+                    Severity = EventSeverity.Info,
+                    Source = "EnrollmentTerminationHandler",
+                    Phase = EnrollmentPhase.Unknown,
+                    Message = $"IME pattern hits: {matchedPatterns}/{health.PatternHits.Count} patterns matched, {health.EntriesMatched} matches over {health.LinesRead} lines" +
+                              (string.IsNullOrEmpty(health.ImeAgentVersion) ? string.Empty : $" (IME {health.ImeAgentVersion})"),
+                    Data = data,
+                    ImmediateUpload = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"EnrollmentTerminationHandler: ime_pattern_hits emit failed: {ex.Message}");
             }
         }
 

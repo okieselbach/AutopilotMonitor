@@ -33,6 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private readonly string _agentVersion;
         private readonly NetworkMetrics _networkMetrics;
         private readonly ITelemetrySpool? _telemetrySpool;
+        private readonly Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? _imeTrackerHealthProbe;
 
         // Previous sample for delta calculations
         private TimeSpan _prevCpuTime;
@@ -51,12 +52,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             AgentLogger logger,
             string agentVersion = "unknown",
             int intervalSeconds = 60,
-            ITelemetrySpool? telemetrySpool = null)
+            ITelemetrySpool? telemetrySpool = null,
+            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
             _networkMetrics = networkMetrics ?? throw new ArgumentNullException(nameof(networkMetrics));
             _agentVersion = string.IsNullOrWhiteSpace(agentVersion) ? "unknown" : agentVersion;
             _telemetrySpool = telemetrySpool;
+            _imeTrackerHealthProbe = imeTrackerHealthProbe;
         }
 
         protected override void OnBeforeStart()
@@ -79,11 +82,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void Collect()
         {
-            // Full path writes 20 keys: agent_version + process metrics (5: cpu, ws, private,
+            // Full path writes 29 keys: agent_version + process metrics (5: cpu, ws, private,
             // threads, handles) + spool stats (5) + network delta (9: requests, failures,
-            // bytes_up/down, avg_latency, total_up/down/requests/latency). cap=20 →
-            // HashHelpers.GetPrime(20)=23 buckets → no resize on the 20th key.
-            var data = new Dictionary<string, object>(capacity: 20, StringComparer.Ordinal)
+            // bytes_up/down, avg_latency, total_up/down/requests/latency) + IME tracker health
+            // (9). cap=29 → HashHelpers.GetPrime(29)=29 buckets → no resize on the last key.
+            var data = new Dictionary<string, object>(capacity: 29, StringComparer.Ordinal)
             {
                 { "agent_version", _agentVersion }
             };
@@ -177,6 +180,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             catch (Exception ex)
             {
                 Logger.Debug($"Network metrics read failed: {ex.Message}");
+            }
+
+            // --- IME log tracker health ---
+            // Read-only probe over ImeLogHost (same pattern as the registry observer's
+            // trackerStateProbe). The counters' fleet expectation is 0 for everything but
+            // lines_read/entries_matched — a non-zero skip counter is the "tracker dropped
+            // work" trace that used to exist only in the client log. Null when the IME host is
+            // not running (test fakes, IME tracking disabled).
+            if (_imeTrackerHealthProbe != null)
+            {
+                try
+                {
+                    var health = _imeTrackerHealthProbe();
+                    if (health != null)
+                    {
+                        data["ime_files_tailed"] = health.FilesTailed;
+                        data["ime_backlog_bytes"] = health.BacklogBytes;
+                        data["ime_lines_read"] = health.LinesRead;
+                        data["ime_entries_matched"] = health.EntriesMatched;
+                        data["ime_oversized_lines"] = health.OversizedLines;
+                        data["ime_regex_timeouts"] = health.RegexTimeouts;
+                        data["ime_line_budget_breaks"] = health.BudgetBreaks;
+                        data["ime_held_tails"] = health.HeldTails;
+                        data["ime_unanchored_patterns"] = health.UnanchoredPatterns;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug($"IME tracker health read failed: {ex.Message}");
+                }
             }
 
             if (data.Count > 0)

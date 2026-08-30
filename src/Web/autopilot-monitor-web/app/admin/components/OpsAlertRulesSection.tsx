@@ -176,6 +176,7 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "BlobStorageMissing",
     "BlobStorageUnreachable",
     "NewImeVersionDetected",
+    "ImePatternDriftSuspected",
     "ExcessiveSessionEvents",
     // 48h session-age emergency break reported over the agent's emergency channel — the
     // "are we silently losing agents?" signal. Emitted once per session by

@@ -596,7 +596,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     networkMetrics: _networkMetrics,
                     agentVersion: _agentVersion,
                     telemetrySpool: telemetrySpool,
-                    startupGate: _startupEventGate)); // M3 — disk_space_low latch survives restarts
+                    startupGate: _startupEventGate, // M3 — disk_space_low latch survives restarts
+                    // IME tracker health rides the metrics snapshot (queue depth + skip counters);
+                    // read-only probe, same shape as the registry observer's trackerStateProbe.
+                    imeTrackerHealthProbe: () => imeLogHostRef?.GetTrackerHealth()));
             }
 
             // V1 parity (CollectorCoordinator.StartOptionalCollectors:375-382) — wire the

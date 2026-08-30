@@ -34,7 +34,9 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   const getEventData = <T extends Record<string, unknown> = Record<string, unknown>>(eventType: string): T | null => {
     const matchingEvents = events.filter(e => e.eventType === eventType);
     if (matchingEvents.length === 0) return null;
-    const latestEvent = matchingEvents[matchingEvents.length - 1];
+    // Highest sequence, not "last element": the merged event list is not guaranteed to be
+    // sequence-sorted when handed to this card, and periodic snapshots must show the latest.
+    const latestEvent = matchingEvents.reduce((best, e) => (e.sequence > best.sequence ? e : best), matchingEvents[0]);
     return (latestEvent?.data as T | undefined) ?? null;
   };
 
@@ -198,6 +200,15 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   // at ingest from the cumulative snapshot counters); bandwidth/volume from their events.
   const bandwidthEstimate = getEventData("network_bandwidth_estimate");
   const metricsSnapshot = getEventData("agent_metrics_snapshot");
+  const imeTracker = metricsSnapshot && metricsSnapshot.ime_files_tailed !== undefined ? metricsSnapshot : null;
+  const patternHits = getEventData("ime_pattern_hits");
+  const imeSkipCounters: Array<[string, unknown]> = [
+    ["oversized lines", patternHits?.oversizedLines ?? imeTracker?.ime_oversized_lines],
+    ["regex timeouts", patternHits?.regexTimeouts ?? imeTracker?.ime_regex_timeouts],
+    ["budget breaks", patternHits?.lineBudgetBreaks ?? imeTracker?.ime_line_budget_breaks],
+  ];
+  const imeSkipParts = imeSkipCounters.filter(([, v]) => Number(v) > 0).map(([k, v]) => `${v} ${k}`);
+  const imeSkips = imeSkipParts.length;
   const apiLatencyMs = session?.avgApiLatencyMs ?? 0;
   const hasConnectivity = apiLatencyMs > 0 || bandwidthEstimate || metricsSnapshot;
 
@@ -373,6 +384,38 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 )}
                 {/* Outbound IP is deliberately NOT rendered here — the outbound_ip trace event
                     stays available for analysis (timeline, MCP). */}
+              </DetailSection>
+            )}
+
+            {/* IME log tracker health: queue depth + skip counters from the periodic snapshot,
+                session totals from the terminal ime_pattern_hits event. Skip counters are
+                expected to be 0 — any other value is a reason to look at the client log. */}
+            {(imeTracker || patternHits) && (
+              <DetailSection title="IME Tracker">
+                {imeTracker?.ime_files_tailed !== undefined && (
+                  <DetailRow label="Log files tailed" value={String(imeTracker.ime_files_tailed)} />
+                )}
+                {imeTracker?.ime_backlog_bytes !== undefined && (
+                  <DetailRow label="Unread backlog" value={Number(imeTracker.ime_backlog_bytes) > 0 ? formatBytesCompact(Number(imeTracker.ime_backlog_bytes)) : "0 (caught up)"} />
+                )}
+                {(patternHits?.linesRead ?? imeTracker?.ime_lines_read) !== undefined && (
+                  <DetailRow label="Lines read" value={Number(patternHits?.linesRead ?? imeTracker?.ime_lines_read).toLocaleString()} />
+                )}
+                {(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched) !== undefined && (
+                  <DetailRow label="Pattern matches" value={Number(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched).toLocaleString()} />
+                )}
+                {patternHits?.matchedPatterns !== undefined && patternHits?.patternCount !== undefined && (
+                  <DetailRow label="Patterns matched" value={`${patternHits.matchedPatterns} / ${patternHits.patternCount}`} />
+                )}
+                <DetailRow
+                  label="Skipped work"
+                  value={imeSkips > 0
+                    ? `${imeSkipParts.join(", ")} — see ime_tracker_degraded`
+                    : "none"}
+                />
+                {(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) !== undefined && Number(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) > 0 && (
+                  <DetailRow label="Unanchored patterns" value={String(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns)} />
+                )}
               </DetailSection>
             )}
 

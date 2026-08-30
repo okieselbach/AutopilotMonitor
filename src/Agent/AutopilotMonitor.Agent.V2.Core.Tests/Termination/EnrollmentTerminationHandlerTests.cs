@@ -232,6 +232,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
             public IReadOnlyDictionary<string, AppInstallTiming>? AppTimings =>
                 _rig.AppTimingsOverride ?? new Dictionary<string, AppInstallTiming>();
             public int IgnoredCount => 0;
+            public ImeTrackerHealth? ImeTrackerHealth => null;
 
             public IReadOnlyList<string> PromoteActiveInstallsToStuck(string failureType, string message, string? errorCode)
             {

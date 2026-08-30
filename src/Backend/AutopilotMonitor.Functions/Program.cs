@@ -282,6 +282,9 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Monitoring.AzurePoisonQueueProbe>();
 builder.Services.AddSingleton<OpsAlertDispatchService>();
 builder.Services.AddSingleton<OpsEventService>();
+// IME pattern-drift loop: folds ime_pattern_hits into ImePatternStats and raises
+// ImePatternDriftSuspected; singleton because it caches the stats snapshot for evaluation.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Ime.ImePatternHealthService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.SessionOwnerBindingObserver>();
 builder.Services.AddSingleton<BlockedDeviceService>();
 builder.Services.AddSingleton<HardwareRejectionThrottleService>();
