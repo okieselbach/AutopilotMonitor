@@ -73,10 +73,15 @@ completion) queue behind that work — a monitoring blackout during the enrollme
   capped prefix opens a CMTrace entry without closing it, the existing `skippingDroppedEntry`
   mechanism skips the entry's continuation lines instead of raw-matching them; a line that
   opens a *new* entry always ends the skip and is processed itself.
-* **Per-line matching budget.** `MatchLine` runs all active patterns under a 2 s Stopwatch
-  budget; a pattern that times out is skipped and counted, and once the budget is spent the
-  remaining patterns are skipped for that line (matches already handled stand). No genuine line
-  comes near it — the budget exists for unanchored custom patterns and hostile input.
+* **Per-line matching budget.** `MatchLine` runs all active patterns under a 2 s budget that
+  sums only the time spent inside `Regex.Match` on that line; a pattern that times out is
+  skipped and counted, and once the budget is spent the remaining patterns are skipped for that
+  line (matches already handled stand). No genuine line comes near it — the budget exists for
+  unanchored custom patterns and hostile input. It is deliberately not the wall-clock across
+  the pattern loop: that window also holds the match handlers (signal ingress, match-log
+  append) and scheduler stalls, and session 946ccbd6 (2026-08-30, Hyper-V guest with 5–10 s
+  process-wide stalls, 1 MB log, no line over 5 KB) broke the wall-clock budget twice on
+  genuine lines and skipped their remaining patterns.
 * **Held-back tails.** An unterminated tail at EOF (a physical line without `\n`, or a
   multiline entry without `]LOG]!>`) is normally the writer mid-write. Instead of dropping it
   (and raw-matching its remainder next pass) the bookmark stays at the entry start. The hold

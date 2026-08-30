@@ -140,6 +140,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         }
 
         [Fact]
+        public async Task Handler_time_does_not_count_against_the_line_budget()
+        {
+            // Session 946ccbd6: a stalled Hyper-V guest spent >2 s between two patterns of one
+            // genuine line and the wall-clock budget skipped the rest of the line. The budget
+            // bounds Regex.Match time only — a slow handler on an early pattern must leave the
+            // later patterns of the same line running and must not count as skipped work.
+            using var h = new Harness();
+            h.Tracker.OnPatternMatched = id => { if (id == "T-MARK") Thread.Sleep(2300); };
+            h.Append(Entry("marker 1 loose 1") + "\n");
+            await h.Pass();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal(1, health.PatternHits["T-MARK"]);
+            Assert.Equal(1, health.PatternHits["T-LOOSE"]); // ordered after T-MARK — still matched
+            Assert.Equal(0, health.BudgetBreaks);
+            Assert.False(health.HasSkippedWork);
+        }
+
+        [Fact]
         public void Ime_agent_version_is_captured_from_the_pattern_action()
         {
             using var h = new Harness();

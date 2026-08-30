@@ -387,38 +387,6 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
               </DetailSection>
             )}
 
-            {/* IME log tracker health: queue depth + skip counters from the periodic snapshot,
-                session totals from the terminal ime_pattern_hits event. Skip counters are
-                expected to be 0 — any other value is a reason to look at the client log. */}
-            {(imeTracker || patternHits) && (
-              <DetailSection title="IME Tracker">
-                {imeTracker?.ime_files_tailed !== undefined && (
-                  <DetailRow label="Log files tailed" value={String(imeTracker.ime_files_tailed)} />
-                )}
-                {imeTracker?.ime_backlog_bytes !== undefined && (
-                  <DetailRow label="Unread backlog" value={Number(imeTracker.ime_backlog_bytes) > 0 ? formatBytesCompact(Number(imeTracker.ime_backlog_bytes)) : "0 (caught up)"} />
-                )}
-                {(patternHits?.linesRead ?? imeTracker?.ime_lines_read) !== undefined && (
-                  <DetailRow label="Lines read" value={Number(patternHits?.linesRead ?? imeTracker?.ime_lines_read).toLocaleString()} />
-                )}
-                {(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched) !== undefined && (
-                  <DetailRow label="Pattern matches" value={Number(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched).toLocaleString()} />
-                )}
-                {patternHits?.matchedPatterns !== undefined && patternHits?.patternCount !== undefined && (
-                  <DetailRow label="Patterns matched" value={`${patternHits.matchedPatterns} / ${patternHits.patternCount}`} />
-                )}
-                <DetailRow
-                  label="Skipped work"
-                  value={imeSkips > 0
-                    ? `${imeSkipParts.join(", ")} — see ime_tracker_degraded`
-                    : "none"}
-                />
-                {(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) !== undefined && Number(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) > 0 && (
-                  <DetailRow label="Unanchored patterns" value={String(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns)} />
-                )}
-              </DetailSection>
-            )}
-
             {/* Security */}
             {(bitLockerStatus || secureBootStatus || tpmStatus) && (
               <DetailSection title="Security">
@@ -475,7 +443,7 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
             )}
           </div>
 
-          {/* Right Column: System, Autopilot Profile, Hardware */}
+          {/* Right Column: System, Autopilot Profile, Hardware, IME Tracker */}
           <div className="flex-1 flex flex-col gap-6">
             {/* System */}
             {(estimatedBootTime || agentStarted?.agentVersion || imeVersion || realmJoinInfo?.productVersion || aadJoinStatus?.joinType || deviceLocation?.country || deviceLocation?.Country || deviceLocation?.timezone || deviceLocation?.Timezone) && (
@@ -666,6 +634,38 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                   <DetailRow key={`gpu-${i}`} label={hwSpec.gpus!.length > 1 ? `GPU ${i + 1}` : 'GPU'} value={`${g.name || 'Unknown'}${g.adapterRAMGB ? ` (${g.adapterRAMGB} GB)` : ''}`} />
                   );
                 })}
+              </DetailSection>
+            )}
+
+            {/* IME log tracker health: queue depth + skip counters from the periodic snapshot,
+                session totals from the terminal ime_pattern_hits event. Skip counters are
+                expected to be 0 — any other value is a reason to look at the client log. */}
+            {(imeTracker || patternHits) && (
+              <DetailSection title="IME Tracker">
+                {imeTracker?.ime_files_tailed !== undefined && (
+                  <DetailRow label="Log files tailed" value={String(imeTracker.ime_files_tailed)} />
+                )}
+                {imeTracker?.ime_backlog_bytes !== undefined && (
+                  <DetailRow label="Unread backlog" value={Number(imeTracker.ime_backlog_bytes) > 0 ? formatBytesCompact(Number(imeTracker.ime_backlog_bytes)) : "0 (caught up)"} />
+                )}
+                {(patternHits?.linesRead ?? imeTracker?.ime_lines_read) !== undefined && (
+                  <DetailRow label="Lines read" value={Number(patternHits?.linesRead ?? imeTracker?.ime_lines_read).toLocaleString()} />
+                )}
+                {(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched) !== undefined && (
+                  <DetailRow label="Pattern matches" value={Number(patternHits?.entriesMatched ?? imeTracker?.ime_entries_matched).toLocaleString()} />
+                )}
+                {patternHits?.matchedPatterns !== undefined && patternHits?.patternCount !== undefined && (
+                  <DetailRow label="Patterns matched" value={`${patternHits.matchedPatterns} / ${patternHits.patternCount}`} />
+                )}
+                <DetailRow
+                  label="Skipped work"
+                  value={imeSkips > 0
+                    ? `${imeSkipParts.join(", ")} — see ime_tracker_degraded`
+                    : "none"}
+                />
+                {(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) !== undefined && Number(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) > 0 && (
+                  <DetailRow label="Unanchored patterns" value={String(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns)} />
+                )}
               </DetailSection>
             )}
           </div>

@@ -341,14 +341,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// pattern that times out is skipped (counted); once the aggregate budget is spent the
         /// remaining patterns are skipped for this line (counted, first skipped ID recorded) —
         /// matches already handled on this line stand.
+        /// <para>
+        /// The budget is the SUM of the time spent inside <c>Regex.Match</c> on this line — the
+        /// cost the budget exists to bound (hostile input × unanchored custom patterns). It is
+        /// deliberately not the wall-clock from the first to the last pattern: that window also
+        /// contains the match handlers (signal ingress, match-log append, state writes) and
+        /// whatever the scheduler does to this thread in between. Session 946ccbd6 (2026-08-30)
+        /// recorded two budget breaks on a 1 MB `AppWorkload.log` with no line over 5 KB — the
+        /// Hyper-V guest had stalled the whole process for 5–10 s mid-line — and each break
+        /// silently skipped the remaining patterns of a genuine line.
+        /// </para>
         /// </summary>
         private void MatchLine(string filePath, string line, string messageToMatch, CmTraceLogEntry entry, PassStats stats)
         {
-            var started = Stopwatch.GetTimestamp();
+            long matchTicks = 0;
             for (var i = 0; i < _activePatterns.Count; i++)
             {
                 var pattern = _activePatterns[i];
-                if (Stopwatch.GetTimestamp() - started > LineMatchBudgetTicks)
+                if (matchTicks > LineMatchBudgetTicks)
                 {
                     stats.BudgetBreaks++;
                     _budgetBreaks++;
@@ -356,22 +366,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     return;
                 }
 
+                Match match;
+                var matchStarted = Stopwatch.GetTimestamp();
                 try
                 {
-                    var match = pattern.Regex.Match(messageToMatch);
-                    if (match.Success)
-                    {
-                        RecordPatternHit(pattern.PatternId);
-                        WriteMatchLog(filePath, line, pattern.PatternId);
-                        HandlePatternMatch(pattern, match, messageToMatch, entry);
-                    }
+                    match = pattern.Regex.Match(messageToMatch);
                 }
                 catch (RegexMatchTimeoutException)
                 {
+                    matchTicks += Stopwatch.GetTimestamp() - matchStarted;
                     stats.RegexTimeouts++;
                     _regexTimeouts++;
                     if (_timeoutLoggedPatternIds.Add(pattern.PatternId))
                         _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' (message length {messageToMatch.Length}) — skipped; further timeouts of this pattern are only counted");
+                    continue;
+                }
+                matchTicks += Stopwatch.GetTimestamp() - matchStarted;
+
+                if (match.Success)
+                {
+                    RecordPatternHit(pattern.PatternId);
+                    WriteMatchLog(filePath, line, pattern.PatternId);
+                    HandlePatternMatch(pattern, match, messageToMatch, entry);
                 }
             }
         }

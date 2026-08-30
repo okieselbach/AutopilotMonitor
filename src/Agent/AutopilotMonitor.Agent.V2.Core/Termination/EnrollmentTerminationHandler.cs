@@ -544,7 +544,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
         /// <summary>
         /// Emits <c>ime_pattern_hits</c>: per-pattern match counts for every enabled IME log
         /// pattern (zeros included — "active but never matched" IS the drift signal) plus the
-        /// tracker's cumulative health counters. Best-effort like the app summary.
+        /// tracker's cumulative health counters. Best-effort like the app summary. Debug
+        /// severity: it is an operator/backend signal, not something a tenant admin acts on —
+        /// the default timeline hides it, the session page's IME Tracker card and the backend
+        /// fold still read it.
         /// </summary>
         private void EmitImePatternHits()
         {
@@ -590,7 +593,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     SessionId = _configuration.SessionId,
                     TenantId = _configuration.TenantId,
                     EventType = Constants.EventTypes.ImePatternHits,
-                    Severity = EventSeverity.Info,
+                    Severity = EventSeverity.Debug,
                     Source = "EnrollmentTerminationHandler",
                     Phase = EnrollmentPhase.Unknown,
                     Message = $"IME pattern hits: {matchedPatterns}/{health.PatternHits.Count} patterns matched, {health.EntriesMatched} matches over {health.LinesRead} lines" +

@@ -41,7 +41,9 @@ idle/stall clocks (`SignalActivityClassifier`).
   the whole session via the persisted histogram) the handler emits `ime_pattern_hits`:
   `hits` = every ENABLED pattern ID → match count, zeros included, plus the health counters and
   `imeVersion` (IME's own "Agent version is:" line). Only sessions with a terminal run report —
-  crashes/kills are outside the denominator by construction.
+  crashes/kills are outside the denominator by construction. Severity is Debug: the event is an
+  operator/backend signal, hidden from the default session timeline; the session page's
+  "IME Tracker" card and the ingest fold read it regardless of severity.
 * **Ingest.** `EventIngestProcessor` hands the event to `ImePatternHealthService` fire-and-forget:
   IDs are filtered against `BuiltInImeLogPatterns.BuiltInPatternIds` (a device may only claim an
   ID; tenant custom IDs never reach the global table), the version must pass
