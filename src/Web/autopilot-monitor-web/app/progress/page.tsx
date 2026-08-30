@@ -201,29 +201,35 @@ export default function ProgressPortalPage() {
                   Device Setup Progress
                 </h1>
                 <p className="text-gray-500">
-                  Enter your device serial number to check status
+                  Enter your device serial number or name to check status
                 </p>
               </div>
 
               {/* Search */}
-              <div className="flex items-center space-x-3 mb-10">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={serialInput}
-                    onChange={(e) => setSerialInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Enter serial number or device name (Cloud PC: the name shown in the Windows App)..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
-                  />
+              <div className="mb-10">
+                <div className="flex items-center space-x-3">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={serialInput}
+                      onChange={(e) => setSerialInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Serial number or device name..."
+                      aria-describedby="serial-input-hint"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
+                    />
+                  </div>
+                  <button
+                    onClick={searchBySerial}
+                    disabled={searching || !serialInput.trim()}
+                    className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium whitespace-nowrap"
+                  >
+                    {searching ? "Searching..." : "Check Status"}
+                  </button>
                 </div>
-                <button
-                  onClick={searchBySerial}
-                  disabled={searching || !serialInput.trim()}
-                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  {searching ? "Searching..." : "Check Status"}
-                </button>
+                <p id="serial-input-hint" className="mt-2 text-xs text-gray-500">
+                  Windows 365 Cloud PC? Enter the name shown in the Windows App.
+                </p>
               </div>
             </>
           )}
