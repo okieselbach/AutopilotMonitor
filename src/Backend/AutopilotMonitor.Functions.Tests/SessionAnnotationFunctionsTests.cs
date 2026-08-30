@@ -231,7 +231,10 @@ public class SessionAnnotationFunctionsTests
     {
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<WorkerOptions>(o => o.Serializer = new JsonObjectSerializer());
+        // Production wire settings (camelCase, absent-when-null, string enums) — assertions
+        // must run against the shape the deployed worker actually serializes.
+        services.Configure<WorkerOptions>(o => o.Serializer =
+            new JsonObjectSerializer(ApiJsonOptions.Create()));
         var provider = services.BuildServiceProvider();
 
         var items = new Dictionary<object, object> { ["RequestContext"] = requestContext };

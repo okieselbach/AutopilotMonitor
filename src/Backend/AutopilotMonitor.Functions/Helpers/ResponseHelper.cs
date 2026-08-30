@@ -1,4 +1,5 @@
 using System.Net;
+using AutopilotMonitor.Shared.Models;
 using Azure;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -9,10 +10,36 @@ namespace AutopilotMonitor.Functions.Helpers;
 /// <summary>
 /// Extension methods on HttpRequestData for creating consistent HTTP responses.
 /// Eliminates repeated CreateResponse + WriteAsJsonAsync boilerplate across function handlers.
+/// Success bodies are typed (<see cref="IApiResponse"/>): the generic overloads constrain on the
+/// marker interface, which anonymous objects cannot implement — so new untyped success shapes
+/// fail to compile once the legacy object overloads are gone (ratchet: TypedResponseGuardTests).
 /// </summary>
 public static class ResponseHelper
 {
-    /// <summary>200 OK with a JSON body.</summary>
+    /// <summary>200 OK with a typed JSON body.</summary>
+    public static Task<HttpResponseData> OkAsync<T>(this HttpRequestData req, T data)
+        where T : class, IApiResponse
+    {
+        return JsonAsync(req, HttpStatusCode.OK, data);
+    }
+
+    /// <summary>201 Created with a typed JSON body.</summary>
+    public static Task<HttpResponseData> CreatedAsync<T>(this HttpRequestData req, T data)
+        where T : class, IApiResponse
+    {
+        return JsonAsync(req, HttpStatusCode.Created, data);
+    }
+
+    /// <summary>Typed JSON body with an explicit status code (e.g. success-flag-dependent 200/500).</summary>
+    public static async Task<HttpResponseData> JsonAsync<T>(this HttpRequestData req, HttpStatusCode status, T data)
+        where T : class, IApiResponse
+    {
+        var response = req.CreateResponse(status);
+        await response.WriteAsJsonAsync(data);
+        return response;
+    }
+
+    /// <summary>200 OK with a JSON body (legacy untyped overload — migration only, do not add call sites).</summary>
     public static async Task<HttpResponseData> OkAsync(this HttpRequestData req, object data)
     {
         var response = req.CreateResponse(HttpStatusCode.OK);
@@ -20,7 +47,7 @@ public static class ResponseHelper
         return response;
     }
 
-    /// <summary>201 Created with a JSON body.</summary>
+    /// <summary>201 Created with a JSON body (legacy untyped overload — migration only, do not add call sites).</summary>
     public static async Task<HttpResponseData> CreatedAsync(this HttpRequestData req, object data)
     {
         var response = req.CreateResponse(HttpStatusCode.Created);
