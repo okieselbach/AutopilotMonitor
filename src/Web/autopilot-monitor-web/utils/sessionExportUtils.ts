@@ -40,10 +40,22 @@ export const SEVERITY_INT: Record<string, number> = {
   Trace: -1, Debug: 0, Info: 1, Warning: 2, Error: 3, Critical: 4
 };
 
+/**
+ * Quote a CSV cell and make untrusted content inert for spreadsheet consumers (CWE-1236).
+ * Excel/LibreOffice unquote the cell and then evaluate a leading `=`, `+`, `-`, `@`
+ * (and tab/CR-led cells) as a formula — device-originated strings (event message,
+ * device name, serial, failure reason, ...) must never reach a cell in that shape.
+ * A leading apostrophe forces text interpretation; embedded quotes are doubled.
+ */
+export function csvCell(v: string | number | boolean | undefined | null): string {
+  const raw = String(v ?? "");
+  const neutralized = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  return `"${neutralized.replace(/"/g, '""')}"`;
+}
+
 export function generateCsvExport(events: SessionExportEvent[]) {
   const isV1 = events.some(e => e.phase === 2);
   const phaseNames = isV1 ? EXPORT_V1_PHASE_NAMES : EXPORT_V2_PHASE_NAMES;
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
   // Sort exactly as Azure Table Storage: by timestamp ascending, then sequence ascending
   const sorted = [...events].sort((a, b) => {
     const tCmp = (a.timestamp ?? "").localeCompare(b.timestamp ?? "");
@@ -59,21 +71,21 @@ export function generateCsvExport(events: SessionExportEvent[]) {
     const sevInt = SEVERITY_INT[sev] ?? SEVERITY_INT[sev.charAt(0).toUpperCase() + sev.slice(1).toLowerCase()];
     const severityCell = sevInt !== undefined ? `${sev} (${sevInt})` : sev;
     return [
-      esc(`${e.tenantId ?? ""}_${e.sessionId ?? ""}`),
-      esc(e.rowKey ?? ""),
-      esc(e.eventId ?? ""),
-      esc(e.sessionId ?? ""),
-      esc(e.tenantId ?? ""),
-      esc(e.timestamp ?? ""),
-      esc(e.receivedAt ?? ""),
-      esc(e.eventType ?? ""),
-      esc(severityCell),
-      esc(e.source ?? ""),
+      csvCell(`${e.tenantId ?? ""}_${e.sessionId ?? ""}`),
+      csvCell(e.rowKey ?? ""),
+      csvCell(e.eventId ?? ""),
+      csvCell(e.sessionId ?? ""),
+      csvCell(e.tenantId ?? ""),
+      csvCell(e.timestamp ?? ""),
+      csvCell(e.receivedAt ?? ""),
+      csvCell(e.eventType ?? ""),
+      csvCell(severityCell),
+      csvCell(e.source ?? ""),
       String(e.phase ?? 0),
-      esc(e.message ?? ""),
+      csvCell(e.message ?? ""),
       String(e.sequence ?? 0),
-      esc(e.data ? JSON.stringify(e.data) : ""),
-      esc(phaseNames[e.phase] ?? "Unknown"),
+      csvCell(e.data ? JSON.stringify(e.data) : ""),
+      csvCell(phaseNames[e.phase] ?? "Unknown"),
     ].join(",");
   });
   return "\uFEFF" + header + "\n" + rows.join("\n");
@@ -123,52 +135,51 @@ export interface SessionCsvData {
 }
 
 export function generateSessionCsvExport(session: SessionCsvData): string {
-  const esc = (v: string | undefined | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   // Columns mirror the Sessions Azure Table Storage schema
   // PartitionKey = TenantId, RowKey = SessionId
   // Newer fields are APPENDED (never inserted) so the column prefix stays stable
   // for anything parsing older exports.
   const header = "PartitionKey,RowKey,SerialNumber,DeviceName,Manufacturer,Model,OsName,OsBuild,OsDisplayVersion,OsEdition,OsLanguage,IsUserDriven,IsPreProvisioned,StartedAt,CompletedAt,AgentVersion,EnrollmentType,CurrentPhase,Status,EventCount,FailureReason,LastEventAt,DurationSeconds,DiagnosticsBlobName,RebootCount,FailureSource,ReconcileReason,AdminMarkedAction,ValidatedBy,IsHybridJoin,IsSelfDeployingProfile,ConnectionType,GeoCountry,GeoRegion,GeoCity,AvgApiLatencyMs,ApiRequestCount,StalledAt,FailureSnapshotJson,IsCloudPc";
   const row = [
-    esc(session.tenantId),
-    esc(session.sessionId),
-    esc(session.serialNumber),
-    esc(session.deviceName),
-    esc(session.manufacturer),
-    esc(session.model),
-    esc(session.osName),
-    esc(session.osBuild),
-    esc(session.osDisplayVersion),
-    esc(session.osEdition),
-    esc(session.osLanguage),
+    csvCell(session.tenantId),
+    csvCell(session.sessionId),
+    csvCell(session.serialNumber),
+    csvCell(session.deviceName),
+    csvCell(session.manufacturer),
+    csvCell(session.model),
+    csvCell(session.osName),
+    csvCell(session.osBuild),
+    csvCell(session.osDisplayVersion),
+    csvCell(session.osEdition),
+    csvCell(session.osLanguage),
     String(session.isUserDriven ?? ""),
     String(session.isPreProvisioned ?? ""),
-    esc(session.startedAt),
-    esc(session.completedAt),
-    esc(session.agentVersion),
-    esc(session.enrollmentType),
+    csvCell(session.startedAt),
+    csvCell(session.completedAt),
+    csvCell(session.agentVersion),
+    csvCell(session.enrollmentType),
     String(session.currentPhase ?? ""),
-    esc(session.status),
+    csvCell(session.status),
     String(session.eventCount ?? ""),
-    esc(session.failureReason),
-    esc(session.lastEventAt),
+    csvCell(session.failureReason),
+    csvCell(session.lastEventAt),
     String(session.durationSeconds ?? ""),
-    esc(session.diagnosticsBlobName),
+    csvCell(session.diagnosticsBlobName),
     String(session.rebootCount ?? ""),
-    esc(session.failureSource),
-    esc(session.reconcileReason),
-    esc(session.adminMarkedAction),
-    esc(session.validatedBy),
+    csvCell(session.failureSource),
+    csvCell(session.reconcileReason),
+    csvCell(session.adminMarkedAction),
+    csvCell(session.validatedBy),
     String(session.isHybridJoin ?? ""),
     String(session.isSelfDeployingProfile ?? ""),
-    esc(session.connectionType),
-    esc(session.geoCountry),
-    esc(session.geoRegion),
-    esc(session.geoCity),
+    csvCell(session.connectionType),
+    csvCell(session.geoCountry),
+    csvCell(session.geoRegion),
+    csvCell(session.geoCity),
     String(session.avgApiLatencyMs ?? ""),
     String(session.apiRequestCount ?? ""),
-    esc(session.stalledAt),
-    esc(session.failureSnapshotJson),
+    csvCell(session.stalledAt),
+    csvCell(session.failureSnapshotJson),
     String(session.isCloudPc ?? ""),
   ].join(",");
   return "\uFEFF" + header + "\n" + row;
@@ -191,26 +202,25 @@ export interface RuleResultCsvData {
 }
 
 export function generateRuleResultsCsvExport(results: RuleResultCsvData[]): string {
-  const esc = (v: string | undefined | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   // Columns match the RuleResults Azure Table Storage schema exactly
   // PartitionKey = TenantId_SessionId, RowKey = RuleId
   const header = "PartitionKey,RowKey,ResultId,SessionId,TenantId,RuleId,RuleTitle,Severity,Category,ConfidenceScore,Explanation,RemediationJson,RelatedDocsJson,MatchedConditionsJson,DetectedAt";
   const rows = results.map(r => [
-    esc(`${r.tenantId}_${r.sessionId}`),
-    esc(r.ruleId),
-    esc(r.resultId),
-    esc(r.sessionId),
-    esc(r.tenantId),
-    esc(r.ruleId),
-    esc(r.ruleTitle),
-    esc(r.severity),
-    esc(r.category),
+    csvCell(`${r.tenantId}_${r.sessionId}`),
+    csvCell(r.ruleId),
+    csvCell(r.resultId),
+    csvCell(r.sessionId),
+    csvCell(r.tenantId),
+    csvCell(r.ruleId),
+    csvCell(r.ruleTitle),
+    csvCell(r.severity),
+    csvCell(r.category),
     String(r.confidenceScore ?? ""),
-    esc(r.explanation),
-    esc(r.remediation ? JSON.stringify(r.remediation) : ""),
-    esc(r.relatedDocs ? JSON.stringify(r.relatedDocs) : ""),
-    esc(r.matchedConditions ? JSON.stringify(r.matchedConditions) : ""),
-    esc(r.detectedAt),
+    csvCell(r.explanation),
+    csvCell(r.remediation ? JSON.stringify(r.remediation) : ""),
+    csvCell(r.relatedDocs ? JSON.stringify(r.relatedDocs) : ""),
+    csvCell(r.matchedConditions ? JSON.stringify(r.matchedConditions) : ""),
+    csvCell(r.detectedAt),
   ].join(","));
   return "\uFEFF" + header + "\n" + rows.join("\n");
 }
