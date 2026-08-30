@@ -659,9 +659,10 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                 )}
                 <DetailRow
                   label="Skipped work"
-                  value={imeSkips > 0
-                    ? `${imeSkipParts.join(", ")} — see ime_tracker_degraded`
-                    : "none"}
+                  value={imeSkips > 0 ? imeSkipParts.join(", ") : "none"}
+                  title={imeSkips > 0
+                    ? "Matching was cut short on some log lines — pattern coverage may be incomplete for this session. Nothing to fix on your side; use Report Session if the stats look wrong."
+                    : undefined}
                 />
                 {(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) !== undefined && Number(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) > 0 && (
                   <DetailRow label="Unanchored patterns" value={String(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns)} />
@@ -691,11 +692,11 @@ function formatBytesCompact(bytes: number): string {
   return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div className="flex justify-between text-xs py-0.5">
       <span className="text-gray-500">{label}</span>
-      <span className="text-gray-900 font-mono ml-2 text-right break-all" title={value}>{value}</span>
+      <span className="text-gray-900 font-mono ml-2 text-right break-all" title={title ?? value}>{value}</span>
     </div>
   );
 }
