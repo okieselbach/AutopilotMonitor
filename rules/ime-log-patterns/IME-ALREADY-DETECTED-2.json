@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ALREADY-DETECTED-2",
   "category": "otherPhases",
-  "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
+  "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
   "action": "ignoreCompletedApp",
   "description": "Detects enforcement success in a non-current phase, indicating an app completed in a previous phase should be ignored.",
   "enabled": true

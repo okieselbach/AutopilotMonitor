@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -117,117 +118,181 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     {
                         stream.Seek(startPos, SeekOrigin.Begin);
 
-                        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
+                        var reader = new BoundedLineReader(stream, MaxEntryBytes);
+                        var stats = new PassStats();
+
+                        // Buffer for multiline CMTrace entries (e.g. AgentExecutor.log
+                        // "write output done. output = ..." spans many lines)
+                        StringBuilder multiLineBuffer = null;
+                        int multiLineCount = 0;
+                        // Set after a capped entry is dropped: its remaining physical lines
+                        // are skipped instead of being matched as raw text, until the entry
+                        // closes or a new entry begins (so no real entry is lost).
+                        bool skippingDroppedEntry = false;
+                        // File offset where the entry currently being assembled/processed
+                        // begins — the bookmark to fall back to when that entry is NOT
+                        // consumed (cancellation, or a held-back unterminated tail).
+                        long entryStart = startPos;
+                        // Where the next pass resumes. EOF unless an entry is left unconsumed.
+                        long resumePos;
+
+                        while (true)
                         {
-                            // Buffer for multiline CMTrace entries (e.g. AgentExecutor.log
-                            // "write output done. output = ..." spans many lines)
-                            StringBuilder multiLineBuffer = null;
-                            int multiLineCount = 0;
-                            // Set after a capped entry is dropped: its remaining physical lines
-                            // are skipped instead of being matched as raw text, until the entry
-                            // closes or a new entry begins (so no real entry is lost).
-                            bool skippingDroppedEntry = false;
-
-                            string line;
-                            while ((line = await reader.ReadLineAsync()) != null)
+                            // CancellationToken.None: cancellation is honoured by the explicit
+                            // check below (exact bookmark) rather than by an exception out of
+                            // the read, which the poll loop would log as an error.
+                            var line = await reader.ReadLineAsync(CancellationToken.None);
+                            if (line == null)
                             {
-                                if (token.IsCancellationRequested) break;
-
-                                if (skippingDroppedEntry)
+                                // EOF. An in-flight multiline entry here is an entry the writer
+                                // has not finished — hold it back (see HoldBackTail) instead of
+                                // dropping it and raw-matching its remaining lines next pass.
+                                if (multiLineBuffer != null && HoldBackTail(filePath, entryStart, fileInfo.Length, passNowUtc))
                                 {
-                                    if (line.Contains("]LOG]!>")) { skippingDroppedEntry = false; continue; }
-                                    if (!line.StartsWith("<![LOG[")) continue;
-                                    skippingDroppedEntry = false;
+                                    resumePos = entryStart;
+                                    break;
                                 }
+                                resumePos = reader.Position;
+                                break;
+                            }
 
-                                // --- Multiline CMTrace buffering ---
-                                // CMTrace entries: <![LOG[message]LOG]!><time=...>
-                                // When message contains newlines, the entry spans multiple lines.
-                                // We buffer until we find the closing ]LOG]!> tag.
+                            if (token.IsCancellationRequested)
+                            {
+                                // Exact bookmark: nothing of this line (or of the multiline
+                                // entry it belongs to) has been handled.
+                                resumePos = multiLineBuffer != null ? entryStart : reader.LastLineStart;
+                                break;
+                            }
+
+                            if (multiLineBuffer == null)
+                                entryStart = reader.LastLineStart;
+
+                            // A physical line over the cap is never matched: its captures would be
+                            // cut and the regexes would run over attacker-sized input. The capped
+                            // prefix is enough to tell whether it opened an entry whose remaining
+                            // lines must be skipped rather than raw-matched.
+                            if (reader.LastLineTruncated)
+                            {
+                                stats.OversizedLines++;
                                 if (multiLineBuffer != null)
                                 {
-                                    // Continuing a multiline entry
-                                    multiLineBuffer.Append('\n').Append(line);
-                                    multiLineCount++;
-
-                                    if (line.Contains("]LOG]!>"))
-                                    {
-                                        // Entry complete — use the assembled line
-                                        line = multiLineBuffer.ToString();
-                                        multiLineBuffer = null;
-                                        multiLineCount = 0;
-                                    }
-                                    else if (multiLineCount >= MaxMultiLineBufferLines || multiLineBuffer.Length >= MaxMultiLineBufferChars)
-                                    {
-                                        // Safety limit — discard to bound memory and parser work. Warning
-                                        // (not Debug) so a capped entry is visible in the client log at the
-                                        // default level: a real IME entry this large would be news.
-                                        _logger.Warning($"ImeLogTracker: discarding multiline CMTrace buffer in {Path.GetFileName(filePath)} after {multiLineCount} lines / {multiLineBuffer.Length} chars (cap {MaxMultiLineBufferLines} lines / {MaxMultiLineBufferChars} chars) — entry dropped");
-                                        multiLineBuffer = null;
-                                        multiLineCount = 0;
-                                        skippingDroppedEntry = true;
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        // Still accumulating — read next line
-                                        continue;
-                                    }
+                                    multiLineBuffer = null;
+                                    multiLineCount = 0;
+                                    skippingDroppedEntry = true;
                                 }
                                 else if (line.StartsWith("<![LOG[") && !line.Contains("]LOG]!>"))
                                 {
-                                    // Start of a multiline CMTrace entry
-                                    multiLineBuffer = new StringBuilder(line);
-                                    multiLineCount = 1;
+                                    skippingDroppedEntry = true;
+                                }
+                                continue;
+                            }
+
+                            if (!reader.LastLineTerminated && multiLineBuffer == null
+                                && HoldBackTail(filePath, reader.LastLineStart, fileInfo.Length, passNowUtc))
+                            {
+                                // Unterminated single line at EOF: the writer is mid-line.
+                                resumePos = reader.LastLineStart;
+                                break;
+                            }
+
+                            if (skippingDroppedEntry)
+                            {
+                                // A line opening a new entry ends the skip and is processed
+                                // itself — checked BEFORE the close-tag test, because a complete
+                                // single-line entry contains both and must not be consumed as
+                                // the dropped entry's close.
+                                if (line.StartsWith("<![LOG["))
+                                    skippingDroppedEntry = false;
+                                else
+                                {
+                                    if (line.Contains("]LOG]!>")) skippingDroppedEntry = false;
                                     continue;
                                 }
+                            }
 
-                                // --- Normal processing (single-line or completed multiline) ---
-                                CmTraceLogEntry entry;
-                                string messageToMatch;
-                                if (CmTraceLogParser.TryParseLine(line, out entry))
+                            // --- Multiline CMTrace buffering ---
+                            // CMTrace entries: <![LOG[message]LOG]!><time=...>
+                            // When message contains newlines, the entry spans multiple lines.
+                            // We buffer until we find the closing ]LOG]!> tag.
+                            if (multiLineBuffer != null)
+                            {
+                                // Continuing a multiline entry
+                                multiLineBuffer.Append('\n').Append(line);
+                                multiLineCount++;
+
+                                if (line.Contains("]LOG]!>"))
                                 {
-                                    messageToMatch = entry.Message;
-                                    if (entry.HasTimestamp && !entry.BiasMinutes.HasValue)
-                                        calibrationAnchor = entry;
+                                    // Entry complete — use the assembled line
+                                    line = multiLineBuffer.ToString();
+                                    multiLineBuffer = null;
+                                    multiLineCount = 0;
+                                }
+                                else if (multiLineCount >= MaxMultiLineBufferLines || multiLineBuffer.Length >= MaxEntryBytes)
+                                {
+                                    // Safety limit — discard to bound memory and parser work. Warning
+                                    // (not Debug) so a capped entry is visible in the client log at the
+                                    // default level: a real IME entry this large would be news.
+                                    _logger.Warning($"ImeLogTracker: discarding multiline CMTrace buffer in {Path.GetFileName(filePath)} after {multiLineCount} lines / {multiLineBuffer.Length} chars (cap {MaxMultiLineBufferLines} lines / {MaxEntryBytes} chars) — entry dropped");
+                                    multiLineBuffer = null;
+                                    multiLineCount = 0;
+                                    skippingDroppedEntry = true;
+                                    continue;
                                 }
                                 else
                                 {
-                                    // Non-CMTrace line - match raw
-                                    messageToMatch = line;
-                                    entry = null;
-                                }
-
-                                if (string.IsNullOrEmpty(messageToMatch)) continue;
-
-                                // Simulation mode delay
-                                if (SimulationMode && entry != null)
-                                {
-                                    await ApplySimulationDelay(ResolveEntryUtc(entry), token);
-                                }
-
-                                // Match against active patterns
-                                foreach (var pattern in _activePatterns)
-                                {
-                                    try
-                                    {
-                                        var match = pattern.Regex.Match(messageToMatch);
-                                        if (match.Success)
-                                        {
-                                            WriteMatchLog(filePath, line, pattern.PatternId);
-                                            HandlePatternMatch(pattern, match, messageToMatch, entry);
-                                        }
-                                    }
-                                    catch (RegexMatchTimeoutException)
-                                    {
-                                        _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' — skipped to prevent ReDoS");
-                                    }
+                                    // Still accumulating — read next line
+                                    continue;
                                 }
                             }
+                            else if (line.StartsWith("<![LOG[") && !line.Contains("]LOG]!>"))
+                            {
+                                // Start of a multiline CMTrace entry
+                                multiLineBuffer = new StringBuilder(line);
+                                multiLineCount = 1;
+                                continue;
+                            }
+
+                            // --- Normal processing (single-line or completed multiline) ---
+                            CmTraceLogEntry entry;
+                            string messageToMatch;
+                            if (CmTraceLogParser.TryParseLine(line, out entry))
+                            {
+                                messageToMatch = entry.Message;
+                                if (entry.HasTimestamp && !entry.BiasMinutes.HasValue)
+                                    calibrationAnchor = entry;
+                            }
+                            else
+                            {
+                                // Non-CMTrace line - match raw
+                                messageToMatch = line;
+                                entry = null;
+                            }
+
+                            if (string.IsNullOrEmpty(messageToMatch)) continue;
+
+                            // Simulation mode delay
+                            if (SimulationMode && entry != null)
+                            {
+                                await ApplySimulationDelay(ResolveEntryUtc(entry), token);
+                            }
+
+                            MatchLine(filePath, line, messageToMatch, entry, stats);
                         }
 
-                        _positionTracker.SetPosition(filePath, stream.Position);
+                        ClearHeldTailIfConsumed(filePath, resumePos);
+                        _positionTracker.SetPosition(filePath, resumePos);
                         _stateDirty = true;
+
+                        // One line per pass and file, never per hostile line: the counters are
+                        // the operator's only trace that matching was skipped or cut short.
+                        if (stats.RegexTimeouts > 0 || stats.BudgetBreaks > 0 || stats.OversizedLines > 0)
+                        {
+                            _logger.Warning(
+                                $"ImeLogTracker: {Path.GetFileName(filePath)} pass skipped work — " +
+                                $"oversizedLines={stats.OversizedLines} (cap {MaxEntryBytes} bytes), " +
+                                $"regexTimeouts={stats.RegexTimeouts}, lineBudgetBreaks={stats.BudgetBreaks}" +
+                                (stats.FirstSkippedPatternId != null ? $", firstSkippedPattern={stats.FirstSkippedPatternId}" : string.Empty));
+                        }
 
                         // Calibrate AFTER the pass: this pass's lines were resolved with the
                         // offset established previously, at most one poll (100 ms) old. Buffering
@@ -245,6 +310,89 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _logger.Debug($"ImeLogTracker: IO error reading {filePath}: {ex.Message}");
                 }
             }
+        }
+
+        private sealed class PassStats
+        {
+            public int RegexTimeouts;
+            public int BudgetBreaks;
+            public int OversizedLines;
+            public string FirstSkippedPatternId;
+        }
+
+        /// <summary>
+        /// Matches one message against every active pattern under the per-line budget. A
+        /// pattern that times out is skipped (counted); once the aggregate budget is spent the
+        /// remaining patterns are skipped for this line (counted, first skipped ID recorded) —
+        /// matches already handled on this line stand.
+        /// </summary>
+        private void MatchLine(string filePath, string line, string messageToMatch, CmTraceLogEntry entry, PassStats stats)
+        {
+            var started = Stopwatch.GetTimestamp();
+            for (var i = 0; i < _activePatterns.Count; i++)
+            {
+                var pattern = _activePatterns[i];
+                if (Stopwatch.GetTimestamp() - started > LineMatchBudgetTicks)
+                {
+                    stats.BudgetBreaks++;
+                    if (stats.FirstSkippedPatternId == null) stats.FirstSkippedPatternId = pattern.PatternId;
+                    return;
+                }
+
+                try
+                {
+                    var match = pattern.Regex.Match(messageToMatch);
+                    if (match.Success)
+                    {
+                        WriteMatchLog(filePath, line, pattern.PatternId);
+                        HandlePatternMatch(pattern, match, messageToMatch, entry);
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    stats.RegexTimeouts++;
+                    if (_timeoutLoggedPatternIds.Add(pattern.PatternId))
+                        _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' (message length {messageToMatch.Length}) — skipped; further timeouts of this pattern are only counted");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Decides whether an unterminated tail starting at <paramref name="tailStart"/> is held
+        /// back for the writer to finish. True = do not process, resume from the tail start next
+        /// pass. False = process it now. A tail longer than <see cref="HeldTailMaxBytes"/> is
+        /// never held (re-reading it each poll is the cost to bound); a tail at the same start seen for longer than
+        /// <see cref="HeldTailSettle"/> is released so a never-completing tail is bounded to a
+        /// handful of re-reads.
+        /// </summary>
+        private bool HoldBackTail(string filePath, long tailStart, long fileLength, DateTime nowUtc)
+        {
+            if (fileLength - tailStart > HeldTailMaxBytes)
+            {
+                _heldTails.Remove(filePath);
+                return false;
+            }
+
+            HeldTail held;
+            if (_heldTails.TryGetValue(filePath, out held) && held.Start == tailStart)
+            {
+                if (nowUtc - held.FirstHeldUtc >= HeldTailSettle)
+                {
+                    _heldTails.Remove(filePath);
+                    return false;
+                }
+                return true;
+            }
+
+            _heldTails[filePath] = new HeldTail { Start = tailStart, FirstHeldUtc = nowUtc };
+            return true;
+        }
+
+        private void ClearHeldTailIfConsumed(string filePath, long resumePos)
+        {
+            HeldTail held;
+            if (_heldTails.TryGetValue(filePath, out held) && held.Start != resumePos)
+                _heldTails.Remove(filePath);
         }
 
         // Actions that mutate app/phase tracking state (_packageStates, _phasePackageSnapshots,

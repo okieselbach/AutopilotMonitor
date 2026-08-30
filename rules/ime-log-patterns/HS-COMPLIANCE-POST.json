@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "HS-COMPLIANCE-POST",
   "category": "always",
-  "pattern": "\\[HS\\] the (?<part>post) detection script result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+  "pattern": "^\\[HS\\] the (?<part>post) detection script result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
   "action": "healthScriptDetectionResult",
   "parameters": { "scriptType": "remediation" },
   "description": "Post-remediation detection result, current wording. IME 1.97 (Dec 2025) replaced the old '[HS] the post-remdiation detection script compliance result for ...' line (still covered by HS-COMPLIANCE for older logs) with '[HS] the post detection script result for <guid> is <True|False>' (ScriptProcessorV2.cs:721). The literal word 'post' in the line is captured as the part group so the handler classifies it as the post-detection phase.",

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ALREADY-DETECTED-1",
   "category": "otherPhases",
-  "pattern": "\\[Win32App\\] Completed detectionManager SideCar\\w+?DetectionManager, applicationDetectedByCurrentRule: True",
+  "pattern": "^\\[Win32App\\] Completed detectionManager SideCar\\w+?DetectionManager, applicationDetectedByCurrentRule: True",
   "action": "ignoreCompletedApp",
   "description": "Detects when an app from a previous ESP phase is detected as already installed, so it should be ignored in the current phase.",
   "enabled": true

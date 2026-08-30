@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-SCRIPT-RESULT",
   "category": "always",
-  "pattern": "\\[PowerShell\\] User Id = [a-z0-9\\-]+, Policy id = (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}), policy result = (?<result>\\w+)",
+  "pattern": "^\\[PowerShell\\] User Id = [a-z0-9\\-]+, Policy id = (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}), policy result = (?<result>\\w+)",
   "action": "scriptCompleted",
   "parameters": { "scriptType": "platform" },
   "description": "Captures the final result (Success/Failed) of a platform PowerShell script execution with its PolicyId.",

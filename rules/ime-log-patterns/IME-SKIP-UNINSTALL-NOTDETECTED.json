@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SKIP-UNINSTALL-NOTDETECTED",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Not detected app {GUID} and intent is to un-install, skip applicability check",
+  "pattern": "^\\[Win32App\\] Not detected app {GUID} and intent is to un-install, skip applicability check",
   "action": "updateStateSkipped",
   "description": "Detects when an app targeted for uninstall is not detected, so the uninstall is skipped (old log format).",
   "enabled": true

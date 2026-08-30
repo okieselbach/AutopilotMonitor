@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DETECTED-INSTALLED-2",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: {GUID} resulted in action status: Success and detection state: Detected",
+  "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: {GUID} resulted in action status: Success and detection state: Detected",
   "action": "updateStateInstalled",
   "description": "Detects when an app's detection action handler reports successful detection (app is installed).",
   "enabled": true

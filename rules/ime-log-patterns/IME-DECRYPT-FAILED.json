@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DECRYPT-FAILED",
   "category": "currentPhase",
-  "pattern": "Decryption is failed for appId {GUID}",
+  "pattern": "^Decryption is failed for appId {GUID}",
   "action": "updateStateError",
   "description": "Detects when app content decryption fails, indicating a corrupted or tampered download.",
   "enabled": true

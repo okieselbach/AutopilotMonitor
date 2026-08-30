@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-POLICIES",
   "category": "currentPhase",
-  "pattern": "Get policies =\\s*(?<policies>.*)",
+  "pattern": "^Get policies =\\s*(?<policies>.*)",
   "action": "policiesDiscovered",
   "description": "Captures the JSON policies list discovered by IME, used to build the app inventory.",
   "enabled": true

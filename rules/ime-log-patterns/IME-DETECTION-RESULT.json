@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DETECTION-RESULT",
   "category": "always",
-  "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
+  "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
   "action": "captureDetectionResult",
   "description": "Captures the detection rule result after IME runs detection for an app. 'Detected' means the detection rule matched (app is installed), 'NotDetected' means it did not, 'DetectedDifferentVersion' means a different version was found (supersedence / WinGet version mismatch). DetectedDifferentVersion must come first in the alternation so the unanchored regex does not mis-capture its 'Detected' prefix. Excludes [SimulatedDetectionActionHandler] which fires during applicability pre-checks.",
   "enabled": true

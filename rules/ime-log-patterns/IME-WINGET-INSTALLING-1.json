@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-WINGET-INSTALLING-1",
   "category": "currentPhase",
-  "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID} and user = .*?- Operation Phase = Installing",
+  "pattern": "^\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID} and user = .*?- Operation Phase = Installing",
   "action": "updateStateInstalling",
   "description": "Detects WinGet app installation progress with Operation Phase = Installing (format variant 1).",
   "enabled": true

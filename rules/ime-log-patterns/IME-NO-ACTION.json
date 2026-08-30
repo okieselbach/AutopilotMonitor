@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-NO-ACTION",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ActionProcessor\\] No action required for app with id: {GUID}",
+  "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] No action required for app with id: {GUID}",
   "action": "updateStateSkipped",
   "description": "Detects when IME determines no action is required for an app (already in desired state).",
   "enabled": true

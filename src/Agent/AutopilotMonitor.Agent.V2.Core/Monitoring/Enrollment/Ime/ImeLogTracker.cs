@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -224,11 +225,47 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private const int MaxScriptOutputLength = 2048;
         private const int MaxMultiLineBufferLines = 100;
-        // Companion byte cap: 100 raw lines of unbounded length could still assemble a
-        // multi-megabyte entry. Any process able to append to a tailed log can plant one; the
-        // parser is linear, but memory and the per-entry work must stay bounded regardless.
-        // Real IME entries (AgentExecutor script output is capped by IME itself) stay far below.
-        internal const int MaxMultiLineBufferChars = 1024 * 1024;
+        // Size cap for ONE entry — a single physical line (enforced by BoundedLineReader before
+        // the line is materialized) and an assembled multiline entry alike. Any process able to
+        // append to a tailed log can plant arbitrarily long lines; the parser is linear and the
+        // shipped patterns are anchored, but memory and per-entry work must stay bounded
+        // regardless. Evidence for the size (8 real diagnostics sets, 2026-08-30): single lines
+        // of ~110 KB are routine (IntuneManagementExtension.log policy dumps) and one tenant's
+        // AppWorkload.log "Get policies = [...]" line is 5.6 MB — it grows with the app count
+        // and IME-POLICIES legitimately captures it. A "few KB" cap would drop genuine entries.
+        internal const int MaxEntryBytes = 32 * 1024 * 1024;
+
+        // Upper size for holding back an unterminated EOF tail (see HeldTailSettle). A held tail
+        // is re-read on every poll until it completes or settles; keeping that bounded to 1 MB
+        // caps the churn a never-closing hostile tail can cause, while every real mid-write
+        // (IME writes an entry in one call) is far smaller.
+        internal const int HeldTailMaxBytes = 1024 * 1024;
+
+        // Aggregate matching budget per line across ALL active patterns. The 1 s per-regex
+        // timeout bounds one Match call; with ~80 active patterns and tenant-authored custom
+        // patterns (which are not anchored) a crafted line could still serialize ~80 s. After
+        // this budget the remaining patterns are skipped for that line and the pass summary
+        // says so. No genuine IME line comes anywhere near it.
+        private static readonly long LineMatchBudgetTicks = Stopwatch.Frequency * 2;
+
+        // An unterminated tail at EOF (a physical line without '\n', or a multiline entry
+        // without its ']LOG]!>' close) is normally the writer mid-write. It is held back —
+        // the bookmark stays at the entry start — until it completes or the file has stood
+        // still this long, after which it is processed as-is so a never-closing tail cannot
+        // be re-read forever.
+        internal static readonly TimeSpan HeldTailSettle = TimeSpan.FromSeconds(1);
+
+        // Once per process per pattern: the first regex timeout names its pattern at Debug;
+        // later ones are only counted into the pass summary.
+        private readonly HashSet<string> _timeoutLoggedPatternIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly Dictionary<string, HeldTail> _heldTails = new Dictionary<string, HeldTail>(StringComparer.OrdinalIgnoreCase);
+
+        private sealed class HeldTail
+        {
+            public long Start;
+            public DateTime FirstHeldUtc;
+        }
 
         // Counter for HS-NEW-RESULT JSON parse failures — visible to operators via tracker
         // metrics so we can detect IME log-format drift in production.
@@ -670,6 +707,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             }
 
             _logger.Info($"ImeLogTracker: compiled {_patternsAlways.Count} always, {_patternsCurrentPhase.Count} currentPhase, {_patternsOtherPhases.Count} otherPhases patterns");
+
+            // Shipped patterns are anchored at the message start ('^'), which is what keeps a
+            // non-matching pattern O(prefix) instead of a scan over attacker-sized lines. Tenant
+            // custom patterns and cached pre-anchor configs may lack it; they keep their
+            // semantics (no auto-prefix — that would silently change what a custom pattern
+            // matches) but are named once so a pass summary's budget breaks can be attributed.
+            var unanchored = patterns.Where(p => p.Enabled && !string.IsNullOrEmpty(p.Pattern) && !p.Pattern.StartsWith("^", StringComparison.Ordinal))
+                .Select(p => p.PatternId).ToList();
+            if (unanchored.Count > 0)
+                _logger.Info($"ImeLogTracker: {unanchored.Count} enabled pattern(s) are not anchored at the message start and run as full scans: {string.Join(", ", unanchored)}");
 
             // Re-activate with current phase state
             ActivatePatterns(_logPhaseIsCurrentPhase, force: true);

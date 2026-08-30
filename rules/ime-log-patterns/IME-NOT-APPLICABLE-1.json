@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-NOT-APPLICABLE-1",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ApplicabilityActionHandler\\] Applicability check for policy with id: {GUID} resulted in action status: Success and applicability state: NotApplicable",
+  "pattern": "^\\[Win32App\\]\\[ApplicabilityActionHandler\\] Applicability check for policy with id: {GUID} resulted in action status: Success and applicability state: NotApplicable",
   "action": "updateStateSkipped",
   "description": "Detects when an app's applicability check returns NotApplicable (requirements not met).",
   "enabled": true

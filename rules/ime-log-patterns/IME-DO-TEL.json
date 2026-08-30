@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DO-TEL",
   "category": "currentPhase",
-  "pattern": "\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
+  "pattern": "^\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
   "action": "updateDoTelemetry",
   "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration.",
   "enabled": true

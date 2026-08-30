@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ERROR-UNMAPPED-EXIT",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Admin did NOT set mapping for lpExitCode\\W+(?<exitCode>\\d+) of app\\W+{GUID}",
+  "pattern": "^\\[Win32App\\] Admin did NOT set mapping for lpExitCode\\W+(?<exitCode>\\d+) of app\\W+{GUID}",
   "action": "updateStateError",
   "description": "Detects when an app installer returned an exit code that has no mapping configured in Intune.",
   "enabled": true

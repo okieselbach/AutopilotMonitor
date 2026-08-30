@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-LAUNCH-INSTALLER",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Launch Win32AppInstaller in \\w+? session",
+  "pattern": "^\\[Win32App\\] Launch Win32AppInstaller in \\w+? session",
   "action": "updateStateInstalling",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when the Win32 app installer process is launched in a user or system session.",

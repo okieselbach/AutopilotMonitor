@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ATTEMPT-NUMBER",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] ===Step=== Execute retry (?<attempt>\\d+)$",
+  "pattern": "^\\[Win32App\\] ===Step=== Execute retry (?<attempt>\\d+)$",
   "action": "captureAttemptNumber",
   "parameters": {
     "useCurrentApp": "true"

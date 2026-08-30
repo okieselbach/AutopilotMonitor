@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ERROR-DOWNLOAD",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgress\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}ErrorDownloadingContent\"{1,2}",
+  "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgress\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}ErrorDownloadingContent\"{1,2}",
   "action": "updateStateError",
   "description": "Detects when an app's enforcement state transitions to ErrorDownloadingContent. Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
   "enabled": true

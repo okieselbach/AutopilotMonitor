@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-APP-TYPE-WINGET",
   "category": "always",
-  "pattern": "\\[Win32App\\]\\[WinGetApp\\].*?app with id: (?<id>{GUID})",
+  "pattern": "^\\[Win32App\\]\\[WinGetApp\\].*?app with id: (?<id>{GUID})",
   "action": "captureAppTypeWinGet",
   "description": "Detects a WinGet-backed Store app by any [Win32App][WinGetApp] handler log line (Detection/Applicability/Operation). Marks AppType as 'WinGet' for that app id.",
   "enabled": true

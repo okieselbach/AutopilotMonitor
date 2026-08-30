@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ERROR-ENFORCEMENT",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Error\\b",
+  "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Error\\b",
   "action": "updateStateError",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when enforcement state is set to Error for the current app (old log format).",

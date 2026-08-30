@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-APP-TYPE-MSI",
   "category": "always",
-  "pattern": "\\[Win32App\\].*?\\bMSI App (?<id>{GUID})",
+  "pattern": "^\\[Win32App\\].*?\\bMSI App (?<id>{GUID})",
   "action": "captureAppTypeMsi",
   "description": "Detects an MSI-based Win32 app via the 'MSI App <guid>' phrase in the ESP retry configuration line. Marks AppType as 'MSI' for that app id.",
   "enabled": true

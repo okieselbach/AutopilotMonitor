@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-AGENT-OUTPUT",
   "category": "always",
-  "pattern": "write output done\\. output = (?<output>[\\s\\S]*?), error = (?<error>[\\s\\S]*)",
+  "pattern": "^write output done\\. output = (?<output>[\\s\\S]*?), error = (?<error>[\\s\\S]*)",
   "action": "scriptOutput",
   "parameters": { "scriptType": "platform" },
   "description": "Captures both stdout and stderr from AgentExecutor.log when a platform script completes. The output group contains stdout, the error group contains stderr.",

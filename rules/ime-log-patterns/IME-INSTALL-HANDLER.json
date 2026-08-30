@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-INSTALL-HANDLER",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ExecutionActionHandler\\] Handler invoked with execution type: Install for policy with id: {GUID}",
+  "pattern": "^\\[Win32App\\]\\[ExecutionActionHandler\\] Handler invoked with execution type: Install for policy with id: {GUID}",
   "action": "updateStateInstalling",
   "description": "Detects when the IME execution handler starts installing an app.",
   "enabled": true

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SUBGRAPH",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[V3Processor\\] Processing subgraph with app ids: {GUID}",
+  "pattern": "^\\[Win32App\\]\\[V3Processor\\] Processing subgraph with app ids: {GUID}",
   "action": "cancelStuckAndSetCurrent",
   "description": "Detects when V3Processor starts a new subgraph, cancelling any stuck app and setting the new app as current.",
   "enabled": true

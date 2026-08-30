@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SKIP-INSTALL-DETECTED",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Detected app {GUID} and intent is to install, skip applicability check",
+  "pattern": "^\\[Win32App\\] Detected app {GUID} and intent is to install, skip applicability check",
   "action": "updateStateSkipped",
   "description": "Detects when an app targeted for install is already detected/installed, so the install is skipped (old log format).",
   "enabled": true

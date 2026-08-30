@@ -346,9 +346,9 @@ export default function ImePatternCard({
                   rows={3}
                   className="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   spellCheck={false}
-                  placeholder="e.g., EMS Agent Started"
+                  placeholder="e.g., ^EMS Agent Started"
                 />
-                <p className="mt-1 text-xs text-gray-500">C# regex syntax. Capture groups are used by some actions to extract values.</p>
+                <p className="mt-1 text-xs text-gray-500">C# regex syntax, matched against the CMTrace message text. Start the pattern with ^ (message start) — IME log lines always begin with the component tag, and an anchored pattern costs the agent nothing on lines it does not match. Capture groups are used by some actions to extract values.</p>
               </div>
 
               <div>

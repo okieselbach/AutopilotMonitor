@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-TOKEN-SUCCESS",
   "category": "always",
-  "pattern": "Successfully get the token",
+  "pattern": "^Successfully get the token",
   "action": "espPhaseDetected",
   "parameters": { "phase": "AccountSetup" },
   "description": "Detects successful token acquisition, indicating the AccountSetup ESP phase has started.",

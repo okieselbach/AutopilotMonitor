@@ -448,8 +448,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         /// reacting to. A same-shaped entry under the cap still assembles and matches.
         /// </summary>
         [Theory]
-        [InlineData(2 * 1024 * 1024, false)]   // over cap → dropped, warned
-        [InlineData(64 * 1024, true)]          // under cap → assembled, matched
+        [InlineData(ImeLogTracker.MaxEntryBytes + 64 * 1024, false)]   // over cap → dropped, warned
+        [InlineData(64 * 1024, true)]                                   // under cap → assembled, matched
         public async Task MultilineEntry_IsDroppedAndWarned_WhenItExceedsTheCharCap(int fillerChars, bool expectMatch)
         {
             using var h = new Harness();

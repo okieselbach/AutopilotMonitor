@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SET-CURRENT-1",
   "category": "always",
-  "pattern": "\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
+  "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
   "action": "setCurrentApp",
   "description": "Detects when IME begins processing an app with its dependency chain, setting it as the current app. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
   "enabled": false

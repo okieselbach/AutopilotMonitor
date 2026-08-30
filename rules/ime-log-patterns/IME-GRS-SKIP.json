@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-GRS-SKIP",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID} to (?:install|uninstall) is in GRS\\. The app will not be enforced\\.",
+  "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID} to (?:install|uninstall) is in GRS\\. The app will not be enforced\\.",
   "action": "updateStatePostponed",
   "description": "GRS (Global Retry Schedule) skip: the app failed recently and IME will not re-enforce it this check-in ('App with id: <guid> to install is in GRS. The app will not be enforced.', EnforcementActionProcessor / MixedEnforcementActionProcessor). THE canonical reason an app silently does nothing for up to 24h - previously invisible. Lives in AppActionProcessor.log, which the agent tails since the 2026-08-18 release; wording verified in IME 1.97 and 1.104.",
   "enabled": true

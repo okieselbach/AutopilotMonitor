@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-SCRIPT-EXITCODE",
   "category": "always",
-  "pattern": "Powershell execution is done, exitCode = (?<exitCode>-?\\d+)",
+  "pattern": "^Powershell execution is done, exitCode = (?<exitCode>-?\\d+)",
   "action": "scriptExitCode",
   "description": "Captures the PowerShell exit code when script execution completes in the IME log.",
   "enabled": true

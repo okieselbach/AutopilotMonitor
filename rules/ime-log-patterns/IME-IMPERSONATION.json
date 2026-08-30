@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-IMPERSONATION",
   "category": "always",
-  "pattern": "After impersonation: (?<user>.*?)$",
+  "pattern": "^After impersonation: (?<user>.*?)$",
   "action": "imeImpersonation",
   "description": "Detects when IME impersonates a user context for app installation.",
   "enabled": true

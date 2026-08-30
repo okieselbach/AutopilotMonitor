@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ERROR-REPORT",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}(?<from>\\w+)\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}(?<to>\\w+)\"{1,2}",
+  "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}(?<from>\\w+)\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}(?<to>\\w+)\"{1,2}",
   "action": "updateStateError",
   "parameters": {
     "checkTo": "true"

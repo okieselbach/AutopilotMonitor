@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-AGENT-EXITCODE",
   "category": "always",
-  "pattern": "Powershell exit code is (?<exitCode>-?\\d+)",
+  "pattern": "^Powershell exit code is (?<exitCode>-?\\d+)",
   "action": "scriptExitCode",
   "parameters": { "scriptType": "platform" },
   "description": "Captures the PowerShell exit code from AgentExecutor.log.",

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DOWNLOADING",
   "category": "currentPhase",
-  "pattern": "\\[StatusService\\] Downloading app \\(id = {GUID}.*?\\) via (?<tech>\\w+), bytes (?<bytes>\\w+)/(?<ofbytes>\\w+) for user",
+  "pattern": "^\\[StatusService\\] Downloading app \\(id = {GUID}.*?\\) via (?<tech>\\w+), bytes (?<bytes>\\w+)/(?<ofbytes>\\w+) for user",
   "action": "updateStateDownloading",
   "description": "Captures app download progress including technology (DO/CDN), bytes downloaded, and total bytes.",
   "enabled": true

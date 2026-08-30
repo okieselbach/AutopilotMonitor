@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SKIP-FILTERS",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[V3Processor\\] All apps in the subgraph are not applicable due to assignment filters\\. Skipping processing\\.",
+  "pattern": "^\\[Win32App\\]\\[V3Processor\\] All apps in the subgraph are not applicable due to assignment filters\\. Skipping processing\\.",
   "action": "updateStateSkipped",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when all apps in a subgraph are skipped due to assignment filter exclusions.",

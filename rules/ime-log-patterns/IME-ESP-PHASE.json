@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ESP-PHASE",
   "category": "always",
-  "pattern": "\\[Win32App\\] (?:In|The) EspPhase: (?<espPhase>\\w+)",
+  "pattern": "^\\[Win32App\\] (?:In|The) EspPhase: (?<espPhase>\\w+)",
   "action": "espPhaseDetected",
   "description": "Detects ESP phase transitions reported by IME Win32App processing (e.g., DeviceSetup, AccountSetup).",
   "enabled": true

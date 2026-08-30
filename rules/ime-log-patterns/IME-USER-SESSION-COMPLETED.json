@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-USER-SESSION-COMPLETED",
   "category": "always",
-  "pattern": "\\[Win32App\\] \\.+ Completed user session \\d+, userId: (?<userId>[a-f0-9\\-]+), userSID: (?<userSid>S-[\\d\\-]+) \\.+",
+  "pattern": "^\\[Win32App\\] \\.+ Completed user session \\d+, userId: (?<userId>[a-f0-9\\-]+), userSID: (?<userSid>S-[\\d\\-]+) \\.+",
   "action": "enrollmentCompleted",
   "description": "Detects when IME completes a user session, indicating enrollment has finished for that user.",
   "enabled": true

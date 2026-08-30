@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-RESTART-STOP-PROCESSING",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[V3Processor\\] A restart is required to continue processing apps\\. Stop processing\\.",
+  "pattern": "^\\[Win32App\\]\\[V3Processor\\] A restart is required to continue processing apps\\. Stop processing\\.",
   "action": "updateStatePostponed",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects IME aborting app processing because an app requires a restart ('A restart is required to continue processing apps. Stop processing.', SideCarV3AppProcessor.cs). Postpones the current app: remaining apps do nothing until after the reboot, which previously looked like an unexplained stall mid-ESP.",

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-EXITCODE",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] lpExitCode (?<exitCode>-?\\d+)$",
+  "pattern": "^\\[Win32App\\] lpExitCode (?<exitCode>-?\\d+)$",
   "action": "captureExitCode",
   "parameters": {
     "useCurrentApp": "true"

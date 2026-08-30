@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SHUTDOWN",
   "category": "currentPhase",
-  "pattern": "EMS Agent received shutdown signal",
+  "pattern": "^EMS Agent received shutdown signal",
   "action": "updateStatePostponed",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when the IME agent receives a shutdown signal, postponing the current app installation.",

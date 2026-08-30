@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-AGENT-SCRIPT-START",
   "category": "always",
-  "pattern": "Adding argument powershell with value C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1",
+  "pattern": "^Adding argument powershell with value C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1",
   "action": "scriptStarted",
   "parameters": { "scriptType": "platform", "source": "agentexecutor" },
   "description": "Detects platform script identification in AgentExecutor.log. Captures PolicyId from the script file path for stdout/stderr correlation.",

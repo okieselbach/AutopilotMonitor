@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-APP-VERSION",
   "category": "always",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: (?<id>{GUID}).*?\"DetectedIdentityVersion\":\\{[^}]*?\"NewValue\":\"(?<appVersion>[^\"]+)\"",
+  "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: (?<id>{GUID}).*?\"DetectedIdentityVersion\":\\{(?:\"OldValue\":[^,}]{0,64},)?\"NewValue\":\"(?<appVersion>[^\"]+)\"",
   "action": "captureAppVersion",
   "description": "Captures the product version IME detected after an app install (e.g. \"11.2.1787.0\"). Source: [ReportingManager] Detection state update with DetectedIdentityVersion.NewValue. Used by App Dashboard to show version-level failure breakdowns.",
   "enabled": true

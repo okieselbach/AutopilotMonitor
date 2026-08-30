@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-SET-CURRENT-4",
   "category": "always",
-  "pattern": "\\[Win32App\\] SetCurrentDirectory:.*?\\\\{GUID}_\\d+",
+  "pattern": "^\\[Win32App\\] SetCurrentDirectory:.*?\\\\{GUID}_\\d+",
   "action": "setCurrentApp",
   "description": "Detects when IME sets the working directory for an app's staging folder, setting it as current.",
   "enabled": true

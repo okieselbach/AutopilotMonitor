@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-NOT-TARGETED-2",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, effective intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
+  "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, effective intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
   "action": "updateStateSkipped",
   "description": "Detects when an app with effective RequiredInstall intent is classified as NotApplicableOrNotTargeted.",
   "enabled": true

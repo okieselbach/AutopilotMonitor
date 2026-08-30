@@ -139,10 +139,49 @@ namespace AutopilotMonitor.Agent.V2
                     using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
                     {
+                        // Multiline CMTrace entries are assembled exactly like the live tracker
+                        // (ImeLogTracker.CheckLogFilesAsync) does, so the tool reproduces the
+                        // agent's matches: message text starts at offset 0 of the ASSEMBLED
+                        // entry. Without this the first physical line of a multiline entry is
+                        // matched raw (with its "<![LOG[" prefix), which the anchored pack
+                        // rightly rejects — and the tool would under-report against the agent.
+                        StringBuilder multiLineBuffer = null;
+                        int multiLineCount = 0;
+                        const int maxMultiLineLines = 100;
+
                         string line;
                         while ((line = reader.ReadLine()) != null)
                         {
                             fileLines++;
+
+                            if (multiLineBuffer != null)
+                            {
+                                multiLineBuffer.Append('\n').Append(line);
+                                multiLineCount++;
+                                if (line.Contains("]LOG]!>"))
+                                {
+                                    line = multiLineBuffer.ToString();
+                                    multiLineBuffer = null;
+                                    multiLineCount = 0;
+                                }
+                                else if (multiLineCount >= maxMultiLineLines)
+                                {
+                                    multiLineBuffer = null;
+                                    multiLineCount = 0;
+                                    continue;
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+                            else if (line.StartsWith("<![LOG[") && !line.Contains("]LOG]!>"))
+                            {
+                                multiLineBuffer = new StringBuilder(line);
+                                multiLineCount = 1;
+                                continue;
+                            }
+
                             string messageToMatch = CmTraceLogParser.TryParseLine(line, out var entry)
                                 ? entry.Message
                                 : line;

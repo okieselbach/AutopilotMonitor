@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-STARTED",
   "category": "always",
-  "pattern": "EMS Agent Started",
+  "pattern": "^EMS Agent Started",
   "action": "imeStarted",
   "description": "Detects when the Intune Management Extension (IME) agent starts up.",
   "enabled": true

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-AGENT-VERSION",
   "category": "always",
-  "pattern": "Agent version is: (?<agentVersion>[\\d.]+)",
+  "pattern": "^Agent version is: (?<agentVersion>[\\d.]+)",
   "action": "imeAgentVersion",
   "description": "Captures the Intune Management Extension agent version number.",
   "enabled": true

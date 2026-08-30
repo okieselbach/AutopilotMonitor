@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (7)
+
+* **New**: `agent/ime-log-tracker-matching-budget.md` — the shipped IME pattern pack is anchored (`^` on all 90 patterns, `IME-APP-VERSION` without the chained `[^}]*?` scan) and the tracker's read loop is bounded: `BoundedLineReader` (32 MB per line, exact byte bookmarks), 2 s per-line matching budget, held-back unterminated EOF tails with a 1 s settle, one Warning per pass (`oversizedLines` / `regexTimeouts` / `lineBudgetBreaks`); the unanchored `PS-SCRIPT-CONTEXT` false positives on `[Win32App] SideCarScript…` lines are gone. `--run-ime-matching` assembles multiline entries like the tracker. Registered in `index.md`.
+
 ## 2026-08-30 (6)
 
 * **Update**: `rules/rule-id-namespace.md` — guard 1 rewritten: gather RuleStats (tenant + `global_*` rows) are now resolved against the tenant's active gather catalog (`EventIngestProcessor.ResolveFiredGatherRules`), metadata catalog-sourced, unknown IDs dropped — same design as the analyze path; the `IsReservedBuiltInId` pattern gate on device-supplied IDs is gone.

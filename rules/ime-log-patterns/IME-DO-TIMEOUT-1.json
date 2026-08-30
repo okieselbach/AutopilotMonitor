@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DO-TIMEOUT-1",
   "category": "currentPhase",
-  "pattern": "\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b).*?intunewin-bin_{GUID}",
+  "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b).*?intunewin-bin_{GUID}",
   "action": "updateStatePostponed",
   "description": "Detects when a Delivery Optimization download times out for a specific app (identified by GUID in filename).",
   "enabled": true

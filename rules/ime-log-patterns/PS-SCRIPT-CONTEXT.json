@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-SCRIPT-CONTEXT",
   "category": "always",
-  "pattern": "Launch powershell executor in (?<context>machine|user) session",
+  "pattern": "^Launch powershell executor in (?<context>machine|user) session",
   "action": "scriptContext",
   "description": "Captures whether a PowerShell script runs in machine (System) or user session context.",
   "enabled": true

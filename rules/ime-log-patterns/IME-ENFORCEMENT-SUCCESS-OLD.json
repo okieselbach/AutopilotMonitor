@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-ENFORCEMENT-SUCCESS-OLD",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
+  "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
   "action": "updateStateInstalled",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when enforcement state is set to Success for the current app (old log format).",

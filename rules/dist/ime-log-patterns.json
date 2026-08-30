@@ -4,7 +4,7 @@
     {
       "patternId": "HS-COMPLIANCE",
       "category": "always",
-      "pattern": "\\[HS\\] the (?<part>pre|post)-rem(?:e)?diation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+      "pattern": "^\\[HS\\] the (?<part>pre|post)-rem(?:e)?diation detection script compliance result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
       "action": "healthScriptDetectionResult",
       "parameters": {
         "scriptType": "remediation"
@@ -15,7 +15,7 @@
     {
       "patternId": "HS-COMPLIANCE-POST",
       "category": "always",
-      "pattern": "\\[HS\\] the (?<part>post) detection script result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
+      "pattern": "^\\[HS\\] the (?<part>post) detection script result for (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) is (?<compliance>True|False)",
       "action": "healthScriptDetectionResult",
       "parameters": {
         "scriptType": "remediation"
@@ -26,7 +26,7 @@
     {
       "patternId": "HS-EXITCODE",
       "category": "always",
-      "pattern": "\\[HS\\] exit code of the script is (?<exitCode>-?\\d+)",
+      "pattern": "^\\[HS\\] exit code of the script is (?<exitCode>-?\\d+)",
       "action": "scriptExitCode",
       "parameters": {
         "scriptType": "remediation"
@@ -37,7 +37,7 @@
     {
       "patternId": "HS-NEW-RESULT",
       "category": "always",
-      "pattern": "\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
+      "pattern": "^\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
       "action": "healthScriptResult",
       "parameters": {
         "scriptType": "remediation"
@@ -48,7 +48,7 @@
     {
       "patternId": "HS-RUN-CONTEXT",
       "category": "always",
-      "pattern": "\\[HS\\] The policy needs be run as (?<context>System|User)",
+      "pattern": "^\\[HS\\] The policy needs be run as (?<context>System|User)",
       "action": "scriptContext",
       "parameters": {
         "scriptType": "remediation"
@@ -59,7 +59,7 @@
     {
       "patternId": "HS-SCRIPT-START",
       "category": "always",
-      "pattern": "\\[HS\\] ProcessScript PolicyId: (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) PolicyType: (?<policyType>\\d+)",
+      "pattern": "^\\[HS\\] ProcessScript PolicyId: (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}) PolicyType: (?<policyType>\\d+)",
       "action": "scriptStarted",
       "parameters": {
         "scriptType": "remediation"
@@ -70,7 +70,7 @@
     {
       "patternId": "HS-STDERR",
       "category": "always",
-      "pattern": "\\[HS\\] err output = (?<output>.*)",
+      "pattern": "^\\[HS\\] err output = (?<output>.*)",
       "action": "scriptOutput",
       "parameters": {
         "scriptType": "remediation",
@@ -82,7 +82,7 @@
     {
       "patternId": "HS-STDOUT",
       "category": "always",
-      "pattern": "\\[HS\\] std output = (?<output>.*)",
+      "pattern": "^\\[HS\\] std output = (?<output>.*)",
       "action": "scriptOutput",
       "parameters": {
         "scriptType": "remediation",
@@ -94,7 +94,7 @@
     {
       "patternId": "IME-AGENT-VERSION",
       "category": "always",
-      "pattern": "Agent version is: (?<agentVersion>[\\d.]+)",
+      "pattern": "^Agent version is: (?<agentVersion>[\\d.]+)",
       "action": "imeAgentVersion",
       "description": "Captures the Intune Management Extension agent version number.",
       "enabled": true
@@ -102,7 +102,7 @@
     {
       "patternId": "IME-ALREADY-DETECTED-1",
       "category": "otherPhases",
-      "pattern": "\\[Win32App\\] Completed detectionManager SideCar\\w+?DetectionManager, applicationDetectedByCurrentRule: True",
+      "pattern": "^\\[Win32App\\] Completed detectionManager SideCar\\w+?DetectionManager, applicationDetectedByCurrentRule: True",
       "action": "ignoreCompletedApp",
       "description": "Detects when an app from a previous ESP phase is detected as already installed, so it should be ignored in the current phase.",
       "enabled": true
@@ -110,7 +110,7 @@
     {
       "patternId": "IME-ALREADY-DETECTED-2",
       "category": "otherPhases",
-      "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
+      "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
       "action": "ignoreCompletedApp",
       "description": "Detects enforcement success in a non-current phase, indicating an app completed in a previous phase should be ignored.",
       "enabled": true
@@ -118,7 +118,7 @@
     {
       "patternId": "IME-APP-TYPE-MSI",
       "category": "always",
-      "pattern": "\\[Win32App\\].*?\\bMSI App (?<id>{GUID})",
+      "pattern": "^\\[Win32App\\].*?\\bMSI App (?<id>{GUID})",
       "action": "captureAppTypeMsi",
       "description": "Detects an MSI-based Win32 app via the 'MSI App <guid>' phrase in the ESP retry configuration line. Marks AppType as 'MSI' for that app id.",
       "enabled": true
@@ -126,7 +126,7 @@
     {
       "patternId": "IME-APP-TYPE-WINGET",
       "category": "always",
-      "pattern": "\\[Win32App\\]\\[WinGetApp\\].*?app with id: (?<id>{GUID})",
+      "pattern": "^\\[Win32App\\]\\[WinGetApp\\].*?app with id: (?<id>{GUID})",
       "action": "captureAppTypeWinGet",
       "description": "Detects a WinGet-backed Store app by any [Win32App][WinGetApp] handler log line (Detection/Applicability/Operation). Marks AppType as 'WinGet' for that app id.",
       "enabled": true
@@ -134,7 +134,7 @@
     {
       "patternId": "IME-APP-VERSION",
       "category": "always",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: (?<id>{GUID}).*?\"DetectedIdentityVersion\":\\{[^}]*?\"NewValue\":\"(?<appVersion>[^\"]+)\"",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: (?<id>{GUID}).*?\"DetectedIdentityVersion\":\\{(?:\"OldValue\":[^,}]{0,64},)?\"NewValue\":\"(?<appVersion>[^\"]+)\"",
       "action": "captureAppVersion",
       "description": "Captures the product version IME detected after an app install (e.g. \"11.2.1787.0\"). Source: [ReportingManager] Detection state update with DetectedIdentityVersion.NewValue. Used by App Dashboard to show version-level failure breakdowns.",
       "enabled": true
@@ -142,7 +142,7 @@
     {
       "patternId": "IME-ATTEMPT-NUMBER",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] ===Step=== Execute retry (?<attempt>\\d+)$",
+      "pattern": "^\\[Win32App\\] ===Step=== Execute retry (?<attempt>\\d+)$",
       "action": "captureAttemptNumber",
       "parameters": {
         "useCurrentApp": "true"
@@ -153,7 +153,7 @@
     {
       "patternId": "IME-CACHE-MISS",
       "category": "always",
-      "pattern": "\\[Win32App\\] Content cache miss for app \\(id = {GUID}, name = (?<name>.*?)\\), start downloading",
+      "pattern": "^\\[Win32App\\] Content cache miss for app \\(id = {GUID}, name = (?<name>.*?)\\), start downloading",
       "action": "updateName",
       "description": "Captures 'Content cache miss for app (id = <guid>, name = <name>), start downloading...' (ContentManager.cs) as a secondary app-name source. Fires right before a real download begins, so it resolves names for exactly the apps that will produce download/install activity — a redundancy for IME-POLICIES-based naming after IME retired the old name-bearing processing lines.",
       "enabled": true
@@ -161,7 +161,7 @@
     {
       "patternId": "IME-DECRYPT-FAILED",
       "category": "currentPhase",
-      "pattern": "Decryption is failed for appId {GUID}",
+      "pattern": "^Decryption is failed for appId {GUID}",
       "action": "updateStateError",
       "description": "Detects when app content decryption fails, indicating a corrupted or tampered download.",
       "enabled": true
@@ -169,7 +169,7 @@
     {
       "patternId": "IME-DETECTED-INSTALLED-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DetectionState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}Installed\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Detection state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DetectionState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}Installed\"{1,2}",
       "action": "updateStateInstalled",
       "description": "Detects when an app's detection state transitions to Installed (new ReportingManager format). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -177,7 +177,7 @@
     {
       "patternId": "IME-DETECTED-INSTALLED-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: {GUID} resulted in action status: Success and detection state: Detected",
+      "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: {GUID} resulted in action status: Success and detection state: Detected",
       "action": "updateStateInstalled",
       "description": "Detects when an app's detection action handler reports successful detection (app is installed).",
       "enabled": true
@@ -185,7 +185,7 @@
     {
       "patternId": "IME-DETECTED-OLD",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Detected app {GUID} ",
+      "pattern": "^\\[Win32App\\] Detected app {GUID} ",
       "action": "updateStateInstalled",
       "description": "Detects when an app is detected as installed (old log format). DISABLED 2026-08-17: the standalone 'Detected app <guid> ' line no longer exists in IME 1.97.107; this regex instead matched the 'Detected app ... and intent is to install, skip applicability check' line, colliding with IME-SKIP-INSTALL-DETECTED and firing updateStateInstalled and updateStateSkipped on the same physical line (see tasks/ime-v1-code-audit-2026-08-17.md).",
       "enabled": false
@@ -193,7 +193,7 @@
     {
       "patternId": "IME-DETECTION-RESULT",
       "category": "always",
-      "pattern": "\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
+      "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
       "action": "captureDetectionResult",
       "description": "Captures the detection rule result after IME runs detection for an app. 'Detected' means the detection rule matched (app is installed), 'NotDetected' means it did not, 'DetectedDifferentVersion' means a different version was found (supersedence / WinGet version mismatch). DetectedDifferentVersion must come first in the alternation so the unanchored regex does not mis-capture its 'Detected' prefix. Excludes [SimulatedDetectionActionHandler] which fires during applicability pre-checks.",
       "enabled": true
@@ -201,7 +201,7 @@
     {
       "patternId": "IME-DO-TEL",
       "category": "currentPhase",
-      "pattern": "\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
+      "pattern": "^\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
       "action": "updateDoTelemetry",
       "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration.",
       "enabled": true
@@ -209,7 +209,7 @@
     {
       "patternId": "IME-DO-TIMEOUT-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b).*?intunewin-bin_{GUID}",
+      "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b).*?intunewin-bin_{GUID}",
       "action": "updateStatePostponed",
       "description": "Detects when a Delivery Optimization download times out for a specific app (identified by GUID in filename).",
       "enabled": true
@@ -217,7 +217,7 @@
     {
       "patternId": "IME-DO-TIMEOUT-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b)",
+      "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b)",
       "action": "updateStatePostponed",
       "parameters": {
         "useCurrentApp": "true"
@@ -228,7 +228,7 @@
     {
       "patternId": "IME-DOWNLOADING",
       "category": "currentPhase",
-      "pattern": "\\[StatusService\\] Downloading app \\(id = {GUID}.*?\\) via (?<tech>\\w+), bytes (?<bytes>\\w+)/(?<ofbytes>\\w+) for user",
+      "pattern": "^\\[StatusService\\] Downloading app \\(id = {GUID}.*?\\) via (?<tech>\\w+), bytes (?<bytes>\\w+)/(?<ofbytes>\\w+) for user",
       "action": "updateStateDownloading",
       "description": "Captures app download progress including technology (DO/CDN), bytes downloaded, and total bytes.",
       "enabled": true
@@ -236,7 +236,7 @@
     {
       "patternId": "IME-ENFORCEMENT-SUCCESS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}\\w+\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}Success\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}\\w+\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}Success\"{1,2}",
       "action": "updateStateInstalled",
       "description": "Detects when an app's enforcement state transitions to Success in an Execution state report delta. OldValue is deliberately unpinned: besides InProgressDownloadCompleted it can be Error (retry succeeding in a later check-in), InProgressPendingReboot (post-reboot completion) or null (first write) — the previously pinned InProgressDownloadCompleted missed those legitimate success paths (IME 1.97 audit 2026-08-17). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -244,7 +244,7 @@
     {
       "patternId": "IME-ENFORCEMENT-SUCCESS-OLD",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
+      "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Success\\b",
       "action": "updateStateInstalled",
       "parameters": {
         "useCurrentApp": "true"
@@ -255,7 +255,7 @@
     {
       "patternId": "IME-ERROR-DOWNLOAD",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgress\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}ErrorDownloadingContent\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Download state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:\"{1,2}InProgress\"{1,2},\"{1,2}NewValue\"{1,2}:\"{1,2}ErrorDownloadingContent\"{1,2}",
       "action": "updateStateError",
       "description": "Detects when an app's enforcement state transitions to ErrorDownloadingContent. Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -263,7 +263,7 @@
     {
       "patternId": "IME-ERROR-ENFORCEMENT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Setting enforcementState as\\W+Error\\b",
+      "pattern": "^\\[Win32App\\] Setting enforcementState as\\W+Error\\b",
       "action": "updateStateError",
       "parameters": {
         "useCurrentApp": "true"
@@ -274,7 +274,7 @@
     {
       "patternId": "IME-ERROR-NO-CONTENT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Didn't get content info from service",
+      "pattern": "^\\[Win32App\\] Didn't get content info from service",
       "action": "updateStateError",
       "parameters": {
         "useCurrentApp": "true"
@@ -285,7 +285,7 @@
     {
       "patternId": "IME-ERROR-REPORT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}(?<from>\\w+)\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}(?<to>\\w+)\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Execution state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}EnforcementState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:(?:\"{1,2}(?<from>\\w+)\"{1,2}|null),\"{1,2}NewValue\"{1,2}:\"{1,2}(?<to>\\w+)\"{1,2}",
       "action": "updateStateError",
       "parameters": {
         "checkTo": "true"
@@ -296,7 +296,7 @@
     {
       "patternId": "IME-ERROR-TIMEOUT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Installation is timeout",
+      "pattern": "^\\[Win32App\\] Installation is timeout",
       "action": "updateStateError",
       "parameters": {
         "useCurrentApp": "true"
@@ -307,7 +307,7 @@
     {
       "patternId": "IME-ERROR-UNMAPPED-EXIT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Admin did NOT set mapping for lpExitCode\\W+(?<exitCode>\\d+) of app\\W+{GUID}",
+      "pattern": "^\\[Win32App\\] Admin did NOT set mapping for lpExitCode\\W+(?<exitCode>\\d+) of app\\W+{GUID}",
       "action": "updateStateError",
       "description": "Detects when an app installer returned an exit code that has no mapping configured in Intune.",
       "enabled": true
@@ -315,7 +315,7 @@
     {
       "patternId": "IME-ESP-APP-REGISTERED",
       "category": "always",
-      "pattern": "\\[Win32App\\]\\[EspManager\\] In EspPhase: \\w+\\. App {GUID} has been registered.*?App name: (?<name>.*?)$",
+      "pattern": "^\\[Win32App\\]\\[EspManager\\] In EspPhase: \\w+\\. App {GUID} has been registered.*?App name: (?<name>.*?)$",
       "action": "updateName",
       "description": "Captures the ESP tracked-app registration line ('App <guid> has been registered[ for user <id>]. App name: <name>', EspManager.cs) as an app-name source. Primary replacement for the retired IME-UPDATE-NAME-1/2/3 whose emitters were removed with IME's old V1/V2 processing pipeline; also documents exactly which apps IME registered for ESP tracking. Category 'always' so names resolve even before the first ApplicationPoller EspPhase line is seen.",
       "enabled": true
@@ -323,7 +323,7 @@
     {
       "patternId": "IME-ESP-PHASE",
       "category": "always",
-      "pattern": "\\[Win32App\\] (?:In|The) EspPhase: (?<espPhase>\\w+)",
+      "pattern": "^\\[Win32App\\] (?:In|The) EspPhase: (?<espPhase>\\w+)",
       "action": "espPhaseDetected",
       "description": "Detects ESP phase transitions reported by IME Win32App processing (e.g., DeviceSetup, AccountSetup).",
       "enabled": true
@@ -331,7 +331,7 @@
     {
       "patternId": "IME-ESP-TRACK-STATUS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}",
+      "pattern": "^\\[Win32App\\]\\[EspManager\\] Updating ESP tracked install status from (?<from>\\w+) to (?<to>\\w+) for application {GUID}",
       "action": "espTrackStatus",
       "description": "Captures ESP tracked install status transitions (e.g., InProgress to Installed) for a specific app. No trailing anchor: IME 1.97 (Dec 2025) appends ' with name: <appName>.' after the GUID (EspManager.cs), which broke the previous '\\.' suffix. 'from' can be the literal string 'null' on first tracking.",
       "enabled": true
@@ -339,7 +339,7 @@
     {
       "patternId": "IME-EXITCODE",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] lpExitCode (?<exitCode>-?\\d+)$",
+      "pattern": "^\\[Win32App\\] lpExitCode (?<exitCode>-?\\d+)$",
       "action": "captureExitCode",
       "parameters": {
         "useCurrentApp": "true"
@@ -350,7 +350,7 @@
     {
       "patternId": "IME-EXITCODE-MAPPED-FAILED",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] lpExitCode is defined as Failed$",
+      "pattern": "^\\[Win32App\\] lpExitCode is defined as Failed$",
       "action": "updateStateError",
       "parameters": {
         "useCurrentApp": "true"
@@ -361,7 +361,7 @@
     {
       "patternId": "IME-GRS-CLEARED",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ExecutionActionHandler\\] Encountered early subgraph termination\\. Clearing GRS for app with id: {GUID} so it can be retried during the next check-in\\.",
+      "pattern": "^\\[Win32App\\]\\[ExecutionActionHandler\\] Encountered early subgraph termination\\. Clearing GRS for app with id: {GUID} so it can be retried during the next check-in\\.",
       "action": "updateStatePostponed",
       "description": "IME aborted the app's subgraph before enforcement finished and cleared its GRS entry so the app retries on the next check-in (ExecutionActionHandler, AppWorkload.log). Maps to Postponed: the install did not complete this pass but is scheduled to run again - previously this looked like an unexplained gap. Wording verified in IME 1.97 and 1.104.",
       "enabled": true
@@ -369,7 +369,7 @@
     {
       "patternId": "IME-GRS-SKIP",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID} to (?:install|uninstall) is in GRS\\. The app will not be enforced\\.",
+      "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID} to (?:install|uninstall) is in GRS\\. The app will not be enforced\\.",
       "action": "updateStatePostponed",
       "description": "GRS (Global Retry Schedule) skip: the app failed recently and IME will not re-enforce it this check-in ('App with id: <guid> to install is in GRS. The app will not be enforced.', EnforcementActionProcessor / MixedEnforcementActionProcessor). THE canonical reason an app silently does nothing for up to 24h - previously invisible. Lives in AppActionProcessor.log, which the agent tails since the 2026-08-18 release; wording verified in IME 1.97 and 1.104.",
       "enabled": true
@@ -377,7 +377,7 @@
     {
       "patternId": "IME-HRESULT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] hResultFromWin32 (?<hresult>-?\\d+)$",
+      "pattern": "^\\[Win32App\\] hResultFromWin32 (?<hresult>-?\\d+)$",
       "action": "captureHResult",
       "parameters": {
         "useCurrentApp": "true"
@@ -388,7 +388,7 @@
     {
       "patternId": "IME-IMPERSONATION",
       "category": "always",
-      "pattern": "After impersonation: (?<user>.*?)$",
+      "pattern": "^After impersonation: (?<user>.*?)$",
       "action": "imeImpersonation",
       "description": "Detects when IME impersonates a user context for app installation.",
       "enabled": true
@@ -396,7 +396,7 @@
     {
       "patternId": "IME-INSTALL-HANDLER",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ExecutionActionHandler\\] Handler invoked with execution type: Install for policy with id: {GUID}",
+      "pattern": "^\\[Win32App\\]\\[ExecutionActionHandler\\] Handler invoked with execution type: Install for policy with id: {GUID}",
       "action": "updateStateInstalling",
       "description": "Detects when the IME execution handler starts installing an app.",
       "enabled": true
@@ -404,7 +404,7 @@
     {
       "patternId": "IME-LAUNCH-INSTALLER",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Launch Win32AppInstaller in \\w+? session",
+      "pattern": "^\\[Win32App\\] Launch Win32AppInstaller in \\w+? session",
       "action": "updateStateInstalling",
       "parameters": {
         "useCurrentApp": "true"
@@ -415,7 +415,7 @@
     {
       "patternId": "IME-NO-ACTION",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ActionProcessor\\] No action required for app with id: {GUID}",
+      "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] No action required for app with id: {GUID}",
       "action": "updateStateSkipped",
       "description": "Detects when IME determines no action is required for an app (already in desired state).",
       "enabled": true
@@ -423,7 +423,7 @@
     {
       "patternId": "IME-NOT-APPLICABLE-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ApplicabilityActionHandler\\] Applicability check for policy with id: {GUID} resulted in action status: Success and applicability state: NotApplicable",
+      "pattern": "^\\[Win32App\\]\\[ApplicabilityActionHandler\\] Applicability check for policy with id: {GUID} resulted in action status: Success and applicability state: NotApplicable",
       "action": "updateStateSkipped",
       "description": "Detects when an app's applicability check returns NotApplicable (requirements not met).",
       "enabled": true
@@ -431,7 +431,7 @@
     {
       "patternId": "IME-NOT-APPLICABLE-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Applicability state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}ApplicabilityState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}ScriptRequirementRuleNotMet\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Applicability state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}ApplicabilityState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}ScriptRequirementRuleNotMet\"{1,2}",
       "action": "updateStateSkipped",
       "description": "Detects when an app's applicability state is set to ScriptRequirementRuleNotMet (PowerShell requirement script returned false). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -439,7 +439,7 @@
     {
       "patternId": "IME-NOT-APPLICABLE-3",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}None\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}None\"{1,2}",
       "action": "updateStateSkipped",
       "description": "Detects when an app's desired state is set to None (not targeted or not applicable). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -447,7 +447,7 @@
     {
       "patternId": "IME-NOT-APPLICABLE-4",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}NotPresent\"{1,2}",
+      "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}NotPresent\"{1,2}",
       "action": "updateStateSkipped",
       "description": "Detects when an app's desired state is set to NotPresent (targeted for uninstall or not required). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
       "enabled": true
@@ -455,7 +455,7 @@
     {
       "patternId": "IME-NOT-TARGETED-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, targeted intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
+      "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, targeted intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
       "action": "updateStateSkipped",
       "description": "Detects when an app with RequiredInstall intent is classified as NotApplicableOrNotTargeted (new log format).",
       "enabled": true
@@ -463,7 +463,7 @@
     {
       "patternId": "IME-NOT-TARGETED-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, effective intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
+      "pattern": "^\\[Win32App\\]\\[ActionProcessor\\] App with id: {GUID}, effective intent: RequiredInstall, and enforceability: Enforceable has projected enforcement classification: NotApplicableOrNotTargeted with desired state: None\\.",
       "action": "updateStateSkipped",
       "description": "Detects when an app with effective RequiredInstall intent is classified as NotApplicableOrNotTargeted.",
       "enabled": true
@@ -471,7 +471,7 @@
     {
       "patternId": "IME-POLICIES",
       "category": "currentPhase",
-      "pattern": "Get policies =\\s*(?<policies>.*)",
+      "pattern": "^Get policies =\\s*(?<policies>.*)",
       "action": "policiesDiscovered",
       "description": "Captures the JSON policies list discovered by IME, used to build the app inventory.",
       "enabled": true
@@ -479,7 +479,7 @@
     {
       "patternId": "IME-RESTART-STOP-PROCESSING",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[V3Processor\\] A restart is required to continue processing apps\\. Stop processing\\.",
+      "pattern": "^\\[Win32App\\]\\[V3Processor\\] A restart is required to continue processing apps\\. Stop processing\\.",
       "action": "updateStatePostponed",
       "parameters": {
         "useCurrentApp": "true"
@@ -490,7 +490,7 @@
     {
       "patternId": "IME-SESSION-CHANGE",
       "category": "always",
-      "pattern": "OnSessionChange:? (?<change>.*?)$",
+      "pattern": "^OnSessionChange:? (?<change>.*?)$",
       "action": "imeSessionChange",
       "description": "Detects Windows session change events (logon, logoff, lock, unlock) reported by IME.",
       "enabled": true
@@ -498,7 +498,7 @@
     {
       "patternId": "IME-SET-CURRENT-1",
       "category": "always",
-      "pattern": "\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
+      "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
       "action": "setCurrentApp",
       "description": "Detects when IME begins processing an app with its dependency chain, setting it as the current app. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -506,7 +506,7 @@
     {
       "patternId": "IME-SET-CURRENT-2",
       "category": "always",
-      "pattern": "\\[Win32App\\] ExecManager: processing targeted app.*?\\bid\\W+{GUID}",
+      "pattern": "^\\[Win32App\\] ExecManager: processing targeted app.*?\\bid\\W+{GUID}",
       "action": "setCurrentApp",
       "description": "Detects when the IME ExecManager starts processing a targeted app, setting it as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -514,7 +514,7 @@
     {
       "patternId": "IME-SET-CURRENT-3",
       "category": "always",
-      "pattern": "\\[Win32App\\] ===Step=== Start to Present app {GUID}",
+      "pattern": "^\\[Win32App\\] ===Step=== Start to Present app {GUID}",
       "action": "setCurrentApp",
       "description": "Detects the start of app presentation step in IME, setting the app as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -522,7 +522,7 @@
     {
       "patternId": "IME-SET-CURRENT-4",
       "category": "always",
-      "pattern": "\\[Win32App\\] SetCurrentDirectory:.*?\\\\{GUID}_\\d+",
+      "pattern": "^\\[Win32App\\] SetCurrentDirectory:.*?\\\\{GUID}_\\d+",
       "action": "setCurrentApp",
       "description": "Detects when IME sets the working directory for an app's staging folder, setting it as current.",
       "enabled": true
@@ -530,7 +530,7 @@
     {
       "patternId": "IME-SHUTDOWN",
       "category": "currentPhase",
-      "pattern": "EMS Agent received shutdown signal",
+      "pattern": "^EMS Agent received shutdown signal",
       "action": "updateStatePostponed",
       "parameters": {
         "useCurrentApp": "true"
@@ -541,7 +541,7 @@
     {
       "patternId": "IME-SKIP-APPLICABILITY-NOTMET",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] (?=.*?\\bapplicability\\b)(?=.*?NotMet\\b).*?\\bapp\\W+{GUID}\\b",
+      "pattern": "^\\[Win32App\\] (?=.*?\\bapplicability\\b)(?=.*?NotMet\\b).*?\\bapp\\W+{GUID}\\b",
       "action": "updateStateSkipped",
       "description": "Detects when an app's applicability check returns NotMet (old log format with lookaheads). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -549,7 +549,7 @@
     {
       "patternId": "IME-SKIP-DEPENDENCY-DETECT",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] app\\W+{GUID}\\b.*?\\bis a dependency\\b.*?\\bDetect Only mode\\b.*?\\bfinished processing",
+      "pattern": "^\\[Win32App\\] app\\W+{GUID}\\b.*?\\bis a dependency\\b.*?\\bDetect Only mode\\b.*?\\bfinished processing",
       "action": "updateStateSkipped",
       "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -557,7 +557,7 @@
     {
       "patternId": "IME-SKIP-DETECTED",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Detected app {GUID}.*?skip next step",
+      "pattern": "^\\[Win32App\\] Detected app {GUID}.*?skip next step",
       "action": "updateStateSkipped",
       "description": "Detects when an already-detected app is skipped for further processing steps (old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -565,7 +565,7 @@
     {
       "patternId": "IME-SKIP-FILTERS",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[V3Processor\\] All apps in the subgraph are not applicable due to assignment filters\\. Skipping processing\\.",
+      "pattern": "^\\[Win32App\\]\\[V3Processor\\] All apps in the subgraph are not applicable due to assignment filters\\. Skipping processing\\.",
       "action": "updateStateSkipped",
       "parameters": {
         "useCurrentApp": "true"
@@ -576,7 +576,7 @@
     {
       "patternId": "IME-SKIP-INSTALL-DETECTED",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Detected app {GUID} and intent is to install, skip applicability check",
+      "pattern": "^\\[Win32App\\] Detected app {GUID} and intent is to install, skip applicability check",
       "action": "updateStateSkipped",
       "description": "Detects when an app targeted for install is already detected/installed, so the install is skipped (old log format).",
       "enabled": true
@@ -584,7 +584,7 @@
     {
       "patternId": "IME-SKIP-UNINSTALL-NOTDETECTED",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Not detected app {GUID} and intent is to un-install, skip applicability check",
+      "pattern": "^\\[Win32App\\] Not detected app {GUID} and intent is to un-install, skip applicability check",
       "action": "updateStateSkipped",
       "description": "Detects when an app targeted for uninstall is not detected, so the uninstall is skipped (old log format).",
       "enabled": true
@@ -592,7 +592,7 @@
     {
       "patternId": "IME-SKIP-UNINSTALL-NOTDETECTED-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] NOT detected app {GUID}.*?skip un-installation",
+      "pattern": "^\\[Win32App\\] NOT detected app {GUID}.*?skip un-installation",
       "action": "updateStateSkipped",
       "description": "Detects when an app is not detected and uninstall is skipped (alternate old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -600,7 +600,7 @@
     {
       "patternId": "IME-STARTED",
       "category": "always",
-      "pattern": "EMS Agent Started",
+      "pattern": "^EMS Agent Started",
       "action": "imeStarted",
       "description": "Detects when the Intune Management Extension (IME) agent starts up.",
       "enabled": true
@@ -608,7 +608,7 @@
     {
       "patternId": "IME-STOP-SIGNAL",
       "category": "currentPhase",
-      "pattern": "EMS Agent received stop signal",
+      "pattern": "^EMS Agent received stop signal",
       "action": "updateStatePostponed",
       "parameters": {
         "useCurrentApp": "true"
@@ -619,7 +619,7 @@
     {
       "patternId": "IME-SUBGRAPH",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\]\\[V3Processor\\] Processing subgraph with app ids: {GUID}",
+      "pattern": "^\\[Win32App\\]\\[V3Processor\\] Processing subgraph with app ids: {GUID}",
       "action": "cancelStuckAndSetCurrent",
       "description": "Detects when V3Processor starts a new subgraph, cancelling any stuck app and setting the new app as current.",
       "enabled": true
@@ -627,7 +627,7 @@
     {
       "patternId": "IME-TOKEN-FAILURE",
       "category": "always",
-      "pattern": "Failed to get AAD token\\..*?errorCode = (?<errorCode>.*?)$",
+      "pattern": "^Failed to get AAD token\\..*?errorCode = (?<errorCode>.*?)$",
       "action": "imeTokenFailure",
       "description": "IME token acquisition failure ('Failed to get AAD token. len = N using client id ... and resource id ..., errorCode = N', IntuneTokenManager, IntuneManagementExtension.log). This line appears ROUTINELY during the device phase (no user token exists yet), so the agent holds the failure pending: any IME-TOKEN-SUCCESS match clears it, and the ime_token_failure Warning fires only when no success follows for the whole 30-min grace window (then deduped to one Warning per distinct errorCode). A genuine auth outage (WAM broken, conditional access, network) runs long enough to hit the window. Verified against IME 1.97 and 1.104 decompiled sources.",
       "enabled": true
@@ -635,7 +635,7 @@
     {
       "patternId": "IME-TOKEN-SUCCESS",
       "category": "always",
-      "pattern": "Successfully get the token",
+      "pattern": "^Successfully get the token",
       "action": "espPhaseDetected",
       "parameters": {
         "phase": "AccountSetup"
@@ -646,7 +646,7 @@
     {
       "patternId": "IME-UPDATE-NAME-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] ExecManager: processing targeted app.*?name\\W+(?<name>.*?)\\W+id\\W+{GUID}",
+      "pattern": "^\\[Win32App\\] ExecManager: processing targeted app.*?name\\W+(?<name>.*?)\\W+id\\W+{GUID}",
       "action": "updateName",
       "description": "Captures the app name from ExecManager processing log (old format: name before id). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -654,7 +654,7 @@
     {
       "patternId": "IME-UPDATE-NAME-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name (?<name>.*?)$",
+      "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name (?<name>.*?)$",
       "action": "updateName",
       "description": "Captures the app name from ProcessAppWithDependencies log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -662,7 +662,7 @@
     {
       "patternId": "IME-UPDATE-NAME-3",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Processing app \\(id={GUID}, name = (?<name>.*?)\\)",
+      "pattern": "^\\[Win32App\\] Processing app \\(id={GUID}, name = (?<name>.*?)\\)",
       "action": "updateName",
       "description": "Captures the app name from the Processing app log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
       "enabled": false
@@ -670,7 +670,7 @@
     {
       "patternId": "IME-USER-SESSION-COMPLETED",
       "category": "always",
-      "pattern": "\\[Win32App\\] \\.+ Completed user session \\d+, userId: (?<userId>[a-f0-9\\-]+), userSID: (?<userSid>S-[\\d\\-]+) \\.+",
+      "pattern": "^\\[Win32App\\] \\.+ Completed user session \\d+, userId: (?<userId>[a-f0-9\\-]+), userSID: (?<userSid>S-[\\d\\-]+) \\.+",
       "action": "enrollmentCompleted",
       "description": "Detects when IME completes a user session, indicating enrollment has finished for that user.",
       "enabled": true
@@ -678,7 +678,7 @@
     {
       "patternId": "IME-USER-SESSION-ZERO-APPS",
       "category": "always",
-      "pattern": "\\[Win32App\\] Get 0 apps for user session (?<sessionId>\\d+), user id = (?<userId>[a-f0-9\\-]+)",
+      "pattern": "^\\[Win32App\\] Get 0 apps for user session (?<sessionId>\\d+), user id = (?<userId>[a-f0-9\\-]+)",
       "action": "userSessionZeroApps",
       "description": "Detects when IME enumerated a user session and found zero targeted Win32 apps. IME then skips its 'Completed user session' line entirely (the zero-app branch in ApplicationPoller continues before that log statement), so this line is the only evidence that user-phase enforcement finished on a device with no user-targeted apps. Treated as equivalent to a completed user session.",
       "enabled": true
@@ -686,7 +686,7 @@
     {
       "patternId": "IME-WIN32-STATE-1",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] Got InstanceID: Win32App_{GUID}_\\d+, installationStateString: (?<state>\\d)",
+      "pattern": "^\\[Win32App\\] Got InstanceID: Win32App_{GUID}_\\d+, installationStateString: (?<state>\\d)",
       "action": "updateWin32AppState",
       "description": "Captures the Win32 app installation state string from instance ID tracking (old log format).",
       "enabled": true
@@ -694,7 +694,7 @@
     {
       "patternId": "IME-WIN32-STATE-2",
       "category": "currentPhase",
-      "pattern": "\\[Win32App\\] (?:Got|Set) (?:ESP )?win32App state (?<state>\\w+) for {GUID}",
+      "pattern": "^\\[Win32App\\] (?:Got|Set) (?:ESP )?win32App state (?<state>\\w+) for {GUID}",
       "action": "updateWin32AppState",
       "description": "Captures the Win32 app ESP state (e.g., Installed, InProgress) for a specific app.",
       "enabled": true
@@ -702,7 +702,7 @@
     {
       "patternId": "IME-WINGET-ERROR",
       "category": "currentPhase",
-      "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Error",
+      "pattern": "^\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Error",
       "action": "updateStateError",
       "description": "Marks a WinGet (new Store) app as failed when its operation progress reports phase Error (WinGetOperationInstallPhase: Downloading/Installing/Queued/Finished/Error). Before this pattern only the Installing phase was matched, so WinGet failures never surfaced as app errors (IME 1.97 audit 2026-08-17).",
       "enabled": true
@@ -710,7 +710,7 @@
     {
       "patternId": "IME-WINGET-INSTALLING-1",
       "category": "currentPhase",
-      "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID} and user = .*?- Operation Phase = Installing",
+      "pattern": "^\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID} and user = .*?- Operation Phase = Installing",
       "action": "updateStateInstalling",
       "description": "Detects WinGet app installation progress with Operation Phase = Installing (format variant 1).",
       "enabled": true
@@ -718,7 +718,7 @@
     {
       "patternId": "IME-WINGET-INSTALLING-2",
       "category": "currentPhase",
-      "pattern": "\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Installing",
+      "pattern": "^\\[WinGetMessageProcessor\\] Processing Progress for app = {GUID}.*?- Operation Phase = Installing",
       "action": "updateStateInstalling",
       "description": "Detects WinGet app installation progress with Operation Phase = Installing (format variant 2).",
       "enabled": true
@@ -726,7 +726,7 @@
     {
       "patternId": "PS-AGENT-ERROR",
       "category": "always",
-      "pattern": "error from script =(?<output>[\\s\\S]*)",
+      "pattern": "^error from script =(?<output>[\\s\\S]*)",
       "action": "scriptOutput",
       "parameters": {
         "scriptType": "platform",
@@ -738,7 +738,7 @@
     {
       "patternId": "PS-AGENT-EXITCODE",
       "category": "always",
-      "pattern": "Powershell exit code is (?<exitCode>-?\\d+)",
+      "pattern": "^Powershell exit code is (?<exitCode>-?\\d+)",
       "action": "scriptExitCode",
       "parameters": {
         "scriptType": "platform"
@@ -749,7 +749,7 @@
     {
       "patternId": "PS-AGENT-INVOCATION",
       "category": "always",
-      "pattern": "ExecutorLog AgentExecutor gets invoked",
+      "pattern": "^ExecutorLog AgentExecutor gets invoked",
       "action": "resetPlatformScriptContext",
       "description": "Marks the start of a new AgentExecutor.exe invocation. AgentExecutor hosts BOTH platform scripts (Policies\\Scripts\\<id>.ps1) and proactive-remediation scripts (IMECache\\HealthScripts\\<id>\\detect.ps1) and writes their lines interleaved into the shared AgentExecutor.log. The policyId-less 'Powershell exit code is N' / 'write output done' lines are otherwise routed to the last-started platform script via a sticky pointer, so a remediation invocation (whose start line does not match PS-AGENT-SCRIPT-START) leaks its exit/output into that platform script's result. This pattern resets the platform-script line-capture context at each invocation boundary so only the matching platform invocation captures its own exit/output.",
       "enabled": true
@@ -757,7 +757,7 @@
     {
       "patternId": "PS-AGENT-OUTPUT",
       "category": "always",
-      "pattern": "write output done\\. output = (?<output>[\\s\\S]*?), error = (?<error>[\\s\\S]*)",
+      "pattern": "^write output done\\. output = (?<output>[\\s\\S]*?), error = (?<error>[\\s\\S]*)",
       "action": "scriptOutput",
       "parameters": {
         "scriptType": "platform"
@@ -768,7 +768,7 @@
     {
       "patternId": "PS-AGENT-SCRIPT-START",
       "category": "always",
-      "pattern": "Adding argument powershell with value C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1",
+      "pattern": "^Adding argument powershell with value C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1",
       "action": "scriptStarted",
       "parameters": {
         "scriptType": "platform",
@@ -780,7 +780,7 @@
     {
       "patternId": "PS-SCRIPT-CONTEXT",
       "category": "always",
-      "pattern": "Launch powershell executor in (?<context>machine|user) session",
+      "pattern": "^Launch powershell executor in (?<context>machine|user) session",
       "action": "scriptContext",
       "description": "Captures whether a PowerShell script runs in machine (System) or user session context.",
       "enabled": true
@@ -788,7 +788,7 @@
     {
       "patternId": "PS-SCRIPT-EXITCODE",
       "category": "always",
-      "pattern": "Powershell execution is done, exitCode = (?<exitCode>-?\\d+)",
+      "pattern": "^Powershell execution is done, exitCode = (?<exitCode>-?\\d+)",
       "action": "scriptExitCode",
       "description": "Captures the PowerShell exit code when script execution completes in the IME log.",
       "enabled": true
@@ -796,7 +796,7 @@
     {
       "patternId": "PS-SCRIPT-GENERATED",
       "category": "always",
-      "pattern": "Script file C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1 is generated",
+      "pattern": "^Script file C:\\\\.*\\\\Policies\\\\Scripts\\\\[a-z0-9\\-]+_(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})\\.ps1 is generated",
       "action": "scriptStarted",
       "parameters": {
         "scriptType": "platform"
@@ -807,7 +807,7 @@
     {
       "patternId": "PS-SCRIPT-RESULT",
       "category": "always",
-      "pattern": "\\[PowerShell\\] User Id = [a-z0-9\\-]+, Policy id = (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}), policy result = (?<result>\\w+)",
+      "pattern": "^\\[PowerShell\\] User Id = [a-z0-9\\-]+, Policy id = (?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}), policy result = (?<result>\\w+)",
       "action": "scriptCompleted",
       "parameters": {
         "scriptType": "platform"

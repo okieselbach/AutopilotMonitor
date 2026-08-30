@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-WIN32-STATE-2",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] (?:Got|Set) (?:ESP )?win32App state (?<state>\\w+) for {GUID}",
+  "pattern": "^\\[Win32App\\] (?:Got|Set) (?:ESP )?win32App state (?<state>\\w+) for {GUID}",
   "action": "updateWin32AppState",
   "description": "Captures the Win32 app ESP state (e.g., Installed, InProgress) for a specific app.",
   "enabled": true

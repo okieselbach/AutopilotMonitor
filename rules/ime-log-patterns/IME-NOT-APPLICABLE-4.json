@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-NOT-APPLICABLE-4",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}NotPresent\"{1,2}",
+  "pattern": "^\\[Win32App\\]\\[ReportingManager\\] Desired state for app with id: {GUID} has been updated\\. Report delta: \\{\"{1,2}DesiredState\"{1,2}:\\{\"{1,2}OldValue\"{1,2}:null,\"{1,2}NewValue\"{1,2}:\"{1,2}NotPresent\"{1,2}",
   "action": "updateStateSkipped",
   "description": "Detects when an app's desired state is set to NotPresent (targeted for uninstall or not required). Quote-flexible since 2026-08-17: IME 1.104 serializes the report-delta JSON with single quotes ({\"Key\":...) where older versions logged doubled quotes ({\"\"Key\"\":...) - every literal quote in the delta is matched as \"{1,2} to cover both.",
   "enabled": true

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "PS-AGENT-INVOCATION",
   "category": "always",
-  "pattern": "ExecutorLog AgentExecutor gets invoked",
+  "pattern": "^ExecutorLog AgentExecutor gets invoked",
   "action": "resetPlatformScriptContext",
   "description": "Marks the start of a new AgentExecutor.exe invocation. AgentExecutor hosts BOTH platform scripts (Policies\\Scripts\\<id>.ps1) and proactive-remediation scripts (IMECache\\HealthScripts\\<id>\\detect.ps1) and writes their lines interleaved into the shared AgentExecutor.log. The policyId-less 'Powershell exit code is N' / 'write output done' lines are otherwise routed to the last-started platform script via a sticky pointer, so a remediation invocation (whose start line does not match PS-AGENT-SCRIPT-START) leaks its exit/output into that platform script's result. This pattern resets the platform-script line-capture context at each invocation boundary so only the matching platform invocation captures its own exit/output.",
   "enabled": true

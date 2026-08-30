@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-USER-SESSION-ZERO-APPS",
   "category": "always",
-  "pattern": "\\[Win32App\\] Get 0 apps for user session (?<sessionId>\\d+), user id = (?<userId>[a-f0-9\\-]+)",
+  "pattern": "^\\[Win32App\\] Get 0 apps for user session (?<sessionId>\\d+), user id = (?<userId>[a-f0-9\\-]+)",
   "action": "userSessionZeroApps",
   "description": "Detects when IME enumerated a user session and found zero targeted Win32 apps. IME then skips its 'Completed user session' line entirely (the zero-app branch in ApplicationPoller continues before that log statement), so this line is the only evidence that user-phase enforcement finished on a device with no user-targeted apps. Treated as equivalent to a completed user session.",
   "enabled": true

@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-WIN32-STATE-1",
   "category": "currentPhase",
-  "pattern": "\\[Win32App\\] Got InstanceID: Win32App_{GUID}_\\d+, installationStateString: (?<state>\\d)",
+  "pattern": "^\\[Win32App\\] Got InstanceID: Win32App_{GUID}_\\d+, installationStateString: (?<state>\\d)",
   "action": "updateWin32AppState",
   "description": "Captures the Win32 app installation state string from instance ID tracking (old log format).",
   "enabled": true

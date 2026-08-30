@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-CACHE-MISS",
   "category": "always",
-  "pattern": "\\[Win32App\\] Content cache miss for app \\(id = {GUID}, name = (?<name>.*?)\\), start downloading",
+  "pattern": "^\\[Win32App\\] Content cache miss for app \\(id = {GUID}, name = (?<name>.*?)\\), start downloading",
   "action": "updateName",
   "description": "Captures 'Content cache miss for app (id = <guid>, name = <name>), start downloading...' (ContentManager.cs) as a secondary app-name source. Fires right before a real download begins, so it resolves names for exactly the apps that will produce download/install activity — a redundancy for IME-POLICIES-based naming after IME retired the old name-bearing processing lines.",
   "enabled": true
