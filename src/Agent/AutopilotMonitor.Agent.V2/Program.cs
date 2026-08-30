@@ -35,7 +35,6 @@ namespace AutopilotMonitor.Agent.V2
     ///   <item>Register <c>ProcessExit</c> → writes <c>clean-exit.marker</c></item>
     ///   <item>Ensure agent directories exist</item>
     ///   <item><see cref="SelfUpdater.LogInit"/> + <see cref="SelfUpdater.CleanupPreviousUpdate"/></item>
-    ///   <item>Load cached <c>remote-config.json</c> → <see cref="SelfUpdater.BackendExpectedSha256"/> + <c>AllowAgentDowngrade</c></item>
     ///   <item><see cref="SelfUpdater.CheckAndApplyUpdateAsync"/> — on success restarts the process; on failure continues with current binary</item>
     ///   <item><see cref="DetectPreviousExit"/> — reads markers + event log to classify last shutdown</item>
     ///   <item>Resolve TenantId (registry → bootstrap-config.json fallback)</item>
@@ -60,7 +59,6 @@ namespace AutopilotMonitor.Agent.V2
         private const string DefaultAgentSubdirectory = "Agent";
         private const string DefaultStateSubdirectory = "State";
         private const string DefaultSpoolSubdirectory = "Spool";
-        private const string CachedRemoteConfigPath = @"%ProgramData%\AutopilotMonitor\Config\remote-config.json";
 
         public static int Main(string[] args)
         {
@@ -132,23 +130,27 @@ namespace AutopilotMonitor.Agent.V2
                 tenantId: "(pre-runtime)",
                 agentVersion: GetAgentVersion());
 
-            // Startup self-update. Legacy parity: cleanup leftover .old files, load cached
-            // backend hash / downgrade policy, then attempt the update. Failures here never
-            // abort startup — we prefer to run the current version than delay.
+            // Startup self-update. Legacy parity: cleanup leftover .old files, then attempt the
+            // update against the version-v2.json manifest. Failures here never abort startup —
+            // we prefer to run the current version than delay.
             SelfUpdater.LogInit(GetAgentVersion());
 
             var agentDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty;
             SelfUpdater.CleanupPreviousUpdate(agentDir, msg => { if (consoleMode) Console.Out.WriteLine(msg); });
 
-            var allowAgentDowngrade = LoadCachedSelfUpdateContext();
-
+            // SECURITY: the startup check runs pre-backend, so it deliberately reads NOTHING from
+            // the on-disk remote-config.json cache. AllowAgentDowngrade and the ZIP hash
+            // (LatestAgentSha256) are live-fetch-only fields (see RemoteConfigService.CacheConfig)
+            // — a planted cache file must neither lift the forward-only gate nor replace the
+            // version-v2.json manifest hash as the ZIP integrity check. Downgrades therefore only
+            // happen from the runtime trigger after an authenticated fetch.
             try
             {
                 SelfUpdater.CheckAndApplyUpdateAsync(
                     currentVersion: GetAgentVersion(),
                     agentDir: agentDir,
                     consoleMode: consoleMode,
-                    allowDowngrade: allowAgentDowngrade).GetAwaiter().GetResult();
+                    allowDowngrade: false).GetAwaiter().GetResult();
             }
             catch (Exception selfUpdateEx)
             {
@@ -394,33 +396,6 @@ namespace AutopilotMonitor.Agent.V2
                 ReplayLogDir = replayLogDir,
                 ReplaySpeedFactor = replaySpeedFactor,
             };
-        }
-
-        private static bool LoadCachedSelfUpdateContext()
-        {
-            try
-            {
-                var path = Environment.ExpandEnvironmentVariables(CachedRemoteConfigPath);
-                if (!File.Exists(path)) return false;
-
-                var json = File.ReadAllText(path);
-                var cached = Newtonsoft.Json.JsonConvert.DeserializeObject<AgentConfigResponse>(json);
-                if (cached == null) return false;
-
-                if (!string.IsNullOrEmpty(cached.LatestAgentSha256))
-                {
-                    SelfUpdater.BackendExpectedSha256 = cached.LatestAgentSha256;
-                    SelfUpdater.Log(
-                        $"Self-update: loaded backend integrity hash from cached config (sha256={cached.LatestAgentSha256.Substring(0, Math.Min(12, cached.LatestAgentSha256.Length))}...)");
-                }
-
-                return cached.AllowAgentDowngrade;
-            }
-            catch (Exception ex)
-            {
-                SelfUpdater.Log($"Self-update: cached config read failed: {ex.Message}");
-                return false;
-            }
         }
 
         internal static string GetArgValue(string[] args, params string[] names)

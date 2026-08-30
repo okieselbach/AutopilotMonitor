@@ -323,6 +323,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 //   - AllowAgentDowngrade: gate for installing a lower agent version
                 //   - LatestAgentExeSha256: backend-advertised EXE hash for runtime integrity
                 //     check; a bad cached value would trigger a force-update to attacker bins
+                //   - LatestAgentSha256: backend-advertised update ZIP hash; SelfUpdater ranks it
+                //     ABOVE the version-v2.json manifest hash, so a planted cached value would
+                //     make an attacker ZIP pass integrity verification (or pin the device by
+                //     failing every genuine update). Without a live value the updater falls
+                //     back to the manifest hash.
                 //   - DeviceBlocked/DeviceKillSignal/UnblockAt: kill is only honoured from a
                 //     live fetch — a planted cached kill would self-destruct every future
                 //     session, a stale cached kill would outlive the admin removing the rule
@@ -332,6 +337,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 var liveUnrestricted = config.UnrestrictedMode;
                 var liveAllowDowngrade = config.AllowAgentDowngrade;
                 var liveExeHash = config.LatestAgentExeSha256;
+                var liveZipHash = config.LatestAgentSha256;
                 var liveBlocked = config.DeviceBlocked;
                 var liveKill = config.DeviceKillSignal;
                 var liveUnblockAt = config.UnblockAt;
@@ -339,6 +345,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 config.UnrestrictedMode = false;
                 config.AllowAgentDowngrade = false;
                 config.LatestAgentExeSha256 = null;
+                config.LatestAgentSha256 = null;
                 config.DeviceBlocked = false;
                 config.DeviceKillSignal = false;
                 config.UnblockAt = null;
@@ -347,6 +354,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                 config.UnrestrictedMode = liveUnrestricted;
                 config.AllowAgentDowngrade = liveAllowDowngrade;
                 config.LatestAgentExeSha256 = liveExeHash;
+                config.LatestAgentSha256 = liveZipHash;
                 config.DeviceBlocked = liveBlocked;
                 config.DeviceKillSignal = liveKill;
                 config.UnblockAt = liveUnblockAt;
@@ -379,6 +387,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Configuration
                         config.UnrestrictedMode = false;
                         config.AllowAgentDowngrade = false;
                         config.LatestAgentExeSha256 = null;
+                        config.LatestAgentSha256 = null;
                         config.DeviceBlocked = false;
                         config.DeviceKillSignal = false;
                         config.UnblockAt = null;

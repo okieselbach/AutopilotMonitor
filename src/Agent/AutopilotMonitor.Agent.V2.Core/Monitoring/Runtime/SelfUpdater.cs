@@ -83,8 +83,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         /// <summary>
         /// Optional: backend-provided SHA-256 hash of the latest agent ZIP.
-        /// Set from the last AgentConfigResponse before calling CheckAndApplyUpdateAsync.
-        /// Takes priority over the hash in version-v2.json (separate trust channel).
+        /// Set only from a LIVE authenticated AgentConfigResponse (never from the on-disk
+        /// remote-config.json cache — the field is stripped there) before calling
+        /// CheckAndApplyUpdateAsync. Takes priority over the hash in version-v2.json
+        /// (separate trust channel); when unset the manifest hash is the integrity gate.
         /// </summary>
         public static string BackendExpectedSha256 { get; set; }
 
@@ -294,7 +296,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 if (!string.IsNullOrEmpty(BackendExpectedSha256))
                 {
                     expectedSha256 = BackendExpectedSha256;
-                    log("Self-update: using backend hash for integrity verification (cached config — trusted channel)");
+                    log("Self-update: using backend hash for integrity verification (live remote config — separate trust channel)");
                 }
                 else if (!string.IsNullOrEmpty(manifestSha256))
                 {

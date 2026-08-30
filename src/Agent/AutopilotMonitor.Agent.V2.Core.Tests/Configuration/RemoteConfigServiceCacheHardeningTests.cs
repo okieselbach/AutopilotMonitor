@@ -17,7 +17,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
     /// (RemoteConfigService.cs:234-311). The on-disk config cache MUST NOT persist — nor,
     /// on read, trust — security-sensitive fields: a single MITM during OOBE could otherwise
     /// plant attacker-controlled values (UnrestrictedMode / AllowAgentDowngrade /
-    /// LatestAgentExeSha256 / DeviceBlocked / DeviceKillSignal / UnblockAt) that survive every
+    /// LatestAgentExeSha256 / LatestAgentSha256 / DeviceBlocked / DeviceKillSignal / UnblockAt /
+    /// MigrateToApiBaseUrl) that survive every
     /// future cold boot. The strip is defence-in-depth on BOTH paths — <c>CacheConfig</c> (write)
     /// and <c>LoadCachedConfig</c> (read) — so both are asserted here.
     /// <para>
@@ -59,6 +60,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 UnrestrictedMode = true,
                 AllowAgentDowngrade = true,
                 LatestAgentExeSha256 = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                LatestAgentSha256 = "badc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffe",
                 DeviceBlocked = true,
                 DeviceKillSignal = true,
                 UnblockAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -75,13 +77,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.False(persisted.UnrestrictedMode);
             Assert.False(persisted.AllowAgentDowngrade);
             Assert.Null(persisted.LatestAgentExeSha256);
+            Assert.Null(persisted.LatestAgentSha256);
             Assert.False(persisted.DeviceBlocked);
             Assert.False(persisted.DeviceKillSignal);
             Assert.Null(persisted.UnblockAt);
             Assert.Null(persisted.MigrateToApiBaseUrl);
 
-            // The attacker EXE hash / re-home host must not appear anywhere in the persisted bytes.
+            // The attacker EXE hash / ZIP hash / re-home host must not appear anywhere in the persisted bytes.
             Assert.DoesNotContain("deadbeef", raw);
+            Assert.DoesNotContain("badc0ffe", raw);
             Assert.DoesNotContain("attacker.azurewebsites.net", raw);
 
             // Benign fields survive the strip.
@@ -93,6 +97,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.True(config.UnrestrictedMode);
             Assert.True(config.AllowAgentDowngrade);
             Assert.Equal("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", config.LatestAgentExeSha256);
+            Assert.Equal("badc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffebadc0ffe", config.LatestAgentSha256);
             Assert.True(config.DeviceBlocked);
             Assert.True(config.DeviceKillSignal);
             Assert.Equal(new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc), config.UnblockAt);
@@ -105,6 +110,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
         [InlineData("UnrestrictedMode")]
         [InlineData("AllowAgentDowngrade")]
         [InlineData("LatestAgentExeSha256")]
+        [InlineData("LatestAgentSha256")]
         [InlineData("DeviceBlocked")]
         [InlineData("DeviceKillSignal")]
         [InlineData("UnblockAt")]
@@ -122,6 +128,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 UnrestrictedMode = true,
                 AllowAgentDowngrade = true,
                 LatestAgentExeSha256 = "0011223344556677889900112233445566778899001122334455667788990011",
+                LatestAgentSha256 = "1122334455667788990011223344556677889900112233445566778899001122",
                 DeviceBlocked = true,
                 DeviceKillSignal = true,
                 UnblockAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -142,6 +149,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                     break;
                 case "LatestAgentExeSha256":
                     Assert.Null(loaded.LatestAgentExeSha256);
+                    break;
+                case "LatestAgentSha256":
+                    // The update-ZIP hash outranks the version-v2.json manifest hash inside
+                    // SelfUpdater — a planted value would let an attacker ZIP pass verification.
+                    Assert.Null(loaded.LatestAgentSha256);
                     break;
                 case "DeviceBlocked":
                     Assert.False(loaded.DeviceBlocked);
@@ -181,8 +193,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
                 NtpServer = "time.contoso.com",
                 LogLevel = "Debug",
                 DiagnosticsUploadMode = "OnFailure",
-                // A non-sensitive hash field (ZIP hash) that must NOT be stripped — only the
-                // EXE hash (LatestAgentExeSha256) is security-sensitive on the cache path.
+                // Both backend hashes are live-fetch-only — the round-trip must drop them
+                // while every benign field above survives untouched.
                 LatestAgentSha256 = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
             };
 
@@ -199,7 +211,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Configuration
             Assert.Equal("time.contoso.com", loaded.NtpServer);
             Assert.Equal("Debug", loaded.LogLevel);
             Assert.Equal("OnFailure", loaded.DiagnosticsUploadMode);
-            Assert.Equal("cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe", loaded.LatestAgentSha256);
+            Assert.Null(loaded.LatestAgentSha256);
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────

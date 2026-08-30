@@ -40,6 +40,10 @@ namespace AutopilotMonitor.Agent.V2
 
         private const string ImePatternsGuidPattern = @"(?<id>[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})";
         private const string ImePatternsGitHubUrl = "https://raw.githubusercontent.com/okieselbach/Autopilot-Monitor/refs/heads/main/rules/dist/ime-log-patterns.json";
+        // Debug-mode-only fallback source for IME patterns (offline --run-ime-matching). The
+        // runtime never reads this file directly — RemoteConfigService.LoadCachedConfig is the
+        // only production reader and strips the live-fetch-only security fields.
+        private const string CachedRemoteConfigPath = @"%ProgramData%\AutopilotMonitor\Config\remote-config.json";
 
         internal static int RunImeMatchingMode(string[] args)
         {
