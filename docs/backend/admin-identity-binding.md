@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Admin Identity Binding — tid + oid behind every cross-tenant-role UPN
-description: Why a GlobalAdmins or DelegatedAdmins row keyed on a UPN string must never confer access by itself in an API that accepts tokens from every Entra tenant, the AdminIdentityBindings table that pins each such UPN to its immutable home tenant id and object id, the fail-closed resolution order in both role services, the first-sign-in object-id pin, and the explicit rebind surface.
+description: Why a GlobalAdmins, DelegatedAdmins or McpUsers row keyed on a UPN string must never confer access by itself in an API that accepts tokens from every Entra tenant, the AdminIdentityBindings table that pins each such UPN to its immutable home tenant id and object id, the fail-closed resolution order in the role services and the MCP whitelist, the first-sign-in object-id pin, and the explicit rebind surface.
 resource: src/Backend/AutopilotMonitor.Functions/Services/AdminIdentityBindingService.cs
 tags:
   - backend
@@ -10,7 +10,8 @@ tags:
   - multi-tenant
   - global-admin
   - delegated-admin
-timestamp: 2026-08-29T00:00:00+02:00
+  - mcp
+timestamp: 2026-08-30T00:00:00+02:00
 ---
 
 # Problem
@@ -83,10 +84,28 @@ winner). Two accounts racing the first sign-in inside the home tenant therefore 
 Row lookups stay cached by UPN; the binding has its own 30 s cache keyed by UPN and is invalidated on
 pin, rebind and removal. A rebind on one scaled-out instance converges on the others within seconds.
 
+## The MCP whitelist is a third UPN-keyed grant
+
+`McpUsers` (PK `McpUsers`, RK = lowercase UPN) is the WhitelistOnly allow-list consulted by
+`GET auth/mcp`, which runs under the AuthenticatedUser policy — a token from any Entra tenant reaches it.
+Before 2026-08-30 the row was honoured by UPN alone, so a same-UPN identity from another tenant
+received `allowed=true` / `accessGrant=McpUser`, inherited the row's `UsagePlan` (a paid quota tier
+provisioned for another organization's user), and was also hit by the row's Disabled kill-switch. The
+data reach stayed tenant-bound (the MCP server routes a non-global caller on its own JWT `tid`), but the
+GA-curated whitelist and the per-user entitlement were bypassable.
+
+`McpUserService` now resolves the whitelist exactly like the role services: row by UPN (cached 30 s) →
+no row ⇒ `NotPresent` without touching the binding → `IsBoundAsync(identity)` false ⇒ `NotPresent`. Grant,
+usage-plan override (`GetBoundMcpUserAsync`, used by `McpQuotaService.ResolvePlanAsync` and the
+self-service usage view) and the Disabled kill-switch all belong to the bound identity only; an unbound
+legacy row is inert. `POST global/mcp-users` binds first via the same resolver / 422 / 409 contract as the
+other grant endpoints, and the MCP users settings section shows the same home-tenant picker on 422. The
+AllMembers path is unaffected — it is tenant-bound by the auth middleware itself.
+
 ## Grants bind first — and resolve the identity themselves
 
-Granting is "type the UPN". The three grant endpoints (`POST auth/global-admins`,
-`POST global/delegated-admins`, `POST global/tenant-groups/{id}/assignees`) accept `homeTenantId` /
+Granting is "type the UPN". The four grant endpoints (`POST auth/global-admins`,
+`POST global/delegated-admins`, `POST global/tenant-groups/{id}/assignees`, `POST global/mcp-users`) accept `homeTenantId` /
 `objectId` only as optional overrides; normally `AdminIdentityResolver` supplies them:
 
 1. **Sign-in history** (`UserActivity`, filtered on the UPN): the person has signed in before ⇒ tid + oid
@@ -98,7 +117,7 @@ Granting is "type the UPN". The three grant endpoints (`POST auth/global-admins`
    tenants) and retries with `homeTenantId`. This is the only manual step, and only for a UPN whose
    domain the platform has never seen.
 
-`AddGlobalAdminAsync`, `DelegatedAdminService.UpsertAsync` and `AssignGroupAsync` then take the resolved
+`AddGlobalAdminAsync`, `DelegatedAdminService.UpsertAsync`, `AssignGroupAsync` and `AddMcpUserAsync` then take the resolved
 `homeTenantId` / `objectId` and call `EnsureBoundAsync` **before** writing the role row. `EnsureBoundAsync` creates the binding, keeps a compatible one (same tenant; the
 supplied object id equals the pin or upgrades an unpinned one), and throws
 `IdentityBindingConflictException` for a different tenant or a different pinned object id — the
@@ -158,7 +177,7 @@ Same row, binding without an object id: the first `tid=1111…` sign-in pins its
 * `src/Backend/AutopilotMonitor.Functions/Services/AdminIdentityBindingService.cs` — verdict, pin, grant-time binding, rebind; the table entity.
 * `src/Backend/AutopilotMonitor.Functions/Services/AdminIdentityResolver.cs` — sign-in-history / UPN-domain resolution at grant time (`AdminIdentityResolverTests`).
 * `src/Web/autopilot-monitor-web/app/admin/components/IdentityBindingsSection.tsx` — the per-tenant inspect/correct panel.
-* `src/Backend/AutopilotMonitor.Functions/Services/GlobalAdminService.cs`, `DelegatedAdminService.cs` — resolution order.
+* `src/Backend/AutopilotMonitor.Functions/Services/GlobalAdminService.cs`, `DelegatedAdminService.cs`, `McpUserService.cs` — resolution order (`McpUserServiceIdentityBindingTests` for the whitelist matrix).
 * `src/Backend/AutopilotMonitor.Functions/DataAccess/TableStorage/TableAdminRepository.cs` — `TryPinIdentityObjectIdAsync` and the binding CRUD.
 * `src/Backend/AutopilotMonitor.Functions/Functions/Admin/IdentityBindingManagementFunction.cs` — the rebind surface and the shared `IdentityBindingRequest.Validate`.
 * `src/Backend/AutopilotMonitor.Functions.Tests/AdminIdentityBindingServiceTests.cs`, `AdminIdentityBindingAuthorizationTests.cs` — verdict matrix, race semantics, and the middleware-level denials for foreign-tenant and recycled-UPN tokens.

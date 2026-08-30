@@ -52,7 +52,7 @@ public class McpUserServiceDelegatedTests
         SetPolicy(McpAccessPolicy.WhitelistOnly);
 
         _sut = new McpUserService(
-            _adminRepo.Object, cache, NullLogger<McpUserService>.Instance,
+            _adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
             _globalAdmin.Object, _delegatedAdmin.Object, _adminConfig.Object);
     }
 

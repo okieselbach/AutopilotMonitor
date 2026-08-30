@@ -4,6 +4,10 @@
 
 * **Update**: `rules/rule-id-namespace.md` — guard 1 rewritten: gather RuleStats (tenant + `global_*` rows) are now resolved against the tenant's active gather catalog (`EventIngestProcessor.ResolveFiredGatherRules`), metadata catalog-sourced, unknown IDs dropped — same design as the analyze path; the `IsReservedBuiltInId` pattern gate on device-supplied IDs is gone.
 
+## 2026-08-30 (5)
+
+* **Update**: `backend/admin-identity-binding.md` — new "The MCP whitelist is a third UPN-keyed grant" section: `McpUsers` rows (grant, `UsagePlan` override and Disabled kill-switch) are honoured only for the identity the UPN is bound to (`McpUserService` row → `IsBoundAsync`, `GetBoundMcpUserAsync` for the quota plan); `POST global/mcp-users` binds first with the shared resolver / 422 / 409 contract; unbound legacy rows are inert.
+
 ## 2026-08-30 (4)
 
 * **Update**: `backend/ime-msi-archive.md` — new "Trust boundary of a sighting" section: the device-supplied `ime_agent_version` string is gated by `ImeMsiArchiver.IsPlausibleVersion` (dotted digits within MSI ProductVersion bounds) before it can become a GLOBAL `ImeVersionHistory` RowKey (`ImeVersionSighting.Rejected` → no row/ops event/archive job); a session counts once (`UpdateSessionImeAgentVersionAsync` returns whether the version changed); a second tenant's sighting stamps `CorroboratedAt`; the MemberRead projection lists only fleet-confirmed versions (Archived, corroborated, or first seen before 2026-08-31), Global scope sees every row.

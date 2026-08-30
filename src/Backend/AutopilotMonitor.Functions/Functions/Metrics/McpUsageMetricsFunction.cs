@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.Azure.Functions.Worker;
@@ -58,11 +59,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var dateTo = req.Query["dateTo"];
 
                 var records = await _userUsageRepo.GetUsageByUserAsync(userId, dateFrom, dateTo);
-                var mcpUser = !string.IsNullOrEmpty(upn) ? await _mcpUserService.GetMcpUserAsync(upn) : null;
+                // The caller's OWN whitelist row (tid + oid bound) — a same-UPN identity from another
+                // tenant must not see, or be granted, someone else's per-user plan override.
+                var tenantId = principal?.GetTenantId();
+                var mcpUser = await _mcpUserService.GetBoundMcpUserAsync(AdminIdentity.Create(upn, tenantId, userId));
 
                 // Effective quota state: resolved plan (per-user override → tenant edition),
                 // limits (SectionUsagePlans definition → catalog fallback) and current counters.
-                var tenantId = principal?.GetTenantId();
                 var quota = await _quotaService.CheckAsync(userId, upn, tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);

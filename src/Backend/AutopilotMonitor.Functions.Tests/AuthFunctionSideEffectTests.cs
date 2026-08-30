@@ -81,7 +81,7 @@ public class AuthFunctionSideEffectTests
         { CallBase = false };
 
         var mcpUserMock = new Mock<McpUserService>(
-            adminRepo, cache, Mock.Of<ILogger<McpUserService>>(),
+            adminRepo, new StubAdminIdentityBindingService(bound: true), cache, Mock.Of<ILogger<McpUserService>>(),
             globalAdminMock.Object, delegatedAdminMock.Object, adminConfigService.Object)
         { CallBase = false };
 

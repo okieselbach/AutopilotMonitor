@@ -12,7 +12,8 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// Resolves and enforces the per-user MCP request quota (daily + monthly).
     ///
-    /// Plan precedence: explicit per-user override (McpUsers.UsagePlan) → the caller's home-tenant
+    /// Plan precedence: explicit per-user override (McpUsers.UsagePlan — honoured only for the identity
+    /// the UPN is bound to, tid + oid, see McpUserService.GetBoundMcpUserAsync) → the caller's home-tenant
     /// edition default (FeatureEntitlementCatalog.McpUsagePlanName). Limits come from the
     /// admin-editable SectionUsagePlans definitions (AdminConfiguration.PlanTierDefinitionsJson);
     /// when no definition matches the plan name, the static catalog fallbacks apply. An override
@@ -77,7 +78,7 @@ namespace AutopilotMonitor.Functions.Services
             if (_cache.TryGetValue<McpQuotaDecision>(cacheKey, out var cached) && cached != null)
                 return cached;
 
-            var (planName, dailyLimit, monthlyLimit) = await ResolvePlanAsync(upn, tenantId);
+            var (planName, dailyLimit, monthlyLimit) = await ResolvePlanAsync(AdminIdentity.Create(upn, tenantId, oid), tenantId);
 
             var nowUtc = _time.GetUtcNow().UtcDateTime;
             long dailyUsed = 0, monthlyUsed = 0;
@@ -106,21 +107,24 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Plan resolution only (no counter read) — used by the self-service usage endpoint.
+        /// <paramref name="identity"/> is the caller's validated (upn, tid, oid); the per-user override applies
+        /// only when that identity IS the one the McpUsers UPN is bound to — a null / unbound identity gets the
+        /// tenant edition default.
         /// </summary>
-        public virtual async Task<(string PlanName, int DailyLimit, int MonthlyLimit)> ResolvePlanAsync(string? upn, string? tenantId)
+        public virtual async Task<(string PlanName, int DailyLimit, int MonthlyLimit)> ResolvePlanAsync(AdminIdentity? identity, string? tenantId)
         {
-            // 1. Per-user override wins when set.
+            // 1. Per-user override wins when set — for the BOUND identity only.
             string? overridePlan = null;
-            if (!string.IsNullOrWhiteSpace(upn))
+            if (identity != null)
             {
                 try
                 {
-                    var mcpUser = await _mcpUserService.GetMcpUserAsync(upn.ToLowerInvariant());
+                    var mcpUser = await _mcpUserService.GetBoundMcpUserAsync(identity);
                     overridePlan = string.IsNullOrWhiteSpace(mcpUser?.UsagePlan) ? null : mcpUser!.UsagePlan!.Trim().ToLowerInvariant();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[McpQuota] McpUser lookup failed for {Upn} — falling back to tenant edition plan", upn);
+                    _logger.LogWarning(ex, "[McpQuota] McpUser lookup failed for {Upn} — falling back to tenant edition plan", identity.Upn);
                 }
             }
 

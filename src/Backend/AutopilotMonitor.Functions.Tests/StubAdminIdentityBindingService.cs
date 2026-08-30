@@ -33,10 +33,14 @@ internal sealed class StubAdminIdentityBindingService : AdminIdentityBindingServ
         _verdict = verdict;
     }
 
+    /// <summary>Invoked at the start of every EnsureBoundAsync — observe call order or throw a conflict.</summary>
+    public Action? OnEnsureBound { get; set; }
+
     public override Task<bool> IsBoundAsync(AdminIdentity? identity) => Task.FromResult(_verdict(identity));
 
     public override Task<AdminIdentityBinding> EnsureBoundAsync(string upn, string tenantId, string? objectId, string boundBy)
     {
+        OnEnsureBound?.Invoke();
         Bindings.Add((upn.ToLowerInvariant(), tenantId.ToLowerInvariant(), objectId?.ToLowerInvariant()));
         return Task.FromResult(new AdminIdentityBinding
         {

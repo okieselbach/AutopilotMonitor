@@ -1,6 +1,9 @@
 using System.Net;
 using AutopilotMonitor.Functions.Extensions;
+using AutopilotMonitor.Functions.Functions.Admin;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -15,13 +18,16 @@ public class McpUserFunction
 {
     private readonly ILogger<McpUserFunction> _logger;
     private readonly McpUserService _mcpUserService;
+    private readonly AdminIdentityResolver _identityResolver;
 
     public McpUserFunction(
         ILogger<McpUserFunction> logger,
-        McpUserService mcpUserService)
+        McpUserService mcpUserService,
+        AdminIdentityResolver identityResolver)
     {
         _logger = logger;
         _mcpUserService = mcpUserService;
+        _identityResolver = identityResolver;
     }
 
     /// <summary>
@@ -42,9 +48,13 @@ public class McpUserFunction
     }
 
     /// <summary>
-    /// POST /api/admin/mcp-users
+    /// POST /api/global/mcp-users
     /// Adds a user to the MCP whitelist. GlobalAdminOnly.
-    /// Body: { "upn": "user@domain.com" }
+    /// Body: { "upn": "user@domain.com", "homeTenantId"?: "&lt;guid&gt;", "objectId"?: "&lt;guid&gt;" }.
+    /// The row is inert until the UPN is bound to the identity that may use it; the home tenant is resolved
+    /// automatically (sign-in history, then UPN domain → onboarded tenant) and the body may override it —
+    /// 422 HomeTenantUnresolved when neither works, 409 when the UPN is already bound elsewhere. Same
+    /// contract as POST auth/global-admins and POST global/delegated-admins.
     /// </summary>
     [Function("AddMcpUser")]
     [Authorize]
@@ -62,8 +72,32 @@ public class McpUserFunction
             await badResponse.WriteAsJsonAsync(new { error = "UPN is required" });
             return badResponse;
         }
+        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+        if (bindingError != null)
+        {
+            var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badResponse.WriteAsJsonAsync(new { error = bindingError });
+            return badResponse;
+        }
+        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
+        if (identity == null)
+        {
+            var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
+            await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
+            return unresolved;
+        }
 
-        var user = await _mcpUserService.AddMcpUserAsync(body.Upn, currentUpn!);
+        McpUserEntry user;
+        try
+        {
+            user = await _mcpUserService.AddMcpUserAsync(body.Upn, currentUpn!, identity.Value.TenantId, identity.Value.ObjectId);
+        }
+        catch (IdentityBindingConflictException ex)
+        {
+            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
+            await conflict.WriteAsJsonAsync(new { error = ex.Message });
+            return conflict;
+        }
 
         var response = req.CreateResponse(HttpStatusCode.Created);
         await response.WriteAsJsonAsync(new { user });
@@ -207,6 +241,10 @@ public class McpUserFunction
 public class AddMcpUserRequest
 {
     public string Upn { get; set; } = string.Empty;
+    /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
+    public string? HomeTenantId { get; set; }
+    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
+    public string? ObjectId { get; set; }
 }
 
 public class SetUsagePlanRequest

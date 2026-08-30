@@ -5,6 +5,8 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { useTenantList } from "@/hooks/useTenantList";
+import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 
 interface McpUser {
   upn: string;
@@ -43,6 +45,11 @@ export default function McpUsersSection() {
   const [policy, setPolicy] = useState<McpPolicy>("WhitelistOnly");
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState("");
+  // Only shown after the backend answered 422 HomeTenantUnresolved (UPN never signed in AND its domain
+  // belongs to no onboarded tenant) — the one case the identity binding cannot be resolved automatically.
+  const [needHomeTenant, setNeedHomeTenant] = useState(false);
+  const [homeTenantPick, setHomeTenantPick] = useState("");
+  const tenants = useTenantList(needHomeTenant);
   const [adding, setAdding] = useState(false);
   const [removingUpn, setRemovingUpn] = useState<string | null>(null);
   const [togglingUpn, setTogglingUpn] = useState<string | null>(null);
@@ -131,7 +138,7 @@ export default function McpUsersSection() {
   }, [getAccessToken, addNotification]);
 
   const handleAddUser = useCallback(async () => {
-    if (!newEmail.trim()) return;
+    if (!newEmail.trim() || (needHomeTenant && !homeTenantPick)) return;
     try {
       setAdding(true);
       setError(null);
@@ -140,16 +147,24 @@ export default function McpUsersSection() {
       const response = await authenticatedFetch(api.mcpUsers.add(), getAccessToken, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upn: newEmail.trim() }),
+        body: JSON.stringify({
+          upn: newEmail.trim(),
+          homeTenantId: needHomeTenant ? homeTenantPick : undefined,
+        }),
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED) {
+          setNeedHomeTenant(true);
+        }
         throw new Error(data.error || `Failed to add user: ${response.statusText}`);
       }
 
       setSuccessMessage(`MCP user ${newEmail} added successfully!`);
       setNewEmail("");
+      setNeedHomeTenant(false);
+      setHomeTenantPick("");
       await fetchMcpUsers();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
@@ -161,7 +176,7 @@ export default function McpUsersSection() {
     } finally {
       setAdding(false);
     }
-  }, [newEmail, getAccessToken, addNotification, fetchMcpUsers]);
+  }, [newEmail, needHomeTenant, homeTenantPick, getAccessToken, addNotification, fetchMcpUsers]);
 
   const handleRemoveUser = useCallback(async (upn: string) => {
     if (!confirm(`Remove ${upn} from MCP users?`)) return;
@@ -337,9 +352,24 @@ export default function McpUsersSection() {
                 autoComplete="off"
                 className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
               />
+              {needHomeTenant && (
+                <select
+                  value={homeTenantPick}
+                  onChange={(e) => setHomeTenantPick(e.target.value)}
+                  className="flex-1 min-w-0 px-3 py-2 border border-amber-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors"
+                  aria-label="Home tenant of the person"
+                >
+                  <option value="">Home tenant they sign in from…</option>
+                  {tenants.map((t) => (
+                    <option key={t.tenantId} value={t.tenantId}>
+                      {t.domainName || t.tenantId}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 onClick={handleAddUser}
-                disabled={adding || !newEmail.trim()}
+                disabled={adding || !newEmail.trim() || (needHomeTenant && !homeTenantPick)}
                 className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
               >
                 {adding ? (

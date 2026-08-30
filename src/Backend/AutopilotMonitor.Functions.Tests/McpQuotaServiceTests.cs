@@ -70,7 +70,8 @@ public class McpQuotaServiceTests
         string? planDefinitionsJson = null,
         string? mcpUserPlanOverride = null,
         TenantEdition edition = TenantEdition.Community,
-        IMemoryCache? cache = null)
+        IMemoryCache? cache = null,
+        bool bound = true)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -80,7 +81,7 @@ public class McpQuotaServiceTests
 
         cache ??= new MemoryCache(new MemoryCacheOptions());
         var mcpUserService = new McpUserService(
-            adminRepo.Object, cache, NullLogger<McpUserService>.Instance,
+            adminRepo.Object, new StubAdminIdentityBindingService(bound), cache, NullLogger<McpUserService>.Instance,
             globalAdminService: null!, delegatedAdminService: null!, adminConfigService: null!);
 
         var configRepo = new Mock<IConfigRepository>();
@@ -181,6 +182,21 @@ public class McpQuotaServiceTests
         Assert.True(d.Allowed);
         Assert.Equal("power", d.Plan);
         Assert.Equal(10000, d.DailyLimit);
+    }
+
+    [Fact]
+    public async Task Check_PerUserOverride_IgnoredWhenCallerIsNotTheBoundIdentity()
+    {
+        // A McpUsers row is keyed on the UPN string; its plan override belongs to the identity (tid + oid)
+        // the UPN is bound to. A same-UPN caller from another tenant gets its own tenant's edition plan.
+        var json = """[{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 500)), planDefinitionsJson: json, mcpUserPlanOverride: "power", bound: false);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("community", d.Plan);
+        Assert.Equal(100, d.DailyLimit);
     }
 
     [Fact]
