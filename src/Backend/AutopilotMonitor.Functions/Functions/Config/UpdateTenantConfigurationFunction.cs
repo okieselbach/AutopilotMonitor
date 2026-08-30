@@ -110,11 +110,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // admins are served the FULL config so this is normally a no-op for them.)
                 config.RestoreRedactedSecretsFrom(existingConfig);
 
-                // DomainName is tenant identity: seeded once from the first login's UPN (AuthFunction)
-                // and never client-writable — for ANY caller, GA included — mirroring the patch flow
-                // ("identity — never writable"). Without this preserve the full-model PUT persisted an
-                // arbitrary string here, which is rendered into the welcome/farewell mails.
-                config.DomainName = existingConfig.DomainName;
+                // System-owned fields are never client-writable — for ANY caller, GA included:
+                // identity (DomainName, seeded once from the first login's UPN), onboarding/auth
+                // provenance (OnboardedAt/OnboardedBy/LastAuthClientId*), app-reg homing
+                // (HomedAppClientId — the 2026-07-31 stale-round-trip incident), and plan/trial/
+                // downgrade state (PlanTier/Trial*/ProDowngradedUtc — mutable only via the plan
+                // and trial endpoints; a client-supplied ProDowngradedUtc would refresh the
+                // retention-downgrade grace anchor indefinitely). The set is the PATCH endpoint's
+                // BaseDeniedFields, so the two write paths cannot drift.
+                TenantConfigPatchService.PreserveDeniedFields(config, existingConfig);
 
                 // Shared model validation (rate limits, contact address, webhook/Teams SSRF, custom
                 // headers, notification channels, diagnostics SAS, retention cap) — single source
@@ -164,26 +168,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.DisabledUntil = existingConfig.DisabledUntil;
                 }
 
-                // App-reg homing is IMMUTABLE via the generic PUT — for ALL callers, GA included.
-                // The only writers are the consent-driven auto-flip and POST config/{tenantId}/
-                // app-homing (AppHomingFunction). Prod incident 2026-07-31 18:03Z: the consent
-                // auto-flip landed, and 600ms later the frontend's routine "persist validation
-                // toggle" PUT — round-tripping a config loaded BEFORE the flip — silently reverted
-                // the homing to legacy, because a GA caller's stale null was indistinguishable
-                // from an intentional revert. A full-model PUT can never carry that intent.
-                config.HomedAppClientId = existingConfig.HomedAppClientId;
-
-                // Last-seen auth provenance is system-written (AuthFunction) — never via PUT,
-                // for ANY caller: a round-tripped stale view must not rewind the observability.
-                config.LastAuthClientId = existingConfig.LastAuthClientId;
-                config.LastAuthClientIdSince = existingConfig.LastAuthClientIdSince;
-
-                // OnboardedBy is system-written once at first login (AuthFunction) and immutable
-                // after that — never via PUT, for ANY caller: a revoke → re-approve cycle
-                // auto-promotes whatever UPN is stored here, so a client-supplied value could
-                // smuggle in an arbitrary promotable user (or null out the audit provenance).
-                config.OnboardedBy = existingConfig.OnboardedBy;
-
                 // Safety: if GA gate is off, force UnrestrictedMode to false
                 if (!config.UnrestrictedModeEnabled)
                 {
@@ -192,16 +176,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 // MaxNdjsonPayloadSizeMB is table-only — always preserve existing value
                 config.MaxNdjsonPayloadSizeMB = existingConfig.MaxNdjsonPayloadSizeMB;
-
-                // Plan/trial fields are mutable ONLY via the dedicated plan/trial endpoints
-                // (PATCH config/{tenantId}/plan, POST config/{tenantId}/trial). The generic PUT
-                // deserializes the full model, so without this preserve a round-tripped stale
-                // view would silently reset the tenant's edition/trial — for ALL callers, GA included.
-                config.PlanTier = existingConfig.PlanTier;
-                config.TrialExpiresUtc = existingConfig.TrialExpiresUtc;
-                config.TrialStartedUtc = existingConfig.TrialStartedUtc;
-                config.TrialConsumed = existingConfig.TrialConsumed;
-                config.TrialGrantedBy = existingConfig.TrialGrantedBy;
 
                 // Save configuration (retention cap already enforced by ValidateModel above)
                 var writeSource = ResolveWriteSource(req.Query["intent"]);

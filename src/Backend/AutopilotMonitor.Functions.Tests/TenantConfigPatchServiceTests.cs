@@ -680,6 +680,51 @@ public class TenantConfigPatchServiceTests
         Assert.Equal(schema.Count, schema.Select(f => f.Name).Distinct().Count());
     }
 
+    /// <summary>
+    /// The full-model PUT (config/{tenantId}) must honour the same deny-list as the field
+    /// patch: a client body carrying ProDowngradedUtc (retention-downgrade grace anchor),
+    /// OnboardedAt, DomainName, plan/trial or provenance fields must not change the stored
+    /// values. Driven by the deny-list itself so a new denied field is covered automatically.
+    /// </summary>
+    [Fact]
+    public void PreserveDeniedFields_OverwritesEveryDeniedModelPropertyFromStored()
+    {
+        var props = typeof(TenantConfiguration)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(p => p.CanWrite && TenantConfigPatchService.BaseDeniedFields.Contains(p.Name))
+            .ToList();
+        Assert.Contains(props, p => p.Name == "ProDowngradedUtc");
+        Assert.Contains(props, p => p.Name == "OnboardedAt");
+        Assert.Contains(props, p => p.Name == "DomainName");
+
+        var stored = new TenantConfiguration { TenantId = "t1" };
+        var incoming = new TenantConfiguration { TenantId = "t1" };
+        foreach (var p in props)
+        {
+            p.SetValue(stored, Distinct(p.PropertyType, 1));
+            p.SetValue(incoming, Distinct(p.PropertyType, 2));
+            Assert.NotEqual(p.GetValue(stored), p.GetValue(incoming));
+        }
+
+        TenantConfigPatchService.PreserveDeniedFields(incoming, stored);
+
+        foreach (var p in props)
+            Assert.Equal(p.GetValue(stored), p.GetValue(incoming));
+    }
+
+    private static object Distinct(Type t, int seed)
+    {
+        var u = Nullable.GetUnderlyingType(t) ?? t;
+        if (u == typeof(string)) return $"value-{seed}";
+        if (u == typeof(bool)) return seed % 2 == 0;
+        if (u == typeof(int)) return seed;
+        if (u == typeof(long)) return (long)seed;
+        if (u == typeof(DateTime)) return new DateTime(2026, 1, seed, 0, 0, 0, DateTimeKind.Utc);
+        if (u == typeof(DateTimeOffset)) return new DateTimeOffset(2026, 1, seed, 0, 0, 0, TimeSpan.Zero);
+        if (u.IsEnum) return Enum.GetValues(u).GetValue(seed % Enum.GetValues(u).Length)!;
+        throw new NotSupportedException($"Add a Distinct() case for {u.Name}");
+    }
+
     [Fact]
     public void FieldsSchema_DeniedFields_MatchThePatchDenyList()
     {

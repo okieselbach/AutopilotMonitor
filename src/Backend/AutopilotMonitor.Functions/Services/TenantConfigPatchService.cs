@@ -128,6 +128,25 @@ namespace AutopilotMonitor.Functions.Services
         };
 
         /// <summary>
+        /// Full-model PUT counterpart of <see cref="BaseDeniedFields"/>: copies every denied model
+        /// property from the stored config onto the incoming one so a client body can never write
+        /// them — for ANY caller, GA included. The PUT deserializes the whole model, so a hand-kept
+        /// preserve list drifts (ProDowngradedUtc/OnboardedAt were missing, letting a tenant admin
+        /// refresh the retention-downgrade grace anchor forever). Deriving it from the single
+        /// deny-list keeps both write paths in lock-step. Server-stamped fields (TenantId,
+        /// UpdatedBy, LastUpdated) are copied too; the PUT overwrites them afterwards.
+        /// </summary>
+        internal static void PreserveDeniedFields(TenantConfiguration target, TenantConfiguration stored)
+        {
+            foreach (var name in BaseDeniedFields)
+            {
+                // PartitionKey/RowKey/Timestamp/ETag are table plumbing, not model properties.
+                if (ModelProperties.TryGetValue(name, out var prop))
+                    prop.SetValue(target, prop.GetValue(stored));
+            }
+        }
+
+        /// <summary>
         /// Additional deny-list for non-GA tiers (phase 2): the GA-only toggles the PUT
         /// endpoint silently reverts for tenant admins are an explicit 400 here.
         /// </summary>
