@@ -386,6 +386,7 @@ public class StoreSessionReregistrationPreserveTests
     private sealed class Harness
     {
         public Mock<TableClient> Sessions { get; }
+        public Mock<TableClient> Lookup { get; } = new();
         public TableStorageService Sut { get; }
         public TableEntity? Written { get; private set; }
 
@@ -423,8 +424,13 @@ public class StoreSessionReregistrationPreserveTests
                     return Task.FromResult(new Mock<Response>().Object);
                 });
 
+            // Ownership claim (first-writer-wins lookup) — Add succeeds: this tenant owns the id.
+            Lookup.Setup(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new Mock<Response>().Object);
+
             var mockServiceClient = new Mock<TableServiceClient>();
             mockServiceClient.Setup(s => s.GetTableClient(Constants.TableNames.Sessions)).Returns(Sessions.Object);
+            mockServiceClient.Setup(s => s.GetTableClient(Constants.TableNames.SessionTenantLookup)).Returns(Lookup.Object);
             // Events / SessionsIndex intentionally unconfigured → null client → SUT swallows.
 
             Sut = new TableStorageService(mockServiceClient.Object, NullLogger<TableStorageService>.Instance);

@@ -176,10 +176,18 @@ public static class RequestContextExtensions
             return ctx.TargetTenantId;
 
         var resolvedTenantId = await sessionRepo.ResolveSessionTenantIdAsync(sessionId);
-        if (resolvedTenantId != null && !string.Equals(resolvedTenantId, ctx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
-            return resolvedTenantId;
+        if (resolvedTenantId == null || string.Equals(resolvedTenantId, ctx.TargetTenantId, StringComparison.OrdinalIgnoreCase))
+            return ctx.TargetTenantId;
 
-        return ctx.TargetTenantId;
+        // WRITE paths corroborate the lookup against the Sessions row of the resolved tenant:
+        // the lookup is first-writer-wins at registration (StoreSessionAsync), but a mapping
+        // whose session does not exist must never steer a Global Admin write into that tenant.
+        // Silent for the operator — a miss just keeps the target tenant, so the endpoint's own
+        // not-found handling answers.
+        if (requireGlobalAdmin && await sessionRepo.GetSessionAsync(resolvedTenantId, sessionId) == null)
+            return ctx.TargetTenantId;
+
+        return resolvedTenantId;
     }
 
     /// <summary>Gets the correlation ID for this request (set by CorrelationIdMiddleware).</summary>

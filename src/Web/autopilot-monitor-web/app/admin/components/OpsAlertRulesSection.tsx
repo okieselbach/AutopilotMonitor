@@ -103,6 +103,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // different device identity (SessionOwnerBindingObserver, throttled 1h per session+outcome).
     // Stage 1 observes only. Dual-register per memory feedback_ops_event_types_dual_register.
     "SessionOwnerMismatch",
+    // A registration named a sessionId already owned by ANOTHER tenant (first-writer-wins
+    // SessionTenantLookup claim) and was refused with 409. Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "SessionTenantConflict",
     "EmbeddedCertExpiringSoon",
     "EmbeddedCertExpiringUrgent",
     "EmbeddedCertExpired",

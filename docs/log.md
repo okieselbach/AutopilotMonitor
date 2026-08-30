@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (15)
+
+* **Update**: `backend/lifecycle-manifests-and-session-scope.md` — SessionTenantLookup is now claimed first-writer-wins at registration (create-only Add BEFORE any session write; foreign owner ⇒ 409 `session_owner_mismatch` + `SessionTenantConflict` ops event, nothing written; not fail-soft). Closes the poisoning path where any tenant's device could re-point a victim sessionId's mapping at its own tenant and hijack every no-tenantId Global Admin/Reader read and GA write (annotation lane). `ResolveSessionScopeAsync(requireGlobalAdmin: true)` corroborates the resolved tenant against its Sessions row (silent — no operator confirmation). Self-heal write is Add-only; `scripts/Migration/Backfill-SessionTenantLookup.ps1` closes the legacy window once. No tombstone on deletion (deliberate: unbounded growth for no gain).
+
 ## 2026-08-30 (14)
 
 * **Update**: `agent/decision-engine.md` — new invariant: every payload-derived string stored into `DecisionState` is bounded to 256 chars by `FactStringBounds` before any dedupe comparison (RealmJoin package id/version/scope, failed app ids, `HelloOutcome`, `ImeMatchedPatternId`, `EspAdvisoryFailureCategory`, RJ product version/channel). Backend `ReducerVerifier` now replays decode-fold-discard instead of materialising all decoded signals, and `ISignalRepository.QueryBySessionAsync` carries a cumulative `PayloadJson` budget (`SignalQueryLimits`, 32 M chars) reflected in the `truncated` flag of `sessions/{id}/signals` and `sessions/{id}/reducer-verification`.

@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -96,15 +97,49 @@ public class SessionScopeResolutionTests
     }
 
     [Fact]
-    public async Task RequireGlobalAdmin_StillResolves_ForGlobalAdmin()
+    public async Task RequireGlobalAdmin_StillResolves_ForGlobalAdmin_WhenTheSessionRowCorroboratesTheLookup()
     {
         var repo = new Mock<ISessionRepository>();
         repo.Setup(r => r.ResolveSessionTenantIdAsync(SessionId)).ReturnsAsync(OtherTenant);
+        repo.Setup(r => r.GetSessionAsync(OtherTenant, SessionId))
+            .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = OtherTenant });
         var ctx = new RequestContext { TenantId = HomeTenant, TargetTenantId = HomeTenant, IsGlobalAdmin = true };
 
         var result = await ctx.ResolveSessionScopeAsync(repo.Object, SessionId, requireGlobalAdmin: true);
 
         Assert.Equal(OtherTenant, result);
+    }
+
+    [Fact]
+    public async Task RequireGlobalAdmin_KeepsTargetTenant_WhenTheLookupPointsAtATenantWithoutTheSessionRow()
+    {
+        // A lookup row whose tenant does not hold the Sessions row (poisoned or stale mapping)
+        // must never steer a GA WRITE into that tenant — silently keep the target tenant so the
+        // endpoint's own not-found handling answers; no operator confirmation dialog.
+        var repo = new Mock<ISessionRepository>();
+        repo.Setup(r => r.ResolveSessionTenantIdAsync(SessionId)).ReturnsAsync(OtherTenant);
+        repo.Setup(r => r.GetSessionAsync(OtherTenant, SessionId)).ReturnsAsync((SessionSummary?)null);
+        var ctx = new RequestContext { TenantId = HomeTenant, TargetTenantId = HomeTenant, IsGlobalAdmin = true };
+
+        var result = await ctx.ResolveSessionScopeAsync(repo.Object, SessionId, requireGlobalAdmin: true);
+
+        Assert.Equal(HomeTenant, result);
+    }
+
+    [Fact]
+    public async Task ReadPath_DoesNotCorroborate_TheLookupWithASessionRead()
+    {
+        // Reads keep the single point-read contract: the endpoint's own session read is the
+        // corroboration (404 when the row is missing in the resolved tenant).
+        var repo = new Mock<ISessionRepository>(MockBehavior.Strict);
+        repo.Setup(r => r.ResolveSessionTenantIdAsync(SessionId)).ReturnsAsync(OtherTenant);
+        var ctx = new RequestContext { TenantId = HomeTenant, TargetTenantId = HomeTenant, IsGlobalAdmin = true };
+
+        var result = await ctx.ResolveSessionScopeAsync(repo.Object, SessionId);
+
+        Assert.Equal(OtherTenant, result);
+        repo.VerifyAll();
+        repo.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -151,14 +186,31 @@ public class SessionScopeResolutionTests
         var result = await harness.Sut.ResolveSessionTenantIdAsync(SessionId);
 
         Assert.Equal(OtherTenant, result);
-        // Self-heal: the lookup row is written so the next resolve is a point-read.
-        harness.Lookup.Verify(t => t.UpsertEntityAsync(
+        // Self-heal: the lookup row is written ADD-ONLY so the next resolve is a point-read and
+        // a claim that landed meanwhile is never overwritten.
+        harness.Lookup.Verify(t => t.AddEntityAsync(
             It.Is<TableEntity>(e => e.PartitionKey == SessionId
                                     && e.RowKey == "tenant"
                                     && e.GetString("TenantId") == OtherTenant),
-            It.IsAny<TableUpdateMode>(),
             It.IsAny<CancellationToken>()),
             Times.Once);
+        harness.Lookup.Verify(t => t.UpsertEntityAsync(
+            It.IsAny<TableEntity>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task SelfHeal_SwallowsAConcurrentClaim_AndStillReturnsTheScannedTenant()
+    {
+        var indexRow = new TableEntity(OtherTenant, "0000000000000000001_" + SessionId) { ["SessionId"] = SessionId };
+        var harness = new ResolveHarness(lookupRow: null, indexRows: new[] { indexRow });
+        harness.Lookup
+            .Setup(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RequestFailedException(409, "EntityAlreadyExists"));
+
+        var result = await harness.Sut.ResolveSessionTenantIdAsync(SessionId);
+
+        Assert.Equal(OtherTenant, result);
     }
 
     [Fact]
@@ -169,8 +221,8 @@ public class SessionScopeResolutionTests
         var result = await harness.Sut.ResolveSessionTenantIdAsync(SessionId);
 
         Assert.Null(result);
-        harness.Lookup.Verify(t => t.UpsertEntityAsync(
-            It.IsAny<TableEntity>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()),
+        harness.Lookup.Verify(t => t.AddEntityAsync(
+            It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -246,7 +298,7 @@ public class SessionScopeResolutionTests
                     .ThrowsAsync(new RequestFailedException(404, "Not Found"));
             }
             Lookup
-                .Setup(t => t.UpsertEntityAsync(It.IsAny<TableEntity>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+                .Setup(t => t.AddEntityAsync(It.IsAny<TableEntity>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Mock.Of<Response>());
 
             var page = Page<TableEntity>.FromValues(indexRows ?? Array.Empty<TableEntity>(), null, Mock.Of<Response>());

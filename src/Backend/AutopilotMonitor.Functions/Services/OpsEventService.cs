@@ -298,6 +298,20 @@ namespace AutopilotMonitor.Functions.Services
         /// re-enroll-without-wipe shape (same device, new certificate identity, old session id);
         /// <c>serialMatch=false</c> is a foreign device naming somebody else's session.
         /// </summary>
+        /// <summary>
+        /// A device/bootstrap-authenticated registration named a sessionId whose SessionTenantLookup
+        /// row belongs to ANOTHER tenant (first-writer-wins claim in <c>StoreSessionAsync</c>).
+        /// Session ids are random GUIDs — this is a forged registration or an agent bug, never a
+        /// legitimate collision. The registration was refused with 409. Recorded against the
+        /// requesting tenant; the owning tenant is only in the details.
+        /// </summary>
+        public Task RecordSessionTenantConflictAsync(
+            string requestedTenantId, string sessionId, string owningTenantId, string? certificateThumbprint, string? agentVersion, string endpoint)
+            => WriteAsync(OpsEventCategory.Security, "SessionTenantConflict", OpsEventSeverity.Warning,
+                $"Registration refused on {endpoint}: session {sessionId} is owned by another tenant (409)",
+                requestedTenantId, "System.SessionTenantLookup",
+                new { sessionId, owningTenantId, certificateThumbprint, agentVersion, endpoint });
+
         public Task RecordSessionOwnerMismatchAsync(
             string tenantId, string sessionId, string outcome, string callerKind, string ownerKind,
             bool serialMatch, string? agentVersion, string endpoint)

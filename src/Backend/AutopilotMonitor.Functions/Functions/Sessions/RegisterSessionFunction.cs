@@ -38,6 +38,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly SessionDeletionGuard _deletionGuard;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly SessionOwnerBindingObserver _ownerBinding;
+        private readonly OpsEventService _opsEvents;
 
         public RegisterSessionFunction(
             ILogger<RegisterSessionFunction> logger,
@@ -54,7 +55,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             BootstrapSessionService bootstrapSessionService,
             WebhookNotificationService webhookNotificationService,
             SessionDeletionGuard deletionGuard,
-            SessionOwnerBindingObserver ownerBinding)
+            SessionOwnerBindingObserver ownerBinding,
+            OpsEventService opsEvents)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -71,6 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _webhookNotificationService = webhookNotificationService;
             _deletionGuard = deletionGuard;
             _ownerBinding = ownerBinding;
+            _opsEvents = opsEvents;
         }
 
         [Function("RegisterSession")]
@@ -194,8 +197,26 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             var ownerDecision = _ownerBinding.Observe(
                 req, registration.TenantId, registration.SessionId, guardSessionRow, validation, "agent/register-session");
 
-            // Store session in Azure Table Storage
-            var stored = await _sessionRepo.StoreSessionAsync(registration, ownerDecision.OwnerToStamp);
+            // Store session in Azure Table Storage. The sessionId → tenantId lookup claim inside is
+            // first-writer-wins: a sessionId already owned by another tenant is refused with 409 so
+            // no tenant can poison the cross-tenant resolver (SessionTenantLookup) that Global
+            // Admin/Reader session reads and GA writes trust.
+            bool stored;
+            try
+            {
+                stored = await _sessionRepo.StoreSessionAsync(registration, ownerDecision.OwnerToStamp);
+            }
+            catch (SessionTenantConflictException conflict)
+            {
+                _logger.LogWarning(
+                    "RegisterSession refused: session {SessionId} is owned by another tenant — requested tenant={TenantId} thumbprint={Thumbprint}",
+                    registration.SessionId, registration.TenantId, validation.CertificateThumbprint);
+                _ = _opsEvents.RecordSessionTenantConflictAsync(
+                        registration.TenantId, registration.SessionId, conflict.OwningTenantId,
+                        validation.CertificateThumbprint, registration.AgentVersion, "agent/register-session")
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget RecordSessionTenantConflictAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+                return new RegisterSessionOutput { HttpResponse = await WriteSessionTenantConflictAsync(req) };
+            }
 
             if (!stored)
             {
@@ -438,6 +459,25 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 "Session {SessionId} (tenant {TenantId}): registration StartedAt {OriginalStartedAt:o} is outside the plausible window around server time {UtcNow:o} — clamped to server time",
                 registration.SessionId, registration.TenantId, original, utcNow);
             registration.StartedAt = sanitized;
+        }
+
+        /// <summary>
+        /// 409 for a sessionId already owned by another tenant. Carries
+        /// <see cref="Constants.AgentErrorCodes.SessionOwnerMismatch"/> — the agent's correct reaction
+        /// is the same as for an owner-binding refusal: rotate the SessionId and register afresh.
+        /// The owning tenant is deliberately NOT disclosed to the caller.
+        /// </summary>
+        private static async Task<HttpResponseData> WriteSessionTenantConflictAsync(HttpRequestData req)
+        {
+            var response = req.CreateResponse(HttpStatusCode.Conflict);
+            await response.WriteAsJsonAsync(new RegisterSessionResponse
+            {
+                Success = false,
+                Message = "Session id is already registered to another tenant; register with a new session id.",
+                RegisteredAt = DateTime.UtcNow,
+                ErrorCode = Constants.AgentErrorCodes.SessionOwnerMismatch,
+            });
+            return response;
         }
 
         private static async Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)

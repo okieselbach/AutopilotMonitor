@@ -259,7 +259,9 @@ namespace AutopilotMonitor.Shared
             /// SESSION-OWNER-BINDING: the session named by the request is bound to a different
             /// device identity than the caller presented. The agent's correct reaction is to
             /// rotate its SessionId and register afresh — NOT to count it as an auth failure.
-            /// Reserved in stage 1 (shadow); emitted only once enforcement is switched on.
+            /// Owner-binding: reserved in stage 1 (shadow), emitted once enforcement is on.
+            /// Already emitted by RegisterSession (409) when the session id is claimed by
+            /// another tenant (SessionTenantLookup first-writer-wins).
             /// </summary>
             public const string SessionOwnerMismatch = "session_owner_mismatch";
         }

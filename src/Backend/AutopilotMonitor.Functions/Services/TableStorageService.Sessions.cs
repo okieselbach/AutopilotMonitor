@@ -459,6 +459,14 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Ownership claim FIRST, before any Sessions/SessionsIndex write: the sessionId →
+                // tenantId lookup is first-writer-wins. A registration whose sessionId is already
+                // mapped to another tenant is refused here (SessionTenantConflictException → 409),
+                // so no tenant can poison the cross-tenant resolver and no foreign-owned sessionId
+                // ever gets a row in the caller's tenant. Not fail-soft: without the claim the
+                // session must not exist.
+                await ClaimSessionTenantLookupAsync(registration.SessionId, registration.TenantId);
+
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
 
                 // If the agent restarts with the same session ID, preserve timeline/progress fields
@@ -818,12 +826,13 @@ namespace AutopilotMonitor.Functions.Services
                 // Dual-write: upsert into SessionsIndex for time-sorted listing
                 await UpsertSessionIndexAsync(entity, startedAt);
 
-                // Dual-write: sessionId → tenantId point-read lookup (fail-soft; legacy
-                // sessions heal lazily in ResolveSessionTenantIdAsync).
-                await UpsertSessionTenantLookupAsync(registration.SessionId, registration.TenantId);
-
                 _logger.LogInformation($"Stored session {registration.SessionId}");
                 return true;
+            }
+            catch (SessionTenantConflictException)
+            {
+                // Caller maps this to 409 — never swallow it into a generic "store failed".
+                throw;
             }
             catch (Exception ex)
             {
@@ -1634,8 +1643,9 @@ namespace AutopilotMonitor.Functions.Services
             var scanned = await ScanSessionsIndexForTenantIdAsync(sessionId);
             if (scanned != null)
             {
-                // Self-heal: next resolve for this legacy session is a point-read.
-                await UpsertSessionTenantLookupAsync(sessionId, scanned);
+                // Self-heal: next resolve for this legacy session is a point-read. Add-only —
+                // a row that landed meanwhile (a registration claim) is the authority, never ours.
+                await TryAddSessionTenantLookupAsync(sessionId, scanned);
             }
             return scanned;
         }
@@ -1664,24 +1674,75 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        private static TableEntity NewSessionTenantLookupRow(string sessionId, string tenantId)
+            => new TableEntity(sessionId, SessionTenantLookupRowKey) { ["TenantId"] = tenantId };
+
         /// <summary>
-        /// Writes the sessionId → tenantId lookup row (fail-soft: resolution still works via
-        /// the scan fallback when this write is lost).
+        /// Claims the sessionId → tenantId lookup row for <paramref name="tenantId"/> (first-writer-wins).
+        /// Create-only Add; on 409 the existing owner is read and must equal the caller's tenant
+        /// (normal re-registration), otherwise <see cref="SessionTenantConflictException"/>.
+        /// NOT fail-soft: a lost claim means a session without a trustworthy owner mapping, so
+        /// storage errors propagate and the registration fails as a whole.
         /// </summary>
-        private async Task UpsertSessionTenantLookupAsync(string sessionId, string tenantId)
+        private async Task ClaimSessionTenantLookupAsync(string sessionId, string tenantId)
+        {
+            var lookupClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionTenantLookup);
+
+            // Two attempts cover the only benign race: the row is deleted (retention cascade)
+            // between our 409 and the read-back — the second Add then simply succeeds.
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                try
+                {
+                    await lookupClient.AddEntityAsync(NewSessionTenantLookupRow(sessionId, tenantId));
+                    return;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 409)
+                {
+                    // Existing claim — re-registration by the owner, or a foreign tenant.
+                }
+
+                string? owner;
+                try
+                {
+                    var existing = await lookupClient.GetEntityAsync<TableEntity>(sessionId, SessionTenantLookupRowKey);
+                    owner = existing.Value.GetString("TenantId");
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    continue; // deleted in between — retry the Add
+                }
+
+                if (string.Equals(owner, tenantId, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                _logger.LogWarning(
+                    "SessionTenantLookup claim refused: session {SessionId} is owned by tenant {OwningTenantId}, registration from tenant {RequestedTenantId} rejected",
+                    sessionId, owner, tenantId);
+                throw new SessionTenantConflictException(sessionId, tenantId, owner ?? string.Empty);
+            }
+
+            throw new InvalidOperationException($"SessionTenantLookup claim for session {sessionId} did not converge");
+        }
+
+        /// <summary>
+        /// Self-heal write for legacy sessions (pre-lookup-table): Add-only, so it can never
+        /// overwrite an existing claim; fail-soft because resolution still works via the scan.
+        /// </summary>
+        private async Task TryAddSessionTenantLookupAsync(string sessionId, string tenantId)
         {
             try
             {
                 var lookupClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionTenantLookup);
-                var row = new TableEntity(sessionId, SessionTenantLookupRowKey)
-                {
-                    ["TenantId"] = tenantId
-                };
-                await lookupClient.UpsertEntityAsync(row);
+                await lookupClient.AddEntityAsync(NewSessionTenantLookupRow(sessionId, tenantId));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Already claimed — the existing row is the authority.
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to upsert SessionTenantLookup for {SessionId}", sessionId);
+                _logger.LogWarning(ex, "Failed to add SessionTenantLookup for {SessionId}", sessionId);
             }
         }
 
