@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -97,34 +98,34 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 {
                     var manifests = kvp.Value
                         .OrderByDescending(e => e.LastModifiedUtc)
-                        .Select(e => new
+                        .Select(e => new TenantDeletionManifestItem
                         {
-                            manifestId = e.ManifestId,
-                            sizeBytes = e.SizeBytes,
-                            lastModifiedUtc = e.LastModifiedUtc.ToString("o"),
+                            ManifestId = e.ManifestId,
+                            SizeBytes = e.SizeBytes,
+                            LastModifiedUtc = e.LastModifiedUtc.ToString("o"),
                         })
                         .ToList();
-                    return new
+                    return new TenantDeletionManifestSessionNode
                     {
-                        sessionId = kvp.Key,
-                        manifestCount = manifests.Count,
+                        SessionId = kvp.Key,
+                        ManifestCount = manifests.Count,
                         // Tree-view sort: newest manifest under a session wins for the session-level
                         // recency, so "just deleted" sessions float up.
-                        latestManifestUtc = kvp.Value.Max(e => e.LastModifiedUtc).ToString("o"),
-                        manifests,
+                        LatestManifestUtc = kvp.Value.Max(e => e.LastModifiedUtc).ToString("o"),
+                        Manifests = manifests,
                     };
                 })
-                .OrderByDescending(s => s.latestManifestUtc)
+                .OrderByDescending(s => s.LatestManifestUtc)
                 .ToList();
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new GetTenantDeletionManifestsResponse
             {
-                success = true,
-                tenantId,
-                sessionFilter,
-                sessionCount = sessions.Count,
-                manifestCount = sessions.Sum(s => s.manifestCount),
-                sessions,
+                Success = true,
+                TenantId = tenantId,
+                SessionFilter = sessionFilter,
+                SessionCount = sessions.Count,
+                ManifestCount = sessions.Sum(s => s.ManifestCount),
+                Sessions = sessions,
             });
         }
     }

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -98,31 +99,31 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     : null;
 
                 var now = DateTimeOffset.UtcNow;
-                var sessions = new List<object>();
+                var sessions = new List<SessionDeletionListItem>();
                 await foreach (var entity in _storage.GetSessionsByDeletionStateAsync(state, req.FunctionContext.CancellationToken))
                 {
                     var ts = entity.Timestamp ?? now;
                     if (cutoffUtc.HasValue && ts > cutoffUtc.Value) continue;
 
                     var ageMinutes = (int)Math.Floor((now - ts).TotalMinutes);
-                    sessions.Add(new
+                    sessions.Add(new SessionDeletionListItem
                     {
-                        tenantId = entity.PartitionKey,
-                        sessionId = entity.RowKey,
-                        deletionState = entity.GetString("DeletionState") ?? state,
-                        manifestId = entity.GetString("PendingDeletionManifestId") ?? string.Empty,
-                        timestamp = ts.UtcDateTime.ToString("o"),
-                        ageMinutes,
+                        TenantId = entity.PartitionKey,
+                        SessionId = entity.RowKey,
+                        DeletionState = entity.GetString("DeletionState") ?? state,
+                        ManifestId = entity.GetString("PendingDeletionManifestId") ?? string.Empty,
+                        Timestamp = ts.UtcDateTime.ToString("o"),
+                        AgeMinutes = ageMinutes,
                     });
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionDeletionsListResponse
                 {
-                    success = true,
-                    state,
-                    strandedSinceMinutes,
-                    count = sessions.Count,
-                    sessions,
+                    Success = true,
+                    State = state,
+                    StrandedSinceMinutes = strandedSinceMinutes,
+                    Count = sessions.Count,
+                    Sessions = sessions,
                 });
             }
             catch (Exception ex)

@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -58,11 +59,11 @@ public class QuickSearchSessionsFunction
 
             var results = await _sessionRepo.QuickSearchSessionsAsync(tenantId, q, limit: 10);
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new QuickSearchSessionsResponse
             {
-                success = true,
-                count = results.Count,
-                results
+                Success = true,
+                Count = results.Count,
+                Results = results
             });
         }
         catch (Exception ex)

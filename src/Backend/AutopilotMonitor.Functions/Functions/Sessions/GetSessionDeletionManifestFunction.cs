@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -154,46 +155,46 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             HttpRequestData req, DeletionManifest manifest, DeletionProgress? progress, string snapshotSha)
         {
             long totalRowCount = 0;
-            var sampleKeys = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+            var sampleKeys = new Dictionary<string, List<DeletionRowKeySample>>(StringComparer.Ordinal);
             foreach (var step in manifest.Steps)
             {
                 totalRowCount += step.RowCount;
                 if (step.Rows.Count == 0) continue;
                 var key = step.Table ?? step.Step ?? $"order_{step.Order}";
-                sampleKeys[key] = step.Rows.Take(5).Select(r => (object)new { pk = r.Pk, rk = r.Rk }).ToList();
+                sampleKeys[key] = step.Rows.Take(5).Select(r => new DeletionRowKeySample { Pk = r.Pk, Rk = r.Rk }).ToList();
             }
 
             // Serialize once to report bytes — same projection the producer would upload (modulo gzip).
             var serializedBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, DeletionManifestJson.SerializerOptions);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new GetSessionDeletionManifestResponse
             {
-                success = true,
-                mode = "summary",
-                source = "stored",
-                manifestId = manifest.ManifestId,
-                schemaHash = manifest.SchemaHash,
-                snapshotSha256 = snapshotSha,
-                estimatedRowCount = totalRowCount,
-                estimatedSnapshotBytes = serializedBytes.LongLength,
-                preflightCounts = manifest.PreflightCounts,
-                sampleKeys,
-                progress = progress == null ? null : new
+                Success = true,
+                Mode = "summary",
+                Source = "stored",
+                ManifestId = manifest.ManifestId,
+                SchemaHash = manifest.SchemaHash,
+                SnapshotSha256 = snapshotSha,
+                EstimatedRowCount = totalRowCount,
+                EstimatedSnapshotBytes = serializedBytes.LongLength,
+                PreflightCounts = manifest.PreflightCounts,
+                SampleKeys = sampleKeys,
+                Progress = progress == null ? null : new SessionDeletionProgressWire
                 {
-                    progress.SnapshotSha256,
-                    completedStepOrders = progress.CompletedSteps,
-                    progress.VerificationDone,
-                    progress.TombstoneStarted,
-                    progress.CompletedAt,
-                    aggregateDecrementsApplied = progress.AggregateDecrementsApplied?.Count ?? 0,
-                    restoreReIncrementsApplied = progress.RestoreReIncrementsApplied?.Count ?? 0,
-                    progress.LastFailureType,
-                    progress.LastFailureMessage,
+                    SnapshotSha256 = progress.SnapshotSha256,
+                    CompletedStepOrders = progress.CompletedSteps,
+                    VerificationDone = progress.VerificationDone,
+                    TombstoneStarted = progress.TombstoneStarted,
+                    CompletedAt = progress.CompletedAt,
+                    AggregateDecrementsApplied = progress.AggregateDecrementsApplied?.Count ?? 0,
+                    RestoreReIncrementsApplied = progress.RestoreReIncrementsApplied?.Count ?? 0,
+                    LastFailureType = progress.LastFailureType,
+                    LastFailureMessage = progress.LastFailureMessage,
                     // Codex F2 round-3: this is the verifier's OBSERVED count, capped at the
                     // sample size — UI surfaces it as a lower bound when it equals the cap.
-                    progress.LastObservedResidualCount,
-                    progress.LastResidualSampleJson,
+                    LastObservedResidualCount = progress.LastObservedResidualCount,
+                    LastResidualSampleJson = progress.LastResidualSampleJson,
                 },
             });
             return response;

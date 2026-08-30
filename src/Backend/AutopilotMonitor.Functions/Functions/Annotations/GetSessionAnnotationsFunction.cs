@@ -59,13 +59,13 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                         requestCtx.IsGlobalAdmin))
                     .ToList();
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionAnnotationsResponse
                 {
-                    success = true,
-                    sessionId,
-                    tenantId = effectiveTenantId,
-                    annotations = visible.Select(AnnotationWire.ToWire).ToList(),
-                    writableLanes,
+                    Success = true,
+                    SessionId = sessionId,
+                    TenantId = effectiveTenantId,
+                    Annotations = visible.Select(AnnotationWire.ToWire).ToList(),
+                    WritableLanes = writableLanes,
                 });
             }
             catch (Exception ex)
@@ -97,32 +97,32 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
     /// </summary>
     internal static class AnnotationWire
     {
-        internal static object ToWire(SessionAnnotation a) => new
+        internal static SessionAnnotationItem ToWire(SessionAnnotation a) => new SessionAnnotationItem
         {
-            lane = a.Lane,
-            verdict = a.Verdict,
-            note = a.Note,
-            authorUpn = a.AuthorUpn,
-            authorDisplayName = a.AuthorDisplayName,
-            createdByUpn = a.CreatedByUpn,
-            createdAtUtc = a.CreatedAtUtc,
-            updatedAtUtc = a.UpdatedAtUtc,
-            ruleIds = a.RuleIds,
+            Lane = a.Lane,
+            Verdict = a.Verdict,
+            Note = a.Note,
+            AuthorUpn = a.AuthorUpn,
+            AuthorDisplayName = a.AuthorDisplayName,
+            CreatedByUpn = a.CreatedByUpn,
+            CreatedAtUtc = a.CreatedAtUtc,
+            UpdatedAtUtc = a.UpdatedAtUtc,
+            RuleIds = a.RuleIds,
         };
 
-        internal static object ToWireWithScope(SessionAnnotation a) => new
+        internal static SessionAnnotationScopedItem ToWireWithScope(SessionAnnotation a) => new SessionAnnotationScopedItem
         {
-            tenantId = a.TenantId,
-            sessionId = a.SessionId,
-            lane = a.Lane,
-            verdict = a.Verdict,
-            note = a.Note,
-            authorUpn = a.AuthorUpn,
-            authorDisplayName = a.AuthorDisplayName,
-            createdByUpn = a.CreatedByUpn,
-            createdAtUtc = a.CreatedAtUtc,
-            updatedAtUtc = a.UpdatedAtUtc,
-            ruleIds = a.RuleIds,
+            TenantId = a.TenantId,
+            SessionId = a.SessionId,
+            Lane = a.Lane,
+            Verdict = a.Verdict,
+            Note = a.Note,
+            AuthorUpn = a.AuthorUpn,
+            AuthorDisplayName = a.AuthorDisplayName,
+            CreatedByUpn = a.CreatedByUpn,
+            CreatedAtUtc = a.CreatedAtUtc,
+            UpdatedAtUtc = a.UpdatedAtUtc,
+            RuleIds = a.RuleIds,
         };
     }
 }

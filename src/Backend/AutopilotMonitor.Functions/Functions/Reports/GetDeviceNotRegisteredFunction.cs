@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -44,12 +45,12 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var reports = await _repository.GetDistressReportsAsync(tenantId, maxResults: 200);
                 var (aggregated, totalRawReports) = BuildAggregatedResult(reports);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new DeviceNotRegisteredResponse
                 {
-                    success = true,
-                    aggregated,
-                    totalRawReports,
-                    dataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here were rejected with HTTP 403 because they were not found in the tenant's Autopilot or Corporate Identifier registry. Serial number, manufacturer, model, and the Cloud PC marker are self-reported by devices."
+                    Success = true,
+                    Aggregated = aggregated,
+                    TotalRawReports = totalRawReports,
+                    DataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here were rejected with HTTP 403 because they were not found in the tenant's Autopilot or Corporate Identifier registry. Serial number, manufacturer, model, and the Cloud PC marker are self-reported by devices."
                 });
             }
             catch (Exception ex)
@@ -63,7 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         /// Reports with no serial number are grouped into a single "unknown serial" bucket.
         /// Extracted as public static for testability.
         /// </summary>
-        public static (List<object> aggregated, int totalRawReports) BuildAggregatedResult(
+        public static (List<DeviceNotRegisteredItem> aggregated, int totalRawReports) BuildAggregatedResult(
             List<DistressReportEntry> reports)
         {
             var notRegistered = reports
@@ -76,22 +77,22 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 {
                     var mostRecent = g.OrderByDescending(r => r.IngestedAt).First();
 
-                    return new
+                    return new DeviceNotRegisteredItem
                     {
-                        serialNumber = mostRecent.SerialNumber ?? "",
-                        manufacturer = mostRecent.Manufacturer ?? "",
-                        model = mostRecent.Model ?? "",
+                        SerialNumber = mostRecent.SerialNumber ?? "",
+                        Manufacturer = mostRecent.Manufacturer ?? "",
+                        Model = mostRecent.Model ?? "",
                         // Sticky-true across the group (same OR semantics as the Sessions-table
                         // IsCloudPc merge): older agents in the mix report false for the same
                         // device, and a once-seen W365 marker must not flap back to false.
-                        isCloudPc = g.Any(r => r.IsCloudPc),
-                        attemptCount = g.Count(),
-                        firstSeen = g.Min(r => r.IngestedAt),
-                        lastSeen = g.Max(r => r.IngestedAt)
+                        IsCloudPc = g.Any(r => r.IsCloudPc),
+                        AttemptCount = g.Count(),
+                        FirstSeen = g.Min(r => r.IngestedAt),
+                        LastSeen = g.Max(r => r.IngestedAt)
                     };
                 })
-                .OrderByDescending(a => a.lastSeen)
-                .ToList<object>();
+                .OrderByDescending(a => a.LastSeen)
+                .ToList();
 
             return (aggregated, notRegistered.Count);
         }

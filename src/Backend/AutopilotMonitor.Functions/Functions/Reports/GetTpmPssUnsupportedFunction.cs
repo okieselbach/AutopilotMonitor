@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -44,12 +45,12 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var reports = await _repository.GetDistressReportsAsync(tenantId, maxResults: 200);
                 var (aggregated, totalRawReports) = BuildAggregatedResult(reports);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new TpmPssUnsupportedResponse
                 {
-                    success = true,
-                    aggregated,
-                    totalRawReports,
-                    dataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here have a TPM that cannot perform RSA-PSS signing, so their agent cannot authenticate to the backend. Serial number, manufacturer, and model values are self-reported by devices."
+                    Success = true,
+                    Aggregated = aggregated,
+                    TotalRawReports = totalRawReports,
+                    DataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Devices reported here have a TPM that cannot perform RSA-PSS signing, so their agent cannot authenticate to the backend. Serial number, manufacturer, and model values are self-reported by devices."
                 });
             }
             catch (Exception ex)
@@ -63,7 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         /// Reports with no serial number are grouped into a single "unknown serial" bucket.
         /// Extracted as public static for testability.
         /// </summary>
-        public static (List<object> aggregated, int totalRawReports) BuildAggregatedResult(
+        public static (List<TpmPssUnsupportedItem> aggregated, int totalRawReports) BuildAggregatedResult(
             List<DistressReportEntry> reports)
         {
             var tpmReports = reports
@@ -76,18 +77,18 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 {
                     var mostRecent = g.OrderByDescending(r => r.IngestedAt).First();
 
-                    return new
+                    return new TpmPssUnsupportedItem
                     {
-                        serialNumber = mostRecent.SerialNumber ?? "",
-                        manufacturer = mostRecent.Manufacturer ?? "",
-                        model = mostRecent.Model ?? "",
-                        attemptCount = g.Count(),
-                        firstSeen = g.Min(r => r.IngestedAt),
-                        lastSeen = g.Max(r => r.IngestedAt)
+                        SerialNumber = mostRecent.SerialNumber ?? "",
+                        Manufacturer = mostRecent.Manufacturer ?? "",
+                        Model = mostRecent.Model ?? "",
+                        AttemptCount = g.Count(),
+                        FirstSeen = g.Min(r => r.IngestedAt),
+                        LastSeen = g.Max(r => r.IngestedAt)
                     };
                 })
-                .OrderByDescending(a => a.lastSeen)
-                .ToList<object>();
+                .OrderByDescending(a => a.LastSeen)
+                .ToList();
 
             return (aggregated, tpmReports.Count);
         }

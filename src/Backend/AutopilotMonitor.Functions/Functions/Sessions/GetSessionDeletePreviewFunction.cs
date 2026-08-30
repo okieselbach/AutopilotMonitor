@@ -11,6 +11,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -183,30 +184,30 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private static async Task<HttpResponseData> BuildSummaryResponse(
             HttpRequestData req, DeletionManifest manifest, string? inFlightHint, long builderDurationMs)
         {
-            var sampleKeys = new Dictionary<string, List<object>>(StringComparer.Ordinal);
+            var sampleKeys = new Dictionary<string, List<DeletionRowKeySample>>(StringComparer.Ordinal);
             long totalRowCount = 0;
             foreach (var step in manifest.Steps)
             {
                 totalRowCount += step.RowCount;
                 if (step.Rows.Count == 0) continue;
                 var key = step.Table ?? step.Step ?? $"order_{step.Order}";
-                sampleKeys[key] = step.Rows.Take(5).Select(r => (object)new { pk = r.Pk, rk = r.Rk }).ToList();
+                sampleKeys[key] = step.Rows.Take(5).Select(r => new DeletionRowKeySample { Pk = r.Pk, Rk = r.Rk }).ToList();
             }
 
             var estimatedBytes = EstimateSnapshotSizeBytes(manifest);
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new GetSessionDeletePreviewResponse
             {
-                success = true,
-                mode = "summary",
-                inFlightHint,
-                preflightCounts = manifest.PreflightCounts,
-                sampleKeys,
-                estimatedRowCount = totalRowCount,
-                estimatedSnapshotBytes = estimatedBytes,
-                builderDurationMs,
-                schemaHash = manifest.SchemaHash,
-                manifestId = manifest.ManifestId,
+                Success = true,
+                Mode = "summary",
+                InFlightHint = inFlightHint,
+                PreflightCounts = manifest.PreflightCounts,
+                SampleKeys = sampleKeys,
+                EstimatedRowCount = totalRowCount,
+                EstimatedSnapshotBytes = estimatedBytes,
+                BuilderDurationMs = builderDurationMs,
+                SchemaHash = manifest.SchemaHash,
+                ManifestId = manifest.ManifestId,
             });
             return response;
         }

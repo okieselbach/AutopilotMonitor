@@ -60,8 +60,8 @@ public class GetDeviceNotRegisteredFunctionTests
 
         Assert.Single(aggregated);
         Assert.Equal(3, totalRawReports);
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(3, (int)item.attemptCount);
+        var item = aggregated[0];
+        Assert.Equal(3, (int)item.AttemptCount);
     }
 
     [Fact]
@@ -91,10 +91,10 @@ public class GetDeviceNotRegisteredFunctionTests
 
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal("Lenovo", (string)item.manufacturer);
-        Assert.Equal("ThinkPad T14", (string)item.model);
-        Assert.Equal("SN1", (string)item.serialNumber);
+        var item = aggregated[0];
+        Assert.Equal("Lenovo", (string)item.Manufacturer);
+        Assert.Equal("ThinkPad T14", (string)item.Model);
+        Assert.Equal("SN1", (string)item.SerialNumber);
     }
 
     // =========================================================================
@@ -117,9 +117,9 @@ public class GetDeviceNotRegisteredFunctionTests
 
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(t1, (DateTime)item.firstSeen);
-        Assert.Equal(t3, (DateTime)item.lastSeen);
+        var item = aggregated[0];
+        Assert.Equal(t1, (DateTime)item.FirstSeen);
+        Assert.Equal(t3, (DateTime)item.LastSeen);
     }
 
     [Fact]
@@ -135,12 +135,12 @@ public class GetDeviceNotRegisteredFunctionTests
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
         Assert.Equal(3, aggregated.Count);
-        var first = ToDynamic(aggregated[0]);
-        var second = ToDynamic(aggregated[1]);
-        var third = ToDynamic(aggregated[2]);
+        var first = aggregated[0];
+        var second = aggregated[1];
+        var third = aggregated[2];
 
-        Assert.True((DateTime)first.lastSeen > (DateTime)second.lastSeen);
-        Assert.True((DateTime)second.lastSeen > (DateTime)third.lastSeen);
+        Assert.True((DateTime)first.LastSeen > (DateTime)second.LastSeen);
+        Assert.True((DateTime)second.LastSeen > (DateTime)third.LastSeen);
     }
 
     // =========================================================================
@@ -160,8 +160,8 @@ public class GetDeviceNotRegisteredFunctionTests
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
         Assert.Single(aggregated);
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(3, (int)item.attemptCount);
+        var item = aggregated[0];
+        Assert.Equal(3, (int)item.AttemptCount);
     }
 
     // =========================================================================
@@ -182,8 +182,8 @@ public class GetDeviceNotRegisteredFunctionTests
 
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.True((bool)item.isCloudPc);
+        var item = aggregated[0];
+        Assert.True((bool)item.IsCloudPc);
     }
 
     [Fact]
@@ -196,8 +196,8 @@ public class GetDeviceNotRegisteredFunctionTests
 
         var (aggregated, _) = GetDeviceNotRegisteredFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.False((bool)item.isCloudPc);
+        var item = aggregated[0];
+        Assert.False((bool)item.IsCloudPc);
     }
 
     // =========================================================================
@@ -219,14 +219,4 @@ public class GetDeviceNotRegisteredFunctionTests
             IsCloudPc = isCloudPc,
         };
 
-    private static dynamic ToDynamic(object obj)
-    {
-        var type = obj.GetType();
-        var dict = new System.Dynamic.ExpandoObject() as IDictionary<string, object?>;
-        foreach (var prop in type.GetProperties())
-        {
-            dict[prop.Name] = prop.GetValue(obj);
-        }
-        return dict;
-    }
 }

@@ -154,11 +154,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     action.Type, sessionId, userIdentifier);
 
                 var response = req.CreateResponse(HttpStatusCode.Accepted);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new QueueSessionActionResponse
                 {
-                    success = true,
-                    message = $"Action '{action.Type}' queued for delivery",
-                    queuedAt = action.QueuedAt
+                    Success = true,
+                    Message = $"Action '{action.Type}' queued for delivery",
+                    QueuedAt = action.QueuedAt
                 });
                 return response;
             }

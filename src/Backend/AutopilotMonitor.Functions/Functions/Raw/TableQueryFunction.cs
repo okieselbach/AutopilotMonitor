@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Azure;
 using Azure.Data.Tables;
@@ -48,7 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                     .ToList();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { count = tables.Count, tables });
+                await response.WriteAsJsonAsync(new ListRawTablesResponse { Count = tables.Count, Tables = tables });
                 return response;
             }
             catch (Exception ex)
@@ -161,12 +162,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new QueryRawTableResponse
                 {
-                    table = actualTableName,
-                    count = entities.Count,
-                    entities,
-                    nextLink,
+                    Table = actualTableName,
+                    Count = entities.Count,
+                    Entities = entities,
+                    NextLink = nextLink,
                 });
                 return response;
             }

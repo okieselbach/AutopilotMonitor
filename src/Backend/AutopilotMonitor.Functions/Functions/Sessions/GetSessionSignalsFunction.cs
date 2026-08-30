@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -66,14 +67,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var signals = await _signalRepo.QueryBySessionAsync(
                     effectiveTenantId, sessionId, maxResults);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionSignalsResponse
                 {
-                    success = true,
-                    sessionId,
-                    count = signals.Count,
-                    truncated = signals.Count >= maxResults
+                    Success = true,
+                    SessionId = sessionId,
+                    Count = signals.Count,
+                    Truncated = signals.Count >= maxResults
                         || SignalQueryLimits.IsPayloadBudgetExhausted(signals, SignalQueryLimits.DefaultMaxTotalPayloadChars),
-                    signals,
+                    Signals = signals,
                 });
             }
             catch (Exception ex)

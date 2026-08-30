@@ -2,6 +2,7 @@ using System.Net;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -66,7 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     callerTenantId, tenantIdFilter ?? "none", days, allowedTenantIds != null);
 
                 var stats = await _sessionRepo.GetAllSessionStatsAsync(tenantIdFilter, days, allowedTenantIds);
-                return await req.OkAsync(new { success = true, stats });
+                return await req.OkAsync(new SessionStatsResponse { Success = true, Stats = stats });
             }
             catch (Exception ex)
             {

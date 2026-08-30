@@ -5,6 +5,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -82,12 +83,12 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     nextLink = SessionAnnotationsPagination.BuildNextLink(parsed, wireToken);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new SessionAnnotationListResponse
                 {
-                    success = true,
-                    count = items.Count,
-                    annotations = items.Select(AnnotationWire.ToWireWithScope).ToList(),
-                    nextLink,
+                    Success = true,
+                    Count = items.Count,
+                    Annotations = items.Select(AnnotationWire.ToWireWithScope).ToList(),
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

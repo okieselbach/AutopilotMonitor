@@ -117,7 +117,7 @@ public class SearchSessionsFunction
             // 5-20x and avoids the client-side response cap that fat
             // SessionSummary objects routinely trip.
             var fieldsParam = query["fields"];
-            object sessionsPayload = !string.IsNullOrEmpty(fieldsParam)
+            IReadOnlyList<object> sessionsPayload = !string.IsNullOrEmpty(fieldsParam)
                 ? ProjectSessionFields(page.Items, fieldsParam!)
                 : page.Items;
 
@@ -130,12 +130,12 @@ public class SearchSessionsFunction
                     basePath, pagination.PageSize, wireToken, query);
             }
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new SearchSessionsResponse
             {
-                success = true,
-                count = page.Items.Count,
-                sessions = sessionsPayload,
-                nextLink,
+                Success = true,
+                Count = page.Items.Count,
+                Sessions = sessionsPayload,
+                NextLink = nextLink,
             });
         }
         catch (Exception ex)
