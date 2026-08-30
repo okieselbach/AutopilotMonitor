@@ -183,14 +183,6 @@
       "enabled": true
     },
     {
-      "patternId": "IME-DETECTED-OLD",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] Detected app {GUID} ",
-      "action": "updateStateInstalled",
-      "description": "Detects when an app is detected as installed (old log format). DISABLED 2026-08-17: the standalone 'Detected app <guid> ' line no longer exists in IME 1.97.107; this regex instead matched the 'Detected app ... and intent is to install, skip applicability check' line, colliding with IME-SKIP-INSTALL-DETECTED and firing updateStateInstalled and updateStateSkipped on the same physical line (see tasks/ime-v1-code-audit-2026-08-17.md).",
-      "enabled": false
-    },
-    {
       "patternId": "IME-DETECTION-RESULT",
       "category": "always",
       "pattern": "^\\[Win32App\\]\\[DetectionActionHandler\\] Detection for policy with id: (?<id>{GUID}) resulted in action status: Success and detection state: (?<detection>DetectedDifferentVersion|NotDetected|Detected)",
@@ -203,21 +195,21 @@
       "category": "currentPhase",
       "pattern": "^\\[DO TEL\\] = (?<doTelJson>\\{.*\\})",
       "action": "updateDoTelemetry",
-      "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration.",
+      "description": "Captures Delivery Optimization telemetry JSON after a DO download completes. Contains file size, peer caching stats, download mode, and duration. IME removed the [DO TEL] emitter in 1.104 (absent in 1.104.102.0 and 1.105.103.0 decompiles, present in 1.97.107.0); kept while 1.101/1.103 devices are in the fleet — retire once those versions are gone.",
       "enabled": true
     },
     {
       "patternId": "IME-DO-TIMEOUT-1",
       "category": "currentPhase",
-      "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b).*?intunewin-bin_{GUID}",
+      "pattern": "^\\[Win32App DO\\] DO downloading is not finished within timeout, jobId = [^,]{0,64}, fileId =.*?intunewin-bin_{GUID}",
       "action": "updateStatePostponed",
-      "description": "Detects when a Delivery Optimization download times out for a specific app (identified by GUID in filename).",
+      "description": "Detects when a Delivery Optimization download times out for a specific app (identified by GUID in the DO fileId). Source literal (ContentDownloaderDeliveryOptimization, identical IME 1.97-1.105): \"[Win32App DO] DO downloading is not finished within timeout, jobId = {0}, fileId = {1}\".",
       "enabled": true
     },
     {
       "patternId": "IME-DO-TIMEOUT-2",
       "category": "currentPhase",
-      "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b)",
+      "pattern": "^\\[Win32App DO\\] DO downloading is not finished within timeout",
       "action": "updateStatePostponed",
       "parameters": {
         "useCurrentApp": "true"
@@ -496,30 +488,6 @@
       "enabled": true
     },
     {
-      "patternId": "IME-SET-CURRENT-1",
-      "category": "always",
-      "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name",
-      "action": "setCurrentApp",
-      "description": "Detects when IME begins processing an app with its dependency chain, setting it as the current app. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-SET-CURRENT-2",
-      "category": "always",
-      "pattern": "^\\[Win32App\\] ExecManager: processing targeted app.*?\\bid\\W+{GUID}",
-      "action": "setCurrentApp",
-      "description": "Detects when the IME ExecManager starts processing a targeted app, setting it as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-SET-CURRENT-3",
-      "category": "always",
-      "pattern": "^\\[Win32App\\] ===Step=== Start to Present app {GUID}",
-      "action": "setCurrentApp",
-      "description": "Detects the start of app presentation step in IME, setting the app as current. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
       "patternId": "IME-SET-CURRENT-4",
       "category": "always",
       "pattern": "^\\[Win32App\\] SetCurrentDirectory:.*?\\\\{GUID}_\\d+",
@@ -537,30 +505,6 @@
       },
       "description": "Detects when the IME agent receives a shutdown signal, postponing the current app installation.",
       "enabled": true
-    },
-    {
-      "patternId": "IME-SKIP-APPLICABILITY-NOTMET",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] (?=.*?\\bapplicability\\b)(?=.*?NotMet\\b).*?\\bapp\\W+{GUID}\\b",
-      "action": "updateStateSkipped",
-      "description": "Detects when an app's applicability check returns NotMet (old log format with lookaheads). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-SKIP-DEPENDENCY-DETECT",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] app\\W+{GUID}\\b.*?\\bis a dependency\\b.*?\\bDetect Only mode\\b.*?\\bfinished processing",
-      "action": "updateStateSkipped",
-      "description": "Detects when a dependency app in Detect Only mode finishes processing (no install needed). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-SKIP-DETECTED",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] Detected app {GUID}.*?skip next step",
-      "action": "updateStateSkipped",
-      "description": "Detects when an already-detected app is skipped for further processing steps (old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
     },
     {
       "patternId": "IME-SKIP-FILTERS",
@@ -588,14 +532,6 @@
       "action": "updateStateSkipped",
       "description": "Detects when an app targeted for uninstall is not detected, so the uninstall is skipped (old log format).",
       "enabled": true
-    },
-    {
-      "patternId": "IME-SKIP-UNINSTALL-NOTDETECTED-2",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] NOT detected app {GUID}.*?skip un-installation",
-      "action": "updateStateSkipped",
-      "description": "Detects when an app is not detected and uninstall is skipped (alternate old log format). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
     },
     {
       "patternId": "IME-STARTED",
@@ -642,30 +578,6 @@
       },
       "description": "Detects successful token acquisition, indicating the AccountSetup ESP phase has started.",
       "enabled": true
-    },
-    {
-      "patternId": "IME-UPDATE-NAME-1",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] ExecManager: processing targeted app.*?name\\W+(?<name>.*?)\\W+id\\W+{GUID}",
-      "action": "updateName",
-      "description": "Captures the app name from ExecManager processing log (old format: name before id). DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-UPDATE-NAME-2",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name (?<name>.*?)$",
-      "action": "updateName",
-      "description": "Captures the app name from ProcessAppWithDependencies log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
-    },
-    {
-      "patternId": "IME-UPDATE-NAME-3",
-      "category": "currentPhase",
-      "pattern": "^\\[Win32App\\] Processing app \\(id={GUID}, name = (?<name>.*?)\\)",
-      "action": "updateName",
-      "description": "Captures the app name from the Processing app log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-      "enabled": false
     },
     {
       "patternId": "IME-USER-SESSION-COMPLETED",

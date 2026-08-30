@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 Assert.False(string.IsNullOrEmpty(p.Pattern), $"{file}: pattern missing");
                 list.Add(p);
             }
-            Assert.True(list.Count >= 80, $"expected the full pack, found {list.Count}");
+            Assert.True(list.Count >= 75, $"expected the full pack, found {list.Count}");
             return list;
         }
 
@@ -329,11 +329,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 "Launch powershell executor in machine session",
                 new[] { "context=machine" }
             };
+            // Wording from the IME decompile (ContentDownloaderDeliveryOptimization, identical 1.97–1.105).
             yield return new object[]
             {
                 "IME-DO-TIMEOUT-2",
-                "[Win32App DO] DO download is not finished after 600 seconds, timeout",
+                "[Win32App DO] DO downloading is not finished within timeout, jobId = 1b2c3d4e-0000-0000-0000-000000000000, fileId = intunewin-bin_" + Guid1,
                 new string[0]
+            };
+            yield return new object[]
+            {
+                "IME-DO-TIMEOUT-1",
+                "[Win32App DO] DO downloading is not finished within timeout, jobId = 1b2c3d4e-0000-0000-0000-000000000000, fileId = intunewin-bin_" + Guid1,
+                new[] { "id=" + Guid1 }
             };
         }
 

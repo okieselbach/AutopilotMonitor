@@ -92,6 +92,16 @@ completion) queue behind that work — a monitoring blackout during the enrollme
   above the work per byte is linear and small, so a writer can only delay processing in
   proportion to the bytes it writes.
 
+## Pack hygiene against the decompiles (2026-08-30)
+
+Every shipped pattern's distinctive phrase was checked in the IME decompiles 1.97.107.0,
+1.104.102.0 and 1.105.103.0 (`ime-decompiles` repo): no wording changed in any of them. The 11
+disabled legacy patterns whose literals last existed in IME 1.50 (fleet minimum 1.97) were
+deleted rather than left as re-enable traps; `IME-DO-TIMEOUT-1/2` now match the exact source
+literal (`[Win32App DO] DO downloading is not finished within timeout, jobId = …, fileId = …`)
+instead of two lookaheads; `IME-DO-TEL` has no emitter from 1.104 on and stays only while
+1.101/1.103 devices are in the fleet (`get_ime_version_history`).
+
 # Verification
 
 * `ImeLogPatternPackLinearityTests` loads the shipped pack, asserts the `^` invariant, runs four

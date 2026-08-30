@@ -1,9 +1,0 @@
-{
-  "$schema": "../schema/ime-log-pattern.schema.json",
-  "patternId": "IME-UPDATE-NAME-2",
-  "category": "currentPhase",
-  "pattern": "^\\[Win32App\\] ProcessAppWithDependencies starts for {GUID} with name (?<name>.*?)$",
-  "action": "updateName",
-  "description": "Captures the app name from ProcessAppWithDependencies log entry. DISABLED 2026-08-17: emitter no longer exists in current IME (1.97.107, Dec 2025) - the old V1/V2 app processing pipeline was removed and this line is not logged anymore (verified against decompiled source, see tasks/ime-v1-code-audit-2026-08-17.md). Kept for history.",
-  "enabled": false
-}

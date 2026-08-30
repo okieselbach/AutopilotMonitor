@@ -2,7 +2,7 @@
   "$schema": "../schema/ime-log-pattern.schema.json",
   "patternId": "IME-DO-TIMEOUT-2",
   "category": "currentPhase",
-  "pattern": "^\\[Win32App DO\\] DO download(?=.*?\\bnot finished\\b)(?=.*?\\btimeout\\b)",
+  "pattern": "^\\[Win32App DO\\] DO downloading is not finished within timeout",
   "action": "updateStatePostponed",
   "parameters": { "useCurrentApp": "true" },
   "description": "Detects when a Delivery Optimization download times out (generic, uses current app context).",

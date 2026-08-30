@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (8)
+
+* **Update**: `agent/ime-log-tracker-matching-budget.md` — pattern-pack hygiene against the IME decompiles (1.97.107.0 / 1.104.102.0 / 1.105.103.0, spot checks 1.50 / 1.83): no wording drift in any shipped pattern; the 11 disabled legacy patterns (IME-DETECTED-OLD, IME-SET-CURRENT-1/2/3, IME-SKIP-APPLICABILITY-NOTMET, IME-SKIP-DEPENDENCY-DETECT, IME-SKIP-DETECTED, IME-SKIP-UNINSTALL-NOTDETECTED-2, IME-UPDATE-NAME-1/2/3) are deleted — their literals last existed in IME 1.50, the fleet starts at 1.97; IME-DO-TIMEOUT-1/2 match the exact source literal (`DO downloading is not finished within timeout, jobId = …, fileId = …`) instead of two lookaheads; IME-DO-TEL is documented as dead from 1.104 on and kept only for the 1.101/1.103 fleet share.
+
 ## 2026-08-30 (7)
 
 * **New**: `agent/ime-log-tracker-matching-budget.md` — the shipped IME pattern pack is anchored (`^` on all 90 patterns, `IME-APP-VERSION` without the chained `[^}]*?` scan) and the tracker's read loop is bounded: `BoundedLineReader` (32 MB per line, exact byte bookmarks), 2 s per-line matching budget, held-back unterminated EOF tails with a 1 s settle, one Warning per pass (`oversizedLines` / `regexTimeouts` / `lineBudgetBreaks`); the unanchored `PS-SCRIPT-CONTEXT` false positives on `[Win32App] SideCarScript…` lines are gone. `--run-ime-matching` assembles multiline entries like the tracker. Registered in `index.md`.
