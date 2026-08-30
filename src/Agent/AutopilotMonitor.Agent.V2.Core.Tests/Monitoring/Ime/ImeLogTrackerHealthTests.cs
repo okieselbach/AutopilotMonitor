@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Agent.V2.Core.Logging;
@@ -156,6 +157,130 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal(1, health.PatternHits["T-LOOSE"]); // ordered after T-MARK — still matched
             Assert.Equal(0, health.BudgetBreaks);
             Assert.False(health.HasSkippedWork);
+        }
+
+        [Fact]
+        public async Task Starved_timeout_is_retried_once_and_the_recovered_match_is_not_skipped_work()
+        {
+            // Session b9f1d134: a CPU-starved Hyper-V guest tripped the 1 s wall-clock regex
+            // timeout on a line the pattern genuinely matches in 5.8 µs. A timeout whose attempt
+            // consumed almost no match cost is starvation — retried once, recovered, no warning.
+            using var h = new Harness();
+            var degraded = 0;
+            h.Tracker.OnTrackerDegraded = (_, __, ___) => degraded++;
+            h.Tracker.MatchCostReader = () => 0; // attempt cost 0 < gate
+            var attempts = 0;
+            h.Tracker.MatchInvoker = (id, regex, input) =>
+            {
+                if (id == "T-MARK" && ++attempts == 1) throw new RegexMatchTimeoutException();
+                return regex.Match(input);
+            };
+
+            h.Append(Entry("marker 1") + "\n");
+            await h.Pass();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal(2, attempts);
+            Assert.Equal(1, health.PatternHits["T-MARK"]); // recovered
+            Assert.Equal(0, health.RegexTimeouts);
+            Assert.Equal(1, health.RegexTimeoutRetries);
+            Assert.False(health.HasSkippedWork);
+            Assert.Equal(0, degraded);
+        }
+
+        [Fact]
+        public async Task Timeout_that_burned_real_cpu_is_skipped_without_a_retry()
+        {
+            // The gate exists so a genuinely spinning pattern never gets a second helping of
+            // CPU: an attempt at or over the gate is a real timeout, counted and skipped. The
+            // wall-clock fallback lands here by construction (a timed-out attempt always
+            // measures >= the full timeout > gate).
+            using var h = new Harness();
+            var degraded = 0;
+            h.Tracker.OnTrackerDegraded = (_, __, ___) => degraded++;
+            h.Tracker.LineMatchBudget = long.MaxValue; // isolate the gate from the budget
+            long cost = 0;
+            h.Tracker.MatchCostReader = () => cost += h.Tracker.TimeoutRetryGate; // every delta >= gate
+            var attempts = 0;
+            h.Tracker.MatchInvoker = (id, regex, input) =>
+            {
+                if (id == "T-MARK") { attempts++; throw new RegexMatchTimeoutException(); }
+                return regex.Match(input);
+            };
+
+            h.Append(Entry("marker 1 loose 1") + "\n");
+            await h.Pass();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal(1, attempts); // no retry
+            Assert.Equal(0, health.PatternHits["T-MARK"]);
+            Assert.Equal(1, health.PatternHits["T-LOOSE"]); // later patterns still ran
+            Assert.Equal(1, health.RegexTimeouts);
+            Assert.Equal(0, health.RegexTimeoutRetries);
+            Assert.True(health.HasSkippedWork);
+            Assert.Equal(1, degraded);
+        }
+
+        [Fact]
+        public async Task Retry_that_times_out_again_is_counted_once_and_not_retried_further()
+        {
+            using var h = new Harness();
+            h.Tracker.MatchCostReader = () => 0; // every attempt looks starved
+            var attempts = 0;
+            h.Tracker.MatchInvoker = (id, regex, input) =>
+            {
+                if (id == "T-MARK") { attempts++; throw new RegexMatchTimeoutException(); }
+                return regex.Match(input);
+            };
+
+            h.Append(Entry("marker 1") + "\n");
+            await h.Pass();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal(2, attempts); // exactly one retry
+            Assert.Equal(1, health.RegexTimeouts);
+            Assert.Equal(1, health.RegexTimeoutRetries);
+            Assert.True(health.HasSkippedWork);
+        }
+
+        [Fact]
+        public async Task Budget_break_skips_the_remaining_patterns_and_names_the_first_skipped()
+        {
+            using var h = new Harness();
+            string? firstSkipped = null;
+            h.Tracker.OnTrackerDegraded = (_, __, pattern) => firstSkipped = pattern;
+            h.Tracker.LineMatchBudget = 500;
+            long cost = 0;
+            h.Tracker.MatchCostReader = () => cost += 1000; // every Match charges 1000 units
+
+            h.Append(Entry("marker 1 loose 1") + "\n");
+            await h.Pass();
+
+            var health = h.Tracker.GetHealthSnapshot();
+            Assert.Equal("T-NEVER", firstSkipped); // pattern order: T-MARK, T-NEVER, T-LOOSE
+            Assert.Equal(1, health.PatternHits["T-MARK"]); // matched before the budget was spent
+            Assert.Equal(0, health.PatternHits["T-LOOSE"]); // skipped by the break
+            Assert.Equal(1, health.BudgetBreaks);
+            Assert.True(health.HasSkippedWork);
+        }
+
+        [Fact]
+        public async Task Retry_counter_survives_a_restart()
+        {
+            using var h = new Harness();
+            h.Tracker.MatchCostReader = () => 0;
+            var attempts = 0;
+            h.Tracker.MatchInvoker = (id, regex, input) =>
+            {
+                if (id == "T-MARK" && ++attempts == 1) throw new RegexMatchTimeoutException();
+                return regex.Match(input);
+            };
+            h.Append(Entry("marker 1") + "\n");
+            await h.Pass();
+            h.Tracker.SaveStateForTest();
+
+            h.Restart();
+            Assert.Equal(1, h.Tracker.GetHealthSnapshot().RegexTimeoutRetries);
         }
 
         [Fact]

@@ -241,12 +241,55 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // (IME writes an entry in one call) is far smaller.
         internal const int HeldTailMaxBytes = 1024 * 1024;
 
-        // Aggregate matching budget per line across ALL active patterns. The 1 s per-regex
-        // timeout bounds one Match call; with ~80 active patterns and tenant-authored custom
-        // patterns (which are not anchored) a crafted line could still serialize ~80 s. After
-        // this budget the remaining patterns are skipped for that line and the pass summary
-        // says so. No genuine IME line comes anywhere near it.
-        private static readonly long LineMatchBudgetTicks = Stopwatch.Frequency * 2;
+        // Per-Match wall-clock timeout baked into every compiled Regex. .NET checks it against
+        // the wall clock internally, so it CANNOT be moved to CPU time — the starvation retry
+        // below exists precisely because of that.
+        internal static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+
+        // Whether per-thread CPU cycle accounting is available (probed once). When it is, the
+        // line budget and the timeout-retry gate are charged in cycles the matching thread
+        // actually executed; when not, both fall back to wall-clock Stopwatch ticks — exactly
+        // the pre-cycle behaviour, including "no retry ever" (see TimeoutRetryGate).
+        internal static readonly bool ThreadCycleTimeAvailable = Interop.ThreadNativeMethods.Probe();
+
+        // Converts "seconds of hostile CPU" into a cycle budget. Nominal frequency is unknowable
+        // in advance and precision is irrelevant: genuine lines cost microseconds (session
+        // b9f1d134: PS-AGENT-OUTPUT on its worst real line = 5.8 µs), the budget bounds seconds.
+        // A 1 GHz machine gets an effective 6 s budget, a 5 GHz machine 1.2 s — both fine.
+        private const long AssumedCyclesPerSecond = 3_000_000_000;
+
+        // Aggregate matching budget per line across ALL active patterns, charged in match COST
+        // (thread CPU cycles when available, wall ticks otherwise). The per-regex timeout bounds
+        // one Match call; with ~80 active patterns and tenant-authored custom patterns (which
+        // are not anchored) a crafted line could still serialize ~80 s of CPU. After this budget
+        // the remaining patterns are skipped for that line and the pass summary says so. No
+        // genuine IME line comes anywhere near it — but a starved thread no longer trips it,
+        // because descheduled time accrues no cycles (sessions 946ccbd6 / b9f1d134, 2026-08-30).
+        // Instance field as a test seam; initialised from the probed static default.
+        internal long LineMatchBudget =
+            ThreadCycleTimeAvailable ? AssumedCyclesPerSecond * 2 : Stopwatch.Frequency * 2;
+
+        // Gate for the ONE retry after a RegexMatchTimeoutException: retry only when the
+        // timed-out attempt consumed less than ~0.5 s of match cost — then the 1 s wall-clock
+        // timeout was starvation, and the retry costs what the match really costs (µs). A
+        // genuinely spinning pattern burns ~1 s of CPU into the attempt, exceeds the gate and
+        // is skipped without a second helping. In the wall-clock fallback the gate is
+        // unreachable by construction (a timed-out attempt always measures >= 1 s wall), so no
+        // retry ever fires there — starvation and spinning are indistinguishable without
+        // cycle accounting, and retrying a genuine spinner would double the hostile bound.
+        internal long TimeoutRetryGate =
+            ThreadCycleTimeAvailable ? AssumedCyclesPerSecond / 2 : Stopwatch.Frequency / 2;
+
+        // Monotonic per-thread match-cost counter (cycles or wall ticks; deltas taken around
+        // each Regex.Match on the poll thread only). Test seam.
+        internal Func<long> MatchCostReader = ThreadCycleTimeAvailable
+            ? (Func<long>)Interop.ThreadNativeMethods.GetCurrentThreadCycles
+            : Stopwatch.GetTimestamp;
+
+        // Test seam for MatchLine: lets tests throw RegexMatchTimeoutException deterministically
+        // for a chosen pattern instead of constructing a genuinely catastrophic regex.
+        internal Func<string, Regex, string, Match> MatchInvoker =
+            (patternId, regex, input) => regex.Match(input);
 
         // An unterminated tail at EOF (a physical line without '\n', or a multiline entry
         // without its ']LOG]!>' close) is normally the writer mid-write. It is held back —
@@ -279,6 +322,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private long _entriesMatched;
         private long _oversizedLines;
         private long _regexTimeouts;
+        private long _regexTimeoutRetries;
         private long _budgetBreaks;
         private long _heldTailCount;
         private int _unanchoredPatterns;
@@ -306,6 +350,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     EntriesMatched = _entriesMatched,
                     OversizedLines = _oversizedLines,
                     RegexTimeouts = _regexTimeouts,
+                    RegexTimeoutRetries = _regexTimeoutRetries,
                     BudgetBreaks = _budgetBreaks,
                     HeldTails = _heldTailCount,
                     HealthScriptResultParseFailures = HealthScriptResultParseFailures,
@@ -733,7 +778,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     var regexStr = pattern.Pattern.Replace("{GUID}", GuidPattern);
                     // Singleline: make '.' match newlines too — required because multiline CMTrace
                     // entries are reassembled with '\n' chars (e.g. DO TEL JSON in IME >= 1.101)
-                    var regex = new Regex(regexStr, RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline, TimeSpan.FromSeconds(1));
+                    var regex = new Regex(regexStr, RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline, RegexMatchTimeout);
 
                     var compiled = new CompiledPattern
                     {
@@ -1000,6 +1045,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _entriesMatched = state.Health.EntriesMatched;
                     _oversizedLines = state.Health.OversizedLines;
                     _regexTimeouts = state.Health.RegexTimeouts;
+                    _regexTimeoutRetries = state.Health.RegexTimeoutRetries;
                     _budgetBreaks = state.Health.BudgetBreaks;
                     _heldTailCount = state.Health.HeldTails;
                     HealthScriptResultParseFailures = state.Health.HealthScriptResultParseFailures;
@@ -1068,6 +1114,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     EntriesMatched = _entriesMatched,
                     OversizedLines = _oversizedLines,
                     RegexTimeouts = _regexTimeouts,
+                    RegexTimeoutRetries = _regexTimeoutRetries,
                     BudgetBreaks = _budgetBreaks,
                     HeldTails = _heldTailCount,
                     HealthScriptResultParseFailures = HealthScriptResultParseFailures,

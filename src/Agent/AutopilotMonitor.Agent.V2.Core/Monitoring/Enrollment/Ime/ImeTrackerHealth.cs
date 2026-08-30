@@ -21,6 +21,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public long EntriesMatched { get; set; }
         public long OversizedLines { get; set; }
         public long RegexTimeouts { get; set; }
+
+        /// <summary>
+        /// Regex timeouts absorbed by the one gated retry: the timed-out attempt consumed
+        /// almost no CPU (a starved thread, not a spinning pattern) and the retry recovered
+        /// the match. Expected nonzero on CPU-saturated VMs; NOT skipped work — only a
+        /// timeout that survives (or is denied) the retry counts into <see cref="RegexTimeouts"/>.
+        /// </summary>
+        public long RegexTimeoutRetries { get; set; }
+
         public long BudgetBreaks { get; set; }
         public long HeldTails { get; set; }
         public int HealthScriptResultParseFailures { get; set; }

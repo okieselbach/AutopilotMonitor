@@ -201,6 +201,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                         data["ime_entries_matched"] = health.EntriesMatched;
                         data["ime_oversized_lines"] = health.OversizedLines;
                         data["ime_regex_timeouts"] = health.RegexTimeouts;
+                        data["ime_regex_timeout_retries"] = health.RegexTimeoutRetries;
                         data["ime_line_budget_breaks"] = health.BudgetBreaks;
                         data["ime_held_tails"] = health.HeldTails;
                         data["ime_unanchored_patterns"] = health.UnanchoredPatterns;

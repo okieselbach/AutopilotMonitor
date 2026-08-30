@@ -331,6 +331,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private sealed class PassStats
         {
             public int RegexTimeouts;
+            public int RegexTimeoutRetries;
             public int BudgetBreaks;
             public int OversizedLines;
             public string FirstSkippedPatternId;
@@ -342,23 +343,35 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// remaining patterns are skipped for this line (counted, first skipped ID recorded) —
         /// matches already handled on this line stand.
         /// <para>
-        /// The budget is the SUM of the time spent inside <c>Regex.Match</c> on this line — the
-        /// cost the budget exists to bound (hostile input × unanchored custom patterns). It is
-        /// deliberately not the wall-clock from the first to the last pattern: that window also
-        /// contains the match handlers (signal ingress, match-log append, state writes) and
-        /// whatever the scheduler does to this thread in between. Session 946ccbd6 (2026-08-30)
-        /// recorded two budget breaks on a 1 MB `AppWorkload.log` with no line over 5 KB — the
-        /// Hyper-V guest had stalled the whole process for 5–10 s mid-line — and each break
-        /// silently skipped the remaining patterns of a genuine line.
+        /// The budget is the SUM of the COST spent inside <c>Regex.Match</c> on this line — the
+        /// resource the budget exists to bound (hostile input × unanchored custom patterns).
+        /// Cost is thread CPU cycles when <see cref="ThreadCycleTimeAvailable"/>, wall ticks
+        /// otherwise. Two production sessions forced the cycle move (both Hyper-V, 2026-08-30):
+        /// 946ccbd6 — a 5–10 s guest stall BETWEEN two patterns broke the then wall-clock-window
+        /// budget on a genuine line (fixed by charging only Match time); b9f1d134 — a stall
+        /// INSIDE Match calls (CPU pinned at 100 % during the DeviceSetup script burst) broke
+        /// the budget six times and tripped the 1 s regex timeout on a line PS-AGENT-OUTPUT
+        /// genuinely matches in 5.8 µs. Descheduled time accrues no cycles, so only the second
+        /// failure mode needed the cost change; the timeout itself is wall-clock inside .NET
+        /// and cannot be moved — hence the gated single retry below.
+        /// </para>
+        /// <para>
+        /// A <see cref="RegexMatchTimeoutException"/> whose attempt consumed less than
+        /// <see cref="TimeoutRetryGate"/> of cost was starvation, not matching — that attempt
+        /// is retried exactly once (counted as a retry, not a timeout; a recovered match is
+        /// handled normally and is NOT skipped work). An attempt at or over the gate burned
+        /// real CPU: counted as a timeout and skipped, never granted a second helping. In the
+        /// wall-clock fallback the gate is unreachable (a timed-out attempt always measures
+        /// ≥ the full timeout), so the fallback keeps the old skip-on-first-timeout behaviour.
         /// </para>
         /// </summary>
         private void MatchLine(string filePath, string line, string messageToMatch, CmTraceLogEntry entry, PassStats stats)
         {
-            long matchTicks = 0;
+            long matchCost = 0;
             for (var i = 0; i < _activePatterns.Count; i++)
             {
                 var pattern = _activePatterns[i];
-                if (matchTicks > LineMatchBudgetTicks)
+                if (matchCost > LineMatchBudget)
                 {
                     stats.BudgetBreaks++;
                     _budgetBreaks++;
@@ -366,22 +379,37 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     return;
                 }
 
-                Match match;
-                var matchStarted = Stopwatch.GetTimestamp();
-                try
+                Match match = null;
+                var retried = false;
+                while (true)
                 {
-                    match = pattern.Regex.Match(messageToMatch);
+                    var costBefore = MatchCostReader();
+                    try
+                    {
+                        match = MatchInvoker(pattern.PatternId, pattern.Regex, messageToMatch);
+                        matchCost += MatchCostReader() - costBefore;
+                        break;
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        var attemptCost = MatchCostReader() - costBefore;
+                        matchCost += attemptCost;
+                        if (!retried && attemptCost < TimeoutRetryGate)
+                        {
+                            retried = true;
+                            stats.RegexTimeoutRetries++;
+                            _regexTimeoutRetries++;
+                            _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' consumed only {attemptCost} match-cost units (< gate {TimeoutRetryGate}) — starved thread, retrying once");
+                            continue;
+                        }
+                        stats.RegexTimeouts++;
+                        _regexTimeouts++;
+                        if (_timeoutLoggedPatternIds.Add(pattern.PatternId))
+                            _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' (message length {messageToMatch.Length}, attempt cost {attemptCost}) — skipped; further timeouts of this pattern are only counted");
+                        break;
+                    }
                 }
-                catch (RegexMatchTimeoutException)
-                {
-                    matchTicks += Stopwatch.GetTimestamp() - matchStarted;
-                    stats.RegexTimeouts++;
-                    _regexTimeouts++;
-                    if (_timeoutLoggedPatternIds.Add(pattern.PatternId))
-                        _logger.Debug($"ImeLogTracker: regex timeout for pattern '{pattern.PatternId}' (message length {messageToMatch.Length}) — skipped; further timeouts of this pattern are only counted");
-                    continue;
-                }
-                matchTicks += Stopwatch.GetTimestamp() - matchStarted;
+                if (match == null) continue;
 
                 if (match.Success)
                 {

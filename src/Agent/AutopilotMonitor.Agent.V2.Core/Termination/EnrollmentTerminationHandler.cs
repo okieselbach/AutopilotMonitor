@@ -579,6 +579,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     ["entriesMatched"] = health.EntriesMatched,
                     ["oversizedLines"] = health.OversizedLines,
                     ["regexTimeouts"] = health.RegexTimeouts,
+                    ["regexTimeoutRetries"] = health.RegexTimeoutRetries,
                     ["lineBudgetBreaks"] = health.BudgetBreaks,
                     ["heldTails"] = health.HeldTails,
                     ["unanchoredPatterns"] = health.UnanchoredPatterns,

@@ -322,6 +322,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 ["file"] = fileName ?? string.Empty,
                 ["oversizedLines"] = health.OversizedLines,
                 ["regexTimeouts"] = health.RegexTimeouts,
+                ["regexTimeoutRetries"] = health.RegexTimeoutRetries,
                 ["lineBudgetBreaks"] = health.BudgetBreaks,
                 ["heldTails"] = health.HeldTails,
                 ["linesRead"] = health.LinesRead,

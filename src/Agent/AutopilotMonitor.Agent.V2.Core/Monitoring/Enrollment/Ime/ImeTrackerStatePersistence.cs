@@ -159,6 +159,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public long EntriesMatched { get; set; }
         public long OversizedLines { get; set; }
         public long RegexTimeouts { get; set; }
+        public long RegexTimeoutRetries { get; set; }
         public long BudgetBreaks { get; set; }
         public long HeldTails { get; set; }
         public int HealthScriptResultParseFailures { get; set; }
