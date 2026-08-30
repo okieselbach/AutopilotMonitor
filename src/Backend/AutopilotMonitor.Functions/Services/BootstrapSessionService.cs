@@ -92,7 +92,9 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Revokes a bootstrap session. Already-running agents with the token will be rejected on next request.
+        /// Revokes a bootstrap session owned by <paramref name="tenantId"/>. Already-running agents with
+        /// the token will be rejected on next request. Codes owned by another tenant are reported as
+        /// not found (false) — the repository enforces ownership against the CodeLookup partition.
         /// </summary>
         public async Task<bool> RevokeAsync(string tenantId, string shortCode)
         {
@@ -105,7 +107,7 @@ namespace AutopilotMonitor.Functions.Services
                 _cache.Remove($"bootstrap-token:{session.Token}");
             }
 
-            var result = await _bootstrapRepo.RevokeBootstrapSessionAsync(shortCode);
+            var result = await _bootstrapRepo.RevokeBootstrapSessionAsync(tenantId, shortCode);
             if (result)
             {
                 _logger.LogInformation("Revoked bootstrap session {ShortCode} for tenant {TenantId}", shortCode, tenantId);

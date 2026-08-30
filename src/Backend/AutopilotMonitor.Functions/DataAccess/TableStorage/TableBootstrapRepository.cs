@@ -167,16 +167,26 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         /// <summary>
-        /// Revokes a bootstrap session. Looks up the tenant via CodeLookup partition first.
+        /// Revokes a bootstrap session. Resolves the owning tenant via the CodeLookup partition
+        /// and refuses (returns false, same as not-found) when it differs from the caller's tenant:
+        /// short codes are platform-global, so tenant scope must be checked against the object itself.
         /// </summary>
-        public async Task<bool> RevokeBootstrapSessionAsync(string shortCode)
+        public async Task<bool> RevokeBootstrapSessionAsync(string tenantId, string shortCode)
         {
             try
             {
-                // Look up the tenant from the CodeLookup partition
+                // Look up the owning tenant from the CodeLookup partition
                 var lookupResult = await _tableClient.GetEntityAsync<TableEntity>(CodeLookupPartition, shortCode);
                 var lookup = lookupResult.Value;
-                var tenantId = lookup.GetString("TenantId") ?? "";
+                var owningTenantId = lookup.GetString("TenantId") ?? "";
+
+                if (!string.Equals(owningTenantId, tenantId, StringComparison.Ordinal))
+                {
+                    // Do not leak the owner; the caller sees the same 404 as for an unknown code.
+                    _logger.LogWarning("Bootstrap session {ShortCode} revoke refused: code is not owned by tenant {TenantId}",
+                        shortCode, tenantId);
+                    return false;
+                }
 
                 // Update main entity
                 var mainResult = await _tableClient.GetEntityAsync<TableEntity>(tenantId, shortCode);
