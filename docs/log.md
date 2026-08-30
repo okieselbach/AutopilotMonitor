@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (14)
+
+* **Update**: `agent/decision-engine.md` — new invariant: every payload-derived string stored into `DecisionState` is bounded to 256 chars by `FactStringBounds` before any dedupe comparison (RealmJoin package id/version/scope, failed app ids, `HelloOutcome`, `ImeMatchedPatternId`, `EspAdvisoryFailureCategory`, RJ product version/channel). Backend `ReducerVerifier` now replays decode-fold-discard instead of materialising all decoded signals, and `ISignalRepository.QueryBySessionAsync` carries a cumulative `PayloadJson` budget (`SignalQueryLimits`, 32 M chars) reflected in the `truncated` flag of `sessions/{id}/signals` and `sessions/{id}/reducer-verification`.
+
 ## 2026-08-30 (13)
 
 * **Update**: `agent/decision-engine.md` — RealmJoin self-update observation. `realmjoin_detected` reported the MSI-shipped build (4.21.4) although the tray auto-updated to 4.21.18 nine minutes later and ran the whole deployment on it (gktatooine session 946ccbd6). `RealmJoinWatcher` now watches `HKLM\...\Uninstall\RealmJoin` (the updater's only registry write) after detection, re-reads the binary version on change and emits `realmjoin_autoupdate_detected` (`previousVersion`, `newVersion`, `releaseChannel`); the typed `RealmJoinAutoUpdateDetected` signal overrides `RealmJoinFacts.ProductVersion`/`ReleaseChannel` and nothing else. Portal device card shows the updated version with an "auto-updated from" note.

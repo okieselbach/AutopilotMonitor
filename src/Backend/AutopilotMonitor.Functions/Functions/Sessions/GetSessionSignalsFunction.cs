@@ -71,7 +71,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     success = true,
                     sessionId,
                     count = signals.Count,
-                    truncated = signals.Count >= maxResults,
+                    truncated = signals.Count >= maxResults
+                        || SignalQueryLimits.IsPayloadBudgetExhausted(signals, SignalQueryLimits.DefaultMaxTotalPayloadChars),
                     signals,
                 });
             }

@@ -222,6 +222,15 @@ IME false-positive AccountSetup entries.
 - **No silent parking**: a non-terminal post-AccountSetup session must always hold a
   resolution-capable deadline; a 10-min dwell tripwire emits
   `session_parked_without_deadline`.
+- **Every payload-derived string stored into state is bounded** (`FactStringBounds`,
+  256 chars): RealmJoin package id/version/scope (scope normalised to `machine`/`user`),
+  failed app ids, `HelloOutcome`, `ImeMatchedPatternId`, `EspAdvisoryFailureCategory`,
+  RealmJoin product version/channel. The bound is applied *before* any dedupe comparison
+  so a forged multi-hundred-KB key neither costs a full-length compare per stored row nor
+  lands in snapshots/audit trails. It never truncates real telemetry — the sources are
+  registry key names (Windows caps them at 255), GUIDs and enum-like strings. The same
+  engine replays device-uploaded signals server-side (`ReducerVerifier`), which is why
+  the bound lives in the reducer, not in the agent adapter alone.
 
 # Hosting & threading (inside the agent)
 

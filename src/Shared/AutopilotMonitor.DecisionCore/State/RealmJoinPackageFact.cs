@@ -15,13 +15,24 @@ namespace AutopilotMonitor.DecisionCore.State
     /// </remarks>
     public sealed class RealmJoinPackageFact
     {
-        public const int MaxDisplayNameLength = 256;
+        public const int MaxDisplayNameLength = FactStringBounds.MaxLength;
 
         /// <summary>Machine-scope registration (<c>HKLM\SOFTWARE\RealmJoin\Packages</c>).</summary>
         public const string ScopeMachine = "machine";
 
         /// <summary>User-scope registration (<c>HKU\&lt;sid&gt;\SOFTWARE\RealmJoin\Packages</c>).</summary>
         public const string ScopeUser = "user";
+
+        /// <summary>
+        /// Map a payload scope string onto <see cref="ScopeMachine"/> / <see cref="ScopeUser"/>.
+        /// The agent adapter only ever emits those two; anything else (missing, forged,
+        /// arbitrarily long) is treated as machine scope so the value stored into state is
+        /// always one of the two known constants.
+        /// </summary>
+        public static string NormalizeScope(string? scope)
+        {
+            return string.Equals(scope, ScopeUser, StringComparison.Ordinal) ? ScopeUser : ScopeMachine;
+        }
 
         public RealmJoinPackageFact(
             string packageId,

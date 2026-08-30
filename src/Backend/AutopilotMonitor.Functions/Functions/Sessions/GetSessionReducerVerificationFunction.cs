@@ -90,7 +90,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 return await req.OkAsync(new
                 {
                     success = true,
-                    truncated = signals.Count >= MaxSignalsToLoad || transitions.Count >= MaxTransitionsToLoad,
+                    truncated = signals.Count >= MaxSignalsToLoad
+                        || transitions.Count >= MaxTransitionsToLoad
+                        || SignalQueryLimits.IsPayloadBudgetExhausted(signals, SignalQueryLimits.DefaultMaxTotalPayloadChars),
                     report,
                 });
             }

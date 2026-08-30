@@ -110,6 +110,7 @@ namespace AutopilotMonitor.DecisionCore.State
             var newIds = FailedAppIds;
             if (!string.IsNullOrEmpty(appId))
             {
+                appId = FactStringBounds.Bound(appId); // before the scan — bounded compare key
                 var alreadyTracked = false;
                 for (var i = 0; i < FailedAppIds.Count; i++)
                 {

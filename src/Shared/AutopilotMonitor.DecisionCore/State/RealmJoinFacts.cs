@@ -14,6 +14,7 @@ namespace AutopilotMonitor.DecisionCore.State
     /// <list type="bullet">
     ///   <item>Immutable; <see cref="With"/>-methods return new instances.</item>
     ///   <item><see cref="Packages"/> is capped at <see cref="MaxPackages"/>; overflow is discarded.</item>
+    ///   <item>Every payload-derived string in a package row is bounded by <see cref="FactStringBounds"/>; <see cref="RealmJoinPackageFact.Scope"/> is normalised to the two known scopes.</item>
     ///   <item><see cref="ResolvedUtc"/> is set once on observing phase 110 (or the aborted-first-deployment release); later phase readings update <see cref="LastDeploymentPhase"/> only.</item>
     ///   <item><see cref="Outcome"/> is one of <c>"Resolved"</c> / <c>"Timeout"</c> / <c>"FirstDeploymentIncomplete"</c>; null while RJ is still running.</item>
     /// </list>
@@ -176,6 +177,8 @@ namespace AutopilotMonitor.DecisionCore.State
         public RealmJoinFacts WithVersionOverride(string productVersion, string? releaseChannel, long sourceSignalOrdinal)
         {
             if (string.IsNullOrEmpty(productVersion)) return this;
+            productVersion = FactStringBounds.Bound(productVersion)!;
+            releaseChannel = FactStringBounds.Bound(releaseChannel);
             return new RealmJoinFacts(
                 detectedUtc: DetectedUtc,
                 resolvedUtc: ResolvedUtc,
@@ -325,7 +328,13 @@ namespace AutopilotMonitor.DecisionCore.State
             string scope,
             DateTime startedUtc)
         {
-            if (string.IsNullOrEmpty(packageId) || string.IsNullOrEmpty(scope)) return this;
+            if (string.IsNullOrEmpty(packageId)) return this;
+
+            // Bound the comparison keys BEFORE the scan so a forged multi-hundred-KB id neither
+            // costs a full-length compare per stored row nor lands in state (see FactStringBounds).
+            packageId = FactStringBounds.Bound(packageId)!;
+            scope = RealmJoinPackageFact.NormalizeScope(scope);
+            version = FactStringBounds.Bound(version);
 
             for (var i = 0; i < Packages.Count; i++)
             {
@@ -339,11 +348,7 @@ namespace AutopilotMonitor.DecisionCore.State
 
             if (Packages.Count >= MaxPackages) return this;
 
-            var truncated = displayName ?? string.Empty;
-            if (truncated.Length > RealmJoinPackageFact.MaxDisplayNameLength)
-            {
-                truncated = truncated.Substring(0, RealmJoinPackageFact.MaxDisplayNameLength);
-            }
+            var truncated = FactStringBounds.Bound(displayName) ?? string.Empty;
 
             var copy = new List<RealmJoinPackageFact>(Packages.Count + 1);
             copy.AddRange(Packages);
@@ -383,13 +388,12 @@ namespace AutopilotMonitor.DecisionCore.State
             bool success,
             int lastExitCode)
         {
-            if (string.IsNullOrEmpty(packageId) || string.IsNullOrEmpty(scope)) return this;
+            if (string.IsNullOrEmpty(packageId)) return this;
 
-            var truncated = displayName ?? string.Empty;
-            if (truncated.Length > RealmJoinPackageFact.MaxDisplayNameLength)
-            {
-                truncated = truncated.Substring(0, RealmJoinPackageFact.MaxDisplayNameLength);
-            }
+            packageId = FactStringBounds.Bound(packageId)!;
+            scope = RealmJoinPackageFact.NormalizeScope(scope);
+            version = FactStringBounds.Bound(version);
+            var truncated = FactStringBounds.Bound(displayName) ?? string.Empty;
 
             var copy = new List<RealmJoinPackageFact>(Packages.Count);
             var updated = false;

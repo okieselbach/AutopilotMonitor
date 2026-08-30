@@ -114,8 +114,8 @@ namespace AutopilotMonitor.DecisionCore.Engine
             var alreadyDetected = state.RealmJoinFacts.DetectedUtc != null;
 
             var phase = TryReadPhase(signal);
-            var productVersion = TryReadString(signal, RealmJoinPayloadKeys.ProductVersion);
-            var releaseChannel = TryReadString(signal, RealmJoinPayloadKeys.ReleaseChannel);
+            var productVersion = FactStringBounds.Bound(TryReadString(signal, RealmJoinPayloadKeys.ProductVersion));
+            var releaseChannel = FactStringBounds.Bound(TryReadString(signal, RealmJoinPayloadKeys.ReleaseChannel));
             var updatedFacts = state.RealmJoinFacts.WithDetected(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
             if (phase.HasValue)
             {

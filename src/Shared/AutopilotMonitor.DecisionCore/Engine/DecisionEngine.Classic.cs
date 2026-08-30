@@ -327,7 +327,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
                 .WithLastAppliedSignalOrdinal(signal.SessionSignalOrdinal)
                 .CancelDeadline(DeadlineNames.HelloSafety);
             builder.HelloResolvedUtc = new SignalFact<DateTime>(signal.OccurredAtUtc, signal.SessionSignalOrdinal);
-            builder.HelloOutcome = new SignalFact<string>(outcome, signal.SessionSignalOrdinal);
+            builder.HelloOutcome = new SignalFact<string>(FactStringBounds.Bound(outcome)!, signal.SessionSignalOrdinal);
 
             var desktopAlreadyArrived = state.DesktopArrivedUtc != null;
             var helloSafetyCancelEffect = BuildHelloSafetyCancelEffectIfArmed(state);
@@ -741,7 +741,7 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (!string.IsNullOrEmpty(patternId))
             {
-                builder.ImeMatchedPatternId = new SignalFact<string>(patternId!, signal.SessionSignalOrdinal);
+                builder.ImeMatchedPatternId = new SignalFact<string>(FactStringBounds.Bound(patternId)!, signal.SessionSignalOrdinal);
             }
 
             // Recording rule: first POST-AccountSetup observation wins (M2, delta review

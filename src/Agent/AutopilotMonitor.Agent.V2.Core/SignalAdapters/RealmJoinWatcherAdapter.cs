@@ -291,24 +291,21 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             var payload = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                [DecisionEngine.RealmJoinPayloadKeys.PackageId] = e.PackageId ?? string.Empty,
+                // Same bound the reducer applies (FactStringBounds) — keeps the signal itself,
+                // and therefore every upload carrying it, bounded at the source.
+                [DecisionEngine.RealmJoinPayloadKeys.PackageId] = FactStringBounds.Bound(e.PackageId) ?? string.Empty,
                 [DecisionEngine.RealmJoinPayloadKeys.DisplayName] = displayName,
                 [DecisionEngine.RealmJoinPayloadKeys.Scope] = e.Scope ?? RealmJoinPackageFact.ScopeMachine,
             };
             if (!string.IsNullOrEmpty(e.Version))
             {
-                payload[DecisionEngine.RealmJoinPayloadKeys.Version] = e.Version!;
+                payload[DecisionEngine.RealmJoinPayloadKeys.Version] = FactStringBounds.Bound(e.Version)!;
             }
             return payload;
         }
 
-        private static string TruncateDisplayName(string? value)
-        {
-            if (string.IsNullOrEmpty(value)) return string.Empty;
-            return value!.Length <= RealmJoinPackageFact.MaxDisplayNameLength
-                ? value
-                : value.Substring(0, RealmJoinPackageFact.MaxDisplayNameLength);
-        }
+        private static string TruncateDisplayName(string? value) =>
+            FactStringBounds.Bound(value) ?? string.Empty;
 
         private static Evidence BuildEvidence(string identifier, string summary) =>
             new Evidence(

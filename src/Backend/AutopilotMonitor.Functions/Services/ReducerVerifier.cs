@@ -257,41 +257,24 @@ namespace AutopilotMonitor.Functions.Services
             var orderedSignals = signals.OrderBy(s => s.SessionSignalOrdinal).ToList();
             var orderedTransitions = transitions.OrderBy(t => t.StepIndex).ToList();
 
-            // Deserialise signals up-front — a single malformed blob at the head means we
-            // cannot start the replay at all.
-            var decodedSignals = new List<DecisionSignal>(orderedSignals.Count);
-            for (var i = 0; i < orderedSignals.Count; i++)
+            // A malformed blob at the head means the replay cannot start at all. Silent skip —
+            // PayloadJson stubs (common in structural tests) should not pollute the issue list;
+            // the SemanticReplaySkipReason field carries the diagnostic for real operators. This
+            // check runs BEFORE the journal is decoded so stubbed journals stay silent too.
+            DecisionSignal headSignal;
+            try
             {
-                try
-                {
-                    decodedSignals.Add(SignalSerializer.Deserialize(orderedSignals[i].PayloadJson));
-                }
-                catch (Exception ex)
-                {
-                    if (i == 0)
-                    {
-                        // Silent skip at head — PayloadJson stubs (common in structural tests)
-                        // should not pollute the issue list; the SemanticReplaySkipReason field
-                        // carries the diagnostic for real operators.
-                        report.SemanticReplaySkipReason = "deserialization_failure";
-                        return;
-                    }
-
-                    // Mid-stream failure: truncate here, continue what we have. The divergence
-                    // tail will surface as transition-count mismatch naturally.
-                    report.Issues.Add(new VerificationIssue
-                    {
-                        Severity = "Warning",
-                        Kind     = "replay_deserialization_error",
-                        Message  = $"Signal at ordinal {orderedSignals[i].SessionSignalOrdinal} PayloadJson failed to deserialise; replay truncated here: {ex.GetType().Name}: {ex.Message}",
-                    });
-                    break;
-                }
+                headSignal = SignalSerializer.Deserialize(orderedSignals[0].PayloadJson);
+            }
+            catch
+            {
+                report.SemanticReplaySkipReason = "deserialization_failure";
+                return;
             }
 
-            // Same for the journal — we need the semantic fields directly, and PayloadJson
-            // round-trips them via TransitionSerializer. The typed columns on the record are
-            // projections; the JSON is authoritative.
+            // The journal is decoded up-front — we need the semantic fields directly, and
+            // PayloadJson round-trips them via TransitionSerializer. The typed columns on the
+            // record are projections; the JSON is authoritative.
             var decodedTransitions = new List<DecisionTransition>(orderedTransitions.Count);
             for (var i = 0; i < orderedTransitions.Count; i++)
             {
@@ -310,7 +293,7 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            if (decodedSignals.Count == 0 || decodedTransitions.Count == 0)
+            if (decodedTransitions.Count == 0)
             {
                 report.SemanticReplaySkipReason = "deserialization_failure";
                 return;
@@ -323,10 +306,40 @@ namespace AutopilotMonitor.Functions.Services
             var state = DecisionState.CreateInitial(report.SessionId, report.TenantId);
             var divergences = 0;
 
-            var stepsToCompare = Math.Min(decodedSignals.Count, decodedTransitions.Count);
-            for (var i = 0; i < stepsToCompare; i++)
+            // Signals are decoded one at a time and dropped after the fold (decode-fold-discard):
+            // device-uploaded PayloadJson is attacker-shaped and chunk-stored up to the ~1 MB
+            // entity limit, so materialising all 5000 decoded payloads at once would let a single
+            // poisoned session pin gigabytes on the worker. Peak memory is now one decoded signal
+            // plus the state. A mid-stream failure truncates the replay there (the divergence
+            // tail then surfaces as a transition-count mismatch naturally).
+            var decodedSignalCount = 0;
+            for (var i = 0; i < orderedSignals.Count; i++)
             {
-                var step = engine.Reduce(state, decodedSignals[i]);
+                DecisionSignal signal;
+                try
+                {
+                    signal = i == 0 ? headSignal : SignalSerializer.Deserialize(orderedSignals[i].PayloadJson);
+                }
+                catch (Exception ex)
+                {
+                    report.Issues.Add(new VerificationIssue
+                    {
+                        Severity = "Warning",
+                        Kind     = "replay_deserialization_error",
+                        Message  = $"Signal at ordinal {orderedSignals[i].SessionSignalOrdinal} PayloadJson failed to deserialise; replay truncated here: {ex.GetType().Name}: {ex.Message}",
+                    });
+                    break;
+                }
+
+                decodedSignalCount++;
+                if (i >= decodedTransitions.Count)
+                {
+                    // No stored transition to compare against — the signal still counts toward
+                    // the signal/transition imbalance reported below, but is not folded.
+                    continue;
+                }
+
+                var step = engine.Reduce(state, signal);
                 state = step.NewState;
                 var replayed = step.Transition;
                 var stored = decodedTransitions[i];
@@ -360,13 +373,13 @@ namespace AutopilotMonitor.Functions.Services
 
             // Count imbalance between signals and stored transitions is itself a divergence:
             // every signal should produce exactly one transition (taken or dead-end).
-            if (decodedSignals.Count != decodedTransitions.Count)
+            if (decodedSignalCount != decodedTransitions.Count)
             {
                 report.Issues.Add(new VerificationIssue
                 {
                     Severity = "Warning",
                     Kind     = "replay_divergence",
-                    Message  = $"Signal count ({decodedSignals.Count}) != transition count ({decodedTransitions.Count}); reducer should produce one transition per signal.",
+                    Message  = $"Signal count ({decodedSignalCount}) != transition count ({decodedTransitions.Count}); reducer should produce one transition per signal.",
                 });
             }
 

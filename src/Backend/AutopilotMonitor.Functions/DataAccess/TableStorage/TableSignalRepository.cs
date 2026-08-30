@@ -82,7 +82,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         public async Task<List<SignalRecord>> QueryBySessionAsync(
-            string tenantId, string sessionId, int maxResults = 1000, CancellationToken cancellationToken = default)
+            string tenantId,
+            string sessionId,
+            int maxResults = 1000,
+            CancellationToken cancellationToken = default,
+            long maxTotalPayloadChars = SignalQueryLimits.DefaultMaxTotalPayloadChars)
         {
             SecurityValidator.EnsureValidGuid(tenantId, "TenantId");
             SecurityValidator.EnsureValidGuid(sessionId, "SessionId");
@@ -96,10 +100,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 maxPerPage: Math.Min(maxResults, 1000),
                 cancellationToken: cancellationToken);
 
+            long totalPayloadChars = 0;
             await foreach (var entity in pages.ConfigureAwait(false))
             {
-                if (results.Count >= maxResults) break;
-                results.Add(FromEntity(entity));
+                if (results.Count >= maxResults || totalPayloadChars >= maxTotalPayloadChars) break;
+                var record = FromEntity(entity);
+                results.Add(record);
+                totalPayloadChars += record.PayloadJson.Length;
             }
 
             // RowKey is D19(SessionSignalOrdinal) — Azure Tables returns PK-scoped rows in RowKey

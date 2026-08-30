@@ -207,7 +207,7 @@ namespace AutopilotMonitor.DecisionCore.State
             EspAdvisoryFailureRecordedUtc = new SignalFact<DateTime>(utc, sourceSignalOrdinal);
             if (!string.IsNullOrEmpty(failedCategory))
             {
-                EspAdvisoryFailureCategory = new SignalFact<string>(failedCategory!, sourceSignalOrdinal);
+                EspAdvisoryFailureCategory = new SignalFact<string>(FactStringBounds.Bound(failedCategory)!, sourceSignalOrdinal);
             }
             return this;
         }
