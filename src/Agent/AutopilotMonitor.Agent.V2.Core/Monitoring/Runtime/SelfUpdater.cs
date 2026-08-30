@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -268,8 +268,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 }
 
                 // Step 3: Download ZIP (timeout = downloadTimeoutMs)
-                // ZIP lives under %ProgramData% (SYSTEM/Admin ACL) instead of C:\Windows\Temp so
-                // a non-admin local user cannot plant a junction at the ZIP filename.
+                // ZIP lives under %ProgramData% instead of C:\Windows\Temp so a non-admin local
+                // user cannot plant a junction at the ZIP filename. The directory inherits the
+                // ProgramData ACL (no explicit hardening — the updater runs during OOBE where only
+                // SYSTEM exists); the verify→extract TOCTOU is closed by the exclusive handle below.
                 var zipDir = Environment.ExpandEnvironmentVariables(Constants.AgentUpdateDownloadDir);
                 Directory.CreateDirectory(zipDir);
                 var zipPath = Path.Combine(zipDir, "AutopilotMonitor-Agent-Update.zip");
@@ -304,10 +306,51 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     expectedSha256 = null;
                 }
 
-                var verifySw = Stopwatch.StartNew();
-                var integrityOk = VerifyZipIntegrity(zipPath, expectedSha256, log);
-                verifySw.Stop();
-                verifyMs = verifySw.ElapsedMilliseconds;
+                // Steps 3b + 4 share ONE exclusive handle (FileShare.None): the bytes that are
+                // hashed are the bytes that get extracted. With separate opens a local user who
+                // pre-owned the Updates directory could swap the ZIP after the hash passed and
+                // before extraction (TOCTOU). The handle is disposed BEFORE CleanupStaging so the
+                // ZIP delete does not fail with a sharing violation.
+                FileStream zipStream;
+                try
+                {
+                    zipStream = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.None);
+                }
+                catch (Exception ex)
+                {
+                    log($"Self-update: cannot open downloaded ZIP exclusively — {ex.Message}. Aborting update.");
+                    CleanupStaging(null, zipPath);
+                    if (writeMarkers)
+                        WriteSkipMarker("integrity_mismatch", currentVersion, latestVersion, "downloaded ZIP could not be opened exclusively", log);
+                    return;
+                }
+
+                bool integrityOk;
+                bool extractOk;
+                var stagingDir = Environment.ExpandEnvironmentVariables(Constants.AgentUpdateStagingDir);
+                using (zipStream)
+                {
+                    var verifySw = Stopwatch.StartNew();
+                    integrityOk = VerifyZipIntegrity(zipStream, expectedSha256, log);
+                    verifySw.Stop();
+                    verifyMs = verifySw.ElapsedMilliseconds;
+
+                    if (integrityOk)
+                    {
+                        // PR5: integrity verified — silent before, opaque whether the verify step actually ran.
+                        log($"Self-update: ZIP integrity verified ({verifyMs}ms)");
+
+                        // Step 4: Extract to staging directory (same handle as the hash above)
+                        var extractSw = Stopwatch.StartNew();
+                        extractOk = ExtractToStaging(zipStream, stagingDir, log);
+                        extractSw.Stop();
+                        extractMs = extractSw.ElapsedMilliseconds;
+                    }
+                    else
+                    {
+                        extractOk = false;
+                    }
+                }
 
                 if (!integrityOk)
                 {
@@ -316,15 +359,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         WriteSkipMarker("integrity_mismatch", currentVersion, latestVersion, "SHA-256 mismatch on downloaded ZIP", log);
                     return;
                 }
-                // PR5: integrity verified — silent before, opaque whether the verify step actually ran.
-                log($"Self-update: ZIP integrity verified ({verifyMs}ms)");
-
-                // Step 4: Extract to staging directory
-                var stagingDir = Environment.ExpandEnvironmentVariables(Constants.AgentUpdateStagingDir);
-                var extractSw = Stopwatch.StartNew();
-                var extractOk = ExtractToStaging(zipPath, stagingDir, log);
-                extractSw.Stop();
-                extractMs = extractSw.ElapsedMilliseconds;
                 if (!extractOk)
                 {
                     if (writeMarkers)
@@ -444,8 +478,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// <summary>
         /// Verifies the SHA-256 hash of the downloaded ZIP against the expected hash.
         /// Returns true if the hash matches or if no expected hash is available (backward compat).
+        /// Operates on the caller's exclusive handle (not the path) so the verified bytes are the
+        /// ones later extracted; the stream is rewound to position 0 on return.
         /// </summary>
-        private static bool VerifyZipIntegrity(string zipPath, string expectedSha256, Action<string> log)
+        private static bool VerifyZipIntegrity(FileStream zipStream, string expectedSha256, Action<string> log)
         {
             if (string.IsNullOrWhiteSpace(expectedSha256))
             {
@@ -456,9 +492,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             try
             {
                 using (var sha256 = SHA256.Create())
-                using (var stream = File.OpenRead(zipPath))
                 {
-                    var hashBytes = sha256.ComputeHash(stream);
+                    zipStream.Position = 0;
+                    var hashBytes = sha256.ComputeHash(zipStream);
+                    zipStream.Position = 0;
                     var actualHash = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
 
                     if (string.Equals(actualHash, expectedSha256.ToLowerInvariant(), StringComparison.Ordinal))
@@ -576,7 +613,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// the staging dir (e.g. ..\..\System32\evil.dll). We iterate entries manually and
         /// reject any whose resolved absolute path falls outside the staging root.
         /// </summary>
-        private static bool ExtractToStaging(string zipPath, string stagingDir, Action<string> log)
+        private static bool ExtractToStaging(FileStream zipStream, string stagingDir, Action<string> log)
         {
             try
             {
@@ -592,7 +629,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     stagingRoot += Path.DirectorySeparatorChar;
 
                 int fileCount = 0;
-                using (var archive = ZipFile.OpenRead(zipPath))
+                zipStream.Position = 0;
+                using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true))
                 {
                     foreach (var entry in archive.Entries)
                     {
