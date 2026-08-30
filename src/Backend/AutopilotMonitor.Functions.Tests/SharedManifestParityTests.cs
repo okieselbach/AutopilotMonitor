@@ -56,6 +56,9 @@ public sealed class SharedManifestParityTests
             ["$comment"] = "GENERATED from AutopilotMonitor.Shared by SharedManifestParityTests — do not edit by hand. " +
                            "Regenerate: AM_WRITE_SHARED_MANIFESTS=1 dotnet test --filter SharedManifestParityTests, " +
                            "then node scripts/generate-shared-manifest-types.js.",
+            // v2: adds the "types" section (full wire-type graph) and drops v1's
+            // "sessionSummary" (it had no TS consumer; SessionSummary now rides in "types").
+            ["schemaVersion"] = 2,
             ["adminConfiguration"] = new Dictionary<string, object?>
             {
                 ["fields"] = WireFieldNames(typeof(AdminConfiguration)),
@@ -63,10 +66,6 @@ public sealed class SharedManifestParityTests
             ["tenantConfiguration"] = new Dictionary<string, object?>
             {
                 ["fields"] = WireFieldNames(typeof(TenantConfiguration)),
-            },
-            ["sessionSummary"] = new Dictionary<string, object?>
-            {
-                ["fields"] = WireFieldsWithOptionality(typeof(SessionSummary)),
             },
             // Enum member order is load-bearing (append-only ordinals) — declaration order kept.
             ["sessionStatuses"] = Enum.GetNames(typeof(SessionStatus)),
@@ -84,6 +83,9 @@ public sealed class SharedManifestParityTests
             // Declaration order kept: the web derives a union type from this list, order is cosmetic
             // but a stable order keeps the generated file diff-minimal.
             ["signalRMessages"] = ConstStrings(typeof(Constants.SignalRMessages)),
+            // Every IApiResponse implementer + [WireContract] type, transitively closed —
+            // the source of utils/wire-types.generated.ts. See WireTypeManifestBuilder.
+            ["types"] = WireTypeManifestBuilder.BuildTypesSection(),
         };
 
         var json = JsonSerializer.Serialize(manifest, new JsonSerializerOptions
@@ -99,32 +101,9 @@ public sealed class SharedManifestParityTests
     private static string[] WireFieldNames(Type type)
         => WireProperties(type).Select(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name)).ToArray();
 
-    /// <summary>
-    /// Wire names plus whether the field can be ABSENT from the JSON: nullable fields are
-    /// omitted under WhenWritingNull, so nullable ⇒ the TS mirror must type it optional.
-    /// </summary>
-    private static object[] WireFieldsWithOptionality(Type type)
-    {
-        var nullability = new NullabilityInfoContext();
-        return WireProperties(type)
-            .Select(p => (object)new Dictionary<string, object?>
-            {
-                ["name"] = JsonNamingPolicy.CamelCase.ConvertName(p.Name),
-                ["optional"] = IsNullable(p, nullability),
-            })
-            .ToArray();
-    }
-
     private static IEnumerable<PropertyInfo> WireProperties(Type type)
         => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetMethod != null && p.GetIndexParameters().Length == 0);
-
-    private static bool IsNullable(PropertyInfo p, NullabilityInfoContext ctx)
-    {
-        if (Nullable.GetUnderlyingType(p.PropertyType) != null) return true;
-        if (p.PropertyType.IsValueType) return false;
-        return ctx.Create(p).ReadState != NullabilityState.NotNull;
-    }
 
     private static Dictionary<string, int> EnumMap<TEnum>() where TEnum : struct, Enum
         => Enum.GetValues<TEnum>()

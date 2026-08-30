@@ -627,6 +627,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// A tracked IME version sighting. Permanent archive that survives data retention.
     /// </summary>
+    [WireContract]
     public class ImeVersionHistoryEntry
     {
         public string Version { get; set; } = default!;

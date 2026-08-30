@@ -9,6 +9,7 @@
     "dev": "next dev",
     "prebuild": "node scripts/sync-error-codes.js && node scripts/generate-lastmod.js && node scripts/generate-version.js",
     "sync-error-codes": "node scripts/sync-error-codes.js",
+    "generate:manifests": "node scripts/generate-shared-manifest-types.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

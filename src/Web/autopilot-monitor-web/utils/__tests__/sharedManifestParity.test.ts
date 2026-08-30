@@ -20,18 +20,27 @@ import { V1_PHASE_NAMES, V2_PHASE_NAMES } from "@/app/sessions/utils/phaseConsta
 import { KNOWN_EVENT_TYPES } from "@/app/gather-rules/eventTypes";
 
 const require = createRequire(import.meta.url);
-const { buildGeneratedSource } = require("../../scripts/generate-shared-manifest-types.js");
+const {
+  buildGeneratedSource,
+  buildWireTypesSource,
+} = require("../../scripts/generate-shared-manifest-types.js");
 
 const utilsDir = path.resolve(__dirname, "..");
 
-describe("shared-manifests.generated.ts freshness", () => {
-  it("matches a fresh run of the codegen over shared-manifests.json", () => {
+describe("generated manifest modules freshness", () => {
+  it("shared-manifests.generated.ts matches a fresh run of the codegen", () => {
     const json = fs.readFileSync(path.join(utilsDir, "shared-manifests.json"), "utf8");
     const committed = fs.readFileSync(
       path.join(utilsDir, "shared-manifests.generated.ts"),
       "utf8"
     );
     expect(committed.replace(/\r\n/g, "\n")).toBe(buildGeneratedSource(json));
+  });
+
+  it("wire-types.generated.ts matches a fresh run of the codegen", () => {
+    const json = fs.readFileSync(path.join(utilsDir, "shared-manifests.json"), "utf8");
+    const committed = fs.readFileSync(path.join(utilsDir, "wire-types.generated.ts"), "utf8");
+    expect(committed.replace(/\r\n/g, "\n")).toBe(buildWireTypesSource(json));
   });
 });
 

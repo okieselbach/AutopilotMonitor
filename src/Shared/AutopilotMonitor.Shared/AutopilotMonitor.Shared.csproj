@@ -8,6 +8,14 @@
     <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
+    <!-- XML docs feed the wire-type manifest (SharedManifestParityTests exports <summary>
+         texts as JSDoc into utils/wire-types.generated.ts). Doc-quality warnings stay off:
+         CS1591 (not every member needs a doc), CS1573 (partial param docs are fine),
+         CS1574/CS1584 (crefs to foreign-assembly types like RequestFailedException cannot
+         resolve from Shared), CS0419 (ambiguous overload crefs). CS1570 (malformed XML)
+         stays an ERROR — it breaks the doc parser. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS1584;CS0419</NoWarn>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

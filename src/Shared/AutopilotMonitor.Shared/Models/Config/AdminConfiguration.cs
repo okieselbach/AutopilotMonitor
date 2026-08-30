@@ -61,7 +61,7 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>
         /// Container SAS URL used by maintenance to publish platform stats JSON files.
-        /// Expected format: https://{account}.blob.core.windows.net/{container}?sv=...&sig=...
+        /// Expected format: https://{account}.blob.core.windows.net/{container}?sv=...&amp;sig=...
         /// </summary>
         public string PlatformStatsBlobSasUrl { get; set; } = string.Empty;
 

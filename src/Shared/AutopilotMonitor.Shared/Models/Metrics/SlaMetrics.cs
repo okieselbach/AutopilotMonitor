@@ -76,6 +76,7 @@ namespace AutopilotMonitor.Shared.Models.Metrics
     /// <summary>
     /// A session that violated SLA targets.
     /// </summary>
+    [WireContract]
     public class SlaViolatorSession
     {
         public string SessionId { get; set; } = default!;
