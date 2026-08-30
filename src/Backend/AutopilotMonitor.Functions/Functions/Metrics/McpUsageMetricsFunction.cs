@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -69,21 +70,21 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var quota = await _quotaService.CheckAsync(userId, upn, tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new GetMyMcpUsageResponse
                 {
-                    userId,
-                    upn,
-                    usagePlan = mcpUser?.UsagePlan,
-                    effectivePlan = quota.Plan,
-                    quota = new
+                    UserId = userId,
+                    Upn = upn,
+                    UsagePlan = mcpUser?.UsagePlan,
+                    EffectivePlan = quota.Plan,
+                    Quota = new McpUsageQuotaNode
                     {
-                        dailyLimit = quota.DailyLimit,
-                        monthlyLimit = quota.MonthlyLimit,
-                        dailyUsed = quota.DailyUsed,
-                        monthlyUsed = quota.MonthlyUsed,
-                        resetUtc = quota.ResetUtc
+                        DailyLimit = quota.DailyLimit,
+                        MonthlyLimit = quota.MonthlyLimit,
+                        DailyUsed = quota.DailyUsed,
+                        MonthlyUsed = quota.MonthlyUsed,
+                        ResetUtc = quota.ResetUtc
                     },
-                    records
+                    Records = records
                 });
                 return response;
             }
@@ -139,7 +140,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { userId, records });
+                await response.WriteAsJsonAsync(new GetMcpUserUsageResponse { UserId = userId, Records = records });
                 return response;
             }
             catch (Exception ex)
@@ -169,7 +170,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var records = await _userUsageRepo.GetUsageByTenantAsync(tenantId ?? "", dateFrom, dateTo);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { tenantId, records });
+                await response.WriteAsJsonAsync(new GetGlobalMcpUsageResponse { TenantId = tenantId, Records = records });
                 return response;
             }
             catch (Exception ex)
@@ -199,7 +200,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var summaries = await _userUsageRepo.GetDailySummaryAsync(tenantId, dateFrom, dateTo);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { tenantId, summaries });
+                await response.WriteAsJsonAsync(new GetGlobalMcpUsageDailyResponse { TenantId = tenantId, Summaries = summaries });
                 return response;
             }
             catch (Exception ex)

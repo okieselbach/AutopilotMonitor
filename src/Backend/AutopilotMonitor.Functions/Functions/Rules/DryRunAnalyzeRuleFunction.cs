@@ -107,7 +107,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 string.IsNullOrEmpty(rule.RuleId) ? "(no id)" : rule.RuleId, sessionId, result.Verdict, result.FinalConfidence);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, sessionId, result });
+            await response.WriteAsJsonAsync(new DryRunAnalyzeRuleResponse { Success = true, SessionId = sessionId, Result = result });
             return response;
         }
 

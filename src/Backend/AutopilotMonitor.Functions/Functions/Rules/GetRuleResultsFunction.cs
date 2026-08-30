@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -123,21 +124,21 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var openResults = results.Where(r => r.ResolvedAt == null).ToList();
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new GetRuleResultsResponse
             {
                 // success=false when any rule failed to persist during the reanalyze loop above.
                 // UI keeps showing the persisted results; consumers can branch on persistFailureCount
                 // to render a warning banner. persistFailureRuleIds is omitted entirely (null) when
                 // there were no failures, so the existing UI contract stays unchanged for the happy path.
-                success = persistFailureRuleIds.Count == 0,
-                sessionId,
-                results,
-                totalIssues = openResults.Count,
-                criticalCount = openResults.Count(r => r.Severity == "critical"),
-                highCount = openResults.Count(r => r.Severity == "high"),
-                warningCount = openResults.Count(r => r.Severity == "warning"),
-                persistFailureCount = persistFailureRuleIds.Count,
-                persistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
+                Success = persistFailureRuleIds.Count == 0,
+                SessionId = sessionId,
+                Results = results,
+                TotalIssues = openResults.Count,
+                CriticalCount = openResults.Count(r => r.Severity == "critical"),
+                HighCount = openResults.Count(r => r.Severity == "high"),
+                WarningCount = openResults.Count(r => r.Severity == "warning"),
+                PersistFailureCount = persistFailureRuleIds.Count,
+                PersistFailureRuleIds = persistFailureRuleIds.Count > 0 ? persistFailureRuleIds : null
             });
             return response;
         }

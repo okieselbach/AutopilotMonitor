@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Caching.Memory;
@@ -76,14 +77,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             }
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new HealthCheckResponse
             {
-                status = "healthy",
-                service = "Autopilot Monitor API",
-                timestamp = DateTime.UtcNow,
-                version = _buildInfo.Version,
-                commitHash = _buildInfo.CommitHash,
-                buildUtc = _buildInfo.BuildUtc
+                Status = "healthy",
+                Service = "Autopilot Monitor API",
+                Timestamp = DateTime.UtcNow,
+                Version = _buildInfo.Version,
+                CommitHash = _buildInfo.CommitHash,
+                BuildUtc = _buildInfo.BuildUtc
             });
 
             return response;
@@ -124,15 +125,15 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             // Always return 200 OK with the health status in the body
             // This allows the frontend to properly display the results even if some checks fail
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new DetailedHealthCheckResponse
             {
-                service = "Autopilot Monitor API",
-                timestamp = healthCheckResult.Timestamp,
-                overallStatus = healthCheckResult.OverallStatus,
-                checks = visibleChecks,
-                version = _buildInfo.Version,
-                commitHash = _buildInfo.CommitHash,
-                buildUtc = _buildInfo.BuildUtc
+                Service = "Autopilot Monitor API",
+                Timestamp = healthCheckResult.Timestamp,
+                OverallStatus = healthCheckResult.OverallStatus,
+                Checks = visibleChecks,
+                Version = _buildInfo.Version,
+                CommitHash = _buildInfo.CommitHash,
+                BuildUtc = _buildInfo.BuildUtc
             });
 
             return response;
@@ -158,10 +159,10 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             var check = await _healthCheckService.CheckMcpServerAsync(includeEndpointUrl: isGlobalAdmin);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new McpHealthCheckResponse
             {
-                timestamp = DateTime.UtcNow,
-                check
+                Timestamp = DateTime.UtcNow,
+                Check = check
             });
 
             return response;

@@ -174,14 +174,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new SetTenantPlanTierResponse
                 {
-                    tenantId = requestCtx.TargetTenantId,
-                    planTier = config.PlanTier,
-                    trialExpiresUtc = config.TrialExpiresUtc,
-                    trialConsumed = config.TrialConsumed,
-                    effectiveEdition = editionAfter.ToString().ToLowerInvariant(),
-                    retentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc)
+                    TenantId = requestCtx.TargetTenantId,
+                    PlanTier = config.PlanTier,
+                    TrialExpiresUtc = config.TrialExpiresUtc,
+                    TrialConsumed = config.TrialConsumed,
+                    EffectiveEdition = editionAfter.ToString().ToLowerInvariant(),
+                    RetentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc)
                 });
                 return response;
             }
@@ -336,12 +336,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     });
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new StartTenantTrialResponse
                 {
-                    tenantId = requestCtx.TargetTenantId,
-                    trialStartedUtc = config.TrialStartedUtc,
-                    trialExpiresUtc = config.TrialExpiresUtc,
-                    effectiveEdition = FeatureEntitlementCatalog.ProTierName
+                    TenantId = requestCtx.TargetTenantId,
+                    TrialStartedUtc = config.TrialStartedUtc,
+                    TrialExpiresUtc = config.TrialExpiresUtc,
+                    EffectiveEdition = FeatureEntitlementCatalog.ProTierName
                 });
                 return response;
             }
@@ -368,7 +368,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var tiers = PlanTierDefinitionParser.Parse(config.PlanTierDefinitionsJson);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { tiers });
+                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = tiers });
                 return response;
             }
             catch (Exception ex)
@@ -412,7 +412,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 await _adminConfigService.SaveConfigurationAsync(config);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { tiers = body.Tiers });
+                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = body.Tiers });
                 return response;
             }
             catch (Exception ex)

@@ -85,7 +85,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, history, attemptNumber });
+                await response.WriteAsJsonAsync(new GetDeviceHistoryResponse { Success = true, History = history, AttemptNumber = attemptNumber });
                 return response;
             }
             catch (Exception ex)

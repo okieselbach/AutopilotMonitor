@@ -4,6 +4,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -71,7 +72,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     // Drill correctness: apply the optional ?tenantId= GA/Reader drill in-memory (OpsEvents PK
                     // = category, so the storage query can't). Not a tenant-isolation boundary — see class doc.
                     var filtered = FilterByTenant(events, filterTenantId).ToList();
-                    return await req.OkAsync(new { success = true, count = filtered.Count, events = filtered });
+                    return await req.OkAsync(new OpsEventListResponse { Success = true, Count = filtered.Count, Events = filtered });
                 }
 
                 string? azureToken = null;
@@ -123,12 +124,12 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                         extras: extras);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new OpsEventListResponse
                 {
-                    success = true,
-                    count = pageItems.Count,
-                    events = pageItems,
-                    nextLink,
+                    Success = true,
+                    Count = pageItems.Count,
+                    Events = pageItems,
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Vulnerability;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -63,55 +64,55 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 _logger.LogInformation($"Reseed from GitHub triggered by Global Admin {upn}, type={typeParam}");
 
-                var gatherResult = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 };
-                var analyzeResult = new { deleted = 0, written = 0, orphanStatesGcd = 0, sunsetSkipped = 0 };
-                var imeResult = new { deleted = 0, written = 0 };
+                var gatherResult = new ReseedRuleCountsNode { Deleted = 0, Written = 0, OrphanStatesGcd = 0, SunsetSkipped = 0 };
+                var analyzeResult = new ReseedRuleCountsNode { Deleted = 0, Written = 0, OrphanStatesGcd = 0, SunsetSkipped = 0 };
+                var imeResult = new ReseedTableCountsNode { Deleted = 0, Written = 0 };
 
                 if (typeParam == "all" || typeParam == "gather")
                 {
                     var rules = await _gitHubRepo.FetchGatherRulesAsync();
                     var (d, w, gcd, skipped) = await ReseedGatherAsync(rules);
-                    gatherResult = new { deleted = d, written = w, orphanStatesGcd = gcd, sunsetSkipped = skipped };
+                    gatherResult = new ReseedRuleCountsNode { Deleted = d, Written = w, OrphanStatesGcd = gcd, SunsetSkipped = skipped };
                 }
 
                 if (typeParam == "all" || typeParam == "analyze")
                 {
                     var rules = await _gitHubRepo.FetchAnalyzeRulesAsync();
                     var (d, w, gcd, skipped) = await ReseedAnalyzeAsync(rules);
-                    analyzeResult = new { deleted = d, written = w, orphanStatesGcd = gcd, sunsetSkipped = skipped };
+                    analyzeResult = new ReseedRuleCountsNode { Deleted = d, Written = w, OrphanStatesGcd = gcd, SunsetSkipped = skipped };
                 }
 
                 if (typeParam == "all" || typeParam == "ime")
                 {
                     var patterns = await _gitHubRepo.FetchImeLogPatternsAsync();
                     var (d, w) = await ReseedImeAsync(patterns);
-                    imeResult = new { deleted = d, written = w };
+                    imeResult = new ReseedTableCountsNode { Deleted = d, Written = w };
                 }
 
-                var cpeMappingsResult = new { deleted = 0, written = 0 };
+                var cpeMappingsResult = new ReseedTableCountsNode { Deleted = 0, Written = 0 };
                 if (typeParam == "all" || typeParam == "cpe")
                 {
                     var (d, w) = await ReseedCpeCommunityMappingsAsync();
-                    cpeMappingsResult = new { deleted = d, written = w };
+                    cpeMappingsResult = new ReseedTableCountsNode { Deleted = d, Written = w };
                 }
 
-                var cpeSeedResult = new { deleted = 0, written = 0 };
+                var cpeSeedResult = new ReseedTableCountsNode { Deleted = 0, Written = 0 };
                 if (typeParam == "all" || typeParam == "cpe")
                 {
                     var (d, w) = await ReseedCpeSeedMappingsAsync();
-                    cpeSeedResult = new { deleted = d, written = w };
+                    cpeSeedResult = new ReseedTableCountsNode { Deleted = d, Written = w };
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new ReseedFromGitHubResponse
                 {
-                    success = true,
-                    message = "Reseed from GitHub complete",
-                    gather = gatherResult,
-                    analyze = analyzeResult,
-                    ime = imeResult,
-                    cpeCommunityMappings = cpeMappingsResult,
-                    cpeSeedMappings = cpeSeedResult
+                    Success = true,
+                    Message = "Reseed from GitHub complete",
+                    Gather = gatherResult,
+                    Analyze = analyzeResult,
+                    Ime = imeResult,
+                    CpeCommunityMappings = cpeMappingsResult,
+                    CpeSeedMappings = cpeSeedResult
                 });
                 return response;
             }

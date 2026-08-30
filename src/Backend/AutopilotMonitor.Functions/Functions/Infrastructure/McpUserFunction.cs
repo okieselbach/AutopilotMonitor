@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -43,7 +44,7 @@ public class McpUserFunction
         var policy = await _mcpUserService.GetPolicyAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { policy = policy.ToString(), users });
+        await response.WriteAsJsonAsync(new GetMcpUsersResponse { Policy = policy.ToString(), Users = users });
         return response;
     }
 
@@ -100,7 +101,7 @@ public class McpUserFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { user });
+        await response.WriteAsJsonAsync(new AddMcpUserResponse { User = user });
         return response;
     }
 
@@ -178,7 +179,7 @@ public class McpUserFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { upn, usagePlan = usagePlan ?? "(inherit)" });
+        await response.WriteAsJsonAsync(new SetMcpUserUsagePlanResponse { Upn = upn, UsagePlan = usagePlan ?? "(inherit)" });
         return response;
     }
 

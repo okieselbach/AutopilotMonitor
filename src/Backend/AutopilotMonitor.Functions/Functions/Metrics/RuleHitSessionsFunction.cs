@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -55,12 +56,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     requestCtx.TargetTenantId, ruleId, sinceUtc, MaxSessionIds);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new GetRuleHitSessionsResponse
                 {
-                    ruleId,
-                    days,
-                    sessionIds,
-                    truncated = sessionIds.Count >= MaxSessionIds
+                    RuleId = ruleId,
+                    Days = days,
+                    SessionIds = sessionIds,
+                    Truncated = sessionIds.Count >= MaxSessionIds
                 });
                 return response;
             }

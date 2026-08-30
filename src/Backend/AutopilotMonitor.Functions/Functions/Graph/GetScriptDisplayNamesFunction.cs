@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.GraphResolution;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -58,7 +59,7 @@ public class GetScriptDisplayNamesFunction
             }
             if (string.IsNullOrWhiteSpace(rawBody))
             {
-                return await req.OkAsync(new { refs = new Dictionary<string, string?>() });
+                return await req.OkAsync(new GetScriptDisplayNamesResponse { Refs = new Dictionary<string, string?>() });
             }
 
             RequestBody? body;
@@ -73,7 +74,7 @@ public class GetScriptDisplayNamesFunction
 
             if (body?.Refs == null || body.Refs.Count == 0)
             {
-                return await req.OkAsync(new { refs = new Dictionary<string, string?>() });
+                return await req.OkAsync(new GetScriptDisplayNamesResponse { Refs = new Dictionary<string, string?>() });
             }
 
             var parsedRefs = new List<ScriptRef>();
@@ -101,10 +102,10 @@ public class GetScriptDisplayNamesFunction
                 payload[r.ToString()] = resolved.TryGetValue(r, out var name) ? name : null;
             }
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new GetScriptDisplayNamesResponse
             {
-                refs = payload,
-                malformed = malformed.Count > 0 ? (object)malformed : null,
+                Refs = payload,
+                Malformed = malformed.Count > 0 ? malformed : null,
             });
         }
         catch (Exception ex)

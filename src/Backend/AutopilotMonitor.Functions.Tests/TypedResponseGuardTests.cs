@@ -9,20 +9,20 @@ using Xunit;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Ratchet against anonymous-object API SUCCESS responses (successor of the retired
-/// OkAsyncBaselineGuardTests, same mechanics, wider net). Anonymous success bodies ship a shape
-/// no type checks, no manifest exports, and the web mirrors by hand — the drift class the
-/// 2026-08-13 fragility audit found. Two frozen per-file baselines that may only SHRINK:
+/// Regression guard against anonymous-object API SUCCESS responses (successor of the retired
+/// OkAsyncBaselineGuardTests). Anonymous success bodies ship a shape no type checks, no
+/// manifest exports, and the web mirrors by hand — the drift class the 2026-08-13 fragility
+/// audit found across 44 helper + 134 raw sites. That debt was migrated to typed DTOs in
+/// 2026-08-31 (feat/typed-api-contract), so both per-file baselines are now EMPTY and any
+/// match is a straight failure:
 ///   - Regex A: <c>OkAsync/CreatedAsync/JsonAsync(new { ... })</c> through ResponseHelper
-///     (44 sites frozen 2026-08-13; typed initializers <c>OkAsync(new SomeResponse { ... })</c>
-///     do not match),
-///   - Regex B: raw success <c>WriteAsJsonAsync(new { ... })</c> (134 sites frozen 2026-08-30).
-///     Error bodies — first property <c>error</c>/<c>message</c>, or literal
-///     <c>success = false</c> — are tolerated and stay anonymous by design (one shape).
-/// A new anonymous success site (new file, or count above baseline) fails; converting a site
-/// fails too until its baseline entry is lowered/removed, so the debt stays visible in the diff.
-/// New/changed endpoints return typed DTOs implementing <see cref="IApiResponse"/>
-/// (AutopilotMonitor.Shared.Models, exported to TypeScript by SharedManifestParityTests).
+///     (typed initializers <c>OkAsync(new SomeResponse { ... })</c> do not match),
+///   - Regex B: raw success <c>WriteAsJsonAsync(new { ... })</c>. Error bodies — first
+///     property <c>error</c>/<c>message</c>, or literal <c>success = false</c> — are
+///     tolerated and stay anonymous by design (one shape).
+/// Endpoints return typed DTOs implementing <see cref="IApiResponse"/>
+/// (AutopilotMonitor.Shared.Models, exported to TypeScript by SharedManifestParityTests),
+/// and each conversion carries an ordinal old-vs-new proof in the *WireParityTests files.
 /// </summary>
 public class TypedResponseGuardTests
 {
@@ -34,93 +34,18 @@ public class TypedResponseGuardTests
         new(@"WriteAsJsonAsync\(\s*new\s*\{", RegexOptions.Compiled);
 
     /// <summary>
-    /// Frozen 2026-08-13 baseline (44 sites / 34 files) for Regex A, relative to the Functions
-    /// project. Only ever lower a count or delete an entry — never raise or add.
+    /// EMPTY since 2026-08-31 — every anonymous helper success body is typed (the migration
+    /// started from the frozen 2026-08-13 baseline of 44 sites / 34 files). Any entry that
+    /// would need to be ADDED here is a regression: return a typed DTO instead.
     /// </summary>
-    private static readonly Dictionary<string, int> HelperBaseline = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Functions/Admin/GetActiveUsersFunction.cs"] = 1,
-        ["Functions/Admin/GetAuditLogsFunction.cs"] = 2,
-        ["Functions/Admin/GetGlobalAuditLogsFunction.cs"] = 2,
-        ["Functions/Admin/GetOpsEventsFunction.cs"] = 2,
-        ["Functions/Config/GetAllTenantConfigurationsFunction.cs"] = 2,
-        ["Functions/Graph/GetGraphPermissionsStatusFunction.cs"] = 1,
-        ["Functions/Graph/GetScriptDisplayNamesFunction.cs"] = 3,
-        ["Functions/Graph/RefreshGraphPermissionsFunction.cs"] = 1,
-    };
+    private static readonly Dictionary<string, int> HelperBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Frozen 2026-08-30 baseline for Regex B success sites (error-shaped bodies excluded by
-    /// <see cref="IsErrorShape"/>). Only ever lower a count or delete an entry.
+    /// EMPTY since 2026-08-31 — every anonymous success WriteAsJsonAsync body is typed (the
+    /// migration started from the frozen 2026-08-30 baseline of 134 sites / 76 files). Any
+    /// entry that would need to be ADDED here is a regression: return a typed DTO instead.
     /// </summary>
-    private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Functions/Admin/AutopilotDeviceValidationConsentFunction.cs"] = 3,
-        ["Functions/Admin/BackfillOccurredUtcFunction.cs"] = 1,
-        ["Functions/Admin/CustomsArchiveQueryFunction.cs"] = 5,
-        ["Functions/Admin/DelegatedAdminManagementFunction.cs"] = 2,
-        ["Functions/Admin/DeviceBlockFunction.cs"] = 3,
-        ["Functions/Admin/EmailTemplatesFunction.cs"] = 4,
-        ["Functions/Admin/GetAllBlockedDevicesFunction.cs"] = 1,
-        ["Functions/Admin/IdentityBindingManagementFunction.cs"] = 2,
-        ["Functions/Admin/ReclassifyLegacySessionsFunction.cs"] = 1,
-        ["Functions/Admin/ReseedFromGitHubFunction.cs"] = 1,
-        ["Functions/Admin/SubmitOffboardingFeedbackFunction.cs"] = 1,
-        ["Functions/Admin/TenantAdminManagementFunction.cs"] = 1,
-        ["Functions/Admin/TenantGroupManagementFunction.cs"] = 2,
-        ["Functions/Admin/TriggerMaintenanceFunction.cs"] = 1,
-        ["Functions/Admin/VersionBlockFunction.cs"] = 3,
-        ["Functions/Bootstrap/RevokeBootstrapSessionFunction.cs"] = 1,
-        ["Functions/Config/AppHomingFunction.cs"] = 1,
-        ["Functions/Config/GetLatestVersionsFunction.cs"] = 1,
-        ["Functions/Config/GetTenantConfigFieldsSchemaFunction.cs"] = 1,
-        ["Functions/Config/ListTenantConfigBackupsFunction.cs"] = 1,
-        ["Functions/Config/PatchTenantConfigurationFieldsFunction.cs"] = 1,
-        ["Functions/Config/PlanManagementFunction.cs"] = 4,
-        ["Functions/Config/TestWebhookNotificationFunction.cs"] = 1,
-        ["Functions/Config/UpdateAdminConfigurationFunction.cs"] = 1,
-        ["Functions/Config/UpdateTenantConfigurationFunction.cs"] = 1,
-        ["Functions/Diagnostics/DiagnosticsDownloadTicketFunction.cs"] = 1,
-        ["Functions/Global/GlobalNotificationsFunction.cs"] = 3,
-        ["Functions/Infrastructure/AuthFunction.cs"] = 3,
-        ["Functions/Infrastructure/HealthCheckFunction.cs"] = 3,
-        ["Functions/Infrastructure/McpUserFunction.cs"] = 3,
-        ["Functions/Infrastructure/SignalRAddToGroupFunction.cs"] = 1,
-        ["Functions/Infrastructure/SignalRNegotiateFunction.cs"] = 1,
-        ["Functions/Infrastructure/SignalRRemoveFromGroupFunction.cs"] = 1,
-        ["Functions/Metrics/GetDeviceJourneyFunctions.cs"] = 1,
-        ["Functions/Metrics/GetGeographicLocationSessionsFunction.cs"] = 2,
-        ["Functions/Metrics/GetGlobalGeographicLocationSessionsFunction.cs"] = 2,
-        ["Functions/Metrics/GetPlatformStatsFunction.cs"] = 2,
-        ["Functions/Metrics/GetTimeAttributionFunctions.cs"] = 1,
-        ["Functions/Metrics/McpUsageMetricsFunction.cs"] = 4,
-        ["Functions/Metrics/MetricsSummaryFunction.cs"] = 2,
-        ["Functions/Metrics/RuleHitSessionsFunction.cs"] = 1,
-        ["Functions/Notifications/TenantNotificationsFunction.cs"] = 3,
-        ["Functions/Rules/AnalyzeRulesFunction.cs"] = 5,
-        ["Functions/Rules/DryRunAnalyzeRuleFunction.cs"] = 1,
-        ["Functions/Rules/GatherRulesFunction.cs"] = 4,
-        ["Functions/Rules/GetRuleResultsFunction.cs"] = 1,
-        ["Functions/Rules/GlobalRulesFunction.cs"] = 6,
-        ["Functions/Rules/ImeLogPatternsFunction.cs"] = 3,
-        ["Functions/Rules/PreviewWhitelistFunction.cs"] = 3,
-        ["Functions/Rules/TestLogPatternFunction.cs"] = 1,
-        ["Functions/Vulnerability/AutoResolveCpeMappingFunction.cs"] = 1,
-        ["Functions/Vulnerability/DeleteCustomCpeMappingFunction.cs"] = 1,
-        ["Functions/Vulnerability/GetCpeMappingsFunction.cs"] = 1,
-        ["Functions/Vulnerability/GetSoftwareInventoryFunction.cs"] = 1,
-        ["Functions/Vulnerability/GetTenantSoftwareInventoryFunction.cs"] = 1,
-        ["Functions/Vulnerability/GetUnmatchedSoftwareFunction.cs"] = 1,
-        ["Functions/Vulnerability/GetVulnerabilityReportFunction.cs"] = 4,
-        ["Functions/Vulnerability/GetVulnerabilitySyncStatusFunction.cs"] = 1,
-        ["Functions/Vulnerability/IgnoreSoftwareFunction.cs"] = 3,
-        ["Functions/Vulnerability/SaveCustomCpeMappingFunction.cs"] = 1,
-        ["Functions/Vulnerability/TriggerEpssSyncFunction.cs"] = 1,
-        ["Functions/Vulnerability/TriggerMsrcSyncFunction.cs"] = 1,
-        ["Functions/Vulnerability/TriggerNvdCacheRefreshFunction.cs"] = 1,
-        ["Functions/Vulnerability/TriggerVulnerabilityDataSyncFunction.cs"] = 1,
-        ["Middleware/McpQuotaEnforcementMiddleware.cs"] = 1,
-    };
+    private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     [Fact]
     public void Anonymous_helper_success_bodies_never_exceed_the_frozen_baseline()

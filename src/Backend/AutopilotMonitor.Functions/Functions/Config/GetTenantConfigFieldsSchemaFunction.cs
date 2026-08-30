@@ -3,6 +3,7 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -38,11 +39,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var schema = TenantConfigPatchService.BuildFieldsSchema();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new GetTenantConfigFieldsSchemaResponse
                 {
-                    count = schema.Count,
-                    writableCount = schema.Count(f => f.Writable),
-                    fields = schema,
+                    Count = schema.Count,
+                    WritableCount = schema.Count(f => f.Writable),
+                    Fields = schema,
                 });
                 return response;
             }

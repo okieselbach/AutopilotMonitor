@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -46,7 +47,7 @@ public class TenantNotificationsFunction
         var notifications = await _notificationService.GetActiveNotificationsAsync(tenantId, callerAudience);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, notifications });
+        await response.WriteAsJsonAsync(new NotificationListResponse { Success = true, Notifications = notifications });
         return response;
     }
 
@@ -74,7 +75,7 @@ public class TenantNotificationsFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true });
+        await response.WriteAsJsonAsync(new SuccessOnlyResponse { Success = true });
         return response;
     }
 
@@ -90,7 +91,7 @@ public class TenantNotificationsFunction
         var dismissedCount = await _notificationService.DismissAllNotificationsAsync(tenantId);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, dismissedCount });
+        await response.WriteAsJsonAsync(new DismissAllNotificationsResponse { Success = true, DismissedCount = dismissedCount });
         return response;
     }
 }

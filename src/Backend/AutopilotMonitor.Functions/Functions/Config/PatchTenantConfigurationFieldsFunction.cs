@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -117,13 +118,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
             if (outcome.Success)
             {
                 var ok = req.CreateResponse(HttpStatusCode.OK);
-                await ok.WriteAsJsonAsync(new
+                await ok.WriteAsJsonAsync(new TenantConfigPatchOutcomeResponse
                 {
-                    success = true,
-                    appliedFields = outcome.AppliedFields,
-                    diff = outcome.MaskedDiff,
-                    backupId = outcome.BackupId,
-                    noOp = outcome.AppliedFields.Count == 0,
+                    Success = true,
+                    AppliedFields = outcome.AppliedFields,
+                    Diff = outcome.MaskedDiff,
+                    BackupId = outcome.BackupId,
+                    NoOp = outcome.AppliedFields.Count == 0,
                 });
                 return ok;
             }

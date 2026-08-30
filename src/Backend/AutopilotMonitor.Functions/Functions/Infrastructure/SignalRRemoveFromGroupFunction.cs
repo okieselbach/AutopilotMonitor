@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -130,10 +131,10 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                 _logger.LogInformation($"{logPrefix} RemoveFromGroup: {request.GroupName} (User: {userEmail})");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new SuccessMessageResponse
                 {
-                    success = true,
-                    message = $"Removed from group {request.GroupName}"
+                    Success = true,
+                    Message = $"Removed from group {request.GroupName}"
                 });
 
                 return new RemoveFromGroupOutput

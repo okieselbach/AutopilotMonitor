@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -53,13 +54,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     response.Headers.Add("Cache-Control", "public, max-age=3600");
                 }
 
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new GetLatestVersionsResponse
                 {
-                    latestAgentVersion = versions?.AgentVersion,
-                    latestBootstrapScriptVersion = versions?.BootstrapVersion,
-                    latestAgentSha256 = versions?.AgentSha256,
-                    fetchedAtUtc = versions?.FetchedAtUtc,
-                    source = versions?.FromCache == true ? "cache" : "blob"
+                    LatestAgentVersion = versions?.AgentVersion,
+                    LatestBootstrapScriptVersion = versions?.BootstrapVersion,
+                    LatestAgentSha256 = versions?.AgentSha256,
+                    FetchedAtUtc = versions?.FetchedAtUtc,
+                    Source = versions?.FromCache == true ? "cache" : "blob"
                 });
                 return response;
             }

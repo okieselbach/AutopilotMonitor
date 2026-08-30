@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -57,7 +58,7 @@ public class TenantGroupManagementFunction
     {
         var groups = await _delegatedAdminService.GetAllGroupsAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { groups });
+        await response.WriteAsJsonAsync(new TenantGroupListResponse { Groups = groups });
         return response;
     }
 
@@ -79,7 +80,7 @@ public class TenantGroupManagementFunction
         _logger.LogInformation("Tenant group created: {GroupId} '{Name}' by {By}", groupId, body.Name, currentUpn);
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { groupId, name = body.Name.Trim() });
+        await response.WriteAsJsonAsync(new CreateTenantGroupResponse { GroupId = groupId, Name = body.Name.Trim() });
         return response;
     }
 

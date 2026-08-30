@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -47,7 +48,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var blocked = await _blockedDeviceService.GetBlockedDevicesAsync(tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, blocked });
+                await response.WriteAsJsonAsync(new BlockedDeviceListResponse { Success = true, Blocked = blocked });
                 return response;
             }
             catch (Exception ex)
@@ -126,14 +127,14 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     userIdentifier, isKill ? "issued KILL signal to" : "blocked", serialNumber, tenantId, durationHours, reason, blockedSessionId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new BlockDeviceResponse
                 {
-                    success = true,
-                    message = isKill
+                    Success = true,
+                    Message = isKill
                         ? $"Device {serialNumber} issued remote kill signal for {durationHours} hours."
                         : $"Device {serialNumber} blocked for {durationHours} hours.",
-                    unblockAt = DateTime.UtcNow.AddHours(durationHours),
-                    action
+                    UnblockAt = DateTime.UtcNow.AddHours(durationHours),
+                    Action = action
                 });
                 return response;
             }
@@ -180,7 +181,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     userIdentifier, serialNumber, tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, message = $"Device {serialNumber} unblocked." });
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = true, Message = $"Device {serialNumber} unblocked." });
                 return response;
             }
             catch (Exception ex)

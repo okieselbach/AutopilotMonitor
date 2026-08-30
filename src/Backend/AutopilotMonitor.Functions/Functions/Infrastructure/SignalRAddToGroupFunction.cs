@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -184,10 +185,10 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                 _logger.LogInformation($"{logPrefix} AddToGroup: {request.GroupName} (User: {userEmail})");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new SuccessMessageResponse
                 {
-                    success = true,
-                    message = $"Added to group {request.GroupName}"
+                    Success = true,
+                    Message = $"Added to group {request.GroupName}"
                 });
 
                 return new AddToGroupOutput

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -72,7 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 );
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, message = "Bootstrap session revoked" });
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = true, Message = "Bootstrap session revoked" });
                 return response;
             }
             catch (Exception ex)

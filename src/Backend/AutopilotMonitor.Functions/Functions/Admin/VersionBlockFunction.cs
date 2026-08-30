@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -43,7 +44,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var rules = await _blockedVersionService.GetBlockedVersionsAsync();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, rules });
+                await response.WriteAsJsonAsync(new BlockedVersionListResponse { Success = true, Rules = rules });
                 return response;
             }
             catch (Exception ex)
@@ -115,12 +116,12 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     userIdentifier, normalizedAction, versionPattern, reason);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new BlockVersionResponse
                 {
-                    success = true,
-                    message = $"Version pattern '{versionPattern}' set to {normalizedAction}.",
-                    versionPattern,
-                    action = normalizedAction
+                    Success = true,
+                    Message = $"Version pattern '{versionPattern}' set to {normalizedAction}.",
+                    VersionPattern = versionPattern,
+                    Action = normalizedAction
                 });
                 return response;
             }
@@ -163,7 +164,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     userIdentifier, versionPattern);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, message = $"Version pattern '{versionPattern}' unblocked." });
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = true, Message = $"Version pattern '{versionPattern}' unblocked." });
                 return response;
             }
             catch (Exception ex)

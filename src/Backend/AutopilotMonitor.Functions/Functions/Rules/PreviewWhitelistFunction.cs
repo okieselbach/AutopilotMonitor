@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -55,7 +56,7 @@ public class PreviewWhitelistFunction
         var approved = await _previewWhitelistService.GetAllApprovedAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { tenants = approved });
+        await response.WriteAsJsonAsync(new GetPreviewWhitelistResponse { Tenants = approved });
         return response;
     }
 
@@ -133,7 +134,7 @@ public class PreviewWhitelistFunction
         var email = await _previewWhitelistService.GetNotificationEmailAsync(tenantId);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { email = email ?? "" });
+        await response.WriteAsJsonAsync(new GetPreviewNotificationEmailResponse { Email = email ?? "" });
         return response;
     }
 
@@ -154,7 +155,7 @@ public class PreviewWhitelistFunction
         var emails = await _previewWhitelistService.GetAllNotificationEmailsAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { count = emails.Count, emails });
+        await response.WriteAsJsonAsync(new GetAllPreviewNotificationEmailsResponse { Count = emails.Count, Emails = emails });
         return response;
     }
 

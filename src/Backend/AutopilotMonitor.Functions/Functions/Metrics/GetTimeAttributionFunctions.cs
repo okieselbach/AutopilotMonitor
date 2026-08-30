@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -51,7 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var breakdown = await _metricsRepo.GetSessionTimeBreakdownAsync(effectiveTenantId, sessionId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, breakdown });
+                await response.WriteAsJsonAsync(new GetSessionTimeAttributionResponse { Success = true, Breakdown = breakdown });
                 return response;
             }
             catch (Exception ex)

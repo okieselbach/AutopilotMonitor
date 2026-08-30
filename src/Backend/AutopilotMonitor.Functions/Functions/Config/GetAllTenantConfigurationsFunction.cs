@@ -108,11 +108,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     }
 
                     var projected = TenantConfigProjection.ProjectAll(subset, parsed.Fields);
-                    return await req.OkAsync(new
+                    return await req.OkAsync(new GetAllTenantConfigurationsResponse
                     {
-                        count = projected.Count,
-                        tenants = projected,
-                        nextLink = (string?)null,
+                        Count = projected.Count,
+                        Tenants = projected,
+                        NextLink = null,
                     });
                 }
 
@@ -171,11 +171,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     nextLink = TenantConfigPagination.BuildNextLink(parsed.PageSize.Value, wireToken, parsed.Fields);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetAllTenantConfigurationsResponse
                 {
-                    count = tenants.Count,
-                    tenants,
-                    nextLink,
+                    Count = tenants.Count,
+                    Tenants = tenants,
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

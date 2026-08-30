@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -147,15 +148,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new UpdateTenantAppHomingResponse
                 {
-                    success = true,
-                    changed,
-                    homedApp = _appRegistry.ResolveForTenant(config).IsLegacy ? "legacy" : "primary",
-                    homedAppClientId = config.HomedAppClientId,
-                    lastAuthClientId = config.LastAuthClientId,
-                    lastAuthClientIdSince = config.LastAuthClientIdSince,
-                    probe = ProbePayload(probe),
+                    Success = true,
+                    Changed = changed,
+                    HomedApp = _appRegistry.ResolveForTenant(config).IsLegacy ? "legacy" : "primary",
+                    HomedAppClientId = config.HomedAppClientId,
+                    LastAuthClientId = config.LastAuthClientId,
+                    LastAuthClientIdSince = config.LastAuthClientIdSince,
+                    Probe = ProbePayload(probe),
                 });
                 return response;
             }
@@ -168,11 +169,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
         }
 
-        private static object ProbePayload(AppHomingProbeResult? probe) => new
+        private static AppHomingProbeWire ProbePayload(AppHomingProbeResult? probe) => new AppHomingProbeWire
         {
-            attempted = probe != null,
-            succeeded = probe?.Succeeded ?? false,
-            isTransient = probe?.IsTransient ?? false,
+            Attempted = probe != null,
+            Succeeded = probe?.Succeeded ?? false,
+            IsTransient = probe?.IsTransient ?? false,
         };
     }
 }

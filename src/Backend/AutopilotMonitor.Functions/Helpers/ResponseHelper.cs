@@ -39,22 +39,6 @@ public static class ResponseHelper
         return response;
     }
 
-    /// <summary>200 OK with a JSON body (legacy untyped overload — migration only, do not add call sites).</summary>
-    public static async Task<HttpResponseData> OkAsync(this HttpRequestData req, object data)
-    {
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(data);
-        return response;
-    }
-
-    /// <summary>201 Created with a JSON body (legacy untyped overload — migration only, do not add call sites).</summary>
-    public static async Task<HttpResponseData> CreatedAsync(this HttpRequestData req, object data)
-    {
-        var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(data);
-        return response;
-    }
-
     /// <summary>400 Bad Request with <c>{ "error": message }</c>.</summary>
     public static async Task<HttpResponseData> BadRequestAsync(this HttpRequestData req, string message)
     {

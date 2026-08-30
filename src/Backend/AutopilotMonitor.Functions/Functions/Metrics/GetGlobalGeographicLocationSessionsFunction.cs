@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -79,12 +80,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 if (full)
                 {
-                    await response.WriteAsJsonAsync(new { success = true, sessions = rows, totalCount = rows.Count });
+                    await response.WriteAsJsonAsync(new GeographicLocationSessionsResponse { Success = true, Sessions = rows, TotalCount = rows.Count });
                 }
                 else
                 {
                     var lean = rows.Select(GetGeographicLocationSessionsFunction.ToLeanRow).ToList();
-                    await response.WriteAsJsonAsync(new { success = true, sessions = lean, totalCount = lean.Count });
+                    await response.WriteAsJsonAsync(new GeographicLocationSessionsLeanResponse { Success = true, Sessions = lean, TotalCount = lean.Count });
                 }
                 return response;
             }

@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -53,7 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     : await _blockedDeviceService.GetAllBlockedDevicesAsync();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, blocked });
+                await response.WriteAsJsonAsync(new BlockedDeviceListResponse { Success = true, Blocked = blocked });
                 return response;
             }
             catch (Exception ex)

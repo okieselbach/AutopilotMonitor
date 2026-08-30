@@ -185,6 +185,66 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Full geographic drilldown envelope shared by GetGeographicLocationSessions and
+    /// GetGlobalGeographicLocationSessions when the caller passes <c>?full=1</c>.
+    /// </summary>
+    // Declaration order == wire order.
+    public class GeographicLocationSessionsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public IReadOnlyList<LocationSessionRow> Sessions { get; set; } = default!;
+        public int TotalCount { get; set; }
+    }
+
+    /// <summary>
+    /// Default (lean) geographic drilldown envelope shared by GetGeographicLocationSessions
+    /// and GetGlobalGeographicLocationSessions — per-row payload an order of magnitude
+    /// smaller than the full <see cref="LocationSessionRow"/> shape.
+    /// </summary>
+    // Declaration order == wire order.
+    public class GeographicLocationSessionsLeanResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public IReadOnlyList<LocationSessionLeanRow> Sessions { get; set; } = default!;
+        public int TotalCount { get; set; }
+    }
+
+    /// <summary>
+    /// Lean projection of <see cref="LocationSessionRow"/> used as the default drilldown row.
+    /// Fields chosen to support the typical MCP triage flow (which session, when, where, how
+    /// big a deal, was DO active). Built by <c>GetGeographicLocationSessionsFunction.ToLeanRow</c>.
+    /// </summary>
+    // Declaration order == wire order.
+    public class LocationSessionLeanRow
+    {
+        public string SessionId { get; set; } = default!;
+        public string TenantId { get; set; } = default!;
+        public string SerialNumber { get; set; } = default!;
+        public string DeviceName { get; set; } = default!;
+        public string Manufacturer { get; set; } = default!;
+        public string Model { get; set; } = default!;
+        public DateTime StartedAt { get; set; }
+
+        /// <summary>Absent while the session has not completed.</summary>
+        public DateTime? CompletedAt { get; set; }
+
+        public SessionStatus Status { get; set; }
+        public string FailureReason { get; set; } = default!;
+
+        /// <summary>Absent while the session carries no authoritative duration.</summary>
+        public int? DurationSeconds { get; set; }
+
+        public string EnrollmentType { get; set; } = default!;
+        public string GeoCountry { get; set; } = default!;
+        public string GeoCity { get; set; } = default!;
+        public int TotalAppCount { get; set; }
+        public bool HasDoTelemetry { get; set; }
+
+        /// <summary>Weighted peer-caching percentage for this session (0-100, one decimal).</summary>
+        public double DoPercentPeerCaching { get; set; }
+    }
+
+    /// <summary>
     /// Global average benchmarks for geographic comparison.
     /// </summary>
     public class GlobalAverages
