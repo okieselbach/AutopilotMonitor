@@ -6,47 +6,72 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Daily rule-fire/evaluation telemetry (per-tenant + global aggregate rows).
-    /// Both methods are fire-and-forget — failures are logged, never thrown.
+    /// Fire-and-forget — failures are logged, never thrown.
     /// </summary>
     public sealed partial class EventIngestProcessor
     {
+        /// <summary>
+        /// Resolves the gather-rule fires claimed by a telemetry batch against the tenant's active
+        /// gather catalog. Only the event's <c>ruleId</c> is read; every other field (title, category,
+        /// severity, built-in flag) comes from the server-side rule definition — mirrors
+        /// <c>AnalyzeOnEnrollmentEndHandler.SafeRecordAnalyzeRuleStatsAsync</c>, where the catalog rule
+        /// object is the sole source of RuleStats metadata. A claimed ID that is not an active rule for
+        /// this tenant is dropped: an agent cannot mint stats rows for retired/unshipped IDs or respell a
+        /// built-in rule's title. Deduped per batch (one increment per rule).
+        /// </summary>
+        internal static List<GatherRule> ResolveFiredGatherRules(
+            IEnumerable<EnrollmentEvent> events, IReadOnlyCollection<GatherRule> activeRules)
+        {
+            var byId = new Dictionary<string, GatherRule>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rule in activeRules)
+            {
+                if (!string.IsNullOrEmpty(rule.RuleId))
+                    byId.TryAdd(rule.RuleId, rule);
+            }
+
+            var fired = new List<GatherRule>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var evt in events)
+            {
+                if (evt.Source != "GatherRuleExecutor" || evt.Data == null) continue;
+                if (!evt.Data.TryGetValue("ruleId", out var raw)) continue;
+
+                var ruleId = raw?.ToString();
+                if (string.IsNullOrEmpty(ruleId) || !seen.Add(ruleId)) continue;
+                if (byId.TryGetValue(ruleId, out var rule))
+                    fired.Add(rule);
+            }
+            return fired;
+        }
+
         private async Task RecordGatherRuleStatsAsync(string tenantId, List<EnrollmentEvent> events)
         {
             try
             {
+                if (!events.Any(e => e.Source == "GatherRuleExecutor" && e.Data != null && e.Data.ContainsKey("ruleId")))
+                    return;
+
+                var activeRules = await _gatherRuleService.GetActiveRulesForTenantAsync(tenantId).ConfigureAwait(false);
+                var firedRules = ResolveFiredGatherRules(events, activeRules);
+                if (firedRules.Count == 0) return;
+
                 var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
-
-                var gatherEvents = events.Where(e =>
-                    e.Data != null &&
-                    e.Data.ContainsKey("ruleId") &&
-                    e.Source == "GatherRuleExecutor").ToList();
-
-                if (gatherEvents.Count == 0) return;
-
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var evt in gatherEvents)
+                foreach (var rule in firedRules)
                 {
-                    var ruleId = evt.Data!["ruleId"]?.ToString();
-                    if (string.IsNullOrEmpty(ruleId) || !seen.Add(ruleId)) continue;
-
-                    var ruleTitle = evt.Data.ContainsKey("ruleTitle") ? evt.Data["ruleTitle"]?.ToString() ?? "" : "";
-
                     await _metricsRepo.IncrementRuleStatAsync(
-                        today, tenantId, ruleId, "gather",
-                        ruleTitle, "", "",
-                        fired: true, confidenceScore: null);
+                        today, tenantId, rule.RuleId, "gather",
+                        rule.Title, rule.Category, rule.OutputSeverity,
+                        fired: true, confidenceScore: null).ConfigureAwait(false);
 
-                    // Global aggregate row is catalog-only. The agent event carries no
-                    // IsBuiltIn flag, but custom rules can never occupy the reserved
-                    // built-in namespace (create/update guard), so the ID pattern is the
-                    // discriminator. Custom IDs are tenant-chosen and not unique across
-                    // tenants — a shared "global_{ruleId}" row would mix their counters.
-                    if (RuleIdPolicy.IsReservedBuiltInId(ruleId))
+                    // Global aggregate row is catalog-only: custom-rule IDs are tenant-chosen
+                    // and not unique across tenants, so a shared "global_{ruleId}" row would
+                    // sum unrelated tenants' counters (title/severity last-writer-wins).
+                    if (rule.IsBuiltIn || rule.IsCommunity)
                     {
                         await _metricsRepo.IncrementRuleStatAsync(
-                            today, "global", ruleId, "gather",
-                            ruleTitle, "", "",
-                            fired: true, confidenceScore: null);
+                            today, "global", rule.RuleId, "gather",
+                            rule.Title, rule.Category, rule.OutputSeverity,
+                            fired: true, confidenceScore: null).ConfigureAwait(false);
                     }
                 }
             }
@@ -55,6 +80,5 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogWarning(ex, "Failed to record gather rule stats (non-fatal)");
             }
         }
-
     }
 }

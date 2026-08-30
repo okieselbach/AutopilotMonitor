@@ -37,6 +37,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IRuleRepository _ruleRepo;
         private readonly TenantConfigurationService _configService;
         private readonly AnalyzeRuleService _analyzeRuleService;
+        private readonly GatherRuleService _gatherRuleService;
         private readonly WebhookNotificationService _webhookNotificationService;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly OpsEventService _opsEventService;
@@ -58,6 +59,7 @@ namespace AutopilotMonitor.Functions.Services
             IRuleRepository ruleRepo,
             TenantConfigurationService configService,
             AnalyzeRuleService analyzeRuleService,
+            GatherRuleService gatherRuleService,
             WebhookNotificationService webhookNotificationService,
             AdminConfigurationService adminConfigService,
             OpsEventService opsEventService,
@@ -75,6 +77,7 @@ namespace AutopilotMonitor.Functions.Services
             _ruleRepo = ruleRepo;
             _configService = configService;
             _analyzeRuleService = analyzeRuleService;
+            _gatherRuleService = gatherRuleService;
             _webhookNotificationService = webhookNotificationService;
             _adminConfigService = adminConfigService;
             _opsEventService = opsEventService;
