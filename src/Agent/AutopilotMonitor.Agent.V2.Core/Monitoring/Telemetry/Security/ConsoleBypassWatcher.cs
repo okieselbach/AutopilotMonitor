@@ -47,17 +47,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         /// </summary>
         internal static readonly string[] WatchedProcessNames = { "cmd.exe" };
 
-        // /c turns the shell into a one-shot scripted invocation (install/script) — ignored. Matched
-        // as a token anywhere in the ARGUMENTS (the executable path is stripped first) so combined
-        // switches like /d/q/c are caught too.
-        private static readonly Regex RunAndExitSwitchRegex =
-            new Regex(@"/c\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
+        // cmd.exe honors only the FIRST of /c or /k; everything after that switch is the command
+        // payload. /c turns the shell into a one-shot scripted invocation (install/script) — ignored.
         // /k runs its command and then STAYS interactive (L12) — unlike /c this leaves a shell a
         // human can type into (e.g. a technician-planted `cmd /k whoami`), so it is surfaced as a
-        // low-confidence interactive console instead of being silently ignored.
-        private static readonly Regex RunAndStaySwitchRegex =
-            new Regex(@"/k\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // low-confidence interactive console instead of being silently ignored. One ordered scan over
+        // the ARGUMENTS (executable path stripped first) finds the first switch token, so combined
+        // switches like /d/q/c are caught and a `/c` inside a /k payload (`cmd /k rem /c`) can no
+        // longer demote an interactive shell to a scripted one.
+        private static readonly Regex FirstRunSwitchRegex =
+            new Regex(@"/(?<sw>[ck])\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private enum RunSwitch { None, RunAndExit, RunAndStay }
+
+        /// <summary>The first <c>/c</c> or <c>/k</c> switch in the argument tail — cmd.exe precedence.</summary>
+        private static RunSwitch FirstRunSwitch(string arguments)
+        {
+            var m = FirstRunSwitchRegex.Match(arguments);
+            if (!m.Success) return RunSwitch.None;
+            return char.ToLowerInvariant(m.Groups["sw"].Value[0]) == 'c' ? RunSwitch.RunAndExit : RunSwitch.RunAndStay;
+        }
 
         private readonly AgentLogger _logger;
         private readonly Func<int, ProcessProbe?> _processProbe;
@@ -282,20 +291,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Security
         {
             if (sessionId == 0) return ConsoleVerdict.Ignore;
             if (commandLine == null) return ConsoleVerdict.UnclassifiedInteractive;
-            var arguments = StripExecutable(commandLine);
-            if (RunAndExitSwitchRegex.IsMatch(arguments)) return ConsoleVerdict.Ignore;
-            if (RunAndStaySwitchRegex.IsMatch(arguments)) return ConsoleVerdict.InteractiveWithCommand;
-            return ConsoleVerdict.InteractiveConsole;
+            switch (FirstRunSwitch(StripExecutable(commandLine)))
+            {
+                case RunSwitch.RunAndExit: return ConsoleVerdict.Ignore;
+                case RunSwitch.RunAndStay: return ConsoleVerdict.InteractiveWithCommand;
+                default: return ConsoleVerdict.InteractiveConsole;
+            }
         }
 
-        /// <summary>True when the command line carries a <c>/c</c> run-and-exit switch (a scripted
-        /// invocation), false for a bare interactive shell or a <c>/k</c> run-and-stay shell. The
-        /// executable token is stripped first so a path can never spoof a switch, and switches may
-        /// be combined (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
+        /// <summary>True when the FIRST <c>/c</c>-or-<c>/k</c> switch on the command line is <c>/c</c>
+        /// (a scripted run-and-exit invocation, mirroring cmd.exe precedence), false for a bare
+        /// interactive shell or a <c>/k</c> run-and-stay shell — even one whose payload contains a
+        /// later <c>/c</c>. The executable token is stripped first so a path can never spoof a
+        /// switch, and switches may be combined (e.g. <c>cmd /d/q/c exit 9</c>).</summary>
         internal static bool HasScriptArgument(string commandLine)
         {
             if (string.IsNullOrEmpty(commandLine)) return false;
-            return RunAndExitSwitchRegex.IsMatch(StripExecutable(commandLine));
+            return FirstRunSwitch(StripExecutable(commandLine)) == RunSwitch.RunAndExit;
         }
 
         /// <summary>Returns the command line with the leading executable token (quoted or

@@ -94,6 +94,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
             Assert.Equal("interactive_console_with_command", info.Classification);
         }
 
+        [Theory]
+        [InlineData(@"cmd /k rem /c")]
+        [InlineData(@"cmd.exe /k ""title /c""")]
+        public void Cmd_k_with_slash_c_in_payload_is_not_demoted_to_scripted(string commandLine)
+        {
+            // cmd.exe honors only the FIRST /c-or-/k switch; a '/c' inside the /k payload is inert, so
+            // the console is a persistent human-usable shell and must still be surfaced (low confidence).
+            using var rig = new Rig(Probe(commandLine));
+
+            rig.Sut.HandleStart(2223, 1, sessionId: 1, ownerSidHint: null, detectedVia: "process_start_trace");
+
+            var info = Assert.Single(rig.Detected);
+            Assert.Equal("low", info.Confidence);
+            Assert.Equal("interactive_console_with_command", info.Classification);
+        }
+
         [Fact]
         public void Instant_close_unreadable_commandline_raises_low_confidence()
         {
@@ -146,6 +162,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
         [InlineData(2, @"C:\x\cmd.exe /K bar", "InteractiveWithCommand")] // L12: /k stays interactive
         [InlineData(1, @"cmd.exe /k whoami", "InteractiveWithCommand")]   // technician-planted shell
         [InlineData(1, @"cmd.exe /d/q/c exit 9", "Ignore")]            // combined run-and-exit wins
+        [InlineData(1, @"cmd /k rem /c", "InteractiveWithCommand")]     // cmd.exe honors the FIRST switch: /k stays interactive
+        [InlineData(1, @"cmd.exe /k ""title /c""", "InteractiveWithCommand")] // /c inside the /k payload is not a switch
+        [InlineData(1, @"cmd /k /c", "InteractiveWithCommand")]         // /c after /k is just the /k payload
+        [InlineData(1, @"cmd.exe /c cmd /k", "Ignore")]                 // first switch /c wins the other way round
         public void Classify_maps_session_and_commandline(int sessionId, string? commandLine, string expected)
         {
             Assert.Equal(expected, ConsoleBypassWatcher.Classify(sessionId, commandLine).ToString());
@@ -165,6 +185,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Security
         [InlineData(@"cmd.exe /k", false)]                       // L12: /k leaves an interactive shell
         [InlineData(@"cmd.exe /d/q/c exit 9", true)]             // combined switches — the field case
         [InlineData(@"cmd.exe /D/Q/K stay", false)]              // L12: run-and-stay is not scripted
+        [InlineData(@"cmd.exe /k rem /c", false)]                // first switch /k wins — payload /c is inert
+        [InlineData(@"cmd.exe /c rem /k", true)]                 // first switch /c wins
         [InlineData(@"""C:\WINDOWS\system32\cmd.exe"" /c ""x.bat""", true)]
         public void HasScriptArgument_detects_run_command_switch(string commandLine, bool expected)
         {
