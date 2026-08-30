@@ -7,31 +7,37 @@ namespace AutopilotMonitor.Functions.Functions.Metrics;
 ///
 /// The route accepts an Azure AD object id (oid), which has no inherent tenant scoping —
 /// middleware can't validate it the way it does for <c>{tenantId}</c> routes. The function
-/// therefore inspects the returned <see cref="UserUsageRecord"/>s and blocks the response
-/// if any record belongs to a tenant other than the caller's, unless the caller is a Global Admin.
+/// therefore projects the repository result down to the caller's own tenant before it is
+/// returned. Two properties matter:
+///
+/// <list type="bullet">
+///   <item>Records that cannot be attributed to the caller's tenant — foreign <c>TenantId</c>
+///   OR an empty one (legacy rows / tokens without a resolvable tid) — are dropped for
+///   non-global callers. Unattributed data is not the caller's data.</item>
+///   <item>The filter is silent: a foreign oid and an unknown oid both yield an empty set, so
+///   the response cannot be used as an existence oracle for users of other tenants.</item>
+/// </list>
 /// </summary>
 public static class UsageCrossTenantGuard
 {
     /// <summary>
-    /// Returns true if the records contain at least one entry whose tenant differs from
-    /// <paramref name="callerTenantId"/> AND the caller is not a Global Admin.
-    /// Empty record sets and GA callers always pass (return false).
+    /// Returns the subset of <paramref name="records"/> the caller may see. Global-scope
+    /// callers (GA / Global Reader) see everything; everyone else sees only records whose
+    /// <see cref="UserUsageRecord.TenantId"/> equals <paramref name="callerTenantId"/>
+    /// (case-insensitive). A caller without a tenant id sees nothing.
     /// </summary>
-    public static bool IsForeignTenantAccess(
-        IEnumerable<UserUsageRecord> records,
-        string callerTenantId,
-        bool isGlobalAdmin)
+    public static IReadOnlyList<UserUsageRecord> FilterForCaller(
+        IEnumerable<UserUsageRecord>? records,
+        string? callerTenantId,
+        bool hasGlobalScope)
     {
-        if (isGlobalAdmin) return false;
-        if (records == null) return false;
-        if (string.IsNullOrEmpty(callerTenantId)) return false;
+        if (records == null) return Array.Empty<UserUsageRecord>();
+        if (hasGlobalScope) return records.ToList();
+        if (string.IsNullOrEmpty(callerTenantId)) return Array.Empty<UserUsageRecord>();
 
-        foreach (var r in records)
-        {
-            if (string.IsNullOrEmpty(r.TenantId)) continue;
-            if (!string.Equals(r.TenantId, callerTenantId, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
+        return records
+            .Where(r => !string.IsNullOrEmpty(r.TenantId)
+                        && string.Equals(r.TenantId, callerTenantId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 }

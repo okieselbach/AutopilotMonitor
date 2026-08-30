@@ -99,10 +99,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// <summary>
         /// GET /api/metrics/mcp-usage/user/{userId}?dateFrom=&amp;dateTo= — Usage for a specific user.
         ///
-        /// Catalog policy is TenantAdminOrGA, but the route has no TenantScoping — middleware can't
-        /// enforce cross-tenant access since {userId} is an Azure AD object id, not a tenant id.
-        /// We therefore enforce here: if the records' TenantId differs from the caller's tenant
-        /// (and the caller is not a Global Admin), block with 403.
+        /// Catalog policy is TenantAdminOrGlobalReader, but the route has no TenantScoping — middleware
+        /// can't enforce cross-tenant access since {userId} is an Azure AD object id, not a tenant id.
+        /// We therefore enforce here: non-global callers receive only the records attributed to their
+        /// own tenant (see <see cref="UsageCrossTenantGuard"/>). The response is always 200 — a foreign
+        /// oid and an unknown oid are indistinguishable, so the route is not a cross-tenant
+        /// user-existence oracle.
         /// </summary>
         [Function("GetMcpUserUsage")]
         public async Task<HttpResponseData> GetUserUsage(
@@ -116,27 +118,24 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var dateFrom = req.Query["dateFrom"];
                 var dateTo = req.Query["dateTo"];
 
-                var records = await _userUsageRepo.GetUsageByUserAsync(userId, dateFrom, dateTo);
+                var allRecords = await _userUsageRepo.GetUsageByUserAsync(userId, dateFrom, dateTo);
 
                 var ctx = req.GetRequestContext();
-                if (UsageCrossTenantGuard.IsForeignTenantAccess(records, ctx.TenantId, ctx.HasGlobalScope))
+                var records = UsageCrossTenantGuard.FilterForCaller(allRecords, ctx.TenantId, ctx.HasGlobalScope);
+
+                var dropped = allRecords.Count - records.Count;
+                if (dropped > 0)
                 {
-                    var foundTenants = records
+                    // Ops signal only — the response shape is identical to an unknown oid.
+                    var foreignTenants = allRecords
                         .Select(r => r.TenantId)
-                        .Where(t => !string.IsNullOrEmpty(t))
+                        .Where(t => !string.IsNullOrEmpty(t)
+                                    && !string.Equals(t, ctx.TenantId, StringComparison.OrdinalIgnoreCase))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToArray();
                     _logger.LogWarning(
-                        "[McpUsage] Blocked cross-tenant access: caller={Caller} callerTid={CallerTid} targetUser={UserId} foundTenants={Tenants}",
-                        ctx.UserPrincipalName, ctx.TenantId, userId, string.Join(",", foundTenants));
-
-                    var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await forbidden.WriteAsJsonAsync(new
-                    {
-                        error = "CrossTenantAccessDenied",
-                        message = "Access denied. You can only access usage for users in your own tenant."
-                    });
-                    return forbidden;
+                        "[McpUsage] Filtered cross-tenant usage rows: caller={Caller} callerTid={CallerTid} targetUser={UserId} dropped={Dropped} foreignTenants={Tenants}",
+                        ctx.UserPrincipalName, ctx.TenantId, userId, dropped, string.Join(",", foreignTenants));
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);

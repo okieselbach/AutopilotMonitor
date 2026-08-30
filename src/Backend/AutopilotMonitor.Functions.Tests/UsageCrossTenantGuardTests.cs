@@ -6,10 +6,13 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Unit tests for the cross-tenant guard on <c>GET /api/metrics/mcp-usage/user/{userId}</c>.
 ///
-/// Background: the route is catalog-policy <c>TenantAdminOrGA</c> with no <c>TenantScoping</c>
-/// (the path parameter is an Azure AD object id, not a tenant id). Without this guard, a tenant
-/// admin from tenant A could read MCP usage records of any oid — including oids in tenant B —
-/// because the function blindly hands the oid to <c>IUserUsageRepository.GetUsageByUserAsync</c>.
+/// Background: the route is catalog-policy <c>TenantAdminOrGlobalReader</c> with no
+/// <c>TenantScoping</c> (the path parameter is an Azure AD object id, not a tenant id). The
+/// function hands the oid to <c>IUserUsageRepository.GetUsageByUserAsync</c> and then projects
+/// the result down to the caller's tenant. Two invariants are pinned here:
+/// (1) a non-global caller never receives a row that is not attributed to their own tenant —
+/// foreign AND empty <c>TenantId</c> alike; (2) the projection is silent, so a foreign oid
+/// and an unknown oid both yield an empty set (no cross-tenant existence oracle).
 /// </summary>
 public class UsageCrossTenantGuardTests
 {
@@ -19,7 +22,7 @@ public class UsageCrossTenantGuardTests
     private static UserUsageRecord Rec(string tid, string endpoint = "ep") => new()
     {
         UserId = "oid-1",
-        UserPrincipalName = "alice@contoso.com",
+        UserPrincipalName = "alice@example.com",
         TenantId = tid,
         Endpoint = endpoint,
         Date = "20260505",
@@ -27,100 +30,93 @@ public class UsageCrossTenantGuardTests
     };
 
     [Fact]
-    public void OwnTenantOnly_NonGA_Allowed()
+    public void OwnTenantOnly_NonGlobal_AllReturned()
     {
         var records = new[] { Rec(TenantA), Rec(TenantA, "ep2") };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: false);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, TenantA, hasGlobalScope: false);
 
-        Assert.False(blocked);
+        Assert.Equal(2, visible.Count);
+        Assert.All(visible, r => Assert.Equal(TenantA, r.TenantId));
     }
 
     [Fact]
-    public void ForeignTenantOnly_NonGA_Blocked()
+    public void ForeignTenantOnly_NonGlobal_EmptyLikeUnknownOid()
     {
-        var records = new[] { Rec(TenantB), Rec(TenantB, "ep2") };
+        // Oracle closure: a foreign oid must look exactly like an oid with no usage at all.
+        var foreign = UsageCrossTenantGuard.FilterForCaller(new[] { Rec(TenantB), Rec(TenantB, "ep2") }, TenantA, hasGlobalScope: false);
+        var unknown = UsageCrossTenantGuard.FilterForCaller(Array.Empty<UserUsageRecord>(), TenantA, hasGlobalScope: false);
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: false);
-
-        Assert.True(blocked);
+        Assert.Empty(foreign);
+        Assert.Empty(unknown);
     }
 
     [Fact]
-    public void MixedTenants_NonGA_Blocked()
+    public void MixedTenants_NonGlobal_OnlyOwnRowsReturned()
     {
-        // Even one foreign record must trip the guard — a tenant admin must not see another tenant's row.
-        var records = new[] { Rec(TenantA), Rec(TenantB) };
+        var records = new[] { Rec(TenantA), Rec(TenantB), Rec(TenantA, "ep2") };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: false);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, TenantA, hasGlobalScope: false);
 
-        Assert.True(blocked);
+        Assert.Equal(2, visible.Count);
+        Assert.DoesNotContain(visible, r => string.Equals(r.TenantId, TenantB, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void ForeignTenant_GlobalAdmin_Allowed()
+    public void ForeignTenant_GlobalScope_AllReturned()
     {
-        // GA can see usage across all tenants.
-        var records = new[] { Rec(TenantB) };
+        // GA / Global Reader can see usage across all tenants — including unattributed rows.
+        var records = new[] { Rec(TenantB), Rec("") };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: true);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, TenantA, hasGlobalScope: true);
 
-        Assert.False(blocked);
+        Assert.Equal(2, visible.Count);
     }
 
     [Fact]
-    public void EmptyRecords_NonGA_Allowed()
+    public void NullRecords_ReturnsEmpty()
     {
-        // No records → caller learns nothing; safe to return 200 with empty list.
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(
-            Array.Empty<UserUsageRecord>(), TenantA, isGlobalAdmin: false);
-
-        Assert.False(blocked);
+        var visible = UsageCrossTenantGuard.FilterForCaller(null, TenantA, hasGlobalScope: false);
+        Assert.Empty(visible);
     }
 
     [Fact]
-    public void NullRecords_DoesNotThrow()
+    public void RecordWithEmptyTenantId_NonGlobal_Excluded()
     {
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(null!, TenantA, isGlobalAdmin: false);
-        Assert.False(blocked);
-    }
-
-    [Fact]
-    public void RecordWithEmptyTenantId_Ignored()
-    {
-        // Defensive: legacy records without TenantId must not be treated as a leak signal
-        // (they could belong to anyone). Other records still drive the decision.
+        // Tenant-less rows exist by construction (legacy rows without the TenantId column,
+        // tokens without a resolvable tid). They cannot be attributed to the caller's tenant,
+        // so a tenant admin of ANY tenant must not receive them.
         var records = new[]
         {
-            Rec(""),         // unknown tenant — ignored
-            Rec(TenantA),    // own tenant
+            Rec(""),         // unattributed — dropped
+            Rec(TenantA),    // own tenant — kept
         };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: false);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, TenantA, hasGlobalScope: false);
 
-        Assert.False(blocked);
+        Assert.Single(visible);
+        Assert.Equal(TenantA, visible[0].TenantId);
     }
 
     [Fact]
-    public void CallerTenantIdEmpty_NotBlocked()
+    public void CallerTenantIdEmpty_NonGlobal_ReturnsNothing()
     {
-        // Anonymous / device path scenarios shouldn't reach this code — but if they do,
-        // we don't synthesize a 403 from missing claims; let the catalog policy handle auth.
-        var records = new[] { Rec(TenantA) };
+        // A caller without a tid cannot own any row — fail closed rather than open.
+        var records = new[] { Rec(TenantA), Rec("") };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, "", isGlobalAdmin: false);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, "", hasGlobalScope: false);
 
-        Assert.False(blocked);
+        Assert.Empty(visible);
     }
 
     [Fact]
     public void TenantIdComparison_IsCaseInsensitive()
     {
-        // Azure AD tids are GUIDs; some sources upper-case them. Comparison must not flag those as foreign.
+        // Azure AD tids are GUIDs; some sources upper-case them. Comparison must not drop those as foreign.
         var records = new[] { Rec(TenantA.ToUpperInvariant()) };
 
-        var blocked = UsageCrossTenantGuard.IsForeignTenantAccess(records, TenantA, isGlobalAdmin: false);
+        var visible = UsageCrossTenantGuard.FilterForCaller(records, TenantA, hasGlobalScope: false);
 
-        Assert.False(blocked);
+        Assert.Single(visible);
     }
 }
