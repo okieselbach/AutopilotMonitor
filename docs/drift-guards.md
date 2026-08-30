@@ -1,14 +1,14 @@
 ---
 type: Concept
-title: Drift Guards — SignalR Names, RowKeys, Config Sections, Scoped Routing
-description: The 2026-08 fragility-audit follow-up contracts that turn formerly hand-synchronized mirrors into enforced ones — SignalR message-name catalog, the inverted-tick RowKey codec, tombstone table tagging, the OkAsync ratchet, per-section config PATCH, and the web's scoped-endpoint builders.
-resource: /src/Backend/AutopilotMonitor.Functions.Tests/OkAsyncBaselineGuardTests.cs
+title: Drift Guards — SignalR Names, RowKeys, Wire DTOs, Config Sections, Scoped Routing
+description: The 2026-08 fragility-audit follow-up contracts that turn formerly hand-synchronized mirrors into enforced ones — SignalR message-name catalog, the inverted-tick RowKey codec, tombstone table tagging, typed wire DTOs with generated TypeScript interfaces, per-section config PATCH, and the web's scoped-endpoint builders.
+resource: /src/Backend/AutopilotMonitor.Functions.Tests/TypedResponseGuardTests.cs
 tags:
   - contracts
   - guard-tests
   - signalr
   - web
-timestamp: 2026-08-13T00:00:00+02:00
+timestamp: 2026-08-31T00:00:00+02:00
 ---
 
 # Drift Guards
@@ -49,13 +49,44 @@ restore + dry-run); the historical `Contains('_')` RowKey-shape heuristic surviv
 solely as the fallback for manifests written before the field existed and must outlive
 one full manifest-retention cycle.
 
-## Anonymous OkAsync responses — frozen, shrink-only
+## Wire DTOs — generated interfaces, zero anonymous success bodies
 
-`OkAsyncBaselineGuardTests` freezes the 44 existing `req.OkAsync(new { … })` call
-sites as a per-file baseline. A new anonymous response (new file or count above
-baseline) fails; converting a site to a typed DTO (Shared response models, picked up
-by the manifest parity tests) fails too until its baseline entry is lowered — the debt
-list stays truthful and only ever shrinks.
+Every HTTP success body is a flat class in `AutopilotMonitor.Shared.Models`
+implementing the `IApiResponse` marker (2026-08-31, `feat/typed-api-contract` —
+migrated from the 44 `OkAsync(new { … })` + 134 raw `WriteAsJsonAsync(new { … })`
+sites the 2026-08-13 audit froze). Three layers enforce it:
+
+- **Compile time**: the only `OkAsync/CreatedAsync/JsonAsync` overloads constrain on
+  `IApiResponse` — an anonymous object cannot satisfy the constraint. Error bodies
+  (first key `error`/`message`, or literal `success = false`) stay anonymous by design.
+- **`TypedResponseGuardTests`** (successor of `OkAsyncBaselineGuardTests`): both
+  per-file baselines are EMPTY — any anonymous success body, through the helpers or
+  raw `WriteAsJsonAsync`, is a straight failure. A reflection fact keeps every
+  `IApiResponse` implementer flat (System.Text.Json serializes derived properties
+  before base ones — key order is wire contract; MCP hands raw JSON to an LLM) and
+  inside the Shared assembly.
+- **`*WireParityTests`**: each migrated site carries an ordinal old-anonymous-literal
+  vs. new-DTO serialization proof (production `ApiJsonOptions`), including a null case
+  per key that WhenWritingNull omits.
+
+The DTO rules: declaration order == wire order; a property is nullable exactly when a
+site can emit null (the key then vanishes — never add non-null defaults that would
+invent a key); preformatted strings (`.ToString("o")`, enum `.ToString()`) stay
+`string`; `fields=` projections stay `IReadOnlyList<object>` tagged
+`[ProjectedItems(typeof(Item))]`; raw table rows stay verbatim-keyed dictionaries
+(no `DictionaryKeyPolicy` — dictionary KEYS never run through the camelCase policy,
+and dictionary VALUES keep explicit nulls, both pinned by tests).
+
+`SharedManifestParityTests` (schemaVersion 2) reflects the full graph — every
+`IApiResponse` implementer plus `[WireContract]`-marked payload types, transitively
+closed by `WireTypeManifestBuilder` — into the `types` section of
+`shared-manifests.json`, carrying C# `<summary>` texts. The web codegen
+(`npm run generate:manifests`) emits `utils/wire-types.generated.ts` (one interface
+per object, one string union per enum, JSDoc from the summaries); the hand-written
+`types/session.ts` / `types/enrollment.ts` / `types/adminConfig.ts` re-export from
+it. Freshness is pinned by the vitest suite and the `shared-manifests-in-sync` CI
+job. Unmappable shapes (non-string dictionary keys, foreign BCL classes) fail the
+manifest build instead of degrading to `unknown`.
 
 ## Tenant settings — per-section PATCH
 
@@ -100,7 +131,9 @@ list in `sectionFieldMap.test.ts`.
 - `src/Shared/AutopilotMonitor.Shared/Constants.cs` — SignalRMessages catalog
 - `src/Backend/AutopilotMonitor.Functions/Helpers/RowKeyCodec.cs` + `RowKeyCodecTests.cs`
 - `src/Shared/AutopilotMonitor.Shared/Models/Deletion/DeletionManifest.cs` — `DeletionRowDump.Table`, `DeletionTombstoneTables`
-- `src/Backend/AutopilotMonitor.Functions.Tests/OkAsyncBaselineGuardTests.cs`
+- `src/Backend/AutopilotMonitor.Functions.Tests/TypedResponseGuardTests.cs` + `WireTypeManifestBuilder.cs` + the `*WireParityTests` files
+- `src/Shared/AutopilotMonitor.Shared/Models/CommonApiModels.cs` — `IApiResponse`, `[WireContract]`, `[ProjectedItems]`
+- `src/Web/autopilot-monitor-web/utils/wire-types.generated.ts` (via `scripts/generate-shared-manifest-types.js`)
 - `src/Web/autopilot-monitor-web/app/settings/sectionFieldMap.ts` + `__tests__/sectionFieldMap.test.ts`
 - `src/Web/autopilot-monitor-web/lib/scopedApi.ts`, `lib/navVisibility.ts`, `hooks/concreteAdminScopeView.ts`
 - [Version Contract](versioning.md) — the web `/version.json` stamp + deploy verify added in the same round

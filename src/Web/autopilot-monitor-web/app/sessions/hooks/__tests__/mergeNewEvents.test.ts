@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mergeNewEvents } from "../useSessionEvents";
 import { EnrollmentEvent } from "@/types";
+import { makeEvent } from "@/test/factories";
 
 /**
  * mergeNewEvents underpins the timeline's scroll stability: it must keep the
@@ -9,18 +10,13 @@ import { EnrollmentEvent } from "@/types";
  */
 
 function ev(sequence: number, overrides: Partial<EnrollmentEvent> = {}): EnrollmentEvent {
-  return {
-    eventId: overrides.eventId ?? `evt-${sequence}`,
-    sessionId: overrides.sessionId ?? "session-1",
-    timestamp: overrides.timestamp ?? "2026-06-08T10:00:00Z",
-    eventType: overrides.eventType ?? "info_event",
-    severity: overrides.severity ?? "Info",
-    source: overrides.source ?? "Test",
-    phase: overrides.phase ?? 0,
-    message: overrides.message ?? `event ${sequence}`,
+  return makeEvent({
+    eventId: `evt-${sequence}`,
+    timestamp: "2026-06-08T10:00:00Z",
+    message: `event ${sequence}`,
     sequence,
     ...overrides,
-  };
+  });
 }
 
 describe("mergeNewEvents", () => {

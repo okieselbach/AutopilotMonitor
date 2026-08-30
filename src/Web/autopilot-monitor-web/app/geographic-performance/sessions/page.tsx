@@ -15,44 +15,15 @@ import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { CalculatingCard } from "@/components/CalculatingCard";
+import type { LocationSessionRow } from "@/utils/wire-types.generated";
 
 // A cross-tenant drilldown can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
 const GEO_FETCH_TIMEOUT_MS = 180_000;
 
-interface SessionSummary {
-  sessionId: string;
-  tenantId: string;
-  serialNumber: string;
-  deviceName: string;
-  manufacturer: string;
-  model: string;
-  startedAt: string;
-  completedAt: string | null;
-  status: string;
-  failureReason: string | null;
-  /** Succeeded despite an unresolved ESP failure (Continue-Anyway) — amber "with issues" badge. */
-  espSoftFailure?: boolean;
-  durationSeconds: number | null;
-  enrollmentType: string;
-  /** Session-wide average agent→backend HTTP round-trip (ms); absent for pre-feature agents. */
-  avgApiLatencyMs?: number;
-  /** Number of HTTP requests behind avgApiLatencyMs. */
-  apiRequestCount?: number;
-  // Per-session Delivery Optimization aggregate (added by geographic drilldown endpoint)
-  hasDoTelemetry?: boolean;
-  doAppCount?: number;
-  totalAppCount?: number;
-  doPercentPeerCaching?: number;
-  doBytesFromPeers?: number;
-  doBytesFromHttp?: number;
-  doTotalBytesDownloaded?: number;
-  doBytesFromLanPeers?: number;
-  doBytesFromGroupPeers?: number;
-  doBytesFromInternetPeers?: number;
-  doBytesFromLinkLocalPeers?: number;
-  doBytesFromCacheServer?: number;
-}
+// The generated LocationSessionRow is the real wire type of this drilldown endpoint —
+// SessionSummary plus the per-session Delivery Optimization aggregate.
+type SessionSummary = LocationSessionRow;
 
 const formatBytes = (bytes: number) => {
   if (!bytes || bytes <= 0) return "—";
@@ -67,7 +38,7 @@ interface LocationSessionsResponse {
   totalCount: number;
 }
 
-function formatDuration(seconds: number | null): string {
+function formatDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
   const mins = Math.round(seconds / 60);
   if (mins < 60) return `${mins} min`;

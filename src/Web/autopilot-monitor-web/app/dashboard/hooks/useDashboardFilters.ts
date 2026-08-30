@@ -169,7 +169,7 @@ export function useDashboardFilters({
       if (durationMatch) {
         const operator = durationMatch[1];
         const value = parseInt(durationMatch[2]);
-        const durationMinutes = Math.round(session.durationSeconds / 60);
+        const durationMinutes = Math.round((session.durationSeconds ?? 0) / 60);
 
         if (operator === ">") return durationMinutes > value;
         if (operator === ">=") return durationMinutes >= value;
@@ -185,7 +185,7 @@ export function useDashboardFilters({
         session.status,
         session.sessionId,
         new Date(session.startedAt).toLocaleString(),
-        `${Math.round(session.durationSeconds / 60)} min`,
+        `${Math.round((session.durationSeconds ?? 0) / 60)} min`,
         blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) ? "blocked" : "",
         session.geoCountry,
         session.geoRegion,

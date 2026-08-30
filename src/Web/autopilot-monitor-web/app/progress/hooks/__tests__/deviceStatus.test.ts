@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeDeviceStatus } from "../deviceStatus";
 import { EnrollmentEvent } from "@/types";
+import { makeEvent } from "@/test/factories";
 
 /**
  * computeDeviceStatus feeds the progress page's taskbar-style power/network
@@ -14,18 +15,17 @@ function ev(
   eventType: string,
   data?: Record<string, unknown>,
 ): EnrollmentEvent {
-  return {
+  return makeEvent({
     eventId: `evt-${sequence}`,
-    sessionId: "session-1",
     timestamp: "2026-08-21T10:00:00Z",
     eventType,
-    severity: "Info",
-    source: "Test",
     phase: 2,
     message: `event ${sequence}`,
     sequence,
+    // Deliberately undefined when omitted — the "ignores events without a data
+    // payload" test pins the legacy-event tolerance of computeDeviceStatus.
     data,
-  };
+  });
 }
 
 describe("computeDeviceStatus", () => {

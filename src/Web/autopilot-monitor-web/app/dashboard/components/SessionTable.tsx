@@ -948,7 +948,7 @@ function SessionCell({
       return (
         <td className="relative px-3 py-4 whitespace-nowrap text-sm text-gray-500">
           <RowLinkOverlay href={href} session={session} />
-          {Math.round(session.durationSeconds / 60)} min
+          {Math.round((session.durationSeconds ?? 0) / 60)} min
         </td>
       );
 

@@ -1,18 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
+import { partitionHistoricReplayEvents, type ReplayInputEvent } from "@/lib/historicReplay";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
 
-interface DownloadEvent {
-  timestamp: string;
-  eventType?: string;
-  data?: Record<string, unknown>;
-}
+// Same minimal structural event view every replay-aware panel uses.
+type DownloadEvent = ReplayInputEvent;
 
 // Minimal structural view of the event-data payload: only the fields this panel reads
 // are declared (the agent serializes them as strings); everything else stays `unknown`

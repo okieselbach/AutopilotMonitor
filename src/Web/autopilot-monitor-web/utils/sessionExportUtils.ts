@@ -3,22 +3,12 @@
  * Used by both the admin-config SessionExportSection and the session report modal.
  */
 
-export interface SessionExportEvent {
-  eventId: string;
-  sessionId: string;
-  tenantId: string;
-  timestamp: string;
-  eventType: string;
-  severity: string;
-  source: string;
-  phase: number;
-  phaseName?: string;
-  message: string;
-  sequence: number;
-  rowKey?: string;
-  receivedAt?: string;
-  data?: Record<string, unknown>;
-}
+import type { EnrollmentEvent, RuleResult } from "@/types/enrollment";
+
+// The export event IS the wire event — the name survives for the existing importers.
+// Every field access below stays null-tolerant (`?? ""`) because exports also run over
+// legacy/partial event payloads.
+export type SessionExportEvent = EnrollmentEvent;
 
 export const EXPORT_V1_PHASE_NAMES: Record<number, string> = {
   0: "Start", 1: "Device Preparation", 2: "Device Setup",
@@ -114,7 +104,8 @@ export interface SessionCsvData {
   eventCount: number;
   failureReason?: string;
   lastEventAt?: string;
-  durationSeconds: number;
+  /** Optional like the wire SessionSummary field (missing while a session is running). */
+  durationSeconds?: number;
   diagnosticsBlobName?: string;
   rebootCount?: number;
   failureSource?: string;
@@ -185,21 +176,24 @@ export function generateSessionCsvExport(session: SessionCsvData): string {
   return "\uFEFF" + header + "\n" + row;
 }
 
-export interface RuleResultCsvData {
-  resultId: string;
-  sessionId: string;
-  tenantId: string;
-  ruleId: string;
-  ruleTitle: string;
-  severity: string;
-  category: string;
-  confidenceScore: number;
-  explanation: string;
-  remediation: { title: string; steps: string[] }[];
-  relatedDocs: { title: string; url: string }[];
-  matchedConditions: Record<string, unknown>;
-  detectedAt: string;
-}
+// Exactly the RuleResult wire fields this export renders — derived so the shapes can
+// never drift apart. The CSV columns/format below are unchanged.
+export type RuleResultCsvData = Pick<
+  RuleResult,
+  | "resultId"
+  | "sessionId"
+  | "tenantId"
+  | "ruleId"
+  | "ruleTitle"
+  | "severity"
+  | "category"
+  | "confidenceScore"
+  | "explanation"
+  | "remediation"
+  | "relatedDocs"
+  | "matchedConditions"
+  | "detectedAt"
+>;
 
 export function generateRuleResultsCsvExport(results: RuleResultCsvData[]): string {
   // Columns match the RuleResults Azure Table Storage schema exactly

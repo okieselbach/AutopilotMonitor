@@ -5,13 +5,10 @@
  * mapping can be unit-tested without React Testing Library.
  */
 import { extractBootstrapVersion } from "@/utils/bootstrapVersion";
-import { HISTORIC_REPLAY_THRESHOLD_MS, partitionHistoricReplayEvents } from "./historicReplay";
+import { HISTORIC_REPLAY_THRESHOLD_MS, partitionHistoricReplayEvents, type ReplayInputEvent } from "./historicReplay";
 
-export interface ScriptInputEvent {
-  timestamp: string;
-  eventType?: string;
-  data?: Record<string, unknown>;
-}
+// Same minimal structural event view every replay-aware panel uses.
+export type ScriptInputEvent = ReplayInputEvent;
 
 // Minimal structural view of the event-data payload: only the fields the reducer reads
 // in a typed position are declared (the agent serializes them as strings); numeric-ish

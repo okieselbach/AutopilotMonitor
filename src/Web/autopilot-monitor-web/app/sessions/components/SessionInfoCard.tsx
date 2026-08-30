@@ -69,7 +69,7 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
           value={
             standbySeconds && standbySeconds >= 60 ? (
               <span>
-                {enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`}
+                {enrollmentDuration ?? `${Math.round((session.durationSeconds ?? 0) / 60)} min`}
                 <span
                   className="text-indigo-600 font-normal"
                   title={`The device spent ${formatStandby(standbySeconds)} asleep (standby/hibernate) during this window — the wall-clock duration includes that pause. Subtract it for the active enrollment time.`}
@@ -78,7 +78,7 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
                 </span>
               </span>
             ) : (
-              enrollmentDuration ?? `${Math.round(session.durationSeconds / 60)} min`
+              enrollmentDuration ?? `${Math.round((session.durationSeconds ?? 0) / 60)} min`
             )
           }
           tooltip={lastContactTooltip}

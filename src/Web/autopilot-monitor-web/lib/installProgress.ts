@@ -2,11 +2,10 @@
 // event-folding rules (state precedence, out-of-order delivery, source separation) are
 // unit-testable without rendering.
 
-export interface InstallEvent {
-  timestamp: string;
-  eventType?: string;
-  data?: Record<string, unknown>;
-}
+import type { ReplayInputEvent } from "./historicReplay";
+
+// Same minimal structural event view every replay-aware panel uses.
+export type InstallEvent = ReplayInputEvent;
 
 // Minimal structural view of the event-data payload: only the fields this aggregation
 // reads are declared (the agent serializes them as strings); everything else stays

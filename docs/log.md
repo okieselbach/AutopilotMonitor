@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-31 (1)
+
+* **Update**: `drift-guards.md` — the shrink-only OkAsync baseline became the typed API contract (`feat/typed-api-contract`): all 175 anonymous success bodies (44 helper + 134 raw minus overlaps already typed) are flat `IApiResponse` DTOs in Shared, both `TypedResponseGuardTests` baselines are empty regression guards, the untyped `OkAsync/CreatedAsync(object)` overloads are gone, and every migrated site carries an ordinal wire-parity proof. `SharedManifestParityTests` schemaVersion 2 exports the full type graph (208 types incl. `[WireContract]` extras) with C# `<summary>` JSDoc into `utils/wire-types.generated.ts`; web hand-types re-export from it; freshness pinned by vitest + the new `shared-manifests-in-sync` CI job.
+
 ## 2026-08-30 (15)
 
 * **Update**: `backend/lifecycle-manifests-and-session-scope.md` — SessionTenantLookup is now claimed first-writer-wins at registration (create-only Add BEFORE any session write; foreign owner ⇒ 409 `session_owner_mismatch` + `SessionTenantConflict` ops event, nothing written; not fail-soft). Closes the poisoning path where any tenant's device could re-point a victim sessionId's mapping at its own tenant and hijack every no-tenantId Global Admin/Reader read and GA write (annotation lane). `ResolveSessionScopeAsync(requireGlobalAdmin: true)` corroborates the resolved tenant against its Sessions row (silent — no operator confirmation). Self-heal write is Add-only; `scripts/Migration/Backfill-SessionTenantLookup.ps1` closes the legacy window once. No tombstone on deletion (deliberate: unbounded growth for no gain).
