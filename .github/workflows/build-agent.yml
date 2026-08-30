@@ -76,12 +76,23 @@ jobs:
       - name: Reserve build number (counter blob CAS)
         id: version
         shell: pwsh
+        # Input and secret reach the script only as environment variables, never as script
+        # text: ${{ }} is substituted before pwsh parses the block, so a crafted
+        # build_number could otherwise break out of the quotes and run arbitrary code.
+        env:
+          BUILD_NUMBER_OVERRIDE: ${{ inputs.build_number }}
+          AGENT_SAS_TOKEN: ${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}
         run: |
           $override = 0
-          if ('${{ inputs.build_number }}' -ne '') { $override = [int]'${{ inputs.build_number }}' }
+          if ($env:BUILD_NUMBER_OVERRIDE -ne '') {
+            if ($env:BUILD_NUMBER_OVERRIDE -notmatch '^\d+$') {
+              throw "build_number must be a positive integer, got '$($env:BUILD_NUMBER_OVERRIDE)'"
+            }
+            $override = [int]$env:BUILD_NUMBER_OVERRIDE
+          }
 
           $counterUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent/buildcounter-v$($env:LINE_MAJOR).txt"
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl $counterUrl -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' -Override $override
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl $counterUrl -SasToken $env:AGENT_SAS_TOKEN -Override $override
 
           $csproj = Get-Content $env:CSPROJ_PATH -Raw
           if ($csproj -match '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
