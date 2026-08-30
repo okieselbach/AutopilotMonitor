@@ -878,10 +878,15 @@ namespace AutopilotMonitor.Functions.Services
 
         public Task RecordSlaBreachNotificationAsync(string tenantId, string breachType,
             double currentRate, double targetRate, int totalSessions, int failedSessions)
-            => WriteAsync(OpsEventCategory.Sla, "SlaBreachNotification", OpsEventSeverity.Warning,
-                $"SLA breach notification sent for tenant {tenantId}: {breachType} {currentRate:F1}% (target {targetRate:F1}%)",
+        {
+            // Duration breaches carry the P95 in minutes, every other type a percentage — same units the
+            // customer-facing alert (NotificationAlertBuilder.BuildSlaBreachAlert) prints.
+            var unit = breachType == Shared.Models.SlaBreachType.Duration ? " min" : "%";
+            return WriteAsync(OpsEventCategory.Sla, "SlaBreachNotification", OpsEventSeverity.Warning,
+                $"SLA breach notification sent for tenant {tenantId}: {breachType} {currentRate:F1}{unit} (target {targetRate:F1}{unit})",
                 tenantId, "System.SlaEvaluation",
                 new { breachType, currentRate, targetRate, totalSessions, failedSessions });
+        }
 
         public Task RecordSlaConsecutiveFailuresAsync(string tenantId, int count, string? lastDevice, string? lastReason)
             => WriteAsync(OpsEventCategory.Sla, "SlaConsecutiveFailures", OpsEventSeverity.Error,
