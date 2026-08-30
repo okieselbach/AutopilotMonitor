@@ -145,6 +145,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             // agent-sent value unconditionally — this is the server's verdict, not input.
             registration.ValidatedBy = validation.ValidatedBy;
 
+            // Device-supplied session anchor: clamp before ANY consumer sees it. StartedAt drives the
+            // SessionsIndex RowKey (list order), the retention filter ("StartedAt lt cutoff"), the
+            // TotalToday window and the supersede-predecessor comparison below — a far-future value
+            // would pin the row at the head of every list, inflate today's counters forever and
+            // never become a retention candidate. Same skew policy as event timestamps
+            // (EventTimestampValidator: +24h / -168h, clamped to server time, not rejected).
+            ClampStartedAt(registration, DateTime.UtcNow, _logger);
+
             // Cascade-delete guard (Codex F2/F3 + bootstrap follow-up): live HERE in the shared
             // core so BOTH the cert-auth /agent/register-session entry AND the bootstrap wrapper
             // (BootstrapRegisterSessionFunction) hit it before the StoreSessionAsync below.
@@ -408,6 +416,30 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         /// 410 Gone response for the cascade-delete guard. Mirrors the V2 ingest 410 contract so
         /// the agent treats register and telemetry uniformly when a session is being deleted.
         /// </summary>
+        /// <summary>
+        /// Clamps <see cref="SessionRegistration.StartedAt"/> to the same plausibility window
+        /// events get (<see cref="EventTimestampValidator.SanitizeTimestamp"/>): outside
+        /// [utcNow − 168h, utcNow + 24h] the anchor becomes the server receive time. Runs in the
+        /// shared core so the cert-auth and the bootstrap entry are covered alike. A re-registration
+        /// of an existing session keeps the earlier stored anchor regardless (StoreSessionAsync
+        /// takes the minimum), so a legitimately old WhiteGlove Part-2 resume is not moved.
+        /// </summary>
+        internal static void ClampStartedAt(SessionRegistration registration, DateTime utcNow, ILogger logger)
+        {
+            var original = registration.StartedAt;
+            var sanitized = EventTimestampValidator.SanitizeTimestamp(original, utcNow);
+            if (sanitized == EventTimestampValidator.EnsureUtc(original))
+            {
+                registration.StartedAt = sanitized;
+                return;
+            }
+
+            logger.LogWarning(
+                "Session {SessionId} (tenant {TenantId}): registration StartedAt {OriginalStartedAt:o} is outside the plausible window around server time {UtcNow:o} — clamped to server time",
+                registration.SessionId, registration.TenantId, original, utcNow);
+            registration.StartedAt = sanitized;
+        }
+
         private static async Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
         {
             var response = req.CreateResponse(HttpStatusCode.Gone);
