@@ -98,6 +98,24 @@ namespace AutopilotMonitor.Functions.Services.Ime
         /// <summary>Blob folder name = version — must be plain dotted digits (untrusted input).</summary>
         internal static readonly Regex VersionRegex = new(@"^\d+(\.\d+){1,3}$", RegexOptions.Compiled);
 
+        /// <summary>
+        /// The version guard for everything keyed by a device-reported IME version: the
+        /// GLOBAL <c>ImeVersionHistory</c> row (RowKey), the ops event and the archive folder.
+        /// Plain dotted digits with 2–4 components (<see cref="VersionRegex"/>), and every
+        /// component inside the range a Windows Installer package can actually carry as its
+        /// <c>ProductVersion</c> (major/minor ≤ 255, build ≤ 65535; the fourth field is
+        /// ignored by MSI, bounded to 65535 here so a 20-digit tail cannot pass either).
+        /// A string that fails this can never be the ProductVersion of a real IME package,
+        /// so nothing downstream should exist for it.
+        /// </summary>
+        public static bool IsPlausibleVersion(string? version)
+        {
+            if (string.IsNullOrEmpty(version) || version.Length > 20) return false;
+            if (!VersionRegex.IsMatch(version)) return false;
+            if (!Version.TryParse(version, out var v)) return false;
+            return v.Major <= 255 && v.Minor <= 255 && v.Build <= 65535 && v.Revision <= 65535;
+        }
+
         private readonly HttpClient _httpClient;
         private readonly BlobStorageService _blobStorage;
         private readonly AdminConfigurationService _adminConfigService;
@@ -189,7 +207,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
         public static bool ShouldRequeueOnSighting(
             ImeVersionSighting? sighting, string? msiDownloadUrl, string? msiMatchedBy, DateTime nowUtc)
         {
-            if (sighting is null || sighting.IsNew) return false;
+            if (sighting is null || sighting.IsNew || sighting.Rejected) return false;
             if (!IsAllowedMsiUrl(msiDownloadUrl)) return false;
             if (!string.Equals(msiMatchedBy, MatchedByProductVersion, StringComparison.OrdinalIgnoreCase)) return false;
 
@@ -204,7 +222,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
         public virtual async Task<ImeMsiArchiveResult> ArchiveAsync(
             ImeMsiArchiveEnvelope envelope, CancellationToken cancellationToken = default)
         {
-            if (envelope is null || !VersionRegex.IsMatch(envelope.Version ?? string.Empty))
+            if (envelope is null || !IsPlausibleVersion(envelope.Version))
             {
                 _logger.LogWarning(
                     "ImeMsiArchiver: rejecting version {Version} — not a plain dotted version string",

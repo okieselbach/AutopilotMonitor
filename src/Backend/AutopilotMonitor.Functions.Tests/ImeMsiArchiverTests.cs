@@ -155,6 +155,41 @@ public class ImeMsiArchiverTests
         Assert.Equal(0, archiver.DownloadCalls + archiver.UploadCalls);
     }
 
+    /// <summary>
+    /// The same guard gates the GLOBAL ImeVersionHistory row (RecordImeVersionAsync) — a
+    /// device-reported string that cannot be a Windows Installer ProductVersion must create
+    /// nothing anywhere. MSI bounds: major/minor ≤ 255, build ≤ 65535.
+    /// </summary>
+    [Theory]
+    [InlineData("1.105.103.0", true)]
+    [InlineData("1.105.103", true)]
+    [InlineData("1.0", true)]
+    [InlineData("1.86.999.0", true)]           // plausible future build — only the archiver's ProductVersion check can refute it
+    [InlineData("1", false)]                    // single component
+    [InlineData("1.86.999999.0", false)]        // build > 65535
+    [InlineData("256.1.1.0", false)]            // major > 255
+    [InlineData("1.256.1.0", false)]            // minor > 255
+    [InlineData("1.1.1.99999", false)]          // revision > 65535
+    [InlineData("1.104.102.0.1", false)]
+    [InlineData("1.104../escape", false)]
+    [InlineData("<script>", false)]
+    [InlineData("1.105.103.0 ", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsPlausibleVersion_cases(string? version, bool expected)
+    {
+        Assert.Equal(expected, ImeMsiArchiver.IsPlausibleVersion(version));
+    }
+
+    [Fact]
+    public void ShouldRequeueOnSighting_RejectedSighting_False()
+    {
+        // A rejected string has no row; an "unarchived" (null) status must not read as "re-queue".
+        var rejected = new ImeVersionSighting { Rejected = true };
+
+        Assert.False(ImeMsiArchiver.ShouldRequeueOnSighting(rejected, HotfixUrl, "productVersion", DateTime.UtcNow));
+    }
+
     // =========================================================================
     // URL selection + version verification
     // =========================================================================

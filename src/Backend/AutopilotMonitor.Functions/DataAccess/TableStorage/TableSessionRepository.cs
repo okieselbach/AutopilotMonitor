@@ -152,7 +152,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string? country, string? region, string? city, string? loc)
             => _storage.UpdateSessionGeoAsync(tenantId, sessionId, country, region, city, loc);
 
-        public Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version)
+        public Task<bool> UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version)
             => _storage.UpdateSessionImeAgentVersionAsync(tenantId, sessionId, version);
 
         public Task UpdateSessionNetworkLatencyAsync(string tenantId, string sessionId,

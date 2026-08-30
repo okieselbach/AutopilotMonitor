@@ -118,13 +118,78 @@ public class UpdateSessionImeAgentVersionTests
         // No exception thrown.
     }
 
+    // =========================================================================
+    // Sighting signal: the return value is what makes a session count ONCE in the
+    // global ImeVersionHistory (SessionCount / IsNew) — a device re-sending the event
+    // for the same version must not move the global counters again.
+    // =========================================================================
+
+    [Fact]
+    public async Task UpdateSessionImeAgentVersionAsync_returns_true_when_version_is_new_for_the_session()
+    {
+        var harness = new Harness();
+
+        Assert.True(await harness.Sut.UpdateSessionImeAgentVersionAsync(TenantId, SessionId, "1.2.3.4"));
+    }
+
+    [Fact]
+    public async Task UpdateSessionImeAgentVersionAsync_returns_true_when_version_changed()
+    {
+        var harness = new Harness(currentVersion: "1.2.3.3");
+
+        Assert.True(await harness.Sut.UpdateSessionImeAgentVersionAsync(TenantId, SessionId, "1.2.3.4"));
+    }
+
+    [Fact]
+    public async Task UpdateSessionImeAgentVersionAsync_returns_false_and_writes_nothing_when_unchanged()
+    {
+        var harness = new Harness(currentVersion: "1.2.3.4");
+
+        Assert.False(await harness.Sut.UpdateSessionImeAgentVersionAsync(TenantId, SessionId, "1.2.3.4"));
+
+        harness.Sessions.Verify(t => t.UpdateEntityAsync(
+            It.IsAny<ITableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        harness.Index.Verify(t => t.UpdateEntityAsync(
+            It.IsAny<ITableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateSessionImeAgentVersionAsync_returns_false_when_row_is_absent()
+    {
+        // Tombstoned / never-registered session: no sighting for the global history either.
+        var harness = new Harness();
+        harness.Sessions
+            .Setup(t => t.GetEntityAsync<TableEntity>(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RequestFailedException(404, "Not Found"));
+
+        Assert.False(await harness.Sut.UpdateSessionImeAgentVersionAsync(TenantId, SessionId, "1.2.3.4"));
+
+        harness.Sessions.Verify(t => t.UpdateEntityAsync(
+            It.IsAny<ITableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateSessionImeAgentVersionAsync_returns_true_on_unknown_storage_error()
+    {
+        // Unknown outcome counts as a sighting — a transient 503 must never drop a genuinely new version.
+        var harness = new Harness();
+        harness.Sessions
+            .Setup(t => t.UpdateEntityAsync(It.IsAny<ITableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new RequestFailedException(503, "ServiceUnavailable"));
+
+        Assert.True(await harness.Sut.UpdateSessionImeAgentVersionAsync(TenantId, SessionId, "1.2.3.4"));
+    }
+
     private sealed class Harness
     {
         public Mock<TableClient> Sessions { get; }
         public Mock<TableClient> Index { get; }
         public TableStorageService Sut { get; }
 
-        public Harness(string? indexRowKey = IndexRowKey)
+        public Harness(string? indexRowKey = IndexRowKey, string? currentVersion = null)
         {
             Sessions = new Mock<TableClient>();
             Index = new Mock<TableClient>();
@@ -133,10 +198,13 @@ public class UpdateSessionImeAgentVersionTests
                 .Setup(t => t.UpdateEntityAsync(It.IsAny<ITableEntity>(), It.IsAny<ETag>(), It.IsAny<TableUpdateMode>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Mock.Of<Response>());
 
-            // Re-read for IndexRowKey (select projection) after the Sessions write.
+            // Point read (select projection) before the Sessions write: current ImeAgentVersion
+            // decides whether this is a sighting, IndexRowKey feeds the SessionsIndex mirror.
             var indexRef = new TableEntity(TenantId, SessionId);
             if (!string.IsNullOrEmpty(indexRowKey))
                 indexRef["IndexRowKey"] = indexRowKey;
+            if (!string.IsNullOrEmpty(currentVersion))
+                indexRef["ImeAgentVersion"] = currentVersion;
             Sessions
                 .Setup(t => t.GetEntityAsync<TableEntity>(TenantId, SessionId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Response.FromValue(indexRef, Mock.Of<Response>()));

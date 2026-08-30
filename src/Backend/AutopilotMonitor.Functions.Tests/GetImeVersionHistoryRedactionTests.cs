@@ -123,11 +123,105 @@ public class GetImeVersionHistoryRedactionTests
         Assert.Equal(
             new[]
             {
-                "firstSeenAt", "firstSeenSessionId", "firstSeenTenantId", "lastSeenAt",
+                "corroboratedAt", "firstSeenAt", "firstSeenSessionId", "firstSeenTenantId", "lastSeenAt",
                 "msiArchiveBlobPath", "msiArchiveStatus", "msiArchiveUpdatedAt", "msiBytes", "msiSha256", "msiSourceUrl",
                 "sessionCount", "version",
             },
             keys);
+    }
+
+    // =========================================================================
+    // Fleet confirmation — what a tenant member may see at all
+    // =========================================================================
+    //
+    // A row exists for whatever string a device reports (guarded for plausibility only).
+    // One tenant's device must not be able to publish an unverified "version" into every
+    // other tenant's rollout view, so the MemberRead projection lists a version only once
+    // the installer was archived with a matching ProductVersion, a second tenant reported
+    // it, or the row predates the guard. Global scope sees every row — including the ones
+    // that need investigating.
+
+    private static readonly DateTime AfterCutoff = GetImeVersionHistoryFunction.LegacyTrustCutoffUtc.AddDays(1);
+
+    private static ImeVersionHistoryEntry Unconfirmed() =>
+        new() { Version = "1.86.999.0", FirstSeenAt = AfterCutoff, LastSeenAt = AfterCutoff, SessionCount = 1 };
+
+    [Fact]
+    public void NonGlobalCaller_DoesNotSeeAnUnconfirmedVersion()
+    {
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: false, Unconfirmed()));
+
+        Assert.Equal(0, doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void GlobalCaller_SeesAnUnconfirmedVersion()
+    {
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: true, Unconfirmed()));
+
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        Assert.Equal("1.86.999.0", doc.RootElement[0].GetProperty("version").GetString());
+    }
+
+    [Fact]
+    public void NonGlobalCaller_SeesAVersion_OnceItsInstallerIsArchived()
+    {
+        var entry = Unconfirmed();
+        entry.MsiArchiveStatus = "Archived";
+
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: false, entry));
+
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("Queued")]
+    [InlineData("Failed:VersionMismatch")]
+    [InlineData("Failed:Download")]
+    public void NonGlobalCaller_DoesNotSeeAVersion_WhoseArchiveIsNotConfirmed(string status)
+    {
+        var entry = Unconfirmed();
+        entry.MsiArchiveStatus = status;
+
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: false, entry));
+
+        Assert.Equal(0, doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void NonGlobalCaller_SeesAVersion_OnceASecondTenantReportedIt()
+    {
+        var entry = Unconfirmed();
+        entry.CorroboratedAt = AfterCutoff.AddHours(2);
+
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: false, entry));
+
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void NonGlobalCaller_SeesLegacyRows_ThatPredateTheGuard()
+    {
+        var entry = Unconfirmed();
+        entry.FirstSeenAt = GetImeVersionHistoryFunction.LegacyTrustCutoffUtc.AddSeconds(-1);
+
+        using var doc = JsonDocument.Parse(SerializeFor(hasGlobalScope: false, entry));
+
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public void NonGlobalCaller_FilterKeepsOrderOfTheRemainingRows()
+    {
+        var newest = MakeEntry("1.103.101.0", First);
+        var bogus = Unconfirmed();
+        var older = MakeEntry("1.101.111.0", First.AddDays(-48));
+
+        using var doc = JsonDocument.Parse(SerializeFor(false, newest, bogus, older));
+
+        Assert.Equal(2, doc.RootElement.GetArrayLength());
+        Assert.Equal("1.103.101.0", doc.RootElement[0].GetProperty("version").GetString());
+        Assert.Equal("1.101.111.0", doc.RootElement[1].GetProperty("version").GetString());
     }
 
     // =========================================================================

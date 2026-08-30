@@ -3066,11 +3066,22 @@ namespace AutopilotMonitor.Functions.Services
         /// the correct no-op outcome.
         /// </para>
         /// </summary>
-        public async Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version)
+        public async Task<bool> UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+
+                // One point read serves two purposes: the current version decides whether this
+                // batch is a NEW sighting for the session (the agent re-sends ime_agent_version
+                // per IME log pass, and a device could replay it at will — the global history's
+                // SessionCount must not move for the same session twice), and IndexRowKey is
+                // needed for the SessionsIndex mirror below. 404 → row absent → no-op.
+                var current = await tableClient.GetEntityAsync<TableEntity>(
+                    tenantId, sessionId, select: new[] { "IndexRowKey", "ImeAgentVersion" });
+                if (string.Equals(current.Value.GetString("ImeAgentVersion"), version, StringComparison.Ordinal))
+                    return false;
+
                 var entity = new TableEntity(tenantId, sessionId)
                 {
                     ["ImeAgentVersion"] = version
@@ -3080,25 +3091,27 @@ namespace AutopilotMonitor.Functions.Services
                 // Mirror to SessionsIndex — ImeAgentVersion is a search-filterable index column
                 // (search/MCP push an OData filter on it against the index), so it must be kept in
                 // sync or the filter matches nothing and the listed value is always empty.
-                var idxRef = await tableClient.GetEntityAsync<TableEntity>(
-                    tenantId, sessionId, select: new[] { "IndexRowKey" });
-                var indexRowKey = idxRef.Value.GetString("IndexRowKey");
+                var indexRowKey = current.Value.GetString("IndexRowKey");
                 if (!string.IsNullOrEmpty(indexRowKey))
                 {
                     await MergeSessionIndexAsync(tenantId, indexRowKey,
                         new TableEntity(tenantId, indexRowKey) { ["ImeAgentVersion"] = version });
                 }
+                return true;
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
                 _logger.LogDebug(
                     "UpdateSessionImeAgentVersion no-op: Sessions row {Tenant}/{Session} is absent (tombstoned or never registered)",
                     tenantId, sessionId);
+                return false;
             }
             catch (Exception ex)
             {
-                // Non-fatal — don't block ingest
+                // Non-fatal — don't block ingest. Unknown outcome counts as a sighting: a
+                // transient storage error must never silently drop a genuinely new version.
                 _logger.LogWarning(ex, "Failed to update ImeAgentVersion for session {SessionId}", sessionId);
+                return true;
             }
         }
 
@@ -3556,9 +3569,27 @@ namespace AutopilotMonitor.Functions.Services
         /// If already known, updates LastSeenAt and increments SessionCount via Merge and
         /// returns the row's archive status/timestamp (read in the same point read as
         /// SessionCount) so the ingest path can decide on an installer-archive re-queue.
+        /// <para>
+        /// The version string is DEVICE-SUPPLIED and becomes the RowKey of a caller-independent
+        /// GLOBAL partition that every tenant reads, so it is gated by
+        /// <see cref="Ime.ImeMsiArchiver.IsPlausibleVersion"/> before anything is written
+        /// (<see cref="ImeVersionSighting.Rejected"/>). The merge path additionally stamps
+        /// <c>CorroboratedAt</c> on the first sighting from a tenant other than the one that
+        /// inserted the row: together with the archiver's ProductVersion check this is what
+        /// separates "one tenant's device claimed it" from "the fleet has it" for the tenant
+        /// read side (<c>GetImeVersionHistoryFunction</c>).
+        /// </para>
         /// </summary>
         public async Task<ImeVersionSighting> RecordImeVersionAsync(string version, string tenantId, string sessionId)
         {
+            if (!Ime.ImeMsiArchiver.IsPlausibleVersion(version))
+            {
+                _logger.LogWarning(
+                    "ImeVersionHistory: rejected implausible IME version {Version} reported by session {SessionId} (tenant {TenantId})",
+                    version, sessionId, tenantId);
+                return new ImeVersionSighting { Rejected = true };
+            }
+
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeVersionHistory);
             var now = DateTime.UtcNow;
 
@@ -3587,7 +3618,7 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var existing = await tableClient.GetEntityAsync<TableEntity>("Global", version,
-                    select: new[] { "SessionCount", "MsiArchiveStatus", "MsiArchiveUpdatedAt" });
+                    select: new[] { "SessionCount", "MsiArchiveStatus", "MsiArchiveUpdatedAt", "FirstSeenTenantId", "CorroboratedAt" });
                 var currentCount = existing.Value.GetInt32("SessionCount") ?? 0;
                 sighting.MsiArchiveStatus = existing.Value.GetString("MsiArchiveStatus");
                 sighting.MsiArchiveUpdatedAt = existing.Value.GetDateTime("MsiArchiveUpdatedAt");
@@ -3597,6 +3628,17 @@ namespace AutopilotMonitor.Functions.Services
                     ["LastSeenAt"] = now,
                     ["SessionCount"] = currentCount + 1
                 };
+
+                // First sighting from a SECOND tenant → corroborated. The first-seen tenant's own
+                // devices can report the version as often as they like without ever reaching this.
+                var firstSeenTenantId = existing.Value.GetString("FirstSeenTenantId");
+                if (existing.Value.GetDateTime("CorroboratedAt") is null
+                    && !string.IsNullOrEmpty(firstSeenTenantId)
+                    && !string.Equals(firstSeenTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+                {
+                    mergeEntity["CorroboratedAt"] = now;
+                }
+
                 await tableClient.UpsertEntityAsync(mergeEntity, TableUpdateMode.Merge);
             }
             catch (Exception ex)
@@ -3630,6 +3672,7 @@ namespace AutopilotMonitor.Functions.Services
                         FirstSeenTenantId = entity.GetString("FirstSeenTenantId") ?? string.Empty,
                         LastSeenAt = entity.GetDateTime("LastSeenAt") ?? DateTime.MinValue,
                         SessionCount = entity.GetInt32("SessionCount") ?? 0,
+                        CorroboratedAt = entity.GetDateTime("CorroboratedAt"),
                         MsiArchiveStatus = entity.GetString("MsiArchiveStatus"),
                         MsiArchiveUpdatedAt = entity.GetDateTime("MsiArchiveUpdatedAt"),
                         MsiArchiveBlobPath = entity.GetString("MsiArchiveBlobPath"),

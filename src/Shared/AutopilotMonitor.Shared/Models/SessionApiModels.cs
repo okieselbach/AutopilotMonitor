@@ -637,6 +637,15 @@ namespace AutopilotMonitor.Shared.Models
         public int SessionCount { get; set; }
 
         /// <summary>
+        /// UTC time of the first sighting from a tenant OTHER than <see cref="FirstSeenTenantId"/>;
+        /// null while only the first-seen tenant has reported the version. A version is shown
+        /// to ordinary tenant members only once it is corroborated this way or its installer
+        /// was archived with a matching ProductVersion — a single tenant's devices (the least
+        /// trusted principal) cannot publish a version to every other tenant on their own.
+        /// </summary>
+        public DateTime? CorroboratedAt { get; set; }
+
+        /// <summary>
         /// Outcome of the automatic installer archiving (<c>ImeMsiArchiver</c>):
         /// <c>Archived</c>, <c>Queued</c> (re-queued by a later sighting) or a <c>Failed:*</c>
         /// status; null for versions sighted before the feature existed or while the first
@@ -670,6 +679,12 @@ namespace AutopilotMonitor.Shared.Models
     {
         /// <summary>True when this sighting inserted the version (first fleet-wide sighting).</summary>
         public bool IsNew { get; set; }
+
+        /// <summary>
+        /// True when the reported string failed the version guard and nothing was written:
+        /// no row, and the caller must emit no ops event and queue no archive job for it.
+        /// </summary>
+        public bool Rejected { get; set; }
 
         /// <summary>Current <c>MsiArchiveStatus</c> of the row (null when new or never archived).</summary>
         public string? MsiArchiveStatus { get; set; }

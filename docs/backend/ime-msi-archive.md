@@ -9,7 +9,7 @@ tags:
   - archive
   - blob
   - queue
-timestamp: 2026-08-29T17:30:00+02:00
+timestamp: 2026-08-30T12:00:00+02:00
 ---
 
 # IME Installer Archive
@@ -22,7 +22,7 @@ on. Two stores:
 | Store | Content | Written by |
 | --- | --- | --- |
 | Blob container `ime-archive` (private, kept by design, not tenant-scoped) | `{version}/IntuneWindowsAgent.msi` (write-once) + `{version}/provenance.json` (derived, overwritable) | `ImeMsiArchiver` via the `ime-msi-archive` queue; `/ime-decompile` skill as manual backfill |
-| Table `ImeVersionHistory` (partition `Global`, RowKey = version) | first/last seen, session count, `MsiArchiveStatus`, `MsiArchiveUpdatedAt`, `MsiArchiveBlobPath`, `MsiSha256`, `MsiBytes`, `MsiSourceUrl` | `RecordImeVersionAsync` (sighting), `UpdateImeVersionArchiveInfoAsync` (archive outcome / queued stamp) |
+| Table `ImeVersionHistory` (partition `Global`, RowKey = version) | first/last seen, session count, `CorroboratedAt`, `MsiArchiveStatus`, `MsiArchiveUpdatedAt`, `MsiArchiveBlobPath`, `MsiSha256`, `MsiBytes`, `MsiSourceUrl` | `RecordImeVersionAsync` (sighting), `UpdateImeVersionArchiveInfoAsync` (archive outcome / queued stamp) |
 
 # Schema
 
@@ -44,6 +44,25 @@ older than 24 h (`RequeueBackoff`) or never happened. The ingest path then merge
 `MsiArchiveStatus = Queued` (stamping `MsiArchiveUpdatedAt`) before enqueueing, so the other
 sessions of that version see "in flight" and do not pile on. Worst case for a version no
 host serves any more: one walk over the hosts per day, not one per enrollment.
+
+## Trust boundary of a sighting
+
+The version string is **device-supplied** (any device holding a tenant agent credential can
+send an `ime_agent_version` event) and becomes the RowKey of a caller-independent GLOBAL
+partition that every tenant reads. Four layers keep one tenant's device from turning a
+claim into a platform fact:
+
+| Layer | Where | Effect |
+| --- | --- | --- |
+| Plausibility guard | `ImeMsiArchiver.IsPlausibleVersion`, called first in `RecordImeVersionAsync` (and again by the archiver) | plain dotted digits, 2–4 components, inside Windows Installer `ProductVersion` bounds (major/minor ≤ 255, build ≤ 65535). Anything else → `ImeVersionSighting.Rejected`: no row, no ops event, no archive job, no re-queue. |
+| One sighting per session | `UpdateSessionImeAgentVersionAsync` returns whether the session's stored version changed; only then does the ingest path call `RecordImeVersionAsync` | `SessionCount` moves once per session and version; a re-sent or replayed event, a tombstoned or unregistered session, count nothing. |
+| Corroboration | merge path of `RecordImeVersionAsync` stamps `CorroboratedAt` on the first sighting from a tenant other than `FirstSeenTenantId` | the first-seen tenant's own devices can never corroborate their own claim. |
+| Fleet confirmation on read | `GetImeVersionHistoryFunction.IsFleetConfirmed` (MemberRead projection only) | tenant members see a version once it is `Archived` (ProductVersion matched a real package), or corroborated, or first seen before `LegacyTrustCutoffUtc` (2026-08-31 — the 16 rows reviewed on 2026-08-30 are all genuine builds). Global scope sees every row, unconfirmed ones included. |
+
+What remains possible for a hostile device: a plausible, never-shipped version creates a
+row visible to Global Admins plus one `NewImeVersionDetected` ops event and one archive walk
+that ends `Failed:VersionMismatch` (no blob). It is never listed to other tenants and can
+never occupy the archive folder of a real build.
 
 ## Candidate hosts and the version check
 

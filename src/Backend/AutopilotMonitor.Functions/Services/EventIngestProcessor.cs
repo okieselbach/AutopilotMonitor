@@ -136,10 +136,6 @@ namespace AutopilotMonitor.Functions.Services
                 var imeVersion = imeVersionEvent.Data!["agentVersion"]?.ToString();
                 if (!string.IsNullOrEmpty(imeVersion))
                 {
-                    _ = _sessionRepo.UpdateSessionImeAgentVersionAsync(request.TenantId, request.SessionId, imeVersion)
-                        .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                            "ImeAgentVersion update failed (non-fatal)"), TaskContinuationOptions.OnlyOnFaulted);
-
                     // Captured here (not inside the continuation) purely for clarity — the agent's
                     // CSP-registry enrichment; absent on agent builds before 2026-08-17.
                     string? msiDownloadUrl = null, msiMatchedBy = null;
@@ -148,36 +144,20 @@ namespace AutopilotMonitor.Functions.Services
                     if (imeVersionEvent.Data.TryGetValue("msiMatchedBy", out var matchedByObj))
                         msiMatchedBy = matchedByObj?.ToString();
 
-                    _ = _sessionRepo.RecordImeVersionAsync(imeVersion, request.TenantId, request.SessionId)
+                    // The GLOBAL version history counts a session once: only when the session's
+                    // stored ImeAgentVersion actually changed does this batch become a sighting.
+                    // A re-sent (or replayed) event for the same version stops here.
+                    _ = _sessionRepo.UpdateSessionImeAgentVersionAsync(request.TenantId, request.SessionId, imeVersion)
                         .ContinueWith(async t =>
                         {
                             if (t.IsFaulted)
                             {
                                 _logger.LogWarning(t.Exception?.InnerException,
-                                    "ImeVersionHistory update failed (non-fatal)");
+                                    "ImeAgentVersion update failed (non-fatal)");
+                                return;
                             }
-                            else if (t.Result?.IsNew == true)
-                            {
-                                await _opsEventService.RecordNewImeVersionDetectedAsync(
-                                    imeVersion, request.TenantId, request.SessionId);
-
-                                // First fleet-wide sighting → archive the installer binary. The
-                                // archiver verifies the package's ProductVersion against every
-                                // candidate host, so a first sighting without a CSP URL is fine.
-                                // Producer is fail-soft; worker pauses on ImeMsiArchivingEnabled=false.
-                                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
-                            }
-                            else if (ImeMsiArchiver.ShouldRequeueOnSighting(t.Result, msiDownloadUrl, msiMatchedBy, DateTime.UtcNow))
-                            {
-                                // Known but not archived (no host served the build at first sighting,
-                                // or the version predates the archiver) and THIS session brings a
-                                // version-authoritative CSP URL → one more try, at most once per
-                                // backoff window. The Queued stamp is what other sessions of the
-                                // same version see, so they don't pile on.
-                                await _sessionRepo.UpdateImeVersionArchiveInfoAsync(
-                                    imeVersion, ImeMsiArchiver.Statuses.Queued, null, null, null, null);
-                                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
-                            }
+                            if (!t.Result) return;
+                            await RecordImeVersionSightingAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
                         }, TaskScheduler.Default);
                 }
             }
@@ -491,6 +471,52 @@ namespace AutopilotMonitor.Functions.Services
                 PendingActions  = pendingActions,
                 SignalRMessages = signalRMessages,
             };
+        }
+
+        /// <summary>
+        /// One sighting of <paramref name="imeVersion"/> by this session against the global
+        /// version history. The repository rejects implausible strings before writing
+        /// (<see cref="ImeVersionSighting.Rejected"/> → nothing else happens); a first
+        /// fleet-wide sighting raises the ops event and queues the installer archive; a known,
+        /// not-yet-archived version may be re-queued when this session brings an authoritative
+        /// CSP URL. Fail-soft: runs on the fire-and-forget continuation of the session stamp.
+        /// </summary>
+        private async Task RecordImeVersionSightingAsync(
+            string imeVersion, string? msiDownloadUrl, string? msiMatchedBy, IngestEventsRequest request)
+        {
+            ImeVersionSighting? sighting;
+            try
+            {
+                sighting = await _sessionRepo.RecordImeVersionAsync(imeVersion, request.TenantId, request.SessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ImeVersionHistory update failed (non-fatal)");
+                return;
+            }
+
+            if (sighting?.IsNew == true)
+            {
+                await _opsEventService.RecordNewImeVersionDetectedAsync(
+                    imeVersion, request.TenantId, request.SessionId);
+
+                // First fleet-wide sighting → archive the installer binary. The
+                // archiver verifies the package's ProductVersion against every
+                // candidate host, so a first sighting without a CSP URL is fine.
+                // Producer is fail-soft; worker pauses on ImeMsiArchivingEnabled=false.
+                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
+            }
+            else if (ImeMsiArchiver.ShouldRequeueOnSighting(sighting, msiDownloadUrl, msiMatchedBy, DateTime.UtcNow))
+            {
+                // Known but not archived (no host served the build at first sighting,
+                // or the version predates the archiver) and THIS session brings a
+                // version-authoritative CSP URL → one more try, at most once per
+                // backoff window. The Queued stamp is what other sessions of the
+                // same version see, so they don't pile on.
+                await _sessionRepo.UpdateImeVersionArchiveInfoAsync(
+                    imeVersion, ImeMsiArchiver.Statuses.Queued, null, null, null, null);
+                await EnqueueImeMsiArchiveAsync(imeVersion, msiDownloadUrl, msiMatchedBy, request);
+            }
         }
 
         /// <summary>

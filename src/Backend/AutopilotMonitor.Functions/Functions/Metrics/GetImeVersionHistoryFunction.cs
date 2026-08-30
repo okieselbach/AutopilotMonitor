@@ -60,6 +60,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// the archive is a platform-wide view of Microsoft's IME rollout, and the route is
         /// MemberRead precisely so any tenant member can read that view.
         ///
+        /// Non-global callers additionally only see versions that <see cref="IsFleetConfirmed"/>:
+        /// a row is created by whatever string a device reports, and one tenant's devices must
+        /// not be able to publish an unverified "version" into every other tenant's rollout view.
+        /// Global scope sees every row, unconfirmed ones included — that is where a bogus claim
+        /// is investigated.
+        ///
         /// Returned as <see cref="object"/> on purpose — System.Text.Json serializes an
         /// `object` declared type using the RUNTIME type, so both branches keep the exact
         /// wire format they had while the projection was inline.
@@ -73,8 +79,28 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
 
             return versions
+                .Where(IsFleetConfirmed)
                 .Select(v => new { v.Version, v.FirstSeenAt, v.LastSeenAt, v.SessionCount })
                 .ToList();
         }
+
+        /// <summary>
+        /// Rows first seen before this instant predate both the version guard and the
+        /// corroboration stamp. The whole table was reviewed on 2026-08-30 (16 rows, all
+        /// genuine Microsoft builds), so they are trusted as-is instead of vanishing from the
+        /// tenant view until a second tenant happens to report a version nobody runs any more.
+        /// </summary>
+        public static readonly DateTime LegacyTrustCutoffUtc = new(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+
+        /// <summary>
+        /// A version is confirmed for the tenant view when evidence beyond the first-seen
+        /// tenant's own claim exists: the installer was archived with a matching MSI
+        /// ProductVersion (<c>ImeMsiArchiver</c>), or a SECOND tenant reported it
+        /// (<see cref="ImeVersionHistoryEntry.CorroboratedAt"/>), or the row predates the guard.
+        /// </summary>
+        public static bool IsFleetConfirmed(ImeVersionHistoryEntry entry) =>
+            string.Equals(entry.MsiArchiveStatus, Services.Ime.ImeMsiArchiver.Statuses.Archived, StringComparison.Ordinal)
+            || entry.CorroboratedAt.HasValue
+            || entry.FirstSeenAt < LegacyTrustCutoffUtc;
     }
 }

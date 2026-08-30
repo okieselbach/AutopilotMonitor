@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (4)
+
+* **Update**: `backend/ime-msi-archive.md` — new "Trust boundary of a sighting" section: the device-supplied `ime_agent_version` string is gated by `ImeMsiArchiver.IsPlausibleVersion` (dotted digits within MSI ProductVersion bounds) before it can become a GLOBAL `ImeVersionHistory` RowKey (`ImeVersionSighting.Rejected` → no row/ops event/archive job); a session counts once (`UpdateSessionImeAgentVersionAsync` returns whether the version changed); a second tenant's sighting stamps `CorroboratedAt`; the MemberRead projection lists only fleet-confirmed versions (Archived, corroborated, or first seen before 2026-08-31), Global scope sees every row.
+
 ## 2026-08-30 (3)
 
 * **Update**: `agent/local-admin-analyzer.md` — built-ins matched by well-known RID (500/501/503/504) so localized Guest/Administrator are not flagged now that disabled accounts are inventoried; `kioskUser0` built-in; shutdown-time dynamic allowance restricted to non-SAM identities (a logged-in local account is never exempted — CWE-807) with new `logged_in_local_accounts` field; junctions and `$<32 hex>` folders skipped by the profile check.

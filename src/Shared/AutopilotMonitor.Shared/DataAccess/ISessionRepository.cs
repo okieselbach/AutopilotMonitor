@@ -135,7 +135,15 @@ namespace AutopilotMonitor.Shared.DataAccess
             SessionStatus? status = null, bool? isUserDriven = null, string? verdictPath = null);
         Task UpdateSessionGeoAsync(string tenantId, string sessionId,
             string? country, string? region, string? city, string? loc);
-        Task UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version);
+        /// <summary>
+        /// Stamps the session's IME agent version. Returns true when the session's stored
+        /// version actually changed (first report, or a different version) — the signal that
+        /// makes this session count as ONE sighting in the global version history. False when
+        /// the session already carries this version (re-sent event) or the row is absent
+        /// (tombstoned / never registered); a storage failure other than 404 counts as changed
+        /// so a transient error never drops a genuine sighting.
+        /// </summary>
+        Task<bool> UpdateSessionImeAgentVersionAsync(string tenantId, string sessionId, string version);
         /// <summary>
         /// Persists the session-wide average agent→backend HTTP latency derived from the
         /// cumulative counters of the latest <c>agent_metrics_snapshot</c>. Last-write-wins
