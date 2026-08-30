@@ -324,13 +324,19 @@ jobs:
           name: version-metadata
           path: ${{ env.MANIFEST_NAME }}
 
+      # First-party `gh` instead of a third-party action: this job holds contents:write,
+      # id-token:write and attestations:write, so no code we do not control runs here.
+      # --generate-notes appends the auto-generated notes below the body.
       - name: Create GitHub Release
         if: inputs.create_release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Autopilot Monitor Agent ${{ steps.version.outputs.version }}
-          body: |
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_NAME: Autopilot Monitor Agent ${{ steps.version.outputs.version }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_ZIP: ${{ steps.artifact.outputs.versioned_zip_release }}
+          RELEASE_BODY: |
             ## Autopilot Monitor Agent ${{ steps.version.outputs.version }}
 
             ### Installation
@@ -355,9 +361,22 @@ jobs:
             ```
             gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
             ```
-          draft: false
-          prerelease: ${{ inputs.prerelease }}
-          files: |
-            ${{ steps.artifact.outputs.versioned_zip_release }}
-            ${{ env.MANIFEST_NAME }}
-          generate_release_notes: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -Path $notesFile -Value $env:RELEASE_BODY -Encoding utf8 -NoNewline
+
+          $ghArgs = @(
+            'release', 'create', $env:RELEASE_TAG,
+            $env:RELEASE_ZIP, $env:MANIFEST_NAME,
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--target', $env:GITHUB_SHA,
+            '--title', $env:RELEASE_NAME,
+            '--notes-file', $notesFile,
+            '--generate-notes'
+          )
+          if ($env:RELEASE_PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+
+          & gh @ghArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }
+          Write-Host "Release $env:RELEASE_TAG created"

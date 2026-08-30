@@ -123,4 +123,4 @@ Application Insights resource — the prefetch is cheap only while the runtime i
 
 * `src/Web/autopilot-monitor-web/components/GlobalSidebar.tsx` — nav link rendering, rationale comment
 * `src/Web/autopilot-monitor-web/components/Navbar.tsx` — top-bar and notification links
-* [SWA and Oryx node pinning](../architecture.md) — hosting model for the web app
+* `.github/workflows/deploy-web.yml` — hosting model: static export built in CI (Node 22 via setup-node, `engines` in package.json), uploaded with the pinned SWA CLI

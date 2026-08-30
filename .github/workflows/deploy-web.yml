@@ -1,5 +1,13 @@
 name: Deploy Web (Static Web App)
 
+# Build here, upload with the pinned SWA CLI. No third-party action sees the deploy token
+# (the CLI is Microsoft-published npm code at an exact version), the build runs on the same
+# path ci.yml tests (setup-node 22 + npm ci + next build) instead of Oryx guessing inside the
+# action's container, and the exported site is attested like the agent ZIP and the MSI.
+#
+# PR preview environments were dropped with the action: their per-PR URLs are never
+# registered as redirect URIs, so nobody could log in on them anyway.
+
 on:
   push:
     branches:
@@ -8,39 +16,44 @@ on:
       - 'src/Web/autopilot-monitor-web/**'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
-    paths:
-      - 'src/Web/autopilot-monitor-web/**'
-      - '.github/workflows/deploy-web.yml'
+
+permissions:
+  contents: read
+  id-token: write      # keyless Sigstore signing (artifact attestation)
+  attestations: write  # store the provenance attestation
 
 env:
   PORTAL_VERSION_URL: https://portal.autopilotmonitor.com/version.json
   VERSIONS_CONTAINER: https://autopilotmonitoreu.blob.core.windows.net/versions
+  WEB_DIR: src/Web/autopilot-monitor-web
+  # Exact version: `npx --package` resolves from the registry at run time, so the pin is the
+  # only thing that keeps the deploy step's code fixed. Bump deliberately.
+  SWA_CLI_VERSION: 2.0.10
 
 jobs:
   build_and_deploy_job:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
-    # Dependabot PRs run without repo secrets, so the deploy token is absent.
-    # Surface it as an env var so the deploy step can gate on it — secrets
-    # cannot be referenced directly in an `if:` expression.
-    env:
-      DEPLOY_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: false
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
-      - name: Build And Deploy
-        id: builddeploy
-        # Skip (green) instead of failing when the token is missing (Dependabot
-        # PRs); real deploys on main and internal PRs still have it.
-        if: env.DEPLOY_TOKEN != ''
-        uses: Azure/static-web-apps-deploy@v1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ env.WEB_DIR }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WEB_DIR }}
+        run: npm ci
+
+      # next.config output:'export' -- `next build` writes the static site to out/
+      # (prebuild: sync-error-codes, generate-lastmod, generate-version).
+      - name: Build
+        working-directory: ${{ env.WEB_DIR }}
         env:
           NEXT_PUBLIC_ENTRA_CLIENT_ID: ${{ vars.NEXT_PUBLIC_ENTRA_CLIENT_ID }}
           # Dual app-reg window: previous app registration (unset = single-app behaviour)
@@ -55,28 +68,50 @@ jobs:
           # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
           # the verify step below polls the deployed file for exactly this commit.
           GITHUB_SHA: ${{ github.sha }}
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
-          action: "upload"
-          ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
-          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
-          app_location: "src/Web/autopilot-monitor-web" # App source code path
-          api_location: "" # Api source code path - optional
-          # Static export (next.config output:'export'): Oryx runs `npm run build`
-          # and uploads the exported out/ directory as plain static files — no
-          # managed SSR runtime is provisioned anymore. (No is_static_export
-          # input on this action version; Oryx detects the export from
-          # next.config + output_location.)
-          output_location: "out" # Built app content directory - optional
-          ###### End of Repository/Build Configurations ######
+        run: |
+          npm run build
+          test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
 
-      # The SWA action reporting success proves the upload, not that the production host
-      # serves the new build — verify against the live /version.json (Cache-Control:
-      # no-store via staticwebapp.config.json) before publishing the version manifest.
-      # PR builds deploy to per-PR preview environments, so only main deploys are verified.
+      # One archive of the exact bytes that get uploaded, so the attestation has a single subject.
+      - name: Package export
+        id: package
+        run: |
+          archive="portal-${GITHUB_SHA::7}.tar.gz"
+          tar -C "$WEB_DIR/out" -czf "$archive" .
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          sha256sum "$archive"
+
+      # Sigstore keyless provenance: binds the export digest to this workflow run (repo, ref,
+      # commit, workflow file) in a public transparency log.
+      # Verify: gh attestation verify portal-<sha>.tar.gz --repo okieselbach/AutopilotMonitor
+      - name: Attest build provenance (portal export)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: portal-${{ github.sha }}
+          path: ${{ steps.package.outputs.archive }}
+
+      # Upload only -- out/ is already built. --swa-config-location points at the app root,
+      # where staticwebapp.config.json lives (next export does not copy it into out/).
+      - name: Deploy to Static Web App
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
+        run: |
+          npx --yes --package "@azure/static-web-apps-cli@${SWA_CLI_VERSION}" swa deploy \
+            --app-location "$WEB_DIR" \
+            --output-location out \
+            --swa-config-location "$WEB_DIR" \
+            --env production \
+            --no-use-keychain
+
+      # The CLI reporting success proves the upload, not that the production host serves the
+      # new build -- verify against the live /version.json (Cache-Control: no-store via
+      # staticwebapp.config.json) before publishing the version manifest.
       - name: Verify deployed portal build is live
-        if: env.DEPLOY_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: pwsh
         run: |
           $expectedCommit = '${{ github.sha }}'.Substring(0, 7)
@@ -100,10 +135,9 @@ jobs:
 
           throw "Portal did not serve commit $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
 
-      # Cross-component deploy record, written last and only on a verified deploy —
+      # Cross-component deploy record, written last and only on a verified deploy --
       # same contract as versions/backend.json and versions/mcp.json.
       - name: Publish version manifest
-        if: env.DEPLOY_TOKEN != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         shell: pwsh
         run: |
           $manifest = [ordered]@{
@@ -119,22 +153,3 @@ jobs:
           Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' } -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/web.json"
           Write-Host $manifest
-
-  close_pull_request_job:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    name: Close Pull Request Job
-    env:
-      DEPLOY_TOKEN: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
-    steps:
-      - name: Close Pull Request
-        id: closepullrequest
-        if: env.DEPLOY_TOKEN != ''
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOY_TOKEN }}
-          action: "close"
-
-
-
-

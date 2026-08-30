@@ -63,11 +63,23 @@ jobs:
       - name: Combine rules into dist/
         run: node rules/scripts/combine.js
 
+      # Plain git instead of a third-party action: this step runs with contents:write on
+      # main, so no code we do not control gets to push. Checkout leaves the job's
+      # GITHUB_TOKEN in the remote credential helper, which is all `git push` needs.
+      # NOTE: combine.js writes THREE outputs; committing only dist/ would silently discard
+      # the two generated TS modules and leave the guardrails-in-sync CI check red.
       - name: Commit generated outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: stefanzweifel/git-auto-commit-action@v7
-        with:
-          commit_message: "chore: regenerate rules/dist + generated TS from individual files"
-          # combine.js writes THREE outputs; committing only dist/ would silently discard
-          # the two generated TS modules and leave the guardrails-in-sync CI check red.
-          file_pattern: "rules/dist/* src/Web/autopilot-monitor-web/utils/guardrails.generated.ts src/McpServer/autopilot-monitor-mcp/src/rule-authoring.generated.ts"
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- rules/dist/ \
+            src/Web/autopilot-monitor-web/utils/guardrails.generated.ts \
+            src/McpServer/autopilot-monitor-mcp/src/rule-authoring.generated.ts
+          if git diff --cached --quiet; then
+            echo "Generated outputs unchanged - nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore: regenerate rules/dist + generated TS from individual files"
+          git push origin HEAD:main

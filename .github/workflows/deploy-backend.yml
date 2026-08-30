@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Login to Azure (OIDC)
-        uses: azure/login@v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -65,7 +65,7 @@ jobs:
         run: dotnet publish ${{ env.CSPROJ_PATH }} --configuration Release --output ./publish --no-build -p:SourceRevisionId=${{ github.sha }} -p:BuildNumber=${{ steps.version.outputs.build_number }} -p:BuildTimestampUtc=${{ steps.version.outputs.build_utc }}
 
       - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
+        uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1
         with:
           app-name: ${{ env.FUNCTION_APP }}
           package: ./publish

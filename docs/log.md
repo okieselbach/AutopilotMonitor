@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-30 (12)
+
+* **Update**: `web/portal-navigation-prefetch.md` — hosting citation now points at `deploy-web.yml`: the portal is built in CI (setup-node 22, `npm ci`, `next build`) and uploaded with the pinned SWA CLI; the Azure/static-web-apps-deploy action, its Oryx in-container build and the per-PR preview environments are gone. All non-GitHub-owned actions are SHA-pinned; the release and rules auto-commit steps use first-party `gh`/`git`.
+
 ## 2026-08-30 (11)
 
 * **New**: `agent/ime-process-watcher.md` — `ImeProcessWatcher` no longer attaches to the first `IntuneManagementExtension` name match: `ImeProcessIdentity` requires session 0 + image under the IME install root (`QueryFullProcessImageName`, cross-bitness), prefers the oldest trusted candidate, logs untrusted matches once per PID, and re-arms discovery after every reported exit (previously one-shot — a fake in a user session could forge `ime_process_exited` and mute the real signal for the session; even an IME service restart was never watched again). Registered in `index.md`.
