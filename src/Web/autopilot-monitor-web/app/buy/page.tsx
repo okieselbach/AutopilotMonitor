@@ -13,14 +13,14 @@ import { SiteFooter } from "../../components/SiteFooter";
  */
 const CHANNELS = [
   {
-    label: "Direct purchase",
-    description:
-      "Buy Pro online with a credit card or on invoice — a fast, self-service checkout for a single organization.",
-  },
-  {
     label: "Microsoft Marketplace",
     description:
       "Purchase through the Microsoft commercial marketplace using your organization's existing Microsoft billing relationship.",
+  },
+  {
+    label: "Cleverbridge",
+    description:
+      "Buy Pro online with a credit card or on invoice — a fast, self-service checkout for a single organization.",
   },
 ];
 
