@@ -6,6 +6,17 @@ import { getResourceContent, assertKnownEventType } from '../resource-catalog.js
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
+import type {
+  GeographicLocationSessionsLeanResponse,
+  GetAllTenantConfigurationsResponse,
+  GetGlobalMcpUsageDailyResponse,
+  GetGlobalMcpUsageResponse,
+  GetMcpUserUsageResponse,
+  GetMyMcpUsageResponse,
+  GetUnmatchedSoftwareResponse,
+  QueryRawTableResponse,
+  SoftwareInventoryResponse,
+} from '../generated/wire-types.generated.js';
 
 /**
  * Non-sensitive tenant fields safe to surface to the model. Keep-list (not
@@ -195,7 +206,13 @@ export function paginateUsage(
 ): Record<string, unknown> {
   if (!data || typeof data !== 'object') return { records: [], totalCount: 0, count: 0, offset: 0, nextLink: null };
   const obj = data as Record<string, unknown>;
-  const arrayKey = Array.isArray(obj.records) ? 'records' : Array.isArray(obj.summaries) ? 'summaries' : null;
+  // The `satisfies` pins tie the sliced key names to the generated wire types —
+  // a backend rename of these wire-critical keys goes tsc-red here, not silent.
+  const arrayKey = Array.isArray(obj.records)
+    ? ('records' satisfies keyof GetGlobalMcpUsageResponse & keyof GetMcpUserUsageResponse & keyof GetMyMcpUsageResponse)
+    : Array.isArray(obj.summaries)
+      ? ('summaries' satisfies keyof GetGlobalMcpUsageDailyResponse)
+      : null;
   if (!arrayKey) return obj; // unexpected shape — pass through untouched rather than mangle it
   const all = obj[arrayKey] as unknown[];
   const m = continuation ? /^usage-offset:(\d+)$/.exec(continuation) : null;
@@ -231,8 +248,10 @@ export function paginateInventory(
 ): Record<string, unknown> {
   if (!data || typeof data !== 'object') return { inventory: [], total: 0, count: 0, offset: 0, nextLink: null };
   const obj = data as Record<string, unknown>;
-  if (!Array.isArray(obj.inventory)) return obj; // unexpected shape — pass through untouched rather than mangle it
-  const all = obj.inventory as unknown[];
+  // Same wire-key pin as paginateUsage: renaming `inventory` on the wire goes tsc-red here.
+  const inventoryKey = 'inventory' satisfies keyof SoftwareInventoryResponse;
+  if (!Array.isArray(obj[inventoryKey])) return obj; // unexpected shape — pass through untouched rather than mangle it
+  const all = obj[inventoryKey] as unknown[];
   const m = continuation ? /^inv-offset:(\d+)$/.exec(continuation) : null;
   const offset = m ? parseInt(m[1], 10) : 0;
   const slice = all.slice(offset, offset + pageSize);
@@ -282,14 +301,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_api_usage', args, async () => {
       try {
-        let data: unknown;
+        let data: GetMcpUserUsageResponse | GetGlobalMcpUsageDailyResponse | GetGlobalMcpUsageResponse;
         const params: Record<string, string | undefined> = { tenantId: args.tenantId, dateFrom: args.dateFrom, dateTo: args.dateTo };
         if (args.userId) {
-          data = await apiFetch(`/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery(params)}`);
+          data = await apiFetch(`/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery(params)}`) as GetMcpUserUsageResponse;
         } else if (args.daily) {
-          data = await apiFetch(`/api/global/metrics/mcp-usage/daily${buildQuery(params)}`);
+          data = await apiFetch(`/api/global/metrics/mcp-usage/daily${buildQuery(params)}`) as GetGlobalMcpUsageDailyResponse;
         } else {
-          data = await apiFetch(`/api/global/metrics/mcp-usage${buildQuery(params)}`);
+          data = await apiFetch(`/api/global/metrics/mcp-usage${buildQuery(params)}`) as GetGlobalMcpUsageResponse;
         }
         return toolResultText(paginateUsage(data, args.pageSize, args.continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
@@ -379,8 +398,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
+        // Lean rows (the tool never passes ?full=1) — pinned by the wire contract.
         const data = await apiFetch(`${prefix}/geographic/sessions${buildQuery(params)}`) as
-          { success?: boolean; sessions?: unknown[]; totalCount?: number };
+          GeographicLocationSessionsLeanResponse;
 
         // The location-sessions endpoint filters in-memory and returns the full
         // set in one shot (no server-side cursor). A single busy location can
@@ -694,7 +714,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           for (;;) {
             const path = followNextLink(
               '/api/config/all', { pageSize: TENANT_FILTER_PAGE_SIZE, fields: scanFields }, nextLink);
-            const data = await apiFetch(path) as { tenants?: unknown[]; nextLink?: string | null };
+            const data = await apiFetch(path) as GetAllTenantConfigurationsResponse;
             let pageTenants = extractTenantList({ tenants: data?.tenants ?? [] });
             if (delegated) {
               pageTenants = delegatedTenantListView(
@@ -733,7 +753,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // in nextLink. extractTenantList re-applies the keep-list as defense-in-depth (harmless
         // pass-through once the backend has projected).
         const path = followNextLink('/api/config/all', { pageSize, fields }, continuation);
-        const data = await apiFetch(path) as { count?: number; tenants?: unknown[]; nextLink?: string | null };
+        const data = await apiFetch(path) as GetAllTenantConfigurationsResponse;
         let tenants = extractTenantList({ tenants: data?.tenants ?? [] });
         if (delegated) {
           tenants = delegatedTenantListView(
@@ -1214,7 +1234,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           { partitionKey, rowKeyPrefix, filter, pageSize },
           continuation,
         );
-        const data = await apiFetch(path) as { table?: string; count?: number; entities?: Record<string, unknown>[]; nextLink?: string | null };
+        const data = await apiFetch(path) as QueryRawTableResponse;
 
         // Client-side projection — TableEntity columns are dynamic so the backend
         // can't help. Always retain PartitionKey + RowKey (cursor stability +
@@ -1746,7 +1766,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         if (ga && scope === 'unmatched') {
           const m = continuation ? /^unmatched-offset:(\d+)$/.exec(continuation) : null;
           const skip = m ? parseInt(m[1], 10) : 0;
-          const data = await apiFetch(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`) as { software?: unknown[]; total?: number };
+          const data = await apiFetch(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`) as GetUnmatchedSoftwareResponse;
           const total = data?.total ?? 0;
           const nextOffset = skip + pageSize;
           const nextLink = nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
@@ -1767,7 +1787,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         }
         // Endpoint returns the whole inventory in one shot, so page it client-side.
         const path = pickGlobalOrTenantPath('/api/vulnerability/software-inventory', '/api/metrics/software-inventory', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId })}`);
+        const data = await apiFetch(`${path}${buildQuery({ tenantId })}`) as SoftwareInventoryResponse;
         return toolResultText(paginateInventory(data, pageSize, continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_software_inventory', args, error);

@@ -75,12 +75,16 @@ describe('get_session_diagnostics tool', () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(2); // session lookup + ticket mint
   });
 
-  it('also accepts a raw (non-enveloped) session object', async () => {
+  it('rejects a raw (non-enveloped) session object — the envelope IS the wire contract', async () => {
+    // Since the typed API contract (GetSessionResponse), { success, session } is the only
+    // shape the backend can send. A raw object is a contract violation and must surface
+    // as a loud tool error, never be silently absorbed by a legacy fallback.
     apiFetchMock
       .mockResolvedValueOnce({ tenantId: TENANT, diagnosticsBlobName: 'AgentDiagnostics-x.zip' })
       .mockResolvedValueOnce({ url: '/api/diagnostics/download?t=ABC' });
     const res = await captureToolHandlers(false).get_session_diagnostics({ sessionId: SID });
-    expect(parse(res).available).toBe(true);
+    expect(res.isError).toBe(true);
+    expect(apiFetchMock).toHaveBeenCalledTimes(1); // fails before minting a ticket
   });
 
   it('mints a ticket and returns an absolute downloadUrl + zipMap', async () => {

@@ -6,6 +6,7 @@ import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } fro
 import { toolError } from './error-handler.js';
 import { validateRuleDraft } from '../rule-validation.js';
 import { interpolateRuleTemplate } from '../interpolate-rule-template.js';
+import type { DryRunAnalyzeRuleResponse } from '../generated/wire-types.generated.js';
 
 /**
  * Rule-authoring tools: validate a draft gather/analyze rule locally, and dry-run a
@@ -124,9 +125,11 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
         const data = await apiFetch('/api/rules/analyze/dryrun', {
           method: 'POST',
           body: JSON.stringify({ sessionId: args.sessionId, rule: args.rule }),
-        }) as { result?: { verdict?: string; matchedConditions?: Record<string, unknown> } };
+        }) as DryRunAnalyzeRuleResponse;
 
-        const result = data.result;
+        // `result` is `unknown` on the wire by design (the RuleDryRun trace lives in the
+        // Functions assembly) — read the two fields this tool needs via a local view.
+        const result = data.result as { verdict?: string; matchedConditions?: Record<string, unknown> } | undefined;
         const rule = args.rule as Record<string, unknown>;
         const mc = result?.matchedConditions;
 

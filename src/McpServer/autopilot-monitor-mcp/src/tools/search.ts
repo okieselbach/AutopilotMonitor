@@ -5,6 +5,11 @@ import { withToolTelemetry, logSearchZeroHit } from '../telemetry.js';
 import type { SearchProvider, DocsSearchBundle } from '../search-provider.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
+import type {
+  GetSessionEventsResponse,
+  QueryRawEventsResponse,
+  SearchSessionsResponse,
+} from '../generated/wire-types.generated.js';
 import { ALL_EVENT_TYPES } from '../resource-catalog.js';
 import { DOCS_BASE_URL } from '../config.js';
 
@@ -84,7 +89,8 @@ export function prioritizeFailureTypes(types: string[]): string[] {
  * enriched camelCase `EventEntry` shape — normalizeRawEvent() bridges that gap before scoring.
  */
 type RawEventRow = Record<string, unknown>;
-type RawEventsPage = { events?: RawEventRow[]; nextLink?: string };
+// Wire-bound page shape (Partial: test fakes pass minimal pages; the wire always sends events).
+type RawEventsPage = Partial<Pick<QueryRawEventsResponse, 'events' | 'nextLink'>>;
 
 /** Bounds the per-type page walk so a single tool call can't run unbounded. */
 type FetchBudget = { maxPagesPerType: number; wallClockMs: number };
@@ -409,7 +415,7 @@ async function fetchSessionEvents(
   // No event-type pre-selection runs here, so ranking stays pure-keyword.
   if (sessionId) {
     const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-    const data = await apiFetch(`/api/sessions/${sessionId}/events${q}`) as { events?: EventEntry[] };
+    const data = await apiFetch(`/api/sessions/${sessionId}/events${q}`) as GetSessionEventsResponse;
     return { events: data?.events ?? [], sessionIds: [sessionId], searchMethod: 'direct-session', truncated: false, semanticTypeScores: noSemanticScores };
   }
 
@@ -446,9 +452,7 @@ async function fetchSessionEvents(
   if (tenantId) searchParams.tenantId = tenantId;
   const searchQ = buildQuery(searchParams);
   const searchBase = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions', tenantId);
-  const sessions = await apiFetch(`${searchBase}${searchQ}`) as {
-    sessions?: Array<{ sessionId?: string }>;
-  };
+  const sessions = await apiFetch(`${searchBase}${searchQ}`) as SearchSessionsResponse;
   // The backend ignores `limit`, so cap client-side to keep the N+1 fan-out bounded
   // and the recallNote honest.
   const ids = (sessions?.sessions ?? [])
@@ -459,7 +463,7 @@ async function fetchSessionEvents(
   const allEvents = await Promise.all(
     ids.map(async (sid) => {
       try {
-        const d = await apiFetch(`/api/sessions/${sid}/events${q}`) as { events?: EventEntry[] };
+        const d = await apiFetch(`/api/sessions/${sid}/events${q}`) as GetSessionEventsResponse;
         return (d?.events ?? []).map((e) => ({ ...e, _sessionId: sid }));
       } catch { return [] as EventEntry[]; }
     }),

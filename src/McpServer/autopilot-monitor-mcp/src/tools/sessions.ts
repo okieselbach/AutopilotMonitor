@@ -8,6 +8,14 @@ import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 import { API_BASE_URL } from '../config.js';
 import { DIAG_ZIP_MAP } from '../diag-zip-map.js';
+import type {
+  DiagnosticsDownloadTicketResponse,
+  EnrollmentEvent,
+  GetRuleResultsResponse,
+  GetSessionAnnotationsResponse,
+  GetSessionEventsResponse,
+  GetSessionResponse,
+} from '../generated/wire-types.generated.js';
 
 // ── Session summary constants ───────────────────────────────────────────
 
@@ -324,15 +332,13 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-        // The backend wraps the session in a { success, session } envelope (GetSessionFunction);
-        // fall back to the raw object so both shapes work (mirrors get_session_summary).
-        const sessionResp = await apiFetch(`/api/sessions/${sessionId}${q}`) as Record<string, unknown>;
-        const session = (sessionResp.session ?? sessionResp) as Record<string, unknown>;
+        // The { success, session } envelope is the pinned wire contract (GetSessionResponse).
+        const sessionResp = await apiFetch(`/api/sessions/${sessionId}${q}`) as GetSessionResponse;
+        const session = sessionResp.session;
 
-        const blobName = typeof session.diagnosticsBlobName === 'string' ? session.diagnosticsBlobName : '';
+        const blobName = session.diagnosticsBlobName || '';
         // tenantId for the ticket: explicit arg → session's tenantId → (tenant user) JWT default.
-        const resolvedTenantId = tenantId
-          ?? (typeof session.tenantId === 'string' ? session.tenantId : undefined);
+        const resolvedTenantId = tenantId ?? session.tenantId;
 
         if (!blobName) {
           return toolResultText({
@@ -351,7 +357,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const ticket = await apiFetch(ticketPath, {
           method: 'POST',
           body: JSON.stringify({ blobName }),
-        }) as { url?: string; expiresAt?: string; blobName?: string; destination?: string; sizeBytes?: number | null };
+        }) as DiagnosticsDownloadTicketResponse;
 
         if (!ticket?.url) {
           return toolError('get_session_diagnostics', args,
@@ -469,15 +475,15 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
         const [sessionData, eventsData, analysisData, annotationsData] = await Promise.all([
-          apiFetch(`/api/sessions/${sessionId}${q}`, fetchOpts) as Promise<Record<string, unknown>>,
-          apiFetch(`/api/sessions/${sessionId}/events${q}`, fetchOpts) as Promise<{ events?: Array<Record<string, unknown>>; count?: number }>,
-          apiFetch(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null) as Promise<Record<string, unknown> | null>,
+          apiFetch(`/api/sessions/${sessionId}${q}`, fetchOpts) as Promise<GetSessionResponse>,
+          apiFetch(`/api/sessions/${sessionId}/events${q}`, fetchOpts) as Promise<GetSessionEventsResponse>,
+          apiFetch(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null) as Promise<GetRuleResultsResponse | null>,
           // Human annotations (verdict + note per lane). Backend filters the platform-internal
           // globaladmin lane for non-global callers — pass-through, no re-shaping needed.
-          apiFetch(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null) as Promise<{ annotations?: Array<Record<string, unknown>> } | null>,
+          apiFetch(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null) as Promise<GetSessionAnnotationsResponse | null>,
         ]);
 
-        const s = (sessionData.session ?? sessionData) as Record<string, unknown>;
+        const s = sessionData.session;
 
         const overview = {
           sessionId,
@@ -524,8 +530,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // would inflate errorCount; replayed app_install_* would inflate the appInstalls
         // stats; replayed events would pollute the keyEvents triage timeline. One filter
         // cleans all three. stats.totalEvents therefore counts non-replayed events.
-        const allEvents = ((eventsData?.events ?? []) as Array<Record<string, unknown>>)
-          .filter((e) => !isHistoricImeReplay(e));
+        const allEvents = (eventsData.events ?? []).filter((e) => !isHistoricImeReplay(e));
 
         let errorCount = 0;
         let warningCount = 0;
@@ -537,8 +542,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           const sev = String(e.severity ?? '');
           // A compliant health-script detection mis-stamped script_failed/Error is benign —
           // exclude it so a green session's errorCount isn't inflated by routine compliance reports.
-          const benign = isBenignHealthDetectionReport(
-            String(e.eventType ?? ''), e.data as Record<string, unknown> | undefined);
+          const benign = isBenignHealthDetectionReport(String(e.eventType ?? ''), e.data);
           if (!benign && (sev === 'Error' || sev === 'Critical')) errorCount++;
           if (sev === 'Warning') warningCount++;
           const et = String(e.eventType ?? '');
@@ -561,10 +565,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           return (SEVERITY_RANK[String(e.severity ?? '')] ?? -1) >= 2;
         });
 
-        const relevanceScore = (e: Record<string, unknown>): number => {
+        const relevanceScore = (e: Partial<EnrollmentEvent>): number => {
           // Benign compliant detection mis-stamped Error → rank as info-level, not top.
-          if (isBenignHealthDetectionReport(
-            String(e.eventType ?? ''), e.data as Record<string, unknown> | undefined)) return 10;
+          if (isBenignHealthDetectionReport(String(e.eventType ?? ''), e.data)) return 10;
           const sev = SEVERITY_RANK[String(e.severity ?? '')] ?? -1;
           if (sev >= 3) return 100;                        // Error/Critical
           if (PHASE_EVENT_TYPES.has(String(e.eventType ?? ''))) return 60;
@@ -598,21 +601,20 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           // Resolve {{token}} placeholders from each result's matchedConditions
           // before mapping, so issues carry readable text not raw {{...}} tokens.
           interpolateAnalysisResults(analysisData);
-          const a = analysisData as Record<string, unknown>;
-          const allResults = (a.results ?? []) as Array<Record<string, unknown>>;
+          const allResults = analysisData.results ?? [];
           // Resolved findings (session healed after an interim fire) stay in the raw
           // /analysis response for audit but are not open issues; interim findings are
           // preliminary until the enrollment-end pass finalizes them.
           const results = allResults.filter((r) => !r.resolvedAt);
           const resolvedCount = allResults.length - results.length;
           analysis = {
-            totalIssues: a.totalIssues ?? results.length,
-            criticalCount: a.criticalCount ?? 0,
-            highCount: a.highCount ?? 0,
-            warningCount: a.warningCount ?? 0,
+            totalIssues: analysisData.totalIssues ?? results.length,
+            criticalCount: analysisData.criticalCount ?? 0,
+            highCount: analysisData.highCount ?? 0,
+            warningCount: analysisData.warningCount ?? 0,
             ...(resolvedCount > 0 ? { resolvedCount } : {}),
             issues: results.map((r) => ({
-              ruleTitle: r.ruleTitle ?? r.title,
+              ruleTitle: r.ruleTitle,
               severity: r.severity,
               ...(r.isInterim ? { isInterim: true } : {}),
               explanation: r.explanation,

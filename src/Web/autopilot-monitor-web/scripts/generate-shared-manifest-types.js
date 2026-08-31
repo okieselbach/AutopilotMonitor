@@ -10,9 +10,13 @@
  *  - wire-types.generated.ts: one interface per wire object, one string-union per
  *    wire enum, with the C# <summary> texts as JSDoc. These are the authoritative
  *    response types — hand-written mirrors re-export from here.
+ *  - a second copy of the wire types into the MCP server
+ *    (src/McpServer/autopilot-monitor-mcp/src/generated/wire-types.generated.ts),
+ *    whose tools read the same backend responses.
  *
  * Run: node scripts/generate-shared-manifest-types.js  (npm run generate:manifests)
- * Freshness of BOTH outputs is pinned by utils/__tests__/sharedManifestParity.test.ts.
+ * Freshness of the web outputs is pinned by utils/__tests__/sharedManifestParity.test.ts,
+ * the MCP copy by the MCP suite's wire-types-freshness.test.ts.
  */
 
 const fs = require("fs");
@@ -22,11 +26,19 @@ const WEB_ROOT = path.resolve(__dirname, "..");
 const SOURCE = path.join(WEB_ROOT, "utils", "shared-manifests.json");
 const DEST_MANIFEST = path.join(WEB_ROOT, "utils", "shared-manifests.generated.ts");
 const DEST_TYPES = path.join(WEB_ROOT, "utils", "wire-types.generated.ts");
+// Second copy for the MCP server (same repo) — its tools read the same backend wire.
+const MCP_ROOT = path.resolve(WEB_ROOT, "..", "..", "McpServer", "autopilot-monitor-mcp");
+const DEST_MCP_TYPES = path.join(MCP_ROOT, "src", "generated", "wire-types.generated.ts");
 
 const HEADER =
   "// GENERATED from shared-manifests.json — do not edit by hand.\n" +
   "// Regenerate: node scripts/generate-shared-manifest-types.js\n" +
   "// (after AM_WRITE_SHARED_MANIFESTS=1 dotnet test --filter SharedManifestParityTests)\n";
+
+const MCP_HEADER =
+  "// GENERATED — do not edit by hand. Second copy for the MCP server.\n" +
+  "// Source: src/Web/autopilot-monitor-web/utils/shared-manifests.json.\n" +
+  "// Regenerate: npm run generate:manifests in src/Web/autopilot-monitor-web.\n";
 
 /** Pure builder so the vitest freshness check can reuse it. */
 function buildGeneratedSource(manifestJsonText) {
@@ -40,6 +52,15 @@ function buildGeneratedSource(manifestJsonText) {
 
 /** Pure builder for utils/wire-types.generated.ts (same freshness contract). */
 function buildWireTypesSource(manifestJsonText) {
+  return buildWireTypesSourceWithHeader(manifestJsonText, HEADER);
+}
+
+/** Pure builder for the MCP server's src/generated/wire-types.generated.ts copy. */
+function buildMcpWireTypesSource(manifestJsonText) {
+  return buildWireTypesSourceWithHeader(manifestJsonText, MCP_HEADER);
+}
+
+function buildWireTypesSourceWithHeader(manifestJsonText, header) {
   const manifest = JSON.parse(manifestJsonText);
   const types = manifest.types;
   if (!types || manifest.schemaVersion !== 2) {
@@ -47,7 +68,7 @@ function buildWireTypesSource(manifestJsonText) {
   }
 
   const parts = [
-    HEADER +
+    header +
       "//\n" +
       "// Wire response types reflected from AutopilotMonitor.Shared (every IApiResponse\n" +
       "// implementer + [WireContract] type, transitively closed). Key ORDER, presence\n" +
@@ -116,10 +137,13 @@ function main() {
   console.log(`[shared-manifests] Wrote ${path.relative(WEB_ROOT, DEST_MANIFEST)}`);
   fs.writeFileSync(DEST_TYPES, buildWireTypesSource(json), "utf8");
   console.log(`[shared-manifests] Wrote ${path.relative(WEB_ROOT, DEST_TYPES)}`);
+  fs.mkdirSync(path.dirname(DEST_MCP_TYPES), { recursive: true });
+  fs.writeFileSync(DEST_MCP_TYPES, buildMcpWireTypesSource(json), "utf8");
+  console.log(`[shared-manifests] Wrote ${path.relative(WEB_ROOT, DEST_MCP_TYPES)}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { buildGeneratedSource, buildWireTypesSource };
+module.exports = { buildGeneratedSource, buildWireTypesSource, buildMcpWireTypesSource };
