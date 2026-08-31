@@ -1,5 +1,6 @@
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -124,18 +125,12 @@ public class PreviewWhitelistService
 
     /// <summary>
     /// Returns all approved tenants (for Global Admin overview).
-    /// Returns PreviewWhitelistEntity list for backward compatibility with existing API consumers.
     /// </summary>
-    public async Task<List<PreviewWhitelistEntity>> GetAllApprovedAsync()
+    public async Task<List<PreviewWhitelistTenantEntry>> GetAllApprovedAsync()
     {
         var tenantIds = await _configRepo.GetPreviewWhitelistAsync();
 
-        // Convert string list back to entity list for backward compatibility
-        return tenantIds.Select(id => new PreviewWhitelistEntity
-        {
-            PartitionKey = id,
-            RowKey = "approved"
-        }).ToList();
+        return tenantIds.Select(id => new PreviewWhitelistTenantEntry { TenantId = id }).ToList();
     }
 
     /// <summary>

@@ -139,12 +139,5 @@ export interface TenantConfiguration {
   trialConsumed?: boolean;
 }
 
-export interface TenantAdmin {
-  tenantId: string;
-  upn: string;
-  isEnabled: boolean;
-  addedDate: string;
-  addedBy: string;
-  role: string | null;
-  canManageBootstrapTokens: boolean;
-}
+// Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
+export type { TenantAdminRow as TenantAdmin } from "@/utils/wire-types.generated";

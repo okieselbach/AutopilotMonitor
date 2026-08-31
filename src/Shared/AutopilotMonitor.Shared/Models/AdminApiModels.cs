@@ -101,20 +101,28 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Shared response of the one-shot maintenance job triggers (POST maintenance/backfill-occurred-utc,
-    /// POST maintenance/reclassify-legacy): the service's run report plus trigger attribution.
+    /// Response of POST maintenance/backfill-occurred-utc: the backfill run report plus trigger
+    /// attribution. Key layout is identical to <see cref="ReclassifyJobRunResponse"/> — the two
+    /// one-shot job triggers share one wire shape, split into two classes only for the typed slot.
     /// </summary>
     // Declaration order == wire order.
-    public class MaintenanceJobRunResponse : IApiResponse
+    public class BackfillJobRunResponse : IApiResponse
     {
         public bool Success { get; set; }
+        public BackfillResult Result { get; set; } = default!;
+        public string TriggeredBy { get; set; } = default!;
+        public DateTime TriggeredAt { get; set; }
+    }
 
-        /// <summary>
-        /// The service-specific run report (BackfillResult / ReclassificationResult — types owned by the
-        /// Functions project, so this stays <c>object</c>; serialized by runtime type, wire-identical).
-        /// </summary>
-        public object Result { get; set; } = default!;
-
+    /// <summary>
+    /// Response of POST maintenance/reclassify-legacy: the reclassification run report plus
+    /// trigger attribution. See <see cref="BackfillJobRunResponse"/> for the shared key layout.
+    /// </summary>
+    // Declaration order == wire order.
+    public class ReclassifyJobRunResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public ReclassificationResult Result { get; set; } = default!;
         public string TriggeredBy { get; set; } = default!;
         public DateTime TriggeredAt { get; set; }
     }
@@ -125,15 +133,89 @@ namespace AutopilotMonitor.Shared.Models
     {
         public bool Success { get; set; }
         public string Message { get; set; } = default!;
-
-        /// <summary>
-        /// The MaintenanceResult run report (type owned by the Functions project, so this stays
-        /// <c>object</c>; serialized by runtime type, wire-identical).
-        /// </summary>
-        public object Result { get; set; } = default!;
-
+        public MaintenanceResult Result { get; set; } = default!;
         public string TriggeredBy { get; set; } = default!;
         public DateTime TriggeredAt { get; set; }
+    }
+
+    /// <summary>
+    /// Run report of the one-shot OccurredUtc backfill (POST maintenance/backfill-occurred-utc).
+    /// </summary>
+    // Declaration order == wire order.
+    public class BackfillResult
+    {
+        public string Table { get; set; } = string.Empty;
+        public bool DryRun { get; set; }
+        public int RowsExamined { get; set; }
+        public int WouldWrite { get; set; }
+        public int Written { get; set; }
+        public int SkippedAlreadySet { get; set; }
+        public int SkippedUndecodable { get; set; }
+        public int Errors { get; set; }
+        public string? NextContinuation { get; set; }
+        public List<BackfillSample> Samples { get; set; } = new List<BackfillSample>();
+    }
+
+    /// <summary>
+    /// One sampled row of a backfill run. PartitionKey/RowKey are PAYLOAD here — they identify
+    /// the sampled storage row in a Global-Admin-only run report, not ITableEntity metadata.
+    /// </summary>
+    // Declaration order == wire order.
+    public class BackfillSample
+    {
+        public string PartitionKey { get; set; } = string.Empty;
+        public string RowKey { get; set; } = string.Empty;
+        public DateTime DecodedUtc { get; set; }
+    }
+
+    /// <summary>
+    /// Run report of the legacy-session reclassification job (POST maintenance/reclassify-legacy).
+    /// </summary>
+    // Declaration order == wire order.
+    public sealed class ReclassificationResult
+    {
+        public string Mode { get; set; } = string.Empty;
+        public bool DryRun { get; set; }
+        public int TenantsExamined { get; set; }
+        public int SessionsExamined { get; set; }
+        public int WouldChange { get; set; }
+        public int Changed { get; set; }
+        public int ToSucceeded { get; set; }
+        public int ToIncomplete { get; set; }
+        public int KeptFailed { get; set; }
+        public int Skipped { get; set; }
+        public int Errors { get; set; }
+        /// <summary>True when the maxSessions cap stopped the run before the backlog was exhausted — re-run to continue.</summary>
+        public bool CapReached { get; set; }
+        public List<ReclassificationSample> Samples { get; } = new List<ReclassificationSample>();
+    }
+
+    // Declaration order == wire order.
+    public sealed class ReclassificationSample
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string SessionId { get; set; } = string.Empty;
+        public string OldStatus { get; set; } = string.Empty;
+        public string NewStatus { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
+    }
+
+    /// <summary>Run report of a manual maintenance run (POST maintenance/trigger).</summary>
+    // Declaration order == wire order.
+    public class MaintenanceResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public string TriggeredBy { get; set; } = string.Empty;
+        public DateTime TriggeredAt { get; set; }
+        public int DurationMs { get; set; }
+        public bool StalledSessionsChecked { get; set; }
+        public bool MetricsAggregated { get; set; }
+        public string? AggregatedDate { get; set; }
+        public bool DataCleanupExecuted { get; set; }
+        public bool PlatformStatsRecomputed { get; set; }
+        public int DevicesBlockedForExcessiveData { get; set; }
+        public int ContactEmailsBackfilled { get; set; }
     }
 
     /// <summary>
@@ -358,11 +440,34 @@ namespace AutopilotMonitor.Shared.Models
     // Declaration order == wire order.
     public class TenantAdminCreatedResponse : IApiResponse
     {
-        /// <summary>
-        /// The stored TenantAdminEntity row (type owned by the Functions project, so this stays
-        /// <c>object</c>; serialized by runtime type, wire-identical).
-        /// </summary>
-        public object Admin { get; set; } = default!;
+        public TenantAdminRow Admin { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// One tenant member (Admin / Operator / Viewer) on the wire — the item of the bare-array
+    /// GET tenants/{tenantId}/admins and the created member of the POST. Deliberately NOT the
+    /// storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the
+    /// pre-2026-08-31 wire carried are storage internals and were dropped from the contract
+    /// (no consumer read them).
+    /// </summary>
+    // Declaration order == wire order.
+    public class TenantAdminRow
+    {
+        /// <summary>Tenant ID (lowercase).</summary>
+        public string TenantId { get; set; } = string.Empty;
+
+        /// <summary>User Principal Name (lowercase).</summary>
+        public string Upn { get; set; } = string.Empty;
+
+        public bool IsEnabled { get; set; }
+        public DateTime AddedDate { get; set; }
+        public string AddedBy { get; set; } = string.Empty;
+
+        /// <summary>Role: "Admin", "Operator", "Viewer". A null (legacy pre-role row) omits the key and means Admin.</summary>
+        public string? Role { get; set; }
+
+        /// <summary>Whether this Operator can manage bootstrap tokens (only relevant for Operator).</summary>
+        public bool CanManageBootstrapTokens { get; set; }
     }
 
     /// <summary>Response of GET global/tenant-groups: every group with tenants + assignees.</summary>

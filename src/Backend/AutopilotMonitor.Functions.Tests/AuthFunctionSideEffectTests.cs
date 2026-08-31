@@ -435,7 +435,7 @@ public class AuthFunctionSideEffectTests
     {
         _tenantAdminsMock
             .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
-            .ReturnsAsync(new TenantAdminEntity());
+            .ReturnsAsync(new TenantAdminRow());
 
         var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
 
@@ -473,7 +473,7 @@ public class AuthFunctionSideEffectTests
     {
         _tenantAdminsMock
             .Setup(x => x.AddTenantAdminAsync(TenantId, Upn, "System"))
-            .ReturnsAsync(new TenantAdminEntity());
+            .ReturnsAsync(new TenantAdminRow());
 
         var decision = AuthDecisionResult.Success(new { }, needsAutoAdmin: true);
 

@@ -1,5 +1,6 @@
 using AutopilotMonitor.Functions.Services.Monitoring;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -562,23 +563,13 @@ public class HealthCheckService
 }
 
 /// <summary>
-/// Result of a health check operation
+/// Result of a health check operation. Not itself on the wire — HealthCheckFunction decomposes
+/// it into the typed response envelopes; the per-check item (HealthCheck) is wire contract and
+/// lives in AutopilotMonitor.Shared.Models (InfrastructureApiModels.cs).
 /// </summary>
 public class HealthCheckResult
 {
     public DateTime Timestamp { get; set; }
     public string OverallStatus { get; set; } = "unknown";
     public List<HealthCheck> Checks { get; set; } = new();
-}
-
-/// <summary>
-/// Individual health check result
-/// </summary>
-public class HealthCheck
-{
-    public string Name { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public string Status { get; set; } = "unknown";
-    public string Message { get; set; } = string.Empty;
-    public Dictionary<string, object>? Details { get; set; }
 }

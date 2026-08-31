@@ -1457,7 +1457,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static string? BuildDeviceSnapshotTenantFilter(string? tenantId)
             => string.IsNullOrEmpty(tenantId) ? null : $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'";
 
-        public async Task<List<object>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
+        public async Task<List<MetricsSummaryTenantItem>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
         {
             // Clamp to a sane range so callers can't accidentally trigger an unbounded scan.
             if (days < 1) days = 1;
@@ -1489,22 +1489,22 @@ namespace AutopilotMonitor.Functions.Services
                 // Incomplete (unknown, non-failure) is deliberately excluded from the denominator, and
                 // non-terminal states (InProgress/AwaitingUser/Pending/Stalled) never belonged in it.
                 var terminal = b.Succeeded + b.Failed;
-                return (object)new
+                return new MetricsSummaryTenantItem
                 {
-                    tenantId = kvp.Key,
-                    totalSessions = b.Total,
-                    succeeded = b.Succeeded,
-                    failed = b.Failed,
-                    inProgress = b.InProgress,
-                    pending = b.Pending,
-                    stalled = b.Stalled,
-                    awaitingUser = b.AwaitingUser,
-                    incomplete = b.Incomplete,
-                    other = b.Other,
-                    failureRate = terminal > 0
+                    TenantId = kvp.Key,
+                    TotalSessions = b.Total,
+                    Succeeded = b.Succeeded,
+                    Failed = b.Failed,
+                    InProgress = b.InProgress,
+                    Pending = b.Pending,
+                    Stalled = b.Stalled,
+                    AwaitingUser = b.AwaitingUser,
+                    Incomplete = b.Incomplete,
+                    Other = b.Other,
+                    FailureRate = terminal > 0
                         ? Math.Round((double)b.Failed / terminal * 100, 1)
                         : 0.0,
-                    windowDays = days
+                    WindowDays = days
                 };
             }).ToList();
         }

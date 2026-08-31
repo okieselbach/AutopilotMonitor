@@ -50,32 +50,8 @@ namespace AutopilotMonitor.Functions.Services
             _configService = configService;
         }
 
-        public sealed class ReclassificationSample
-        {
-            public string TenantId { get; set; } = string.Empty;
-            public string SessionId { get; set; } = string.Empty;
-            public string OldStatus { get; set; } = string.Empty;
-            public string NewStatus { get; set; } = string.Empty;
-            public string Reason { get; set; } = string.Empty;
-        }
-
-        public sealed class ReclassificationResult
-        {
-            public string Mode { get; set; } = string.Empty;
-            public bool DryRun { get; set; }
-            public int TenantsExamined { get; set; }
-            public int SessionsExamined { get; set; }
-            public int WouldChange { get; set; }
-            public int Changed { get; set; }
-            public int ToSucceeded { get; set; }
-            public int ToIncomplete { get; set; }
-            public int KeptFailed { get; set; }
-            public int Skipped { get; set; }
-            public int Errors { get; set; }
-            /// <summary>True when the maxSessions cap stopped the run before the backlog was exhausted — re-run to continue.</summary>
-            public bool CapReached { get; set; }
-            public List<ReclassificationSample> Samples { get; } = new();
-        }
+        // ReclassificationResult/ReclassificationSample are wire contract and live in
+        // AutopilotMonitor.Shared.Models (AdminApiModels.cs).
 
         public async Task<ReclassificationResult> ReclassifyLegacyTimeoutsAsync(
             string? tenantIdScope, bool dryRun, int maxSessions, string triggeredBy)

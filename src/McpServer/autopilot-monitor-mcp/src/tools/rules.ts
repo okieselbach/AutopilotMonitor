@@ -127,11 +127,8 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
           body: JSON.stringify({ sessionId: args.sessionId, rule: args.rule }),
         }) as DryRunAnalyzeRuleResponse;
 
-        // `result` is `unknown` on the wire by design (the RuleDryRun trace lives in the
-        // Functions assembly) — read the two fields this tool needs via a local view.
-        const result = data.result as { verdict?: string; matchedConditions?: Record<string, unknown> } | undefined;
         const rule = args.rule as Record<string, unknown>;
-        const mc = result?.matchedConditions;
+        const mc = data.result.matchedConditions;
 
         // Preview the explanation/remediation exactly as the portal would render them
         // for this session's evidence ({{token}} interpolation).

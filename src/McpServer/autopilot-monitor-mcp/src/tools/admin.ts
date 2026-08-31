@@ -13,6 +13,7 @@ import type {
   GetGlobalMcpUsageResponse,
   GetMcpUserUsageResponse,
   GetMyMcpUsageResponse,
+  GetTenantConfigFieldsSchemaResponse,
   GetUnmatchedSoftwareResponse,
   PlatformAgentMetricsResponse,
   QueryRawTableResponse,
@@ -1322,7 +1323,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_tenant_config_schema', args, async () => {
       try {
-        const data = await apiFetch('/api/config/fields-schema');
+        const data = await apiFetch('/api/config/fields-schema') as GetTenantConfigFieldsSchemaResponse;
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_tenant_config_schema', args, error);

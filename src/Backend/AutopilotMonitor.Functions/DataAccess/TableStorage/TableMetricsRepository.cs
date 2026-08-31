@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<int> DeleteUserPresenceOlderThanAsync(DateTime cutoffUtc)
             => _storage.DeleteUserPresenceOlderThanAsync(cutoffUtc);
 
-        public Task<List<object>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
+        public Task<List<MetricsSummaryTenantItem>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
             => _storage.GetMetricsSummaryAsync(tenantId, days);
 
         public Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,

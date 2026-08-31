@@ -6,6 +6,7 @@ using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -79,7 +80,7 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = new Mock<TenantAdminsService>(
             Mock.Of<IAdminRepository>(), Mock.Of<IMemoryCache>(), Mock.Of<ILogger<TenantAdminsService>>())
         { CallBase = false };
-        admins.Setup(a => a.GetTenantAdminsAsync(TenantId)).ReturnsAsync(new List<TenantAdminEntity>
+        admins.Setup(a => a.GetTenantAdminsAsync(TenantId)).ReturnsAsync(new List<TenantAdminRow>
         {
             new() { TenantId = TenantId, Upn = "former@contoso.com", IsEnabled = false, Role = Constants.TenantRoles.Admin },
         });
@@ -93,9 +94,9 @@ public class PreviewNotificationEmailWriteGateTests
         var admins = new Mock<TenantAdminsService>(
             Mock.Of<IAdminRepository>(), Mock.Of<IMemoryCache>(), Mock.Of<ILogger<TenantAdminsService>>())
         { CallBase = false };
-        var members = new List<TenantAdminEntity>();
+        var members = new List<TenantAdminRow>();
         if (enabledMember)
-            members.Add(new TenantAdminEntity { TenantId = TenantId, Upn = "admin@contoso.com", IsEnabled = true, Role = Constants.TenantRoles.Admin });
+            members.Add(new TenantAdminRow { TenantId = TenantId, Upn = "admin@contoso.com", IsEnabled = true, Role = Constants.TenantRoles.Admin });
         admins.Setup(a => a.GetTenantAdminsAsync(TenantId)).ReturnsAsync(members);
         return admins;
     }

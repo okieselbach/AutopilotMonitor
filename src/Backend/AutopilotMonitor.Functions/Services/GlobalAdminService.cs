@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -109,7 +110,7 @@ public class GlobalAdminService
     /// <param name="homeTenantId">The Entra tenant the person signs in from (JWT tid).</param>
     /// <param name="objectId">The person's Entra object id, or null to pin it on their first sign-in.</param>
     /// <exception cref="IdentityBindingConflictException">The UPN is already bound to a different identity.</exception>
-    public async Task<GlobalAdminEntity> AddGlobalAdminAsync(string upn, string addedBy, string homeTenantId, string? objectId)
+    public async Task<GlobalAdminRow> AddGlobalAdminAsync(string upn, string addedBy, string homeTenantId, string? objectId)
     {
         upn = upn.ToLowerInvariant();
         addedBy = addedBy.ToLowerInvariant();
@@ -120,10 +121,8 @@ public class GlobalAdminService
         // Invalidate cache
         _cache.Remove($"global-role:{upn}");
 
-        return new GlobalAdminEntity
+        return new GlobalAdminRow
         {
-            PartitionKey = "GlobalAdmins",
-            RowKey = upn,
             Upn = upn,
             IsEnabled = true,
             AddedDate = DateTime.UtcNow,
@@ -161,14 +160,12 @@ public class GlobalAdminService
     /// <summary>
     /// Gets all Global Admins
     /// </summary>
-    public async Task<List<GlobalAdminEntity>> GetAllGlobalAdminsAsync()
+    public async Task<List<GlobalAdminRow>> GetAllGlobalAdminsAsync()
     {
         var entries = await _adminRepo.GetAllGlobalAdminsAsync();
 
-        return entries.Select(e => new GlobalAdminEntity
+        return entries.Select(e => new GlobalAdminRow
         {
-            PartitionKey = "GlobalAdmins",
-            RowKey = e.Upn,
             Upn = e.Upn,
             IsEnabled = e.IsEnabled,
             AddedDate = e.AddedAt,

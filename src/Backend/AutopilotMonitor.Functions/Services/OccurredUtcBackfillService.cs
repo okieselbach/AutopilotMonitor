@@ -3,6 +3,7 @@ using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -34,26 +35,8 @@ namespace AutopilotMonitor.Functions.Services
             _logger = logger;
         }
 
-        public class BackfillResult
-        {
-            public string Table { get; set; } = string.Empty;
-            public bool DryRun { get; set; }
-            public int RowsExamined { get; set; }
-            public int WouldWrite { get; set; }
-            public int Written { get; set; }
-            public int SkippedAlreadySet { get; set; }
-            public int SkippedUndecodable { get; set; }
-            public int Errors { get; set; }
-            public string? NextContinuation { get; set; }
-            public List<BackfillSample> Samples { get; set; } = new();
-        }
-
-        public class BackfillSample
-        {
-            public string PartitionKey { get; set; } = string.Empty;
-            public string RowKey { get; set; } = string.Empty;
-            public DateTime DecodedUtc { get; set; }
-        }
+        // BackfillResult/BackfillSample are wire contract and live in
+        // AutopilotMonitor.Shared.Models (AdminApiModels.cs).
 
         internal enum RowDecision { AlreadySet, Write, Undecodable }
 

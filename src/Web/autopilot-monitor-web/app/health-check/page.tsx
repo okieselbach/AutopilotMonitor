@@ -8,31 +8,14 @@ import { useState, useEffect, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-
-interface HealthCheck {
-  name: string;
-  description: string;
-  status: string;
-  message: string;
-  details?: Record<string, unknown>;
-}
-
-interface HealthCheckResult {
-  service: string;
-  timestamp: string;
-  overallStatus: string;
-  checks: HealthCheck[];
-  version?: string;
-  commitHash?: string;
-  buildUtc?: string;
-}
+import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/utils/wire-types.generated';
 
 export default function HealthCheckPage() {
   const { user, getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
   const { connectionState, isConnected, joinedGroups, joinGroup } = useSignalR();
   const { tenantId } = useTenant();
-  const [healthResult, setHealthResult] = useState<HealthCheckResult | null>(null);
+  const [healthResult, setHealthResult] = useState<DetailedHealthCheckResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [groupJoinTest, setGroupJoinTest] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
@@ -60,7 +43,7 @@ export default function HealthCheckPage() {
         return;
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as DetailedHealthCheckResponse;
       setHealthResult(data);
     } catch (error) {
       if (error instanceof TokenExpiredError) {
@@ -94,8 +77,8 @@ export default function HealthCheckPage() {
         });
         return;
       }
-      const data = await response.json();
-      if (data?.check) setMcpCheck(data.check as HealthCheck);
+      const data = (await response.json()) as McpHealthCheckResponse;
+      if (data?.check) setMcpCheck(data.check);
     } catch (error) {
       // Network/token errors: surface on the card itself, never as a blocking page error.
       setMcpCheck({

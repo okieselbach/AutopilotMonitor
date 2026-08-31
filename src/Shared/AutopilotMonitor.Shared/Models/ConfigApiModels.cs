@@ -86,11 +86,45 @@ namespace AutopilotMonitor.Shared.Models
         public int Count { get; set; }
         public int WritableCount { get; set; }
 
-        /// <summary>
-        /// Schema entries (<c>TenantConfigFieldSchema</c> records, defined in the Functions
-        /// project — typed as object here because Shared cannot reference it).
-        /// </summary>
-        public IReadOnlyList<object> Fields { get; set; } = default!;
+        public IReadOnlyList<TenantConfigFieldSchema> Fields { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// One entry of the tenant-config field schema (built by TenantConfigPatchService.BuildFieldsSchema).
+    /// Serialized camelCase; null Format/Reason keys are omitted (WhenWritingNull) — the null and
+    /// set cases are pinned by ConfigWireParityTests.
+    /// </summary>
+    // Declaration order == wire order (matches the former positional-record constructor order).
+    public sealed class TenantConfigFieldSchema
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public string? Format { get; set; }
+        public bool Nullable { get; set; }
+        public bool Writable { get; set; }
+        public string? Reason { get; set; }
+        public bool GaOnly { get; set; }
+        public bool RevertProtected { get; set; }
+
+        public TenantConfigFieldSchema(
+            string name,
+            string type,
+            string? format,
+            bool nullable,
+            bool writable,
+            string? reason,
+            bool gaOnly,
+            bool revertProtected)
+        {
+            Name = name;
+            Type = type;
+            Format = format;
+            Nullable = nullable;
+            Writable = writable;
+            Reason = reason;
+            GaOnly = gaOnly;
+            RevertProtected = revertProtected;
+        }
     }
 
     /// <summary>

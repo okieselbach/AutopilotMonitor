@@ -101,7 +101,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new MaintenanceJobRunResponse
+                await response.WriteAsJsonAsync(new ReclassifyJobRunResponse
                 {
                     Success = true,
                     Result = result,

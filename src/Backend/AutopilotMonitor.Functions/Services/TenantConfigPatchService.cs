@@ -57,20 +57,8 @@ namespace AutopilotMonitor.Functions.Services
             => new(false, failure, error, backupId, Array.Empty<string>(), null, drift);
     }
 
-    /// <summary>
-    /// One entry of the tenant-config field schema (see TenantConfigPatchService.BuildFieldsSchema).
-    /// Serialized camelCase to the API. Nulls/false flags are serialized as-is — the payload is
-    /// tiny and consumed by a model, which reads explicit values better than absent keys.
-    /// </summary>
-    public sealed record TenantConfigFieldSchema(
-        string Name,
-        string Type,
-        string? Format,
-        bool Nullable,
-        bool Writable,
-        string? Reason,
-        bool GaOnly,
-        bool RevertProtected);
+    // TenantConfigFieldSchema is wire contract and lives in AutopilotMonitor.Shared.Models
+    // (ConfigApiModels.cs); the schema builder (BuildFieldsSchema) stays here.
 
     /// <summary>
     /// Transactional field-level writes against a tenant's configuration row:
@@ -498,14 +486,14 @@ namespace AutopilotMonitor.Functions.Services
 
                 var writable = !BaseDeniedFields.Contains(prop.Name);
                 fields.Add(new TenantConfigFieldSchema(
-                    Name: char.ToLowerInvariant(prop.Name[0]) + prop.Name.Substring(1),
-                    Type: type,
-                    Format: format,
-                    Nullable: nullable,
-                    Writable: writable,
-                    Reason: writable ? null : DeniedReason(prop.Name),
-                    GaOnly: writable && GaOnlyFields.Contains(prop.Name),
-                    RevertProtected: RevertProtectedFields.Contains(prop.Name)));
+                    name: char.ToLowerInvariant(prop.Name[0]) + prop.Name.Substring(1),
+                    type: type,
+                    format: format,
+                    nullable: nullable,
+                    writable: writable,
+                    reason: writable ? null : DeniedReason(prop.Name),
+                    gaOnly: writable && GaOnlyFields.Contains(prop.Name),
+                    revertProtected: RevertProtectedFields.Contains(prop.Name)));
             }
             return fields.OrderBy(f => f.Name, StringComparer.Ordinal).ToList();
         });

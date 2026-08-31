@@ -23,7 +23,7 @@ interface AdminManagementSectionProps {
   onUpdatePermissions: (upn: string, role: string, canManageBootstrapTokens: boolean) => void;
 }
 
-function getRoleBadge(role: string | null) {
+function getRoleBadge(role: string | null | undefined) {
   const effectiveRole = role ?? "Admin";
   switch (effectiveRole) {
     case "Admin":

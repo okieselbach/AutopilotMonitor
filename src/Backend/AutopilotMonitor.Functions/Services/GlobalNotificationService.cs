@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
@@ -25,18 +26,8 @@ public class GlobalNotificationEntity : ITableEntity
     public bool Dismissed { get; set; }
 }
 
-/// <summary>
-/// DTO returned by the API for global notifications.
-/// </summary>
-public class GlobalNotificationDto
-{
-    public string Id { get; set; } = string.Empty;
-    public string Type { get; set; } = "info";
-    public string Title { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
-    public string? Href { get; set; }
-    public DateTime CreatedAt { get; set; }
-}
+// GlobalNotificationDto is wire contract and lives in AutopilotMonitor.Shared.Models
+// (NotificationsApiModels.cs).
 
 /// <summary>
 /// Service for managing persistent Global Admin in-app notifications.

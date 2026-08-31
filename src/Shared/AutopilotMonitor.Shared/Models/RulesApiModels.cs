@@ -54,12 +54,93 @@ namespace AutopilotMonitor.Shared.Models
         public bool Success { get; set; }
         public string SessionId { get; set; } = default!;
 
-        /// <summary>
-        /// The <c>RuleDryRun</c> trace (AutopilotMonitor.Functions.Services) — typed
-        /// <c>object</c> here only because that class lives in the Functions assembly;
-        /// System.Text.Json serializes the runtime type, so the wire shape is unchanged.
-        /// </summary>
-        public object Result { get; set; } = default!;
+        /// <summary>The full diagnostic trace of the evaluation.</summary>
+        public RuleDryRun Result { get; set; } = default!;
+    }
+
+    /// <summary>Verdict strings for <see cref="RuleDryRun.Verdict"/>. Stable API contract.</summary>
+    public static class RuleDryRunVerdict
+    {
+        public const string Fired = "fired";
+        public const string SkippedByPrecondition = "skipped_by_precondition";
+        public const string RequiredConditionNotMet = "required_condition_not_met";
+        public const string NoConditionsMatched = "no_conditions_matched";
+        public const string BelowConfidenceThreshold = "below_confidence_threshold";
+        public const string NoEvents = "no_events";
+    }
+
+    /// <summary>Full diagnostic trace of one dry-run evaluation. Serialized camelCase to clients.</summary>
+    // Declaration order == wire order.
+    public sealed class RuleDryRun
+    {
+        public string Verdict { get; set; } = string.Empty;
+
+        /// <summary>Number of events in the session the rule was evaluated against.</summary>
+        public int EventCount { get; set; }
+
+        public List<RuleDryRunPrecondition> Preconditions { get; } = new List<RuleDryRunPrecondition>();
+        public List<RuleDryRunCondition> Conditions { get; } = new List<RuleDryRunCondition>();
+
+        /// <summary>Empty unless all required conditions were met (mirrors the production path,
+        /// which never reaches factor evaluation otherwise).</summary>
+        public List<RuleDryRunFactor> ConfidenceFactors { get; } = new List<RuleDryRunFactor>();
+
+        public int BaseConfidence { get; set; }
+
+        /// <summary>base + matched factor weights, capped at 100. Null when the evaluation ended
+        /// before the confidence stage (precondition skip / required miss / nothing matched).</summary>
+        public int? FinalConfidence { get; set; }
+
+        public int ConfidenceThreshold { get; set; }
+
+        /// <summary>True only for verdict "fired" AND the rule's effective MarkSessionAsFailed flag.
+        /// The dry-run itself never touches the session.</summary>
+        public bool WouldMarkSessionAsFailed { get; set; }
+
+        /// <summary>The evidence map exactly as the production path would persist it on a
+        /// RuleResult — keys are condition signals (plus factor_* markers). Clients use it to
+        /// preview {{token}} interpolation of explanation/remediation. Values are heterogeneous
+        /// evidence objects by design.</summary>
+        public Dictionary<string, object>? MatchedConditions { get; set; }
+    }
+
+    // Declaration order == wire order.
+    public sealed class RuleDryRunPrecondition
+    {
+        public string Source { get; set; } = string.Empty;
+        public string EventType { get; set; } = string.Empty;
+        public string? DataField { get; set; }
+        public string? Operator { get; set; }
+        public string? Value { get; set; }
+        public bool Passed { get; set; }
+    }
+
+    // Declaration order == wire order.
+    public sealed class RuleDryRunCondition
+    {
+        public string Signal { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+        public string? EventType { get; set; }
+        public bool Required { get; set; }
+        public bool Matched { get; set; }
+
+        /// <summary>Matched: the evidence dictionary (eventId, timestamp, field, value, …).
+        /// Not matched: the evaluator's reason string (e.g. "no matching events").</summary>
+        public object? Evidence { get; set; }
+
+        /// <summary>How many session events have this condition's eventType at all — the first
+        /// thing an author checks when a condition unexpectedly doesn't match. Null when the
+        /// condition has no eventType.</summary>
+        public int? MatchingEventCount { get; set; }
+    }
+
+    // Declaration order == wire order.
+    public sealed class RuleDryRunFactor
+    {
+        public string Signal { get; set; } = string.Empty;
+        public string Condition { get; set; } = string.Empty;
+        public int Weight { get; set; }
+        public bool Matched { get; set; }
     }
 
     /// <summary>
@@ -151,12 +232,18 @@ namespace AutopilotMonitor.Shared.Models
     // Declaration order == wire order.
     public class GetPreviewWhitelistResponse : IApiResponse
     {
-        /// <summary>
-        /// <c>PreviewWhitelistEntity</c> rows (AutopilotMonitor.Functions.DataAccess.TableStorage)
-        /// — element-typed <c>object</c> here only because that entity lives in the Functions
-        /// assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged.
-        /// </summary>
-        public IReadOnlyList<object> Tenants { get; set; } = default!;
+        public IReadOnlyList<PreviewWhitelistTenantEntry> Tenants { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31
+    /// wire carried synthetic <c>PreviewWhitelistEntity</c> rows whose only real datum was the
+    /// tenant id in <c>partitionKey</c> (plus garbage defaults) — the contract is now just the id.
+    /// </summary>
+    // Declaration order == wire order.
+    public class PreviewWhitelistTenantEntry
+    {
+        public string TenantId { get; set; } = string.Empty;
     }
 
     /// <summary>

@@ -92,7 +92,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<int> DeleteUserPresenceOlderThanAsync(DateTime cutoffUtc);
 
         // --- Metrics Summary (Agent API) ---
-        Task<List<object>> GetMetricsSummaryAsync(string? tenantId, int days = 30);
+        Task<List<MetricsSummaryTenantItem>> GetMetricsSummaryAsync(string? tenantId, int days = 30);
 
         // --- Rule Stats ---
         Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,

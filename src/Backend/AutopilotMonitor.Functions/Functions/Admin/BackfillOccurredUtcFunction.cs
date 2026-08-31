@@ -83,7 +83,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var result = await _service.RunAsync(table, dryRun, maxRows, continuation);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new MaintenanceJobRunResponse
+                await response.WriteAsJsonAsync(new BackfillJobRunResponse
                 {
                     Success = true,
                     Result = result,

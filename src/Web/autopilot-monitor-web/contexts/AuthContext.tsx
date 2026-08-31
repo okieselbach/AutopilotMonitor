@@ -19,6 +19,7 @@ import {
 } from '@/lib/authApp';
 import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
+import type { AuthMeResponse } from '@/types/auth';
 
 // Initialize MSAL instance for the ACTIVE app registration (dual app-reg window: the
 // selection was decided at module boot in lib/msalConfig.ts; app switches always reload).
@@ -33,7 +34,7 @@ let msalReady = false;
 // fetch failed / token acquisition failed.
 // Runs as a fire-and-forget side-effect — MUST NOT block msalInitPromise,
 // otherwise a cold backend would keep the UI on a white screen.
-let prefetchedAuthMePromise: Promise<Record<string, unknown> | null> | null = null;
+let prefetchedAuthMePromise: Promise<AuthMeResponse | null> | null = null;
 
 /**
  * Safety net of the dual app-reg model, for the rare browser that lands on an app its tenant
@@ -108,7 +109,7 @@ const msalInitPromise = msalInstance
           headers: { 'Authorization': `Bearer ${tokenResponse.accessToken}` },
           signal: AbortSignal.timeout(8000),
         });
-        return res.ok ? (await res.json()) as Record<string, unknown> : null;
+        return res.ok ? (await res.json()) as AuthMeResponse : null;
       }).catch(() => null);
     }
   })
@@ -158,33 +159,23 @@ async function safeAcquireTokenRedirect(
   }
 }
 
-interface UserInfo {
-  displayName: string;
-  upn: string;
-  tenantId: string;
-  objectId: string;
-  isGlobalAdmin: boolean;
-  /**
-   * Read-only platform tier: cross-tenant VISIBILITY like a Global Admin but no platform mutations.
-   * ADDITIVE — a user may be both a GlobalReader and their own tenant's Admin (then isTenantAdmin is
-   * also true and they keep edit rights on their own tenant). Use {@link AuthContextType.hasGlobalScope}
-   * for visibility gating and isGlobalAdmin for platform-mutation gating.
-   */
-  isGlobalReader: boolean;
-  isTenantAdmin: boolean;
-  /**
-   * Delegated ("MSP") admin: the caller manages a SUBSET of OTHER tenants (read-only this phase) — the
-   * "scoped global" tier between a single-tenant member and a platform Global Admin. True iff
-   * {@link delegatedTenantIds} is non-empty. Use {@link AuthContextType.hasFleetScope} for fleet/switcher gating.
-   */
-  isDelegated: boolean;
-  /** The tenant IDs this caller manages as a delegated admin (lowercase). Empty for non-delegated users. */
-  delegatedTenantIds: string[];
+/**
+ * Client-side auth state, derived from the generated auth/me wire type — a backend key
+ * rename goes tsc-red here instead of silently degrading to fallbacks.
+ * Deviations from the wire: `role` is an explicit null (the wire omits the key for a
+ * roleless caller), and `homedApp` is not carried (it is learned into localStorage via
+ * {@link learnHomedAppFromAuthMe}, never React state).
+ *
+ * Semantics reminders:
+ * - isGlobalReader: read-only platform tier — cross-tenant VISIBILITY like a Global Admin
+ *   but no platform mutations. ADDITIVE (a GlobalReader can also be their own tenant's
+ *   Admin). Use {@link AuthContextType.hasGlobalScope} for visibility gating and
+ *   isGlobalAdmin for platform-mutation gating.
+ * - isDelegated / delegatedTenantIds: delegated ("MSP") admin managing a SUBSET of other
+ *   tenants — use {@link AuthContextType.hasFleetScope} for fleet/switcher gating.
+ */
+interface UserInfo extends Omit<AuthMeResponse, 'role' | 'homedApp'> {
   role: 'Admin' | 'Operator' | 'Viewer' | null;
-  canManageBootstrapTokens: boolean;
-  hasMcpAccess: boolean;
-  bootstrapTokenEnabled: boolean;
-  unrestrictedModeEnabled: boolean;
 }
 
 interface AuthContextType {
@@ -214,7 +205,7 @@ interface AuthContextType {
  * This is also how an operator flip propagates: flip → next login of every user runs via the
  * new app, at which point the tenant's admin consent already exists.
  */
-function learnHomedAppFromAuthMe(data: Record<string, unknown>): void {
+function learnHomedAppFromAuthMe(data: AuthMeResponse): void {
   const homedApp = data.homedApp;
   if (homedApp === 'legacy' || homedApp === 'primary') {
     // Change-only trace: this browser just learned its tenant was flipped — the propagation
@@ -224,6 +215,30 @@ function learnHomedAppFromAuthMe(data: Record<string, unknown>): void {
     }
     setSelectedAuthApp(homedApp);
   }
+}
+
+/**
+ * Maps a successful auth/me body onto client auth state. Token-claim fallbacks cover the
+ * cold-start edge where a field arrives empty; the shape itself is compiler-checked
+ * against the generated wire type.
+ */
+function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
+  return {
+    displayName: data.displayName || account.name || '',
+    upn: data.upn || account.username || '',
+    tenantId: data.tenantId || account.tenantId || '',
+    objectId: data.objectId || account.homeAccountId || '',
+    isGlobalAdmin: data.isGlobalAdmin || false,
+    isGlobalReader: data.isGlobalReader || false,
+    isTenantAdmin: data.isTenantAdmin || false,
+    isDelegated: data.isDelegated || false,
+    delegatedTenantIds: data.delegatedTenantIds || [],
+    role: data.role ?? null,
+    canManageBootstrapTokens: data.canManageBootstrapTokens || false,
+    hasMcpAccess: data.hasMcpAccess || false,
+    bootstrapTokenEnabled: data.bootstrapTokenEnabled || false,
+    unrestrictedModeEnabled: data.unrestrictedModeEnabled || false,
+  };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -255,22 +270,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         prefetchedAuthMePromise = null;
         const data = await pending;
         if (data) learnHomedAppFromAuthMe(data);
-        if (data) return {
-          displayName: (data.displayName as string) || account.name || '',
-          upn: (data.upn as string) || account.username || '',
-          tenantId: (data.tenantId as string) || account.tenantId || '',
-          objectId: (data.objectId as string) || account.homeAccountId || '',
-          isGlobalAdmin: (data.isGlobalAdmin as boolean) || false,
-          isGlobalReader: (data.isGlobalReader as boolean) || false,
-          isTenantAdmin: (data.isTenantAdmin as boolean) || false,
-          isDelegated: (data.isDelegated as boolean) || false,
-          delegatedTenantIds: (data.delegatedTenantIds as string[]) || [],
-          role: (data.role as 'Admin' | 'Operator' | 'Viewer' | null) || null,
-          canManageBootstrapTokens: (data.canManageBootstrapTokens as boolean) || false,
-          hasMcpAccess: (data.hasMcpAccess as boolean) || false,
-          bootstrapTokenEnabled: (data.bootstrapTokenEnabled as boolean) || false,
-          unrestrictedModeEnabled: (data.unrestrictedModeEnabled as boolean) || false,
-        };
+        if (data) return toUserInfo(data, account);
       }
 
       // Get access token for API
@@ -334,31 +334,16 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
         throw new Error(`Failed to fetch user info: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as AuthMeResponse;
 
       // A successful auth/me means the tenant is (now) activated — clear any pending
       // state so the activation page's poll can redirect into the portal.
       setActivationPending(false);
       setActivationMessage('');
 
-      learnHomedAppFromAuthMe(data as Record<string, unknown>);
+      learnHomedAppFromAuthMe(data);
 
-      return {
-        displayName: data.displayName || account.name || '',
-        upn: data.upn || account.username || '',
-        tenantId: data.tenantId || account.tenantId || '',
-        objectId: data.objectId || account.homeAccountId || '',
-        isGlobalAdmin: data.isGlobalAdmin || false,
-        isGlobalReader: data.isGlobalReader || false,
-        isTenantAdmin: data.isTenantAdmin || false,
-        isDelegated: data.isDelegated || false,
-        delegatedTenantIds: data.delegatedTenantIds || [],
-        role: data.role || null,
-        canManageBootstrapTokens: data.canManageBootstrapTokens || false,
-        hasMcpAccess: data.hasMcpAccess || false,
-        bootstrapTokenEnabled: data.bootstrapTokenEnabled || false,
-        unrestrictedModeEnabled: data.unrestrictedModeEnabled || false,
-      };
+      return toUserInfo(data, account);
     } catch (error) {
       // If the refresh token is expired or consent is required, redirect to
       // interactive login immediately instead of falling back to stale claims.

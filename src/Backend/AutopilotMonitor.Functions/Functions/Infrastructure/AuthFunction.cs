@@ -275,7 +275,7 @@ public class AuthFunction
             return unresolved;
         }
 
-        GlobalAdminEntity newAdmin;
+        GlobalAdminRow newAdmin;
         try
         {
             newAdmin = await _globalAdminService.AddGlobalAdminAsync(body.Upn, currentUpn!, identity.Value.TenantId, identity.Value.ObjectId);
@@ -588,30 +588,30 @@ public class AuthFunction
         string? role = needsAutoAdmin ? Constants.TenantRoles.Admin : memberRole?.Role;
         bool canManageBootstrapTokens = needsAutoAdmin || (memberRole?.CanManageBootstrapTokens ?? false);
 
-        return AuthDecisionResult.Success(new
+        return AuthDecisionResult.Success(new AuthMeResponse
         {
-            tenantId,
-            upn,
-            displayName,
-            objectId,
-            isGlobalAdmin,
-            isGlobalReader,
-            isTenantAdmin,
+            TenantId = tenantId,
+            Upn = upn,
+            DisplayName = displayName,
+            ObjectId = objectId,
+            IsGlobalAdmin = isGlobalAdmin,
+            IsGlobalReader = isGlobalReader,
+            IsTenantAdmin = isTenantAdmin,
             // Delegated ("MSP") scope: the OTHER tenants this caller may manage (read-only this phase) and a
             // convenience flag. The web app uses these for fleet/switcher UI, bounded to this set.
-            isDelegated,
-            delegatedTenantIds = managedTenantIds,
-            role,
-            canManageBootstrapTokens,
-            hasMcpAccess = mcpCheck.IsAllowed,
+            IsDelegated = isDelegated,
+            DelegatedTenantIds = managedTenantIds,
+            Role = role,
+            CanManageBootstrapTokens = canManageBootstrapTokens,
+            HasMcpAccess = mcpCheck.IsAllowed,
             // Dual app-reg window: which app registration this tenant is homed on. The web app
             // stores this per browser (localStorage) so the NEXT login uses the right app —
             // the deferred, no-roundtrip learning mechanism of the parallel operation model.
-            homedApp,
+            HomedApp = homedApp,
             // EFFECTIVE availability flags (drive sidebar/section visibility): bootstrap is
             // included in Pro, Unrestricted Mode requires Pro + the GA on-request gate.
-            bootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),
-            unrestrictedModeEnabled =
+            BootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),
+            UnrestrictedModeEnabled =
                 FeatureEntitlementCatalog.Get(TenantEntitlementService.ResolveEdition(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
                 && tenantConfig.UnrestrictedModeEnabled
         }, needsAutoAdmin);
