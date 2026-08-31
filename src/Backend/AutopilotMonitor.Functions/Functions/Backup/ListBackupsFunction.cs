@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Functions.Functions.Backup
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            var json = JsonSerializer.Serialize(new { backupIds = ids }, BackupManifestJson.SerializerOptions);
+            var json = JsonSerializer.Serialize(new ListBackupsResponse { BackupIds = ids }, BackupManifestJson.SerializerOptions);
             await response.WriteStringAsync(json);
             return response;
         }

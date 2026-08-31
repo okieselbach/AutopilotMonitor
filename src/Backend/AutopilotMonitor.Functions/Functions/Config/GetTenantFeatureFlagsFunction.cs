@@ -70,56 +70,56 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// without standing up an HttpRequestData mock. <paramref name="nowUtc"/> feeds the
         /// read-time edition resolution (trial expiry degrades automatically).
         /// </summary>
-        internal static object BuildPayload(TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false)
+        internal static TenantFeatureFlagsResponse BuildPayload(TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false)
         {
             var edition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
             var entitlements = FeatureEntitlementCatalog.Get(edition);
             var isTrial = edition == TenantEdition.Pro &&
                           !FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier);
 
-            return new
+            return new TenantFeatureFlagsResponse
             {
                 // EFFECTIVE bootstrap availability (Pro includes it; the GA flag is the additive
                 // Community enable) — field name kept for web compatibility.
-                bootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(config, nowUtc),
+                BootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(config, nowUtc),
                 // Session-detail "Collect Logs" button: whether an on-demand diagnostics upload can
                 // succeed right now (mode not Off + a usable destination). Members below Admin cannot
                 // read the full config, so this boolean is their only signal. Deliberately exposes no
                 // destination detail — just "would an upload work".
-                diagnosticsUploadConfigured = DiagnosticsUploadConfigChange.IsConfigured(config),
+                DiagnosticsUploadConfigured = DiagnosticsUploadConfigChange.IsConfigured(config),
                 // Drives the "Autopilot Device Validation disabled" dashboard banner
                 // (useTenantSecurityConfig).
-                validateAutopilotDevice = config.ValidateAutopilotDevice,
+                ValidateAutopilotDevice = config.ValidateAutopilotDevice,
                 // Dual app-reg self-service migration: when true, running the consent flow (or
                 // "Detect existing access") targets the NEW app registration and auto-flips this
                 // tenant's homing after verification — drives the explanatory banner in the
                 // Autopilot Validation settings section. Non-sensitive: exposes no client ids.
-                appHomingFunnelActive,
+                AppHomingFunnelActive = appHomingFunnelActive,
                 // Session-detail UI flags (useSessionTenantConfig). Nullable in the model;
                 // surface the agent-side defaults so the UI does not need a second nullable layer.
-                showScriptOutput = config.ShowScriptOutput ?? true,
-                enableSoftwareInventoryAnalyzer = config.EnableSoftwareInventoryAnalyzer ?? false,
-                enableIntegrityBypassAnalyzer = config.EnableIntegrityBypassAnalyzer ?? true,
+                ShowScriptOutput = config.ShowScriptOutput ?? true,
+                EnableSoftwareInventoryAnalyzer = config.EnableSoftwareInventoryAnalyzer ?? false,
+                EnableIntegrityBypassAnalyzer = config.EnableIntegrityBypassAnalyzer ?? true,
                 // Gather-rules page validation indicator. EFFECTIVE value (requires Pro edition +
                 // GA gate + tenant toggle) — the privileged toggle is UnrestrictedModeEnabled
                 // (admin-only, stays in the full config response).
-                unrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(config, nowUtc),
+                UnrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(config, nowUtc),
                 // Edition/entitlement surface (read-time resolution — non-sensitive by design):
                 // drives the EditionBadge, trial CTA and retention hint in the web UI.
-                edition = edition.ToString().ToLowerInvariant(),
-                isTrial,
-                trialExpiresUtc = isTrial ? config.TrialExpiresUtc : null,
-                trialAvailable = !config.TrialConsumed && edition == TenantEdition.Community,
+                Edition = edition.ToString().ToLowerInvariant(),
+                IsTrial = isTrial,
+                TrialExpiresUtc = isTrial ? config.TrialExpiresUtc : null,
+                TrialAvailable = !config.TrialConsumed && edition == TenantEdition.Community,
                 // Pro-requires-contact surface: drives the trial CTA gate and the dashboard
                 // "set a contact address" banner for Pro tenants. Boolean only — the address
                 // itself stays in the admin-gated full config response.
-                contactEmailSet = !string.IsNullOrWhiteSpace(config.ContactEmail),
-                entitlements = new
+                ContactEmailSet = !string.IsNullOrWhiteSpace(config.ContactEmail),
+                Entitlements = new TenantFeatureEntitlements
                 {
-                    retentionCapDays = entitlements.RetentionCapDays,
-                    userRateLimitPerMinute = entitlements.UserRateLimitPerMinute,
-                    delegatedAdminAllowed = entitlements.DelegatedAdminAllowed,
-                    mcpUsagePlan = entitlements.McpUsagePlanName
+                    RetentionCapDays = entitlements.RetentionCapDays,
+                    UserRateLimitPerMinute = entitlements.UserRateLimitPerMinute,
+                    DelegatedAdminAllowed = entitlements.DelegatedAdminAllowed,
+                    McpUsagePlan = entitlements.McpUsagePlanName
                 }
             };
         }

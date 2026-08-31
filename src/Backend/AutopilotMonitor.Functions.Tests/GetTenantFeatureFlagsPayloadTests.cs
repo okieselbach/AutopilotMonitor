@@ -19,7 +19,7 @@ public class GetTenantFeatureFlagsPayloadTests
     private static JsonElement Serialize(TenantConfiguration config)
     {
         var payload = GetTenantFeatureFlagsFunction.BuildPayload(config, Now);
-        var json = JsonSerializer.Serialize(payload);
+        var json = TestWire.Serialize(payload);
         return JsonDocument.Parse(json).RootElement;
     }
 
@@ -49,7 +49,9 @@ public class GetTenantFeatureFlagsPayloadTests
             "isTrial",
             "showScriptOutput",
             "trialAvailable",
-            "trialExpiresUtc",
+            // trialExpiresUtc is absent here: the default tenant is not on a trial and the
+            // wire options omit null keys (WhenWritingNull) — exactly what production always
+            // served. Payload_ActiveTrial_IsTrialWithExpiry pins the key on an active trial.
             "unrestrictedMode",
             "validateAutopilotDevice",
         }, fieldNames);
@@ -162,7 +164,7 @@ public class GetTenantFeatureFlagsPayloadTests
             WebhookUrl = "https://hooks.example.com/services/secret-generic-hook",
         };
 
-        var json = JsonSerializer.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config, Now));
+        var json = TestWire.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(config, Now));
 
         Assert.DoesNotContain("secret-sas-token", json);
         Assert.DoesNotContain("secret-team-hook", json);
@@ -270,7 +272,7 @@ public class GetTenantFeatureFlagsPayloadTests
     [Fact]
     public void Payload_ContactEmailSet_NeverLeaksTheAddress()
     {
-        var json = JsonSerializer.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(
+        var json = TestWire.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(
             new TenantConfiguration { ContactEmail = "secret-contact@contoso.com" }, Now));
 
         Assert.DoesNotContain("secret-contact", json);

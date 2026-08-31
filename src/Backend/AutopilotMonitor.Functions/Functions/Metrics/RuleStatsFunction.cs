@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
 
         /// <summary>
-        /// GET /api/metrics/rule-stats?startDate=...&endDate=...&ruleType=analyze
+        /// GET /api/metrics/rule-stats?startDate=...&amp;endDate=...&amp;ruleType=analyze
         /// Returns rule stats for the caller's tenant (MemberRead).
         /// </summary>
         [Function("GetRuleStats")]
@@ -48,55 +49,16 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     tenantId, startDate, endDate);
 
                 var entries = await _metricsRepo.GetRuleStatsAsync(tenantId, startDate, endDate, ruleType);
+                var aggregated = BuildRuleAggregates(entries);
 
-                // Aggregate across dates per ruleId
-                var aggregated = entries
-                    .GroupBy(e => e.RuleId)
-                    .Select(g => new
-                    {
-                        ruleId = g.Key,
-                        ruleType = g.First().RuleType,
-                        ruleTitle = g.First().RuleTitle,
-                        category = g.First().Category,
-                        severity = g.First().Severity,
-                        fireCount = g.Sum(e => e.FireCount),
-                        evaluationCount = g.Sum(e => e.EvaluationCount),
-                        sessionsEvaluated = g.Sum(e => e.SessionsEvaluated),
-                        hitRate = g.Sum(e => e.EvaluationCount) > 0
-                            ? Math.Round(100.0 * g.Sum(e => e.FireCount) / g.Sum(e => e.EvaluationCount), 1)
-                            : 0.0,
-                        avgConfidenceScore = g.Sum(e => e.FireCount) > 0
-                            ? Math.Round((double)g.Sum(e => e.ConfidenceScoreSum) / g.Sum(e => e.FireCount), 1)
-                            : 0.0,
-                        trend = g.OrderBy(e => e.Date).Select(e => new
-                        {
-                            date = e.Date,
-                            fireCount = e.FireCount,
-                            evaluationCount = e.EvaluationCount
-                        })
-                    })
-                    .OrderByDescending(r => r.fireCount)
-                    .ToList();
-
-                var totalEvaluations = aggregated.Sum(r => r.evaluationCount);
-                var totalFires = aggregated.Sum(r => r.fireCount);
-
-                var result = new
+                var result = new RuleStatsResponse
                 {
-                    rules = aggregated,
+                    Rules = aggregated,
                     // F3 PR6: active regression episodes (tracker rows) — the rules-page badge
                     // and MCP get_rule_stats read them from here. Empty list = nothing regressed.
-                    regressions = await _notificationTracker.GetRuleRegressionsAsync(tenantId),
-                    summary = new
-                    {
-                        totalEvaluations,
-                        totalFires,
-                        overallHitRate = totalEvaluations > 0
-                            ? Math.Round(100.0 * totalFires / totalEvaluations, 1)
-                            : 0.0,
-                        topRuleByFireCount = aggregated.FirstOrDefault()?.ruleId,
-                        period = new { start = startDate, end = endDate }
-                    }
+                    Regressions = await _notificationTracker.GetRuleRegressionsAsync(tenantId),
+                    // The tenant route historically carries no uniqueRules key — keep it absent.
+                    Summary = BuildSummary(aggregated, startDate, endDate, uniqueRules: null),
                 };
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -113,7 +75,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
 
         /// <summary>
-        /// GET /api/global/metrics/rule-stats?startDate=...&endDate=...&ruleType=analyze&tenantId=...
+        /// GET /api/global/metrics/rule-stats?startDate=...&amp;endDate=...&amp;ruleType=analyze&amp;tenantId=...
         /// Returns cross-tenant global rule stats (Global Admin only).
         /// When tenantId is provided, returns tenant-specific stats instead of global aggregates.
         /// </summary>
@@ -136,57 +98,17 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     queryTenantId, startDate, endDate);
 
                 var entries = await _metricsRepo.GetRuleStatsAsync(queryTenantId, startDate, endDate, ruleType);
+                var aggregated = BuildRuleAggregates(entries);
 
-                var aggregated = entries
-                    .GroupBy(e => e.RuleId)
-                    .Select(g => new
-                    {
-                        ruleId = g.Key,
-                        ruleType = g.First().RuleType,
-                        ruleTitle = g.First().RuleTitle,
-                        category = g.First().Category,
-                        severity = g.First().Severity,
-                        fireCount = g.Sum(e => e.FireCount),
-                        evaluationCount = g.Sum(e => e.EvaluationCount),
-                        sessionsEvaluated = g.Sum(e => e.SessionsEvaluated),
-                        hitRate = g.Sum(e => e.EvaluationCount) > 0
-                            ? Math.Round(100.0 * g.Sum(e => e.FireCount) / g.Sum(e => e.EvaluationCount), 1)
-                            : 0.0,
-                        avgConfidenceScore = g.Sum(e => e.FireCount) > 0
-                            ? Math.Round((double)g.Sum(e => e.ConfidenceScoreSum) / g.Sum(e => e.FireCount), 1)
-                            : 0.0,
-                        trend = g.OrderBy(e => e.Date).Select(e => new
-                        {
-                            date = e.Date,
-                            fireCount = e.FireCount,
-                            evaluationCount = e.EvaluationCount
-                        })
-                    })
-                    .OrderByDescending(r => r.fireCount)
-                    .ToList();
-
-                var totalEvaluations = aggregated.Sum(r => r.evaluationCount);
-                var totalFires = aggregated.Sum(r => r.fireCount);
-
-                var result = new
+                var result = new RuleStatsResponse
                 {
-                    rules = aggregated,
+                    Rules = aggregated,
                     // Regression episodes are tenant-scoped: present when drilling into one
                     // tenant, empty for the cross-tenant "global" aggregate (no episode there).
-                    regressions = queryTenantId != "global"
+                    Regressions = queryTenantId != "global"
                         ? await _notificationTracker.GetRuleRegressionsAsync(queryTenantId)
-                        : new List<AutopilotMonitor.Shared.Models.RuleRegressionAlert>(),
-                    summary = new
-                    {
-                        totalEvaluations,
-                        totalFires,
-                        overallHitRate = totalEvaluations > 0
-                            ? Math.Round(100.0 * totalFires / totalEvaluations, 1)
-                            : 0.0,
-                        topRuleByFireCount = aggregated.FirstOrDefault()?.ruleId,
-                        uniqueRules = aggregated.Count,
-                        period = new { start = startDate, end = endDate }
-                    }
+                        : new List<RuleRegressionAlert>(),
+                    Summary = BuildSummary(aggregated, startDate, endDate, uniqueRules: aggregated.Count),
                 };
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -200,6 +122,54 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 await errorResponse.WriteAsJsonAsync(new { success = false, message = "Failed to fetch global rule stats" });
                 return errorResponse;
             }
+        }
+
+        /// <summary>Aggregate the per-date entries across dates per ruleId, fires descending.</summary>
+        internal static List<RuleStatsRuleAggregate> BuildRuleAggregates(IReadOnlyList<RuleStatsEntry> entries)
+            => entries
+                .GroupBy(e => e.RuleId)
+                .Select(g => new RuleStatsRuleAggregate
+                {
+                    RuleId = g.Key,
+                    RuleType = g.First().RuleType,
+                    RuleTitle = g.First().RuleTitle,
+                    Category = g.First().Category,
+                    Severity = g.First().Severity,
+                    FireCount = g.Sum(e => e.FireCount),
+                    EvaluationCount = g.Sum(e => e.EvaluationCount),
+                    SessionsEvaluated = g.Sum(e => e.SessionsEvaluated),
+                    HitRate = g.Sum(e => e.EvaluationCount) > 0
+                        ? Math.Round(100.0 * g.Sum(e => e.FireCount) / g.Sum(e => e.EvaluationCount), 1)
+                        : 0.0,
+                    AvgConfidenceScore = g.Sum(e => e.FireCount) > 0
+                        ? Math.Round((double)g.Sum(e => e.ConfidenceScoreSum) / g.Sum(e => e.FireCount), 1)
+                        : 0.0,
+                    Trend = g.OrderBy(e => e.Date).Select(e => new RuleTrendPoint
+                    {
+                        Date = e.Date,
+                        FireCount = e.FireCount,
+                        EvaluationCount = e.EvaluationCount
+                    }).ToList(),
+                })
+                .OrderByDescending(r => r.FireCount)
+                .ToList();
+
+        internal static RuleStatsSummary BuildSummary(
+            IReadOnlyList<RuleStatsRuleAggregate> aggregated, string startDate, string endDate, int? uniqueRules)
+        {
+            var totalEvaluations = aggregated.Sum(r => r.EvaluationCount);
+            var totalFires = aggregated.Sum(r => r.FireCount);
+            return new RuleStatsSummary
+            {
+                TotalEvaluations = totalEvaluations,
+                TotalFires = totalFires,
+                OverallHitRate = totalEvaluations > 0
+                    ? Math.Round(100.0 * totalFires / totalEvaluations, 1)
+                    : 0.0,
+                TopRuleByFireCount = aggregated.Count > 0 ? aggregated[0].RuleId : null,
+                UniqueRules = uniqueRules,
+                Period = new RuleStatsPeriod { Start = startDate, End = endDate },
+            };
         }
     }
 }

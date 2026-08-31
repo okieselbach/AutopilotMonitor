@@ -129,10 +129,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var days = DeviceJourneyMetricsResponse.ClampDays(query["days"]);
+                var days = DeviceJourneyMetricsResponseBuilder.ClampDays(query["days"]);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(await DeviceJourneyMetricsResponse.BuildAsync(
+                await response.WriteAsJsonAsync(await DeviceJourneyMetricsResponseBuilder.BuildAsync(
                     _metricsRepo, _sessionRepo, tenantId, days, includeRepeatDevices: true));
                 return response;
             }
@@ -177,11 +177,11 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
                 var tenantIdFilter = query["tenantId"];
-                var days = DeviceJourneyMetricsResponse.ClampDays(query["days"]);
+                var days = DeviceJourneyMetricsResponseBuilder.ClampDays(query["days"]);
                 var partition = string.IsNullOrWhiteSpace(tenantIdFilter) ? "global" : tenantIdFilter!;
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(await DeviceJourneyMetricsResponse.BuildAsync(
+                await response.WriteAsJsonAsync(await DeviceJourneyMetricsResponseBuilder.BuildAsync(
                     _metricsRepo, _sessionRepo, partition, days, includeRepeatDevices: partition != "global"));
                 return response;
             }
@@ -195,8 +195,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
     }
 
-    /// <summary>Shared response shape for the tenant and global variants (mirrors TimeAttributionResponse).</summary>
-    internal static class DeviceJourneyMetricsResponse
+    /// <summary>
+    /// Shared response builder for the tenant and global variants (mirrors
+    /// TimeAttributionResponseBuilder). The envelope/row DTOs
+    /// (<see cref="DeviceJourneyMetricsResponse"/>, <see cref="DeviceJourneyWindowTotals"/>,
+    /// <see cref="DeviceJourneyRepeatDevice"/>) live in Shared so the manifest exports them.
+    /// </summary>
+    internal static class DeviceJourneyMetricsResponseBuilder
     {
         internal const int DefaultWindowDays = 30;
         internal const int MaxWindowDays = 180; // aggregate retention — older rows no longer exist
@@ -215,7 +220,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// </summary>
         internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
 
-        internal static async Task<object> BuildAsync(
+        internal static async Task<DeviceJourneyMetricsResponse> BuildAsync(
             IMetricsRepository metricsRepo, ISessionRepository sessionRepo,
             string partition, int days, bool includeRepeatDevices)
         {
@@ -223,12 +228,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             var daily = await metricsRepo.GetDeviceJourneyAggregatesAsync(partition, InclusiveWindowStart(today, days), today);
             var totals = SumAggregates(daily);
 
-            List<object>? repeatDevices = null;
+            List<DeviceJourneyRepeatDevice>? repeatDevices = null;
             if (includeRepeatDevices)
             {
                 var histories = await metricsRepo.GetDeviceHistoriesByTenantAsync(partition);
                 var candidates = SelectRepeatDevices(histories, today.AddDays(-days));
-                repeatDevices = new List<object>(candidates.Count);
+                repeatDevices = new List<DeviceJourneyRepeatDevice>(candidates.Count);
                 foreach (var candidate in candidates)
                 {
                     // Failure reason of the newest failed attempt — a bounded point-read per top
@@ -246,42 +251,29 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                             // fail-soft — the row renders without a reason
                         }
                     }
-                    repeatDevices.Add(new
+                    repeatDevices.Add(new DeviceJourneyRepeatDevice
                     {
-                        serialNumber = candidate.History.SerialNumber,
-                        manufacturer = candidate.History.Manufacturer,
-                        model = candidate.History.Model,
-                        attempts = candidate.History.CurrentJourneyAttempts,
-                        journeyCount = candidate.History.JourneyCount,
-                        lastStatus = candidate.Newest.Status,
-                        lastSessionId = candidate.Newest.SessionId,
-                        lastStartedAt = candidate.Newest.StartedAt,
-                        lastFailureReason,
+                        SerialNumber = candidate.History.SerialNumber,
+                        Manufacturer = candidate.History.Manufacturer,
+                        Model = candidate.History.Model,
+                        Attempts = candidate.History.CurrentJourneyAttempts,
+                        JourneyCount = candidate.History.JourneyCount,
+                        LastStatus = candidate.Newest.Status,
+                        LastSessionId = candidate.Newest.SessionId,
+                        LastStartedAt = candidate.Newest.StartedAt,
+                        LastFailureReason = lastFailureReason,
                     });
                 }
             }
 
-            return new
+            return new DeviceJourneyMetricsResponse
             {
-                success = true,
-                windowDays = days,
-                totals,
-                daily = daily.OrderBy(d => d.Date, StringComparer.Ordinal).ToList(),
-                repeatDevices,
+                Success = true,
+                WindowDays = days,
+                Totals = totals,
+                Daily = daily.OrderBy(d => d.Date, StringComparer.Ordinal).ToList(),
+                RepeatDevices = repeatDevices,
             };
-        }
-
-        /// <summary>Window totals (serialized camelCase by the worker's global serializer, like the model rows).</summary>
-        internal sealed class DeviceJourneyWindowTotals
-        {
-            public int CompletedJourneys { get; init; }
-            public int FirstTimeRight { get; init; }
-
-            /// <summary>Null with zero completed journeys — no rate claim, never 0 (truthfulness rule 1).</summary>
-            public double? FtrRatePct { get; init; }
-
-            public int ExcludedSessions { get; init; }
-            public List<DeviceJourneyAttemptBucket> AttemptHistogram { get; init; } = new();
         }
 
         /// <summary>

@@ -24,7 +24,7 @@ public class AppsAnalyticsHelperPagingTests
     }
 
     private static JsonElement Build(int? pageSize, int skip = 0) =>
-        JsonSerializer.SerializeToElement(AppsAnalyticsHelper.BuildAppsListResponse(
+        TestWire.SerializeToElement(AppsAnalyticsHelper.BuildAppsListResponse(
             FiveApps(), days: 30, pageSize: pageSize, skip: skip,
             nextLinkForOffset: o => $"/api/apps/list?pageSize={pageSize}&skip={o}"));
 
@@ -55,12 +55,13 @@ public class AppsAnalyticsHelperPagingTests
     }
 
     [Fact]
-    public void PageSize_LastPage_HasNullNextLink()
+    public void PageSize_LastPage_OmitsNextLink()
     {
         var root = Build(pageSize: 2, skip: 4);
 
         Assert.Equal(1, root.GetProperty("count").GetInt32());
         Assert.Equal("Echo", root.GetProperty("apps")[0].GetProperty("appName").GetString());
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("nextLink").ValueKind);
+        // Wire options omit null keys (WhenWritingNull): no further page → no nextLink key.
+        Assert.False(root.TryGetProperty("nextLink", out _));
     }
 }

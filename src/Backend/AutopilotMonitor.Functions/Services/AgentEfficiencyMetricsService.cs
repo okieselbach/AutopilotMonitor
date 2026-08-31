@@ -72,7 +72,7 @@ namespace AutopilotMonitor.Functions.Services
                     // Shallow copy so flipping FromCache never mutates the instance an earlier
                     // (fresh) caller may still be holding/serializing. The buckets are shared
                     // read-only — nothing downstream writes into a response.
-                    return entry.metrics.CloneAsCacheHit();
+                    return CloneAsCacheHit(entry.metrics);
                 }
             }
 
@@ -287,6 +287,21 @@ namespace AutopilotMonitor.Functions.Services
                 }));
         }
 
+        /// <summary>Shallow copy flagged as a cache hit — see the cache-read path.</summary>
+        private static AgentEfficiencyMetricsResponse CloneAsCacheHit(AgentEfficiencyMetricsResponse source) => new()
+        {
+            WindowDays = source.WindowDays,
+            SessionLimit = source.SessionLimit,
+            TenantId = source.TenantId,
+            SessionsScanned = source.SessionsScanned,
+            SessionsWithSnapshots = source.SessionsWithSnapshots,
+            ByVersion = source.ByVersion,
+            Overall = source.Overall,
+            ComputedAt = source.ComputedAt,
+            ComputeDurationMs = source.ComputeDurationMs,
+            FromCache = true
+        };
+
         private static PercentileStats? BuildStats(IEnumerable<double> values)
         {
             var sorted = values.OrderBy(v => v).ToList();
@@ -303,76 +318,7 @@ namespace AutopilotMonitor.Functions.Services
         }
     }
 
-    // ── Response DTOs ────────────────────────────────────────────────────────────
-
-    public class AgentEfficiencyMetricsResponse
-    {
-        public int WindowDays { get; set; }
-        public int SessionLimit { get; set; }
-        /// <summary>Echo of the requested tenant filter; null = cross-tenant aggregate.</summary>
-        public string? TenantId { get; set; }
-        /// <summary>Sessions the scan covered — compare against <see cref="SessionLimit"/> for truncation.</summary>
-        public int SessionsScanned { get; set; }
-        public int SessionsWithSnapshots { get; set; }
-        public List<AgentVersionEfficiency> ByVersion { get; set; } = new();
-        public AgentVersionEfficiency? Overall { get; set; }
-        public DateTime ComputedAt { get; set; }
-        public int ComputeDurationMs { get; set; }
-        public bool FromCache { get; set; }
-
-        /// <summary>Shallow copy flagged as a cache hit — see the cache-read path.</summary>
-        internal AgentEfficiencyMetricsResponse CloneAsCacheHit() => new()
-        {
-            WindowDays = WindowDays,
-            SessionLimit = SessionLimit,
-            TenantId = TenantId,
-            SessionsScanned = SessionsScanned,
-            SessionsWithSnapshots = SessionsWithSnapshots,
-            ByVersion = ByVersion,
-            Overall = Overall,
-            ComputedAt = ComputedAt,
-            ComputeDurationMs = ComputeDurationMs,
-            FromCache = true
-        };
-    }
-
-    public class AgentVersionEfficiency
-    {
-        /// <summary>Null on the cross-version "overall" bucket (omitted on the wire).</summary>
-        public string? AgentVersion { get; set; }
-        public int SessionsScanned { get; set; }
-        public int SessionsWithSnapshots { get; set; }
-        public int SpoolPressureSessions { get; set; }
-        public PercentileStats? AvgCpuPercent { get; set; }
-        public PercentileStats? MaxCpuPercent { get; set; }
-        public PercentileStats? MaxWorkingSetMb { get; set; }
-        public PercentileStats? MaxPrivateBytesMb { get; set; }
-        public PercentileStats? MaxThreadCount { get; set; }
-        public PercentileStats? MaxHandleCount { get; set; }
-        public PercentileStats? MaxSpoolDepth { get; set; }
-        public PercentileStats? MaxSpoolFileBytes { get; set; }
-        public PercentileStats? ApiLatencyMs { get; set; }
-        public PercentileStats? ApiRequestCount { get; set; }
-        public CrashRateMetrics? CrashRate { get; set; }
-        public List<EfficiencyOffender>? TopOffenders { get; set; }
-    }
-
-    /// <summary>Distribution of a per-session statistic across a version bucket.</summary>
-    public class PercentileStats
-    {
-        public double P50 { get; set; }
-        public double P95 { get; set; }
-        public double Max { get; set; }
-        public double Avg { get; set; }
-        public int SampleCount { get; set; }
-    }
-
-    public class EfficiencyOffender
-    {
-        public string SessionId { get; set; } = string.Empty;
-        public string TenantId { get; set; } = string.Empty;
-        public string? DeviceName { get; set; }
-        public string Dimension { get; set; } = string.Empty;
-        public double Value { get; set; }
-    }
+    // Response DTOs (AgentEfficiencyMetricsResponse family) moved to
+    // AutopilotMonitor.Shared.Models (Models/Metrics/AgentPerformanceMetrics.cs) so the
+    // shared manifest exports them as wire types.
 }

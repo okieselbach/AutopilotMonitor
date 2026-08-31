@@ -58,7 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 //    four extra Table reads on every poll from every active user.
                 var adminConfig = await _adminConfigService.GetConfigurationAsync();
                 if (!adminConfig.FeedbackEnabled)
-                    return await WriteJson(req, new { eligible = false });
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 // 2. User identity
                 string tenantId = TenantHelper.GetTenantId(req);
@@ -86,17 +86,17 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 var roleInfo = EntraAppRoleResolver.Resolve(
                     tableState, tableRole, context.GetUser()?.GetAppRoles(), tenantConfig.EntraAppRolesEnabled);
                 if (roleInfo == null || roleInfo.Role == Constants.TenantRoles.Viewer)
-                    return await WriteJson(req, new { eligible = false });
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 // 4. Tenant age check
                 if (tenantConfig.OnboardedAt == null ||
                     (DateTime.UtcNow - tenantConfig.OnboardedAt.Value).TotalDays < adminConfig.FeedbackMinTenantAgeDays)
-                    return await WriteJson(req, new { eligible = false });
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 // 5. Sessions check — at least 1 session exists.
                 var sessionPage = sessionsTask.Result;
                 if (sessionPage.Items.Count == 0)
-                    return await WriteJson(req, new { eligible = false });
+                    return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                 // 6. Cooldown check
                 var feedbackEntry = feedbackTask.Result;
@@ -104,14 +104,14 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 {
                     // Cooldown = 0 means single wave only
                     if (adminConfig.FeedbackCooldownDays == 0)
-                        return await WriteJson(req, new { eligible = false });
+                        return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
 
                     var daysSinceInteraction = (DateTime.UtcNow - feedbackEntry.InteractedAt.Value).TotalDays;
                     if (daysSinceInteraction < adminConfig.FeedbackCooldownDays)
-                        return await WriteJson(req, new { eligible = false });
+                        return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
                 }
 
-                return await WriteJson(req, new { eligible = true });
+                return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = true });
             }
             catch (UnauthorizedAccessException)
             {
@@ -122,7 +122,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             {
                 _logger.LogError(ex, "Error checking feedback status");
                 // Fail closed — don't show bubble on errors
-                return await WriteJson(req, new { eligible = false });
+                return await WriteJson(req, new FeedbackEligibilityResponse { Eligible = false });
             }
         }
 
@@ -197,7 +197,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
                     body.Dismissed ? "dismissed" : "submitted", upn, tenantId);
 
-                return await WriteJson(req, new { success = true });
+                return await WriteJson(req, new SuccessOnlyResponse { Success = true });
             }
             catch (UnauthorizedAccessException)
             {
@@ -222,22 +222,22 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             try
             {
                 var allEntries = await _feedbackRepo.GetAllAsync();
-                var entries = allEntries.Select(e => new
+                var entries = allEntries.Select(e => new FeedbackEntryWire
                 {
-                    type = e.Type,
-                    upn = e.Upn,
-                    tenantId = e.TenantId,
-                    displayName = e.DisplayName,
-                    rating = e.Rating,
-                    comment = e.Comment,
-                    dismissed = e.Dismissed,
-                    submitted = e.Submitted,
-                    interactedAt = e.InteractedAt?.ToString("o"),
-                    historyRowKey = e.HistoryRowKey,
-                    domainName = e.DomainName,
+                    Type = e.Type,
+                    Upn = e.Upn,
+                    TenantId = e.TenantId,
+                    DisplayName = e.DisplayName,
+                    Rating = e.Rating,
+                    Comment = e.Comment,
+                    Dismissed = e.Dismissed,
+                    Submitted = e.Submitted,
+                    InteractedAt = e.InteractedAt?.ToString("o"),
+                    HistoryRowKey = e.HistoryRowKey,
+                    DomainName = e.DomainName,
                 }).ToList();
 
-                return await WriteJson(req, new { feedback = entries });
+                return await WriteJson(req, new FeedbackListResponse { Feedback = entries });
             }
             catch (Exception ex)
             {
@@ -248,7 +248,11 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             }
         }
 
-        private static async Task<HttpResponseData> WriteJson(HttpRequestData req, object data)
+        // Generic with an IApiResponse constraint (NOT an IApiResponse parameter): success
+        // bodies through this wrapper are typed by construction — an anonymous body no longer
+        // compiles — while the CONCRETE type still reaches the serializer (a declared interface
+        // type would serialize zero properties under System.Text.Json).
+        private static async Task<HttpResponseData> WriteJson<T>(HttpRequestData req, T data) where T : IApiResponse
         {
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(data);

@@ -128,7 +128,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         /// (so an MCP caller can page a large fleet's app list). <paramref name="nextLinkForOffset"/> builds the
         /// route-specific nextLink for the next offset; it is only invoked when more pages remain.
         /// </summary>
-        public static object BuildAppsListResponse(
+        public static AppsListResponse BuildAppsListResponse(
             List<AppInstallSummary> allSummaries,
             int days,
             int? pageSize = null,
@@ -161,40 +161,40 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var secondHalf = g.Where(s => s.StartedAt >= midpoint).ToList();
                 var (trend, trendDelta) = ComputeFailureTrend(firstHalf, secondHalf);
 
-                return new
+                return new AppsListItem
                 {
-                    appName = g.Key,
-                    appType = g.Select(s => s.AppType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? string.Empty,
-                    totalInstalls = total,
-                    succeeded = installed.Count,
-                    skipped,
-                    unmeasured = installed.Count - measured.Count,
-                    failed,
-                    failureRate,
-                    avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
-                    maxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
-                    avgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
-                    trend,
-                    trendDelta,
-                    lastSeenAt = g.Max(s => s.CompletedAt ?? s.StartedAt)
+                    AppName = g.Key,
+                    AppType = g.Select(s => s.AppType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? string.Empty,
+                    TotalInstalls = total,
+                    Succeeded = installed.Count,
+                    Skipped = skipped,
+                    Unmeasured = installed.Count - measured.Count,
+                    Failed = failed,
+                    FailureRate = failureRate,
+                    AvgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
+                    MaxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
+                    AvgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
+                    Trend = trend,
+                    TrendDelta = trendDelta,
+                    LastSeenAt = g.Max(s => s.CompletedAt ?? s.StartedAt)
                 };
             })
-            .OrderByDescending(a => a.failed)
-            .ThenByDescending(a => a.failureRate)
-            .ThenBy(a => a.appName, StringComparer.OrdinalIgnoreCase) // deterministic tiebreaker for stable paging cursors
+            .OrderByDescending(a => a.Failed)
+            .ThenByDescending(a => a.FailureRate)
+            .ThenBy(a => a.AppName, StringComparer.OrdinalIgnoreCase) // deterministic tiebreaker for stable paging cursors
             .ToList();
 
             // Legacy mode: caller did not opt into pagination → full array (web UI pages client-side).
             if (pageSize == null)
             {
-                return new
+                return new AppsListResponse
                 {
-                    success = true,
-                    totalApps = apps.Count,
-                    totalInstalls = summaries.Count,
-                    collisionExcluded,
-                    windowDays = days,
-                    apps
+                    Success = true,
+                    TotalApps = apps.Count,
+                    TotalInstalls = summaries.Count,
+                    CollisionExcluded = collisionExcluded,
+                    WindowDays = days,
+                    Apps = apps
                 };
             }
 
@@ -204,18 +204,18 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var nextOffset = offset + page.Count;
             var hasMore = nextOffset < apps.Count;
 
-            return new
+            return new AppsListResponse
             {
-                success = true,
-                totalApps = apps.Count,
-                totalInstalls = summaries.Count,
-                collisionExcluded,
-                windowDays = days,
-                count = page.Count,
-                offset,
-                pageSize = pageSize.Value,
-                apps = page,
-                nextLink = hasMore ? nextLinkForOffset?.Invoke(nextOffset) : null
+                Success = true,
+                TotalApps = apps.Count,
+                TotalInstalls = summaries.Count,
+                CollisionExcluded = collisionExcluded,
+                WindowDays = days,
+                Count = page.Count,
+                Offset = offset,
+                PageSize = pageSize.Value,
+                Apps = page,
+                NextLink = hasMore ? nextLinkForOffset?.Invoke(nextOffset) : null
             };
         }
 
@@ -225,7 +225,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         /// Builds the analytics response body for a single app.
         /// Loads sessions individually via the session repository for the device-model join.
         /// </summary>
-        public static async Task<object> BuildAnalyticsResponseAsync(
+        public static async Task<AppAnalyticsResponse> BuildAnalyticsResponseAsync(
             List<AppInstallSummary> allSummaries,
             ISessionRepository sessionRepo,
             string appName,
@@ -252,38 +252,38 @@ namespace AutopilotMonitor.Functions.Functions.Apps
 
             if (summaries.Count == 0)
             {
-                return new
+                return new AppAnalyticsResponse
                 {
-                    success = true,
-                    appName,
-                    appType = string.Empty,
-                    windowDays = days,
-                    collisionExcluded,
-                    bucket = "day",
-                    summary = new
+                    Success = true,
+                    AppName = appName,
+                    AppType = string.Empty,
+                    WindowDays = days,
+                    CollisionExcluded = collisionExcluded,
+                    Bucket = "day",
+                    Summary = new AppAnalyticsSummary
                     {
-                        totalInstalls = 0,
-                        succeeded = 0,
-                        skipped = 0,
-                        unmeasured = 0,
-                        failed = 0,
-                        failureRate = 0,
-                        avgDurationSeconds = 0,
-                        p95DurationSeconds = 0,
-                        avgDownloadBytes = 0,
-                        trend = "stable",
-                        trendDelta = (double?)null,
-                        flakinessScore = 0.0
+                        TotalInstalls = 0,
+                        Succeeded = 0,
+                        Skipped = 0,
+                        Unmeasured = 0,
+                        Failed = 0,
+                        FailureRate = 0,
+                        AvgDurationSeconds = 0,
+                        P95DurationSeconds = 0,
+                        AvgDownloadBytes = 0,
+                        Trend = "stable",
+                        TrendDelta = null,
+                        FlakinessScore = 0.0
                     },
-                    timeSeries = Array.Empty<object>(),
-                    versionBreakdown = Array.Empty<object>(),
-                    installerPhaseBreakdown = Array.Empty<object>(),
-                    topFailureCodes = Array.Empty<object>(),
-                    detectionLiesCount = 0,
-                    deviceModelBreakdown = Array.Empty<object>(),
+                    TimeSeries = Array.Empty<AppAnalyticsTimeBucket>(),
+                    VersionBreakdown = Array.Empty<AppVersionBreakdownItem>(),
+                    InstallerPhaseBreakdown = Array.Empty<AppInstallerPhaseCount>(),
+                    TopFailureCodes = Array.Empty<AppAnalyticsFailureCode>(),
+                    DetectionLiesCount = 0,
+                    DeviceModelBreakdown = Array.Empty<AppDeviceModelBreakdownItem>(),
                     // Lockstep with the full response: episodes can outlive the window's data
                     // (e.g. a shrunk days= selection), so the block is still surfaced here.
-                    versionRegressions = appVersionRegressions
+                    VersionRegressions = appVersionRegressions
                 };
             }
 
@@ -329,38 +329,38 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                         .Where(MetricsMath.HasMeasuredDuration)
                         .Select(s => s.DurationSeconds)
                         .ToList();
-                    return new
+                    return new AppVersionBreakdownItem
                     {
-                        appVersion = g.Key,
-                        installs = vTotal,
-                        failed = vFailed,
-                        failureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded),
-                        measuredInstalls = vDurations.Count,
-                        medianDurationSeconds = Percentile(vDurations, 0.50),
-                        p95DurationSeconds = Percentile(vDurations, 0.95)
+                        AppVersion = g.Key,
+                        Installs = vTotal,
+                        Failed = vFailed,
+                        FailureRate = MetricsMath.TerminalFailureRatePct(vFailed, vSucceeded),
+                        MeasuredInstalls = vDurations.Count,
+                        MedianDurationSeconds = Percentile(vDurations, 0.50),
+                        P95DurationSeconds = Percentile(vDurations, 0.95)
                     };
                 })
-                .OrderByDescending(v => v.installs)
+                .OrderByDescending(v => v.Installs)
                 .ToList();
 
             var installerPhaseBreakdown = summaries
                 .Where(s => s.Status == "Failed" && !string.IsNullOrEmpty(s.InstallerPhase))
                 .GroupBy(s => s.InstallerPhase)
-                .Select(g => new { phase = g.Key, failed = g.Count() })
-                .OrderByDescending(p => p.failed)
+                .Select(g => new AppInstallerPhaseCount { Phase = g.Key, Failed = g.Count() })
+                .OrderByDescending(p => p.Failed)
                 .ToList();
 
             var topFailureCodes = summaries
                 .Where(s => s.Status == "Failed" && !string.IsNullOrEmpty(s.FailureCode))
                 .GroupBy(s => s.FailureCode)
-                .Select(g => new
+                .Select(g => new AppAnalyticsFailureCode
                 {
-                    code = g.Key,
-                    exitCode = g.Select(s => s.ExitCode).FirstOrDefault(e => e.HasValue),
-                    count = g.Count(),
-                    sampleMessage = g.Select(s => s.FailureMessage).FirstOrDefault(m => !string.IsNullOrEmpty(m)) ?? string.Empty
+                    Code = g.Key,
+                    ExitCode = g.Select(s => s.ExitCode).FirstOrDefault(e => e.HasValue),
+                    Count = g.Count(),
+                    SampleMessage = g.Select(s => s.FailureMessage).FirstOrDefault(m => !string.IsNullOrEmpty(m)) ?? string.Empty
                 })
-                .OrderByDescending(f => f.count)
+                .OrderByDescending(f => f.Count)
                 .Take(5)
                 .ToList();
 
@@ -397,57 +397,57 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     var lift = failureRate > 0
                         ? Math.Round(modelFailureRate / failureRate, 2)
                         : 0;
-                    return new
+                    return new AppDeviceModelBreakdownItem
                     {
-                        manufacturer = g.Key.Manufacturer,
-                        model = g.Key.Model,
-                        installs = modelTotal,
-                        failed = modelFailed,
-                        failureRate = modelFailureRate,
-                        liftVsBaseline = lift
+                        Manufacturer = g.Key.Manufacturer,
+                        Model = g.Key.Model,
+                        Installs = modelTotal,
+                        Failed = modelFailed,
+                        FailureRate = modelFailureRate,
+                        LiftVsBaseline = lift
                     };
                 })
-                .OrderByDescending(m => m.liftVsBaseline)
+                .OrderByDescending(m => m.LiftVsBaseline)
                 .ToList();
 
             var appType = summaries.Select(s => s.AppType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? string.Empty;
 
-            return new
+            return new AppAnalyticsResponse
             {
-                success = true,
-                appName,
-                appType,
-                windowDays = days,
-                collisionExcluded,
-                bucket,
-                summary = new
+                Success = true,
+                AppName = appName,
+                AppType = appType,
+                WindowDays = days,
+                CollisionExcluded = collisionExcluded,
+                Bucket = bucket,
+                Summary = new AppAnalyticsSummary
                 {
-                    totalInstalls = total,
-                    succeeded,
-                    skipped,
-                    unmeasured = installed.Count - measured.Count,
-                    failed,
-                    failureRate,
-                    avgDurationSeconds,
-                    p95DurationSeconds,
-                    avgDownloadBytes,
-                    trend,
-                    trendDelta,
-                    flakinessScore
+                    TotalInstalls = total,
+                    Succeeded = succeeded,
+                    Skipped = skipped,
+                    Unmeasured = installed.Count - measured.Count,
+                    Failed = failed,
+                    FailureRate = failureRate,
+                    AvgDurationSeconds = avgDurationSeconds,
+                    P95DurationSeconds = p95DurationSeconds,
+                    AvgDownloadBytes = avgDownloadBytes,
+                    Trend = trend,
+                    TrendDelta = trendDelta,
+                    FlakinessScore = flakinessScore
                 },
-                timeSeries,
-                versionBreakdown,
-                installerPhaseBreakdown,
-                topFailureCodes,
-                detectionLiesCount,
-                deviceModelBreakdown,
-                versionRegressions = appVersionRegressions
+                TimeSeries = timeSeries,
+                VersionBreakdown = versionBreakdown,
+                InstallerPhaseBreakdown = installerPhaseBreakdown,
+                TopFailureCodes = topFailureCodes,
+                DetectionLiesCount = detectionLiesCount,
+                DeviceModelBreakdown = deviceModelBreakdown,
+                VersionRegressions = appVersionRegressions
             };
         }
 
         // ── /apps/{appName}/sessions ────────────────────────────────────────
 
-        public static async Task<object> BuildSessionsResponseAsync(
+        public static async Task<AppSessionsResponse> BuildSessionsResponseAsync(
             List<AppInstallSummary> allSummaries,
             ISessionRepository sessionRepo,
             string appName,
@@ -499,34 +499,34 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var items = page.Select(s =>
             {
                 sessionLookup.TryGetValue($"{s.TenantId}|{s.SessionId}", out var sess);
-                return new
+                return new AppSessionItem
                 {
-                    sessionId = s.SessionId,
-                    tenantId = s.TenantId,
-                    deviceName = sess?.DeviceName ?? string.Empty,
-                    manufacturer = sess?.Manufacturer ?? string.Empty,
-                    model = sess?.Model ?? string.Empty,
-                    appVersion = s.AppVersion,
-                    status = s.Status,
-                    installerPhase = s.InstallerPhase,
-                    failureCode = s.FailureCode,
-                    exitCode = s.ExitCode,
-                    attemptNumber = s.AttemptNumber,
-                    startedAt = s.StartedAt,
-                    durationSeconds = s.DurationSeconds,
+                    SessionId = s.SessionId,
+                    TenantId = s.TenantId,
+                    DeviceName = sess?.DeviceName ?? string.Empty,
+                    Manufacturer = sess?.Manufacturer ?? string.Empty,
+                    Model = sess?.Model ?? string.Empty,
+                    AppVersion = s.AppVersion,
+                    Status = s.Status,
+                    InstallerPhase = s.InstallerPhase,
+                    FailureCode = s.FailureCode,
+                    ExitCode = s.ExitCode,
+                    AttemptNumber = s.AttemptNumber,
+                    StartedAt = s.StartedAt,
+                    DurationSeconds = s.DurationSeconds,
                     // 2+ = the IME processed this app in multiple passes (device-ESP
                     // evaluation + real install) — explains a completion far after startedAt.
-                    installPassCount = s.InstallPassCount
+                    InstallPassCount = s.InstallPassCount
                 };
             }).ToList();
 
-            return new
+            return new AppSessionsResponse
             {
-                success = true,
-                total,
-                offset,
-                limit,
-                items
+                Success = true,
+                Total = total,
+                Offset = offset,
+                Limit = limit,
+                Items = items
             };
         }
 
@@ -559,7 +559,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             return (trend, delta);
         }
 
-        private static List<object> BuildTimeSeries(List<AppInstallSummary> summaries, DateTime cutoff, DateTime now, string bucket)
+        private static List<AppAnalyticsTimeBucket> BuildTimeSeries(List<AppInstallSummary> summaries, DateTime cutoff, DateTime now, string bucket)
         {
             var start = bucket == "week" ? StartOfWeek(cutoff) : cutoff.Date;
             var end = now.Date;
@@ -589,14 +589,14 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     // PR0 convention: skips are not attempts; durations read measured rows only.
                     var bInstalled = items.Where(s => s.Status == "Succeeded" && !MetricsMath.IsSkipTerminalState(s)).ToList();
                     var bMeasured = bInstalled.Where(MetricsMath.HasMeasuredDuration).ToList();
-                    return (object)new
+                    return new AppAnalyticsTimeBucket
                     {
-                        bucketStart = DateTime.SpecifyKind(kv.Key, DateTimeKind.Utc),
-                        installs = bTotal,
-                        succeeded = bInstalled.Count,
-                        failed = bFailed,
-                        failureRate = MetricsMath.TerminalFailureRatePct(bFailed, bInstalled.Count),
-                        avgDurationSeconds = bMeasured.Count > 0 ? Math.Round(bMeasured.Average(s => s.DurationSeconds), 0) : 0
+                        BucketStart = DateTime.SpecifyKind(kv.Key, DateTimeKind.Utc),
+                        Installs = bTotal,
+                        Succeeded = bInstalled.Count,
+                        Failed = bFailed,
+                        FailureRate = MetricsMath.TerminalFailureRatePct(bFailed, bInstalled.Count),
+                        AvgDurationSeconds = bMeasured.Count > 0 ? Math.Round(bMeasured.Average(s => s.DurationSeconds), 0) : 0
                     };
                 })
                 .ToList();

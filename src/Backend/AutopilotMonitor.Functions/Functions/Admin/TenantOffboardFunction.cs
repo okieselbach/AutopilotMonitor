@@ -750,24 +750,8 @@ public class TenantOffboardFunction
     }
 }
 
-/// <summary>
-/// 202/200 response body for the offboarding endpoint. Fields point the caller at the
-/// History row so subsequent reporting / status polling can resolve back to the audit
-/// trail. <see cref="EarliestProcessingAt"/> drives the "data deletion starts in mm ss"
-/// countdown in the Web UI's drain-barrier state.
-/// </summary>
-public class OffboardResponse
-{
-    public string TenantId { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public string HistoryPartitionKey { get; set; } = string.Empty;
-    public string HistoryRowKey { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
-
-    /// <summary>UTC timestamp before which the worker MUST NOT start Phase 2. Drives the
-    /// cache-drain-barrier countdown UI. Null on the idempotent-Completed/Failed branches.</summary>
-    public DateTime? EarliestProcessingAt { get; set; }
-}
+// OffboardResponse (the 202/200 offboarding body) moved to AutopilotMonitor.Shared.Models
+// (Models/OffboardApiModels.cs) so the shared manifest exports it as a wire type.
 
 /// <summary>
 /// Decision the resume-path produced; consumed by <see cref="TenantOffboardFunction.HandleExistingMarkerAsync"/>

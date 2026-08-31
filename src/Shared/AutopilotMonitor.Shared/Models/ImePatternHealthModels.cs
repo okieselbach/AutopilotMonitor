@@ -32,7 +32,7 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>Response of <c>GET metrics/ime-pattern-health</c>.</summary>
-    public class ImePatternHealthResponse
+    public class ImePatternHealthResponse : IApiResponse
     {
         public string? BaselineVersion { get; set; }
         public int MinBaselineSessions { get; set; }

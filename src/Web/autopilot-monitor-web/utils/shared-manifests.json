@@ -1021,6 +1021,223 @@
         }
       ]
     },
+    "AgentEfficiencyMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/metrics/agent-efficiency (GetGlobalAgentEfficiency).",
+      "fields": [
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Echo of the requested tenant filter; null = cross-tenant aggregate."
+        },
+        {
+          "name": "sessionsScanned",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions the scan covered — compare against SessionLimit for truncation."
+        },
+        {
+          "name": "sessionsWithSnapshots",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "byVersion",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AgentVersionEfficiency"
+            }
+          }
+        },
+        {
+          "name": "overall",
+          "type": {
+            "kind": "ref",
+            "name": "AgentVersionEfficiency"
+          },
+          "optional": true
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "computeDurationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fromCache",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
+    "AgentVersionEfficiency": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "agentVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Null on the cross-version \"overall\" bucket (omitted on the wire)."
+        },
+        {
+          "name": "sessionsScanned",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsWithSnapshots",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "spoolPressureSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgCpuPercent",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxCpuPercent",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxWorkingSetMb",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxPrivateBytesMb",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxThreadCount",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxHandleCount",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxSpoolDepth",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "maxSpoolFileBytes",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "apiLatencyMs",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "apiRequestCount",
+          "type": {
+            "kind": "ref",
+            "name": "PercentileStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "crashRate",
+          "type": {
+            "kind": "ref",
+            "name": "CrashRateMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "topOffenders",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "EfficiencyOffender"
+            }
+          },
+          "optional": true
+        }
+      ]
+    },
     "AnalyzeRule": {
       "kind": "object",
       "doc": "Defines how to analyze collected events to detect issues Analyze rules run server-side during event ingestion",
@@ -1331,6 +1548,377 @@
         }
       ]
     },
+    "AppAnalyticsFailureCode": {
+      "kind": "object",
+      "doc": "One of the top 5 failure codes of the analytics window.",
+      "fields": [
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "exitCode",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "First observed exit code; absent when none of the rows carried one."
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sampleMessage",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "AppAnalyticsResponse": {
+      "kind": "object",
+      "doc": "Response of GET apps/{appName}/analytics and its global variant.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "appType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "collisionExcluded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "bucket",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"day\" (windows up to 30 days) or \"week\"."
+        },
+        {
+          "name": "summary",
+          "type": {
+            "kind": "ref",
+            "name": "AppAnalyticsSummary"
+          }
+        },
+        {
+          "name": "timeSeries",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppAnalyticsTimeBucket"
+            }
+          }
+        },
+        {
+          "name": "versionBreakdown",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppVersionBreakdownItem"
+            }
+          }
+        },
+        {
+          "name": "installerPhaseBreakdown",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppInstallerPhaseCount"
+            }
+          }
+        },
+        {
+          "name": "topFailureCodes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppAnalyticsFailureCode"
+            }
+          }
+        },
+        {
+          "name": "detectionLiesCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Succeeded installs whose detection re-check reported NotDetected."
+        },
+        {
+          "name": "deviceModelBreakdown",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppDeviceModelBreakdownItem"
+            }
+          }
+        },
+        {
+          "name": "versionRegressions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppVersionRegressionAlert"
+            }
+          },
+          "doc": "Active duration-regression episodes for this app (tracker rows)."
+        }
+      ]
+    },
+    "AppAnalyticsSummary": {
+      "kind": "object",
+      "doc": "Headline aggregate of one app's analytics window.",
+      "fields": [
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "unmeasured",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDownloadBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "trend",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"improving\" | \"worsening\" | \"stable\"."
+        },
+        {
+          "name": "trendDelta",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent when either window half has under 5 finished installs."
+        },
+        {
+          "name": "flakinessScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Share of installs with AttemptNumber > 1 (0-1, three decimals)."
+        }
+      ]
+    },
+    "AppAnalyticsTimeBucket": {
+      "kind": "object",
+      "doc": "One day/week bucket of the analytics time series.",
+      "fields": [
+        {
+          "name": "bucketStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "installs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "AppDeviceModelBreakdownItem": {
+      "kind": "object",
+      "doc": "Per device-model failure aggregate (lift vs the app's baseline rate, descending).",
+      "fields": [
+        {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "installs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "liftVsBaseline",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "AppFailureCodeCount": {
+      "kind": "object",
+      "doc": "One failure code with its occurrence count.",
+      "fields": [
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "AppHomingProbeWire": {
       "kind": "object",
       "doc": "Consent-probe verdict embedded in app-homing responses (success and deny alike). Built by AppHomingFunction.ProbePayload.",
@@ -1356,6 +1944,864 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        }
+      ]
+    },
+    "AppInstallSlaSnapshot": {
+      "kind": "object",
+      "doc": "App install SLA snapshot.",
+      "fields": [
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "targetMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "topFailingApps",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TopFailingApp"
+            }
+          },
+          "doc": "Top failing apps by failure count."
+        }
+      ]
+    },
+    "AppInstallerPhaseCount": {
+      "kind": "object",
+      "doc": "Failed installs per installer phase (descending).",
+      "fields": [
+        {
+          "name": "phase",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "AppMetricsAppGroup": {
+      "kind": "object",
+      "doc": "One app's aggregate across its install rows in the window.",
+      "fields": [
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "unmeasured",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Failed / (failed + succeeded) as a percentage; skips never count as attempts."
+        },
+        {
+          "name": "avgDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average measured FINAL-attempt duration (whole seconds); 0 with no measured installs."
+        },
+        {
+          "name": "maxDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "measuredInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDownloadBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "doTotalBytesDownloaded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "doBytesFromPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "doBytesFromCacheServer",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "doBytesFromHttp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "peerOffloadPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "topFailureCodes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppFailureCodeCount"
+            }
+          },
+          "doc": "Top 3 failure codes by count, descending."
+        }
+      ]
+    },
+    "AppMetricsDeliveryOptimization": {
+      "kind": "object",
+      "doc": "Fleet-wide Delivery Optimization rollup across every install row in the window.",
+      "fields": [
+        {
+          "name": "totalBytesDownloaded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fromPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fromCacheServer",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fromHttp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "peerOffloadPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Share of bytes not pulled from the CDN (peers + Microsoft Connected Cache), 0-100 one decimal."
+        }
+      ]
+    },
+    "AppMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET metrics/app and GET global/metrics/app: per-app install health over the requested window (slowest apps by average FINAL-attempt duration, top failing apps) plus the fleet Delivery Optimization rollup.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "totalApps",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalSkipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalUnmeasured",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalCollisionExcluded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows excluded from per-app groups because their name-keyed row merged distinct appIds."
+        },
+        {
+          "name": "slowestApps",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppMetricsAppGroup"
+            }
+          }
+        },
+        {
+          "name": "topFailingApps",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppMetricsAppGroup"
+            }
+          }
+        },
+        {
+          "name": "deliveryOptimization",
+          "type": {
+            "kind": "ref",
+            "name": "AppMetricsDeliveryOptimization"
+          }
+        }
+      ]
+    },
+    "AppScriptMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "avgAppsPerSession",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalUniqueApps",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgPlatformScriptsPerSession",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgRemediationScriptsPerSession",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalPlatformScripts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalRemediationScripts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "AppSessionItem": {
+      "kind": "object",
+      "doc": "One install row of the app-sessions drilldown (failed first, then in-progress, newest first).",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "deviceName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "appVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "installerPhase",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "failureCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "exitCode",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent when the install carried no exit code."
+        },
+        {
+          "name": "attemptNumber",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "startedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "durationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "installPassCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "2+ = the IME processed this app in multiple passes (device-ESP evaluation + real install)."
+        }
+      ]
+    },
+    "AppSessionsResponse": {
+      "kind": "object",
+      "doc": "Response of GET apps/{appName}/sessions and its global variant (offset-paged).",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "offset",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "limit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "items",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppSessionItem"
+            }
+          }
+        }
+      ]
+    },
+    "AppVersionBreakdownItem": {
+      "kind": "object",
+      "doc": "Per-app-version aggregate (installs descending).",
+      "fields": [
+        {
+          "name": "appVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "installs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "measuredInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "medianDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "AppVersionRegressionAlert": {
+      "kind": "object",
+      "doc": "One ACTIVE app-version duration regression: an app whose newest version's median install duration rose ≥2× (and ≥5 minutes absolute) over the previous version's median, both sides with enough measured installs. Persisted as the appversionregression|{app}|{version} keyspace of the notification tracker table — the row IS the dedup (one bell per episode), and the versionRegressions[] payload on the app-analytics response. Deleted when the episode re-arms (median falls back under 1.5× or the version drains out of the horizon) or by the tracker's 30-day retention sweep. Numbers refresh on every radar pass while the episode stays active; FirstNotifiedAt never moves.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "currentVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The regressed (newer) version — episode key together with the app."
+        },
+        {
+          "name": "previousVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The comparison version: latest first-seen strictly before the current version's first-seen."
+        },
+        {
+          "name": "currentMedianSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "previousMedianSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "currentMeasuredCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Measured installs backing each median (gate: both ≥10)."
+        },
+        {
+          "name": "previousMeasuredCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lift",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Current median ÷ previous median (gate: ≥2.0; previous median is never 0 — measured durations are ≥1s)."
+        },
+        {
+          "name": "firstNotifiedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When the episode first fired (bell + ops event moment). Never moves on refresh; drives the 30d retention re-arm."
+        },
+        {
+          "name": "lastEvaluatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Last radar pass that re-confirmed/refreshed this episode."
+        }
+      ]
+    },
+    "AppsListItem": {
+      "kind": "object",
+      "doc": "One app row of the apps list (failed desc, then failure rate, then name).",
+      "fields": [
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "appType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "unmeasured",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "maxDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDownloadBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "trend",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"improving\" | \"worsening\" | \"stable\"."
+        },
+        {
+          "name": "trendDelta",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Failure-rate delta between window halves; absent when either half has under 5 finished installs."
+        },
+        {
+          "name": "lastSeenAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "AppsListResponse": {
+      "kind": "object",
+      "doc": "Response of GET apps/list and GET global/apps/list. Legacy mode (no pageSize) returns the full array with the paging keys absent; opt-in pagination adds count/offset/pageSize and a nextLink while more pages remain.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "totalApps",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalInstalls",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "collisionExcluded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows excluded because their name-keyed row merged distinct appIds."
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Rows on this page; absent in legacy full-array mode."
+        },
+        {
+          "name": "offset",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent in legacy full-array mode."
+        },
+        {
+          "name": "pageSize",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent in legacy full-array mode."
+        },
+        {
+          "name": "apps",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AppsListItem"
+            }
+          }
+        },
+        {
+          "name": "nextLink",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Next-page link; absent in legacy mode and on the last page."
         }
       ]
     },
@@ -2035,6 +3481,89 @@
         }
       ]
     },
+    "CrashExceptionSummary": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "exceptionType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "CrashRateMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "totalStarts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "cleanExits",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "exceptionCrashes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "hardKills",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "rebootKills",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstRuns",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "crashRatePercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "topExceptions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "CrashExceptionSummary"
+            }
+          }
+        }
+      ]
+    },
     "CreateAnalyzeRuleFromTemplateResponse": {
       "kind": "object",
       "doc": "Response of POST rules/analyze/{ruleId}/create-from-template: the newly created custom rule instantiated from the template.",
@@ -2636,6 +4165,86 @@
         }
       ]
     },
+    "DeliveryLatencyMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "p50Ms",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95Ms",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p99Ms",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sampleCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "clockSkewPercent",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "DeploymentTypeMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "userDriven",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "whiteGlove",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "userDrivenPercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "whiteGlovePercentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "DetailedHealthCheckResponse": {
       "kind": "object",
       "doc": "Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Items are HealthCheck objects (backend-project type, serialized by runtime type); non-GA callers get a filtered list.",
@@ -2775,6 +4384,264 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        }
+      ]
+    },
+    "DeviceJourneyAttemptBucket": {
+      "kind": "object",
+      "doc": "One attempt-histogram bucket: how many completed journeys took exactly Attempts attempts.",
+      "fields": [
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "journeyCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "DeviceJourneyDailyAggregate": {
+      "kind": "object",
+      "doc": "Daily First-Time-Right rollup for one (tenant, date) — F2 PR4 (insights spec §F2). A journey counts on the StartedAt date of its COMPLETING success session (same StartedAt-date bucketing as every other daily aggregate; the rolling sweep re-buckets late-terminating sessions idempotently). Only journeys that ended with a terminal success are counted — open journeys (no success yet, incl. WhiteGlove waiting for its user session) and gap-abandoned journeys never enter numerator or denominator. Counts are additive across days, so a window rate is the sum of daily rows — no rolling-window row is needed (unlike the median-based time-attribution aggregates). Rows are written even below the ≥20-completed-journeys UI gate: the UI needs the n to say \"insufficient data (n=3)\" (truthfulness rule 4). Junk-serial exclusions are disclosed per day (rule 7). \"global\" mirror rows sum all tenants.",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Calendar day (UTC, \"yyyy-MM-dd\") the completing success sessions STARTED."
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Tenant GUID, or \"global\" for the cross-tenant row."
+        },
+        {
+          "name": "journeyVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Journey-grouping algorithm version the counts were computed with (rule 8)."
+        },
+        {
+          "name": "completedJourneyCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Journeys completed (first terminal success) on this date — the FTR denominator."
+        },
+        {
+          "name": "firstTimeRightCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Completed journeys with attempt count == 1 — the FTR numerator."
+        },
+        {
+          "name": "attemptHistogram",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DeviceJourneyAttemptBucket"
+            }
+          },
+          "doc": "Attempt distribution across the completed journeys, ordered by attempts ascending."
+        },
+        {
+          "name": "excludedSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Terminal sessions on this date excluded for junk/placeholder serials — disclosed, never silent (rule 7)."
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "DeviceJourneyMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET metrics/device-journeys and GET global/metrics/device-journeys: daily First-Time-Right rows of the window plus their sums, the merged attempt histogram, and the repeat-devices violator list (absent on the cross-tenant aggregate).",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totals",
+          "type": {
+            "kind": "ref",
+            "name": "DeviceJourneyWindowTotals"
+          }
+        },
+        {
+          "name": "daily",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DeviceJourneyDailyAggregate"
+            }
+          },
+          "doc": "Daily rows of the window, date ordinal order."
+        },
+        {
+          "name": "repeatDevices",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DeviceJourneyRepeatDevice"
+            }
+          },
+          "optional": true,
+          "doc": "Devices whose current journey took at least 2 attempts; absent on the cross-tenant aggregate (no per-device drill there)."
+        }
+      ]
+    },
+    "DeviceJourneyRepeatDevice": {
+      "kind": "object",
+      "doc": "One repeat-device violator row (current journey took at least 2 attempts, newest terminal session in the window).",
+      "fields": [
+        {
+          "name": "serialNumber",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "attempts",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "journeyCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lastStatus",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastSessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastStartedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastFailureReason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Failure reason of the newest failed attempt; empty when unavailable (fail-soft point-read)."
+        }
+      ]
+    },
+    "DeviceJourneyWindowTotals": {
+      "kind": "object",
+      "doc": "Window totals of the device-journey response (additive sums over the daily rows).",
+      "fields": [
+        {
+          "name": "completedJourneys",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "firstTimeRight",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "ftrRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Null with zero completed journeys — no rate claim, never 0 (truthfulness rule 1)."
+        },
+        {
+          "name": "excludedSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "attemptHistogram",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DeviceJourneyAttemptBucket"
+            }
           }
         }
       ]
@@ -2942,6 +4809,65 @@
         }
       ]
     },
+    "DiagnosticsBuiltInSectionWire": {
+      "kind": "object",
+      "doc": "Wire projection of one built-in diagnostics section. Condition travels as the enum NAME (\"Always\" | \"RealmJoinWatcher\" | \"DevicePreparation\"), never the integer — the web switches on the string.",
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "zipFolder",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sourceFolder",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UNEXPANDED source folder (may contain %ProgramData% or the user-profile token)."
+        },
+        {
+          "name": "patterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        {
+          "name": "includeSubfolders",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "description",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "condition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "DiagnosticsDownloadTicketResponse": {
       "kind": "object",
       "doc": "Response of POST diagnostics/download-ticket: a short-lived, self-authenticating download URL for one diagnostics blob (HMAC ticket in the query string).",
@@ -2991,6 +4917,70 @@
           },
           "optional": true,
           "doc": "Best-effort blob size, or null when the size probe timed out/failed — the key is omitted when null."
+        }
+      ]
+    },
+    "DiagnosticsLogPath": {
+      "kind": "object",
+      "doc": "Represents a log file path (or wildcard pattern) to include in the diagnostics ZIP package. Global (built-in) entries are defined by Global Admins; tenants may add their own.",
+      "fields": [
+        {
+          "name": "path",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "File system path or wildcard pattern. Environment variables are expanded by the agent. Wildcards are only allowed in the last path segment (e.g. \"C:\\Windows\\Panther\\*.log\")."
+        },
+        {
+          "name": "description",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Human-readable description shown in the portal."
+        },
+        {
+          "name": "isBuiltIn",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when defined globally by a Global Admin — displayed as read-only for tenants. False when added by the tenant itself."
+        },
+        {
+          "name": "includeSubfolders",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "When true, the agent also collects matching files from subdirectories recursively. Subdirectory structure is preserved in the ZIP (e.g. AdditionalLogs/Logs/subfolder/file.log). Default is false (top-level only)."
+        }
+      ]
+    },
+    "DiagnosticsPathsResponse": {
+      "kind": "object",
+      "doc": "Response of GET diagnostics/paths: what every diagnostics package collects before a tenant's own entries — the built-in section catalog (compiled into the agent) and the platform-wide global paths set by Global Admins. Member-readable by design.",
+      "fields": [
+        {
+          "name": "builtIn",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosticsBuiltInSectionWire"
+            }
+          }
+        },
+        {
+          "name": "globalPaths",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosticsLogPath"
+            }
+          }
         }
       ]
     },
@@ -3214,6 +5204,47 @@
             "name": "unknown"
           },
           "doc": "The RuleDryRun trace (AutopilotMonitor.Functions.Services) — typed object here only because that class lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged."
+        }
+      ]
+    },
+    "EfficiencyOffender": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "deviceName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "dimension",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "value",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
         }
       ]
     },
@@ -3607,6 +5638,433 @@
         }
       ]
     },
+    "FeedbackEligibilityResponse": {
+      "kind": "object",
+      "doc": "Response of GET feedback/eligibility: whether the caller should be shown the feedback prompt.",
+      "fields": [
+        {
+          "name": "eligible",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
+    "FeedbackEntryWire": {
+      "kind": "object",
+      "doc": "One feedback interaction as rendered on the Global Admin dashboard.",
+      "fields": [
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "displayName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "rating",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent on dismissals."
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent on dismissals."
+        },
+        {
+          "name": "dismissed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "submitted",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "interactedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "ISO-8601 round-trip string; absent when never stamped."
+        },
+        {
+          "name": "historyRowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "domainName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "FeedbackListResponse": {
+      "kind": "object",
+      "doc": "Response of GET feedback/all (Global Admin dashboard): every stored feedback entry.",
+      "fields": [
+        {
+          "name": "feedback",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FeedbackEntryWire"
+            }
+          }
+        }
+      ]
+    },
+    "FleetDailyPoint": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "FleetFailingModel": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "All sessions on this model in the window, including in-flight ones."
+        },
+        {
+          "name": "failureRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Failed / (Failed + Succeeded) * 100, rounded — finished enrollments only."
+        }
+      ]
+    },
+    "FleetFailureReason": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "FleetHealthMetrics": {
+      "kind": "object",
+      "doc": "Server-computed Fleet Health aggregates. Replaces the client-side pass that drained up to 200k raw sessions into the browser and aggregated on the main thread. Built once per request from the windowed session list — see MetricsMath.BuildFleetHealthPayload. Presentation-only derivations (bar-chart maxima, weekday/month axis labels) stay on the client; this payload carries the data, not the formatting.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "stats",
+          "type": {
+            "kind": "ref",
+            "name": "FleetHealthStats"
+          }
+        },
+        {
+          "name": "dailyData",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetDailyPoint"
+            }
+          },
+          "doc": "One entry per day in the window, oldest-first. Date is UTC \"yyyy-MM-dd\"."
+        },
+        {
+          "name": "failureReasons",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetFailureReason"
+            }
+          },
+          "doc": "Top failure reasons by count (descending)."
+        },
+        {
+          "name": "modelHealth",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetModelHealth"
+            }
+          },
+          "doc": "Device models by enrollment volume (descending)."
+        },
+        {
+          "name": "slowestModels",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetSlowModel"
+            }
+          },
+          "doc": "Device models by average successful enrollment duration (descending)."
+        },
+        {
+          "name": "topFailingModels",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "FleetFailingModel"
+            }
+          },
+          "doc": "Device models by failure count (descending)."
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "FleetHealthStats": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "inProgress",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "incomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Terminal, non-failure sessions (timeout reclassification). Surfaced as its own count; not a failure."
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Succeeded / (Succeeded + Failed) * 100 (one decimal) — finished enrollments only, matching the SLA convention. 0 when nothing has finished yet (clients render \"—\")."
+        },
+        {
+          "name": "avgDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average duration in minutes over non-in-progress sessions that carry a duration. Kept for API compatibility; the cards lead with the median, which a handful of multi-hour outliers (overnight ESP, WhiteGlove late user phase) cannot drag around."
+        },
+        {
+          "name": "medianDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Median duration in minutes over the same population as AvgDurationMinutes."
+        },
+        {
+          "name": "p90DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "90th-percentile duration in minutes over the same population — the tail signal the median alone would hide."
+        }
+      ]
+    },
+    "FleetModelHealth": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "All sessions on this model in the window, including in-flight ones."
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Clients derive the per-model rate as Succeeded / (Succeeded + Failed)."
+        }
+      ]
+    },
+    "FleetSlowModel": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "avgMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "GatherRule": {
       "kind": "object",
       "doc": "Defines what data the agent should collect Gather rules are delivered to the agent via the config API and can be managed (enabled/disabled, created) through the portal",
@@ -3907,6 +6365,65 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "GeographicMetricsResponse": {
+      "kind": "object",
+      "doc": "Response containing geographic performance metrics aggregated by location.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "locations",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "LocationMetrics"
+            }
+          }
+        },
+        {
+          "name": "globalAverages",
+          "type": {
+            "kind": "ref",
+            "name": "GlobalAverages"
+          }
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "totalSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "locationsWithData",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "geoLocationEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether geo-location collection is enabled for this tenant"
         }
       ]
     },
@@ -5360,6 +7877,87 @@
         }
       ]
     },
+    "GlobalAverages": {
+      "kind": "object",
+      "doc": "Global average benchmarks for geographic comparison.",
+      "fields": [
+        {
+          "name": "avgDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "medianDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgMinutesPerApp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgThroughputBytesPerSec",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "stdDevDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgApiLatencyMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Global request-weighted average agent→backend API latency (ms); 0 = no data yet"
+        },
+        {
+          "name": "medianApiLatencyMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Global median of per-session average API latency (ms), robust against outliers; 0 = no data yet"
+        },
+        {
+          "name": "avgDoPercentPeerCaching",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Global weighted average peer caching percentage"
+        },
+        {
+          "name": "totalDoBytesFromPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total peer bytes across all locations with DO data"
+        },
+        {
+          "name": "totalDoBytesFromHttp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total HTTP bytes across all locations with DO data"
+        }
+      ]
+    },
     "GraphFeatureStatusItem": {
       "kind": "object",
       "doc": "One feature row of the graph-permissions status matrix: the feature identifier, the granted verdict (null while the snapshot is transient) and the Graph application permissions the feature requires.",
@@ -5387,6 +7985,57 @@
             "element": {
               "kind": "primitive",
               "name": "string"
+            }
+          }
+        }
+      ]
+    },
+    "HardwareCount": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "percentage",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "HardwareMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "topManufacturers",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "HardwareCount"
+            }
+          }
+        },
+        {
+          "name": "topModels",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "HardwareCount"
             }
           }
         }
@@ -5697,6 +8346,280 @@
         }
       ]
     },
+    "ImePatternDriftAlert": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "patternId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "baselineVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "baselineRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "flaggedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "ImePatternHealthCell": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "patternId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsWithHit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "hits",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "rate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "driftFlaggedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "ImePatternHealthPattern": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "patternId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "enabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "baselineRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Hit rate on the baseline version; null without a baseline."
+        },
+        {
+          "name": "expected",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the baseline rate is at or above the expected threshold."
+        }
+      ]
+    },
+    "ImePatternHealthResponse": {
+      "kind": "object",
+      "doc": "Response of GET metrics/ime-pattern-health.",
+      "fields": [
+        {
+          "name": "baselineVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "minBaselineSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "expectedHitRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "minCandidateSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "versions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ImePatternHealthVersion"
+            }
+          }
+        },
+        {
+          "name": "patterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ImePatternHealthPattern"
+            }
+          }
+        },
+        {
+          "name": "cells",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ImePatternHealthCell"
+            }
+          }
+        },
+        {
+          "name": "alerts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ImePatternDriftAlert"
+            }
+          }
+        },
+        {
+          "name": "generatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "ImePatternHealthVersion": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions that delivered a histogram on this version (not the ImeVersionHistory session count)."
+        },
+        {
+          "name": "firstSeenAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastSeenAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "fleetSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Total sessions per ImeVersionHistory (includes sessions without a terminal run)."
+        }
+      ]
+    },
     "ImeVersionHistoryEntry": {
       "kind": "object",
       "doc": "A tracked IME version sighting. Permanent archive that survives data retention.",
@@ -5808,6 +8731,40 @@
         }
       ]
     },
+    "ImeVersionHistoryLeanEntry": {
+      "kind": "object",
+      "doc": "Redacted IME version row served to non-global callers of GET metrics/ime-versions: the platform-wide rollout facts without the first-seen tenant/session identifiers or the archive columns (see GetImeVersionHistoryFunction.BuildResponsePayload).",
+      "fields": [
+        {
+          "name": "version",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "firstSeenAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastSeenAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "IsGlobalAdminResponse": {
       "kind": "object",
       "doc": "Response of GET auth/is-global-admin: whether the caller holds the Global Admin platform role, echoing the caller's UPN.",
@@ -5827,6 +8784,22 @@
           },
           "optional": true,
           "doc": "Caller's UPN from the token, or null when the token carries no UPN claim — the key is omitted when null."
+        }
+      ]
+    },
+    "ListBackupsResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/backups: every backupId in the critical-table-backups container, newest first. Serialized with SerializerOptions (the backup surface's own options), not the ApiJsonOptions pipeline.",
+      "fields": [
+        {
+          "name": "backupIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       ]
     },
@@ -5873,6 +8846,271 @@
               "name": "TenantConfigBackupItem"
             }
           }
+        }
+      ]
+    },
+    "LocationMetrics": {
+      "kind": "object",
+      "doc": "Performance metrics for a single geographic location.",
+      "fields": [
+        {
+          "name": "locationKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "country",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "region",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "city",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "loc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "medianDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgAppCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average number of apps installed per session at this location"
+        },
+        {
+          "name": "minutesPerApp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average minutes per app (AvgDurationMinutes / AvgAppCount)"
+        },
+        {
+          "name": "appLoadScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Normalized score: 100 = global median, lower is better"
+        },
+        {
+          "name": "avgThroughputBytesPerSec",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average download throughput in bytes/sec at this location"
+        },
+        {
+          "name": "totalDownloadBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "durationVsGlobalPct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Percentage difference from global avg duration (negative = faster)"
+        },
+        {
+          "name": "throughputVsGlobalPct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Percentage difference from global avg throughput (positive = faster)"
+        },
+        {
+          "name": "avgApiLatencyMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average agent→backend HTTP round-trip (ms) at this location, weighted per session by its request count. 0 when no session here carries latency data (pre-feature agents). A single corrupt session average (e.g. a request spanning a sleep/hibernate) can dominate this figure — use MedianApiLatencyMs as the display statistic."
+        },
+        {
+          "name": "medianApiLatencyMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Median of the per-session average agent→backend round-trips (ms) at this location — robust against outlier sessions. 0 when no session here carries latency data."
+        },
+        {
+          "name": "apiLatencySessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions at this location that carry API-latency data"
+        },
+        {
+          "name": "apiLatencyVsGlobalPct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Percentage difference from global median API latency (positive = slower/farther)"
+        },
+        {
+          "name": "isOutlier",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "outlierDirection",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "\"fast\", \"slow\", or null"
+        },
+        {
+          "name": "doSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions at this location that have DO telemetry data"
+        },
+        {
+          "name": "avgDoPercentPeerCaching",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Weighted percentage of bytes from peers (0-100), computed from total peer/total DO bytes"
+        },
+        {
+          "name": "totalDoBytesFromPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total bytes downloaded from all peer sources"
+        },
+        {
+          "name": "totalDoBytesFromHttp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total bytes downloaded from HTTP/CDN"
+        },
+        {
+          "name": "totalDoBytesFromLanPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Bytes from LAN peers"
+        },
+        {
+          "name": "totalDoBytesFromGroupPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Bytes from group peers"
+        },
+        {
+          "name": "totalDoBytesFromInternetPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Bytes from internet peers"
+        },
+        {
+          "name": "totalDoBytesFromLinkLocalPeers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Bytes from link-local peers (same subnet)"
+        },
+        {
+          "name": "totalDoBytesFromCacheServer",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Bytes served from a Microsoft Connected Cache (MCC) — separate from BytesFromPeers"
         }
       ]
     },
@@ -7045,6 +10283,56 @@
         }
       ]
     },
+    "OffboardResponse": {
+      "kind": "object",
+      "doc": "202/200 response body for the offboarding endpoint. Fields point the caller at the History row so subsequent reporting / status polling can resolve back to the audit trail. EarliestProcessingAt drives the \"data deletion starts in mm ss\" countdown in the Web UI's drain-barrier state.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "historyPartitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "historyRowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "earliestProcessingAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "UTC timestamp before which the worker MUST NOT start Phase 2. Drives the cache-drain-barrier countdown UI. Absent on the idempotent-Completed/Failed branches."
+        }
+      ]
+    },
     "OpsEventEntry": {
       "kind": "object",
       "fields": [
@@ -7155,6 +10443,96 @@
         }
       ]
     },
+    "PercentileStats": {
+      "kind": "object",
+      "doc": "Distribution of a per-session statistic across a version bucket.",
+      "fields": [
+        {
+          "name": "p50",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "max",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avg",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sampleCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "PerformanceMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "avgDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "medianDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p99DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sampleCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Number of sessions contributing to the duration distribution (after the >0 filter)."
+        },
+        {
+          "name": "clampedSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Number of sessions whose raw duration exceeded the clamp ceiling and were capped before aggregation. A non-zero value flags stuck/non-terminal sessions skewing the window — the percentiles above are computed on the clamped values, not the runaway wall-clock duration."
+        }
+      ]
+    },
     "PlanTierDefinition": {
       "kind": "object",
       "doc": "Defines a usage plan tier with request limits. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson.",
@@ -7202,6 +10580,270 @@
               "name": "PlanTierDefinition"
             }
           }
+        }
+      ]
+    },
+    "PlatformAgentMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/metrics/platform (GetGlobalPlatformMetrics).",
+      "fields": [
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "SessionAgentMetric"
+            }
+          }
+        },
+        {
+          "name": "deliveryLatency",
+          "type": {
+            "kind": "ref",
+            "name": "DeliveryLatencyMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "crashRate",
+          "type": {
+            "kind": "ref",
+            "name": "CrashRateMetrics"
+          },
+          "optional": true
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "computeDurationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fromCache",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsScanned",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Sessions the scan actually covered in the window (before the has-snapshots filter that shapes Sessions). Callers must compare THIS against SessionLimit to decide whether the window was truncated — Sessions.Count understates truncation on fleets where many sessions emit no agent_metrics_snapshot."
+        }
+      ]
+    },
+    "PlatformStats": {
+      "kind": "object",
+      "doc": "Pre-computed platform-wide statistics for the public landing page. Stored as a single row (PartitionKey: \"global\", RowKey: \"current\"). Incremented during registration/ingest/login; the daily maintenance recompute treats every cumulative counter as a monotonic \"since release\" high-water-mark (raise-only — the scanned tables are retention-pruned, so a raw recompute would regress the figures). Only TotalSignedUpTenants is current-state (its source table is not retention-pruned). See MaintenanceService.BuildMonotonicPlatformStats.",
+      "fields": [
+        {
+          "name": "totalEnrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total enrollment sessions monitored since launch"
+        },
+        {
+          "name": "totalUsers",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total unique users who logged in"
+        },
+        {
+          "name": "totalTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total unique tenants using the platform (have at least one session)"
+        },
+        {
+          "name": "totalSignedUpTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total tenants signed up (have a tenant configuration entry)"
+        },
+        {
+          "name": "uniqueDeviceModels",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total unique device models seen (manufacturer + model)"
+        },
+        {
+          "name": "totalEventsProcessed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total events processed across all tenants"
+        },
+        {
+          "name": "successfulEnrollments",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total successful enrollments"
+        },
+        {
+          "name": "issuesDetected",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total analysis issues detected"
+        },
+        {
+          "name": "lastFullCompute",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When these stats were last fully recomputed"
+        },
+        {
+          "name": "lastUpdated",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When these stats were last updated (including incremental)"
+        }
+      ]
+    },
+    "PlatformUsageMetrics": {
+      "kind": "object",
+      "doc": "Platform usage metrics response",
+      "fields": [
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "ref",
+            "name": "SessionMetrics"
+          },
+          "doc": "Session metrics"
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "ref",
+            "name": "TenantMetrics"
+          },
+          "doc": "Tenant metrics"
+        },
+        {
+          "name": "users",
+          "type": {
+            "kind": "ref",
+            "name": "UserMetrics"
+          },
+          "doc": "User metrics (requires Entra ID authentication)"
+        },
+        {
+          "name": "performance",
+          "type": {
+            "kind": "ref",
+            "name": "PerformanceMetrics"
+          },
+          "doc": "Performance metrics"
+        },
+        {
+          "name": "hardware",
+          "type": {
+            "kind": "ref",
+            "name": "HardwareMetrics"
+          },
+          "doc": "Hardware metrics"
+        },
+        {
+          "name": "deploymentTypes",
+          "type": {
+            "kind": "ref",
+            "name": "DeploymentTypeMetrics"
+          },
+          "doc": "Deployment type metrics (User Driven vs White Glove)"
+        },
+        {
+          "name": "appScripts",
+          "type": {
+            "kind": "ref",
+            "name": "AppScriptMetrics"
+          },
+          "doc": "App and script count metrics"
+        },
+        {
+          "name": "platformStats",
+          "type": {
+            "kind": "ref",
+            "name": "PlatformStats"
+          },
+          "optional": true,
+          "doc": "Platform statistics (cumulative since release)"
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When these metrics were computed"
+        },
+        {
+          "name": "computeDurationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "How long it took to compute (milliseconds)"
+        },
+        {
+          "name": "fromCache",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether result is from cache"
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Time window (in days) the metrics were computed over."
         }
       ]
     },
@@ -8114,6 +11756,175 @@
         }
       ]
     },
+    "RuleRegressionAlert": {
+      "kind": "object",
+      "doc": "One ACTIVE rule-frequency regression (F3, insights spec §F3): an analyze rule whose 7-day hit rate rose ≥2× over its 28-day baseline with disjoint Wilson intervals. Persisted as the ruleregression|{ruleId} keyspace of the notification tracker table — the row IS the dedup (one bell per episode), the badge state (rules page) and the regressions[] payload (rule-stats response). Deleted when the rate re-arms (falls under 1.5× baseline or stops firing) or by the tracker's 30-day retention sweep (spec: retention cleanup re-arms). Numbers are refreshed on every radar pass while the episode stays active; FirstNotifiedAt never moves.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ruleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ruleTitle",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "windowFireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineFireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lift",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Window rate ÷ baseline rate. Null when the baseline rate is 0 (a NEW signal has no finite lift — never invented)."
+        },
+        {
+          "name": "windowStartDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Trailing 7-day window (\"yyyy-MM-dd\", inclusive) the current numbers describe."
+        },
+        {
+          "name": "windowEndDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dimension",
+          "type": {
+            "kind": "ref",
+            "name": "RuleRegressionDimension"
+          },
+          "optional": true,
+          "doc": "Dimension concentration captured when the alert FIRST fired (stable story); null = no clear concentration."
+        },
+        {
+          "name": "firstNotifiedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When the episode first fired (bell + ops event moment). Never moves on refresh; drives the 30d retention re-arm."
+        },
+        {
+          "name": "lastEvaluatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Last radar pass that re-confirmed/refreshed this episode."
+        }
+      ]
+    },
+    "RuleRegressionDimension": {
+      "kind": "object",
+      "doc": "The dominant dimension value among a regression's hit sessions — CORRELATION only, and every consumer's wording must say so (\"correlated — not necessarily causal\", insights spec §F3 / truthfulness rule 6). Null on an alert means \"no clear dimension concentration\" — the radar never stretches for one.",
+      "fields": [
+        {
+          "name": "dimension",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"osBuild\", \"model\", \"agentVersion\" or \"imeVersion\"."
+        },
+        {
+          "name": "value",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "hitCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Hit sessions carrying this value (gate: ≥5)."
+        },
+        {
+          "name": "hitSharePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "allSharePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lift",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "HitShare ÷ AllShare (gate: ≥2.0)."
+        }
+      ]
+    },
     "RuleResult": {
       "kind": "object",
       "doc": "Result of an analyze rule evaluation against a session's events Stored in the RuleResults table and displayed in the session detail UI",
@@ -8277,6 +12088,227 @@
         }
       ]
     },
+    "RuleStatsPeriod": {
+      "kind": "object",
+      "doc": "Echo of the effective date window (\"yyyy-MM-dd\").",
+      "fields": [
+        {
+          "name": "start",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "end",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "RuleStatsResponse": {
+      "kind": "object",
+      "doc": "Response of GET metrics/rule-stats and GET global/metrics/rule-stats: per-rule firing aggregates over the requested window, the active rule-frequency regression episodes (tenant scope only — empty on the cross-tenant aggregate), and window totals.",
+      "fields": [
+        {
+          "name": "rules",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleStatsRuleAggregate"
+            }
+          }
+        },
+        {
+          "name": "regressions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleRegressionAlert"
+            }
+          }
+        },
+        {
+          "name": "summary",
+          "type": {
+            "kind": "ref",
+            "name": "RuleStatsSummary"
+          }
+        }
+      ]
+    },
+    "RuleStatsRuleAggregate": {
+      "kind": "object",
+      "doc": "One rule's aggregate across all dates in the window (fires descending).",
+      "fields": [
+        {
+          "name": "ruleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ruleType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ruleTitle",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "severity",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "fireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "evaluationCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsEvaluated",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "hitRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Fires per evaluation as a percentage (one decimal); 0 with no evaluations."
+        },
+        {
+          "name": "avgConfidenceScore",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Average confidence score across fires (one decimal); 0 with no fires."
+        },
+        {
+          "name": "trend",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleTrendPoint"
+            }
+          },
+          "doc": "Per-day trend rows, oldest first (one row per stored date)."
+        }
+      ]
+    },
+    "RuleStatsSummary": {
+      "kind": "object",
+      "doc": "Window totals of a rule-stats response.",
+      "fields": [
+        {
+          "name": "totalEvaluations",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalFires",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "overallHitRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "topRuleByFireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Rule id with the most fires; absent when the window holds no rules."
+        },
+        {
+          "name": "uniqueRules",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Distinct rule count — set on the global route only (the key is absent on the tenant route, preserving its historical shape)."
+        },
+        {
+          "name": "period",
+          "type": {
+            "kind": "ref",
+            "name": "RuleStatsPeriod"
+          }
+        }
+      ]
+    },
+    "RuleTrendPoint": {
+      "kind": "object",
+      "doc": "One day of a rule's trend (\"yyyy-MM-dd\").",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "fireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "evaluationCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "SaveCustomCpeMappingResponse": {
       "kind": "object",
       "doc": "Response of POST vulnerability/cpe-mapping on a successful save.",
@@ -8341,6 +12373,185 @@
           },
           "optional": true,
           "doc": "Absent when there is no further page."
+        }
+      ]
+    },
+    "SessionAgentMetric": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "deviceName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "startedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "agentVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "snapshotCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalBytesUp",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalBytesDown",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalRequests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgCpu",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "maxCpu",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgWorkingSet",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "maxWorkingSet",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgPrivateBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgLatency",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgSpoolDepth",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "maxSpoolDepth",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "peakSpoolDepth",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "maxSpoolFileBytes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalEventsEmitted",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "spoolPressureDetected",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       ]
     },
@@ -8692,6 +12903,42 @@
         }
       ]
     },
+    "SessionDeletionQueuedResponse": {
+      "kind": "object",
+      "doc": "Success body (202 Accepted) of the V2 cascade-delete enqueue — the non-success arms stay anonymous error bodies by design (one shape: success=false + message).",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Always \"queued\"."
+        },
+        {
+          "name": "manifestId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "SessionListResponse": {
       "kind": "object",
       "doc": "Paged session listing envelope shared by GetSessions, GetAllSessions, SearchSessionsByCve and SearchSessionsByEvent (identical wire shape).",
@@ -8728,6 +12975,84 @@
           },
           "optional": true,
           "doc": "Absent when there is no further page."
+        }
+      ]
+    },
+    "SessionMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalAllTime",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Cumulative enrollment sessions since the tenant signed up (retention-independent per-tenant counter, see TenantStats). Null on the platform-wide (all-tenants) metrics, which carry the cumulative figure in PlatformStats instead."
+        },
+        {
+          "name": "today",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "last7Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "last30Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "inProgress",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "incomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Terminal, non-failure sessions (timeout reclassification): the sweep classified them as Incomplete instead of Failed. Surfaced as its own count and deliberately excluded from SuccessRate (denominator = Succeeded + Failed only), mirroring SessionStats and FleetHealthStats. See tasks/enrollment-status-reclassification.md §5."
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
         }
       ]
     },
@@ -8882,6 +13207,107 @@
           },
           "optional": true,
           "doc": "Outcome of the diagnostics copy: \"Copied\" or one of the \"Failed:*\" reasons. Null when the submitter did not request the copy."
+        }
+      ]
+    },
+    "SessionRestoreResponse": {
+      "kind": "object",
+      "doc": "Body of POST global/sessions/{id}/restore for every outcome (success AND reject — the outcome/status mapping decides the HTTP code, the shape stays one).",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "outcome",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "SessionRestoreOutcome name (e.g. \"Restored\", \"DryRunOk\", \"RejectManifestNotFound\")."
+        },
+        {
+          "name": "mode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "\"full\" | \"partial\" | \"dryRun\"; absent on early rejects."
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Operator-readable reason; absent on clean successes."
+        },
+        {
+          "name": "currentState",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Reject diagnostics; absent otherwise."
+        },
+        {
+          "name": "pendingManifestId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Reject diagnostics; absent otherwise."
+        },
+        {
+          "name": "rowsRestoredByTable",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          }
+        },
+        {
+          "name": "rowsSkippedByTable",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          }
+        },
+        {
+          "name": "wouldRestoreByTable",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          }
+        },
+        {
+          "name": "inventoryReIncrements",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "durationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
         }
       ]
     },
@@ -9825,6 +14251,176 @@
         }
       ]
     },
+    "SlaMetricsResponse": {
+      "kind": "object",
+      "doc": "SLA metrics response for a given tenant and time window.",
+      "fields": [
+        {
+          "name": "targetSuccessRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "targetMaxDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "targetAppInstallSuccessRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "currentWeek",
+          "type": {
+            "kind": "ref",
+            "name": "SlaSnapshot"
+          },
+          "doc": "Current ISO week SLA snapshot."
+        },
+        {
+          "name": "weeklyTrend",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "SlaWeeklyTrend"
+            }
+          },
+          "doc": "Weekly trend (newest first)."
+        },
+        {
+          "name": "violators",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "SlaViolatorSession"
+            }
+          },
+          "doc": "Sessions that breached SLA targets (failed or exceeded duration)."
+        },
+        {
+          "name": "appInstallSla",
+          "type": {
+            "kind": "ref",
+            "name": "AppInstallSlaSnapshot"
+          },
+          "optional": true,
+          "doc": "App install SLA snapshot (null if no app install target configured)."
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "fromCache",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "computeDurationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "SlaSnapshot": {
+      "kind": "object",
+      "doc": "SLA compliance snapshot for a single period (ISO week).",
+      "fields": [
+        {
+          "name": "week",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "ISO week identifier, e.g. \"2026-W15\"."
+        },
+        {
+          "name": "totalCompleted",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "succeeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "failed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "avgDurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "durationViolationCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Number of sessions that exceeded the duration target."
+        },
+        {
+          "name": "successRateMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the success rate target is met."
+        },
+        {
+          "name": "durationTargetMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the P95 duration target is met."
+        }
+      ]
+    },
     "SlaViolatorSession": {
       "kind": "object",
       "doc": "A session that violated SLA targets.",
@@ -9902,6 +14498,69 @@
             "name": "string"
           },
           "doc": "\"Failed\", \"DurationExceeded\", or \"Both\"."
+        }
+      ]
+    },
+    "SlaWeeklyTrend": {
+      "kind": "object",
+      "doc": "SLA compliance trend entry for one ISO week.",
+      "fields": [
+        {
+          "name": "week",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "ISO week identifier, e.g. \"2026-W15\"."
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p95DurationMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "appInstallSuccessRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalCompleted",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "successRateMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "durationTargetMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "appInstallTargetMet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       ]
     },
@@ -11184,6 +15843,155 @@
         }
       ]
     },
+    "TenantFeatureEntitlements": {
+      "kind": "object",
+      "doc": "Read-time entitlement surface of the resolved edition.",
+      "fields": [
+        {
+          "name": "retentionCapDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "userRateLimitPerMinute",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Absent when the platform default applies."
+        },
+        {
+          "name": "delegatedAdminAllowed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "mcpUsagePlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "TenantFeatureFlagsResponse": {
+      "kind": "object",
+      "doc": "Response of GET config/{tenantId}/feature-flags: the member-readable subset of the tenant configuration — UI display toggles, feature switches and the read-time edition/entitlement surface. Adding a field here is a deliberate decision that the field is non-sensitive (no webhook URLs, SAS tokens, allowlists, addresses).",
+      "fields": [
+        {
+          "name": "bootstrapTokenEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "EFFECTIVE bootstrap availability (Pro includes it; the GA flag is the additive Community enable) — field name kept for web compatibility."
+        },
+        {
+          "name": "diagnosticsUploadConfigured",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether an on-demand diagnostics upload can succeed right now (mode not Off + usable destination). Deliberately no destination detail."
+        },
+        {
+          "name": "validateAutopilotDevice",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Drives the \"Autopilot Device Validation disabled\" dashboard banner."
+        },
+        {
+          "name": "appHomingFunnelActive",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids."
+        },
+        {
+          "name": "showScriptOutput",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "enableSoftwareInventoryAnalyzer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "enableIntegrityBypassAnalyzer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "unrestrictedMode",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "EFFECTIVE gather-rule unrestricted mode (Pro edition + GA gate + tenant toggle)."
+        },
+        {
+          "name": "edition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Resolved edition, lowercase (\"community\" / \"pro\")."
+        },
+        {
+          "name": "isTrial",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "trialExpiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent unless the tenant is on an active trial."
+        },
+        {
+          "name": "trialAvailable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "contactEmailSet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether a contact address is stored (boolean only — the address stays admin-gated)."
+        },
+        {
+          "name": "entitlements",
+          "type": {
+            "kind": "ref",
+            "name": "TenantFeatureEntitlements"
+          }
+        }
+      ]
+    },
     "TenantGroup": {
       "kind": "object",
       "doc": "A Tenant Group: an app-internal named bundle of tenants. A delegated admin assigned to the group (see TenantGroupAssignment) gains read scope to every tenant in TenantIds. Adding a tenant to the group grants it to all assignees at once.",
@@ -11309,6 +16117,32 @@
               "kind": "ref",
               "name": "TenantGroup"
             }
+          }
+        }
+      ]
+    },
+    "TenantMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "active7Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "active30Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]
@@ -11453,6 +16287,152 @@
         }
       ]
     },
+    "TimeAttributionBlockingAppStat": {
+      "kind": "object",
+      "doc": "Per-app rollup of ESP-blocking install intervals across the clean sessions of an aggregate row. The what-if numbers are the per-session critical-path savings from removing this app (recomputed union end without it) — an upper BOUND by construction: UI copy must say \"up to\", never \"you will save\" (truthfulness rule 3).",
+      "fields": [
+        {
+          "name": "appId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Clean sessions with a measured interval for this app (row gate: ≥5)."
+        },
+        {
+          "name": "medianSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p75Seconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "medianSavingSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p75SavingSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "TimeAttributionDailyAggregate": {
+      "kind": "object",
+      "doc": "Daily fleet rollup of session time attribution for one (tenant, enrollment class, date) — F1 PR2 (insights spec §F1 \"Data & compute changes\"). Enrollment classes are never mixed (a WhiteGlove flow has a structurally different time profile than user-driven). Only breakdowns with None enter the statistics; flagged sessions are excluded WITH a disclosed count (truthfulness rule 7). Rows are written even below the ≥20-session UI gate — the UI needs the n to say \"insufficient data (n=3)\" instead of silently rendering a small-n median (rule 4). Recomputed idempotently by the rolling 30-day maintenance sweep.",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Calendar day (UTC) the sessions STARTED, \"yyyy-MM-dd\" — same bucketing as the usage snapshots."
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Tenant GUID, or \"global\" for the cross-tenant row."
+        },
+        {
+          "name": "enrollmentClass",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Enrollment class: \"user_driven\", \"whiteglove\", \"self_deploying\" or \"device_preparation\" (WDP v2)."
+        },
+        {
+          "name": "attributionVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Attribution algorithm version the underlying breakdowns were computed with (rule 8: never mix definitions)."
+        },
+        {
+          "name": "cleanSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Breakdowns with QualityFlags == None that formed the statistics."
+        },
+        {
+          "name": "flaggedExcludedCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Flagged breakdowns excluded from the statistics (disclosed, never silent)."
+        },
+        {
+          "name": "missingBreakdownCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Terminal sessions of this bucket without a computable breakdown (e.g. events aged out before backfill)."
+        },
+        {
+          "name": "segmentStats",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TimeAttributionSegmentStat"
+            }
+          }
+        },
+        {
+          "name": "topBlockingApps",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TimeAttributionBlockingAppStat"
+            }
+          },
+          "doc": "Top blocking apps by median interval, gated at ≥5 sessions per app, capped at 20."
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "TimeAttributionFlags": {
       "kind": "enum",
       "doc": "Data-quality flags for a SessionTimeBreakdown (truthfulness rule 7: problems flag the record and exclude it from fleet aggregates with a disclosed count, rather than silently skewing them).",
@@ -11464,6 +16444,83 @@
         "BlockingSetTruncated",
         "WhiteGloveAnchorsIncomplete",
         "PriorEnrollmentResidue"
+      ]
+    },
+    "TimeAttributionMetricsResponse": {
+      "kind": "object",
+      "doc": "Response of GET metrics/time-attribution and GET global/metrics/time-attribution: the rolling 30-day range statistics per enrollment class plus the daily rows for the per-day trend. The range window is FIXED at the sweep's 30 days.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "classes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TimeAttributionDailyAggregate"
+            }
+          },
+          "doc": "Range statistics per enrollment class (never mixed), class-name ordinal order."
+        },
+        {
+          "name": "daily",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TimeAttributionDailyAggregate"
+            }
+          },
+          "doc": "Daily rows of the window, date ordinal order."
+        }
+      ]
+    },
+    "TimeAttributionSegmentStat": {
+      "kind": "object",
+      "doc": "Distribution of one attribution segment across the clean sessions of an aggregate row. Values are whole seconds; a session that has no span of this segment contributes 0 — the distribution answers \"time spent in this segment per enrollment of this class\", not \"per enrollment that happened to enter it\".",
+      "fields": [
+        {
+          "name": "segmentKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Segment key (TimeAttributionSegments), including \"unattributed\" — the stack must sum to the wall clock (truthfulness rule 2)."
+        },
+        {
+          "name": "medianSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p75Seconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "p90Seconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
       ]
     },
     "TimeAttributionSpan": {
@@ -11564,6 +16621,40 @@
               "kind": "primitive",
               "name": "string"
             }
+          }
+        }
+      ]
+    },
+    "TopFailingApp": {
+      "kind": "object",
+      "doc": "An app with a high failure rate.",
+      "fields": [
+        {
+          "name": "appName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "failCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "totalCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "successRate",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]
@@ -12153,6 +17244,51 @@
         }
       ]
     },
+    "UserMetrics": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "total",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Total unique users (available after Entra ID integration)"
+        },
+        {
+          "name": "dailyLogins",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Daily logins across all users"
+        },
+        {
+          "name": "active7Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Active users in last 7 days"
+        },
+        {
+          "name": "active30Days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Active users in last 30 days"
+        },
+        {
+          "name": "note",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Note about availability"
+        }
+      ]
+    },
     "UserUsageDailySummary": {
       "kind": "object",
       "doc": "Aggregated daily usage summary across endpoints (and optionally users).",
@@ -12246,6 +17382,435 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        }
+      ]
+    },
+    "VerdictCalibrationAlert": {
+      "kind": "object",
+      "doc": "One ACTIVE verdict-calibration alert episode (operator-only). Persisted as the verdictcalibration|{kind}|{path}|{status} keyspace of the notification tracker — the row IS the dedup (one ops event per episode) and the alerts[] payload of the calibration endpoint. Deleted when the signal re-arms (share back under 1.5× baseline, path stops occurring, evidence-gap share back under 15 %) or by the tracker's 30-day retention sweep. Numbers refresh on every radar pass; FirstNotifiedAt never moves. Dimension concentration is CORRELATION only — every consumer says so.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of VerdictCalibrationAlertKinds."
+        },
+        {
+          "name": "verdictPath",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Verdict path, or the group label for group kinds (\"sweep+maxlife\", \"r6\")."
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Status the path produced, or \"*\" for group kinds."
+        },
+        {
+          "name": "windowHitCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineHitCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineSessionCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lift",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Window rate ÷ baseline rate. Null when the baseline rate is 0 or the kind is absolute (evidence gap)."
+        },
+        {
+          "name": "windowStartDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "windowEndDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dimension",
+          "type": {
+            "kind": "ref",
+            "name": "RuleRegressionDimension"
+          },
+          "optional": true,
+          "doc": "Dimension concentration captured when the alert FIRST fired; null = no clear concentration."
+        },
+        {
+          "name": "firstNotifiedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "lastEvaluatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "VerdictCalibrationPathRow": {
+      "kind": "object",
+      "doc": "One verdict path × status row of the calibration matrix.",
+      "fields": [
+        {
+          "name": "verdictPath",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sharePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "derivedCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "eligible7d",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "reEnrolled7d",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "reEnrollRatePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Null below the minimum eligible count — never a rate on a handful of sessions."
+        },
+        {
+          "name": "overriddenByAdmin",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "overriddenByLateCompletion",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "overriddenOther",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "window7",
+          "type": {
+            "kind": "ref",
+            "name": "VerdictCalibrationTrendWindow"
+          }
+        },
+        {
+          "name": "baseline28",
+          "type": {
+            "kind": "ref",
+            "name": "VerdictCalibrationTrendWindow"
+          }
+        },
+        {
+          "name": "lift",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Window share ÷ baseline share; null when the baseline share is 0 (a new path has no finite lift — never invented)."
+        }
+      ]
+    },
+    "VerdictCalibrationResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/metrics/verdict-calibration: per verdict path, how many sessions it produced in the window, its share, overrides attributed to the prior path, the 7-day re-enrollment proxy, a 7d-vs-28d trend, and the active drift alerts. Operator-only classifier diagnostics.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Partition echo: a tenant GUID, or \"global\" for the cross-tenant aggregate."
+        },
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowStart",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window start (\"yyyy-MM-dd\")."
+        },
+        {
+          "name": "windowEnd",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Inclusive window end (\"yyyy-MM-dd\", today)."
+        },
+        {
+          "name": "computedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Newest aggregate compute time in the window; absent when the window holds no rows."
+        },
+        {
+          "name": "versions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "Distinct aggregation algorithm versions contributing to the window, ascending."
+        },
+        {
+          "name": "totals",
+          "type": {
+            "kind": "ref",
+            "name": "VerdictCalibrationTotals"
+          }
+        },
+        {
+          "name": "trend",
+          "type": {
+            "kind": "ref",
+            "name": "VerdictCalibrationTrendMeta"
+          }
+        },
+        {
+          "name": "paths",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "VerdictCalibrationPathRow"
+            }
+          },
+          "doc": "Rows ordered by count descending, then path/status ordinal."
+        },
+        {
+          "name": "alerts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "VerdictCalibrationAlert"
+            }
+          },
+          "doc": "Active drift episodes, newest first."
+        }
+      ]
+    },
+    "VerdictCalibrationTotals": {
+      "kind": "object",
+      "doc": "Window totals of the calibration matrix.",
+      "fields": [
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "terminal",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "derived",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Aggregate days that contributed to the window."
+        }
+      ]
+    },
+    "VerdictCalibrationTrendMeta": {
+      "kind": "object",
+      "doc": "Trend denominators shared by every row (single source, never per-row copies).",
+      "fields": [
+        {
+          "name": "windowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "windowSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "baselineSessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "VerdictCalibrationTrendWindow": {
+      "kind": "object",
+      "doc": "One trend window of a path row.",
+      "fields": [
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessions",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sharePct",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]

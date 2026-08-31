@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Presentation-only derivations (bar-chart maxima, weekday/month axis labels) stay on the
     /// client; this payload carries the data, not the formatting.
     /// </summary>
-    public sealed class FleetHealthMetrics
+    public sealed class FleetHealthMetrics : IApiResponse
     {
         public bool Success { get; set; } = true;
         public int Days { get; set; }

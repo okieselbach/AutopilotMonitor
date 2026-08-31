@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -172,12 +173,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         /// </summary>
         internal static object BuildV2ResponseBody(SessionDeletionEnqueueResult result, string sessionId) => result.Outcome switch
         {
-            SessionDeletionEnqueueOutcome.Enqueued => new
+            SessionDeletionEnqueueOutcome.Enqueued => new SessionDeletionQueuedResponse
             {
-                success = true,
-                status = "queued",
-                manifestId = result.ManifestId,
-                message = "Cascade deletion queued; worker will drain asynchronously.",
+                Success = true,
+                Status = "queued",
+                ManifestId = result.ManifestId,
+                Message = "Cascade deletion queued; worker will drain asynchronously.",
             },
             SessionDeletionEnqueueOutcome.AlreadyInFlight => new
             {

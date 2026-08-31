@@ -12,21 +12,23 @@
  *    in `omitted` so a filtered response never reads as complete coverage.
  */
 
-interface TrendCell {
-  count: number;
+import type {
+  VerdictCalibrationPathRow as WirePathRow,
+  VerdictCalibrationTrendWindow as WireTrendWindow,
+} from './generated/wire-types.generated.js';
+
+// Derived from the generated wire types so a backend rename of any read field goes
+// tsc-red here; the deltas below are THIS tool's output contract, not the wire.
+interface TrendCell extends Omit<WireTrendWindow, 'sessions'> {
+  /** Dropped in shaped output — the denominators live once in `trend`. */
   sessions?: number;
-  sharePct: number;
 }
 
-export interface VerdictCalibrationPathRow {
-  verdictPath: string;
-  status: string;
-  count: number;
-  sharePct: number;
-  overriddenByAdmin: number;
-  overriddenByLateCompletion: number;
-  overriddenOther: number;
+export interface VerdictCalibrationPathRow
+  extends Omit<WirePathRow, 'reEnrollRatePct' | 'lift' | 'window7' | 'baseline28'> {
+  /** Explicit null in shaped output (wire omits the key when withheld). */
   reEnrollRatePct?: number | null;
+  /** Explicit null in shaped output (wire omits the key when withheld). */
   lift?: number | null;
   window7: TrendCell;
   baseline28: TrendCell;

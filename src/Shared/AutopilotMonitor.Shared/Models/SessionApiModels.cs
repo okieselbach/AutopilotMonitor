@@ -672,6 +672,20 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Redacted IME version row served to non-global callers of <c>GET metrics/ime-versions</c>:
+    /// the platform-wide rollout facts without the first-seen tenant/session identifiers or
+    /// the archive columns (see <c>GetImeVersionHistoryFunction.BuildResponsePayload</c>).
+    /// </summary>
+    [WireContract]
+    public class ImeVersionHistoryLeanEntry
+    {
+        public string Version { get; set; } = default!;
+        public DateTime FirstSeenAt { get; set; }
+        public DateTime LastSeenAt { get; set; }
+        public int SessionCount { get; set; }
+    }
+
+    /// <summary>
     /// Result of recording one IME version sighting (<c>RecordImeVersionAsync</c>): whether
     /// the version is new to the fleet, plus the archive columns the ingest path needs to
     /// decide on a re-queue of the installer archive job without a second table read.

@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Platform usage metrics response
     /// </summary>
-    public class PlatformUsageMetrics
+    public class PlatformUsageMetrics : IApiResponse
     {
         /// <summary>
         /// Session metrics

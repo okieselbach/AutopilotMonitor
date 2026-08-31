@@ -93,7 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(await TimeAttributionResponse.BuildAsync(_metricsRepo, tenantId));
+                await response.WriteAsJsonAsync(await TimeAttributionResponseBuilder.BuildAsync(_metricsRepo, tenantId));
                 return response;
             }
             catch (Exception ex)
@@ -132,7 +132,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var partition = string.IsNullOrWhiteSpace(tenantIdFilter) ? "global" : tenantIdFilter!;
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(await TimeAttributionResponse.BuildAsync(_metricsRepo, partition));
+                await response.WriteAsJsonAsync(await TimeAttributionResponseBuilder.BuildAsync(_metricsRepo, partition));
                 return response;
             }
             catch (Exception ex)
@@ -145,8 +145,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
     }
 
-    /// <summary>Shared response shape for the tenant and global variants (mirrors the MetricsMath single-source pattern).</summary>
-    internal static class TimeAttributionResponse
+    /// <summary>
+    /// Shared response builder for the tenant and global variants (mirrors the MetricsMath
+    /// single-source pattern). The envelope DTO (<see cref="TimeAttributionMetricsResponse"/>)
+    /// lives in Shared so the manifest exports it.
+    /// </summary>
+    internal static class TimeAttributionResponseBuilder
     {
         internal const int WindowDays = 30;
 
@@ -164,7 +168,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// </summary>
         internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
 
-        internal static async Task<object> BuildAsync(IMetricsRepository metricsRepo, string partition)
+        internal static async Task<TimeAttributionMetricsResponse> BuildAsync(IMetricsRepository metricsRepo, string partition)
         {
             var freshCutoff = DateTime.UtcNow - RollingMaxAge;
             var rolling = (await metricsRepo.GetRollingTimeAttributionAggregatesAsync(partition))
@@ -173,14 +177,14 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             var today = DateTime.UtcNow.Date;
             var daily = await metricsRepo.GetTimeAttributionAggregatesAsync(partition, InclusiveWindowStart(today, WindowDays), today);
 
-            return new
+            return new TimeAttributionMetricsResponse
             {
-                success = true,
-                windowDays = WindowDays,
+                Success = true,
+                WindowDays = WindowDays,
                 // Range statistics per enrollment class (never mixed) — the UI gates rendering
                 // at cleanSessionCount >= 20 and shows "insufficient data (n=…)" below it.
-                classes = rolling.OrderBy(r => r.EnrollmentClass, StringComparer.Ordinal).ToList(),
-                daily = daily.OrderBy(d => d.Date, StringComparer.Ordinal).ToList(),
+                Classes = rolling.OrderBy(r => r.EnrollmentClass, StringComparer.Ordinal).ToList(),
+                Daily = daily.OrderBy(d => d.Date, StringComparer.Ordinal).ToList(),
             };
         }
     }

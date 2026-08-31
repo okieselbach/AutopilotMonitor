@@ -465,6 +465,6 @@ public class TimeAttributionPersistenceAndAggregationTests
         // returned 31 day keys under a "windowDays: 30" label.
         var today = new System.DateTime(2026, 7, 27);
         Assert.Equal(today.AddDays(-29),
-            Functions.Metrics.TimeAttributionResponse.InclusiveWindowStart(today, Functions.Metrics.TimeAttributionResponse.WindowDays));
+            Functions.Metrics.TimeAttributionResponseBuilder.InclusiveWindowStart(today, Functions.Metrics.TimeAttributionResponseBuilder.WindowDays));
     }
 }

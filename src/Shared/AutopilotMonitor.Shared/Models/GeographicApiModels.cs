@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Response containing geographic performance metrics aggregated by location.
     /// </summary>
-    public class GeographicMetricsResponse
+    public class GeographicMetricsResponse : IApiResponse
     {
         public bool Success { get; set; }
         public List<LocationMetrics> Locations { get; set; } = new();

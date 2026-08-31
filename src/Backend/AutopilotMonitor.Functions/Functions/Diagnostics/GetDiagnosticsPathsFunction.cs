@@ -59,19 +59,19 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         /// <c>condition</c> travels as the enum NAME ("Always" | "RealmJoinWatcher" |
         /// "DevicePreparation"), never the integer — the web switches on the string.
         /// </summary>
-        internal static object BuildPayload(AdminConfiguration adminConfig) => new
+        internal static DiagnosticsPathsResponse BuildPayload(AdminConfiguration adminConfig) => new()
         {
-            builtIn = DiagnosticsBuiltInSections.All.Select(s => new
+            BuiltIn = DiagnosticsBuiltInSections.All.Select(s => new DiagnosticsBuiltInSectionWire
             {
-                id = s.Id,
-                zipFolder = s.ZipFolder,
-                sourceFolder = s.SourceFolder,
-                patterns = s.Patterns,
-                includeSubfolders = s.IncludeSubfolders,
-                description = s.Description,
-                condition = s.Condition.ToString(),
+                Id = s.Id,
+                ZipFolder = s.ZipFolder,
+                SourceFolder = s.SourceFolder,
+                Patterns = s.Patterns,
+                IncludeSubfolders = s.IncludeSubfolders,
+                Description = s.Description,
+                Condition = s.Condition.ToString(),
             }).ToArray(),
-            globalPaths = adminConfig.GetDiagnosticsGlobalLogPaths(),
+            GlobalPaths = adminConfig.GetDiagnosticsGlobalLogPaths(),
         };
     }
 }

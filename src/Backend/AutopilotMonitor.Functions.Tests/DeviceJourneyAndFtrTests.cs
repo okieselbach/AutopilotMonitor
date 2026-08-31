@@ -702,7 +702,7 @@ public class DeviceJourneyAndFtrTests
             },
         };
 
-        var totals = DeviceJourneyMetricsResponse.SumAggregates(daily);
+        var totals = DeviceJourneyMetricsResponseBuilder.SumAggregates(daily);
 
         Assert.Equal(3, totals.CompletedJourneys);
         Assert.Equal(2, totals.FirstTimeRight);
@@ -716,7 +716,7 @@ public class DeviceJourneyAndFtrTests
     [Fact]
     public void SumAggregates_NoCompletedJourneys_RateIsNull_NeverZero()
     {
-        var totals = DeviceJourneyMetricsResponse.SumAggregates(new List<DeviceJourneyDailyAggregate>
+        var totals = DeviceJourneyMetricsResponseBuilder.SumAggregates(new List<DeviceJourneyDailyAggregate>
         {
             new() { CompletedJourneyCount = 0, FirstTimeRightCount = 0, ExcludedSessionCount = 3 },
         });
@@ -734,7 +734,7 @@ public class DeviceJourneyAndFtrTests
     [InlineData("999", 180)]   // clamped to aggregate retention
     public void ClampDays_DefaultsAndClamps(string? raw, int expected)
     {
-        Assert.Equal(expected, DeviceJourneyMetricsResponse.ClampDays(raw));
+        Assert.Equal(expected, DeviceJourneyMetricsResponseBuilder.ClampDays(raw));
     }
 
     [Fact]
@@ -743,8 +743,8 @@ public class DeviceJourneyAndFtrTests
         // Codex review: both range ends are inclusive, so "today - days" returned N+1 keys —
         // days=1 summed yesterday AND today.
         var today = new DateTime(2026, 7, 27);
-        Assert.Equal(today, DeviceJourneyMetricsResponse.InclusiveWindowStart(today, 1));
-        Assert.Equal(today.AddDays(-29), DeviceJourneyMetricsResponse.InclusiveWindowStart(today, 30));
+        Assert.Equal(today, DeviceJourneyMetricsResponseBuilder.InclusiveWindowStart(today, 1));
+        Assert.Equal(today.AddDays(-29), DeviceJourneyMetricsResponseBuilder.InclusiveWindowStart(today, 30));
     }
 
     private static DeviceHistory RepeaterHistory(
@@ -780,7 +780,7 @@ public class DeviceJourneyAndFtrTests
                 Ref("w2", SessionStatus.Succeeded, T0.AddDays(-2))),
         };
 
-        var selected = DeviceJourneyMetricsResponse.SelectRepeatDevices(histories, T0.AddDays(-30));
+        var selected = DeviceJourneyMetricsResponseBuilder.SelectRepeatDevices(histories, T0.AddDays(-30));
 
         Assert.Equal(2, selected.Count);
         Assert.Equal("hot-1", selected[0].History.SerialKey);   // attempts desc
@@ -799,7 +799,7 @@ public class DeviceJourneyAndFtrTests
                 Ref($"r-{i}", SessionStatus.Failed, T0.AddDays(-i))));
         }
 
-        var selected = DeviceJourneyMetricsResponse.SelectRepeatDevices(histories, T0.AddDays(-30));
+        var selected = DeviceJourneyMetricsResponseBuilder.SelectRepeatDevices(histories, T0.AddDays(-30));
 
         Assert.Equal(10, selected.Count);
         Assert.Equal("dev-11", selected[0].History.SerialKey); // highest attempts first

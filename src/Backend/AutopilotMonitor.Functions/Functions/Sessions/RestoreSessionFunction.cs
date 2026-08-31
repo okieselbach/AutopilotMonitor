@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -170,19 +171,19 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             var status = MapOutcomeToStatus(result.Outcome);
 
-            var body = new
+            var body = new SessionRestoreResponse
             {
-                success = status == HttpStatusCode.OK,
-                outcome = result.Outcome.ToString(),
-                mode = result.Mode,
-                message = result.Message,
-                currentState = result.CurrentState,
-                pendingManifestId = result.PendingManifestId,
-                rowsRestoredByTable = result.RowsRestoredByTable,
-                rowsSkippedByTable = result.RowsSkippedByTable,
-                wouldRestoreByTable = result.WouldRestoreByTable,
-                inventoryReIncrements = result.InventoryReIncrements,
-                durationMs = result.DurationMs,
+                Success = status == HttpStatusCode.OK,
+                Outcome = result.Outcome.ToString(),
+                Mode = result.Mode,
+                Message = result.Message,
+                CurrentState = result.CurrentState,
+                PendingManifestId = result.PendingManifestId,
+                RowsRestoredByTable = result.RowsRestoredByTable,
+                RowsSkippedByTable = result.RowsSkippedByTable,
+                WouldRestoreByTable = result.WouldRestoreByTable,
+                InventoryReIncrements = result.InventoryReIncrements,
+                DurationMs = result.DurationMs,
             };
 
             return await WriteJsonAsync(req, status, body);

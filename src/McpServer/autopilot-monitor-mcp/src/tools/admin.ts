@@ -14,8 +14,12 @@ import type {
   GetMcpUserUsageResponse,
   GetMyMcpUsageResponse,
   GetUnmatchedSoftwareResponse,
+  PlatformAgentMetricsResponse,
   QueryRawTableResponse,
+  RuleStatsResponse,
+  RuleStatsRuleAggregate,
   SoftwareInventoryResponse,
+  VerdictCalibrationResponse,
 } from '../generated/wire-types.generated.js';
 
 /**
@@ -457,31 +461,12 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_platform_metrics', args, async () => {
       try {
-        type SessionMetric = {
-          sessionId: string; tenantId: string; deviceName?: string; model?: string; status?: string;
-          agentVersion?: string; snapshotCount: number;
-          avgCpu: number; maxCpu: number; avgWorkingSet: number; maxWorkingSet: number;
-          avgPrivateBytes: number; avgLatency: number;
-          totalBytesUp: number; totalBytesDown: number; totalRequests: number;
-          avgSpoolDepth: number; maxSpoolDepth: number; peakSpoolDepth: number;
-          maxSpoolFileBytes: number; totalEventsEmitted: number; spoolPressureDetected: boolean;
-        };
         // Backend fans out one storage query per session (bounded to 32 concurrent), so
         // 2000-session windows take longer than the default 30s client timeout — same
         // override precedent as get_session_summary. Warm (cached) calls return instantly.
         const raw = await apiFetch(
           `/api/global/metrics/platform${buildQuery({ days: args.days, limit: args.maxSessions })}`,
-          { signal: AbortSignal.timeout(90_000) }) as
-          {
-            sessions?: SessionMetric[]; windowDays?: number; sessionLimit?: number; sessionsScanned?: number;
-            deliveryLatency?: { p50Ms: number; p95Ms: number; p99Ms: number; avgMs: number; sampleCount: number; clockSkewPercent: number };
-            crashRate?: {
-              totalStarts: number; cleanExits: number; exceptionCrashes: number; hardKills: number;
-              rebootKills: number; firstRuns: number; crashRatePercent: number;
-              topExceptions?: { exceptionType: string; count: number }[];
-            };
-            computedAt?: string; computeDurationMs?: number; fromCache?: boolean;
-          };
+          { signal: AbortSignal.timeout(90_000) }) as PlatformAgentMetricsResponse;
         const sessions = raw?.sessions ?? [];
         const requested = { days: args.days, limit: args.maxSessions };
         // Backend-computed blocks that exist independently of snapshot availability
@@ -898,7 +883,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('get_verdict_calibration', args, async () => {
       try {
         const { tenantId, days, minSharePct, top } = args;
-        const data = await apiFetch(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`);
+        const data = await apiFetch(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`) as VerdictCalibrationResponse;
         return toolResultText(shapeVerdictCalibration(data, { minSharePct, top }), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_verdict_calibration', args, error);
@@ -1490,15 +1475,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
-        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`) as {
-          rules?: Array<Record<string, unknown>>;
-          trendsNote?: string;
-        };
+        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`) as
+          RuleStatsResponse & { trendsNote?: string };
         // The per-rule daily trend arrays are the size driver (one row per rule
         // per day; a 30-day platform-scope response reaches 150k+ chars and gets
         // host-truncated). Aggregates stay intact — trends only on request.
+        // (Dropping `trend` and adding `trendsNote` is this tool's OUTPUT contract,
+        // layered on the wire type — hence the Partial view for the delete.)
         if (!args.includeTrends && Array.isArray(data?.rules)) {
-          for (const rule of data.rules) delete rule.trend;
+          for (const rule of data.rules) delete (rule as Partial<RuleStatsRuleAggregate>).trend;
           data.trendsNote = 'Per-rule daily trend rows omitted. Re-call with includeTrends=true (plus a narrow startDate/endDate window) to include them.';
         }
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);

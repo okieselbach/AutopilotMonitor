@@ -71,7 +71,7 @@ public static class MetricsMath
     /// final status. Peer bytes and Microsoft Connected Cache (MCC) bytes are reported separately —
     /// MCC is counted apart from peers by DO — and offload% credits both as "not pulled from the CDN".
     /// </summary>
-    public static object BuildAppMetricsPayload(IEnumerable<AppInstallSummary> summaries)
+    public static AppMetricsResponse BuildAppMetricsPayload(IEnumerable<AppInstallSummary> summaries)
     {
         var summaryList = summaries as IList<AppInstallSummary> ?? summaries.ToList();
 
@@ -101,65 +101,66 @@ public static class MetricsMath
             // row reports source bytes but no DoTotalBytesDownloaded — so that telemetry is not lost.
             var doG = DoAggregator.Compute(g);
 
-            return new
+            return new AppMetricsAppGroup
             {
-                appName = g.Key,
-                totalInstalls = total,
-                succeeded = installed.Count,
-                skipped = skipped.Count,
-                unmeasured = installed.Count - measured.Count,
-                failed = failed.Count,
+                AppName = g.Key,
+                TotalInstalls = total,
+                Succeeded = installed.Count,
+                Skipped = skipped.Count,
+                Unmeasured = installed.Count - measured.Count,
+                Failed = failed.Count,
                 // Skips leave the rate (they are not attempts); legacy rows stay in it.
-                failureRate = TerminalFailureRatePct(failed.Count, installed.Count),
-                avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
-                maxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
-                measuredInstalls = measured.Count,
-                avgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
-                doTotalBytesDownloaded = doG.TotalBytesDownloaded,
-                doBytesFromPeers = doG.BytesFromPeers,
-                doBytesFromCacheServer = doG.BytesFromCacheServer,
-                doBytesFromHttp = doG.BytesFromHttp,
-                peerOffloadPercent = OffloadPercent(doG.BytesFromPeers + doG.BytesFromCacheServer, doG.TotalBytesDownloaded),
-                topFailureCodes = failed
+                FailureRate = TerminalFailureRatePct(failed.Count, installed.Count),
+                AvgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
+                MaxDurationSeconds = measured.Count > 0 ? measured.Max(s => s.DurationSeconds) : 0,
+                MeasuredInstalls = measured.Count,
+                AvgDownloadBytes = measured.Count > 0 ? (long)measured.Average(s => s.DownloadBytes) : 0,
+                DoTotalBytesDownloaded = doG.TotalBytesDownloaded,
+                DoBytesFromPeers = doG.BytesFromPeers,
+                DoBytesFromCacheServer = doG.BytesFromCacheServer,
+                DoBytesFromHttp = doG.BytesFromHttp,
+                PeerOffloadPercent = OffloadPercent(doG.BytesFromPeers + doG.BytesFromCacheServer, doG.TotalBytesDownloaded),
+                TopFailureCodes = failed
                     .Where(f => !string.IsNullOrEmpty(f.FailureCode))
                     .GroupBy(f => f.FailureCode)
                     .OrderByDescending(fc => fc.Count())
                     .Take(3)
-                    .Select(fc => new { code = fc.Key, count = fc.Count() })
+                    .Select(fc => new AppFailureCodeCount { Code = fc.Key, Count = fc.Count() })
+                    .ToList()
             };
         }).ToList();
 
         // Slowest ranking gates on MEASURED installs — an app whose durations were mostly
         // unobserved must not rank as "fast" on a handful of zeros (audit §0.5).
         var slowestApps = SelectSlowestApps(
-            appGroups, a => a.measuredInstalls, a => (double)a.avgDurationSeconds, minSamples: 3, take: 10);
+            appGroups, a => a.MeasuredInstalls, a => a.AvgDurationSeconds, minSamples: 3, take: 10);
 
         var topFailingApps = appGroups
-            .Where(a => a.failed > 0)
-            .OrderByDescending(a => a.failed)
-            .ThenByDescending(a => a.failureRate)
+            .Where(a => a.Failed > 0)
+            .OrderByDescending(a => a.Failed)
+            .ThenByDescending(a => a.FailureRate)
             .Take(10)
             .ToList();
 
         var doAll = DoAggregator.Compute(summaryList);
 
-        return new
+        return new AppMetricsResponse
         {
-            success = true,
-            totalApps = appGroups.Count,
-            totalInstalls = summaryList.Count,
-            totalSkipped = appGroups.Sum(a => a.skipped),
-            totalUnmeasured = appGroups.Sum(a => a.unmeasured),
-            totalCollisionExcluded,
-            slowestApps,
-            topFailingApps,
-            deliveryOptimization = new
+            Success = true,
+            TotalApps = appGroups.Count,
+            TotalInstalls = summaryList.Count,
+            TotalSkipped = appGroups.Sum(a => a.Skipped),
+            TotalUnmeasured = appGroups.Sum(a => a.Unmeasured),
+            TotalCollisionExcluded = totalCollisionExcluded,
+            SlowestApps = slowestApps,
+            TopFailingApps = topFailingApps,
+            DeliveryOptimization = new AppMetricsDeliveryOptimization
             {
-                totalBytesDownloaded = doAll.TotalBytesDownloaded,
-                fromPeers = doAll.BytesFromPeers,
-                fromCacheServer = doAll.BytesFromCacheServer,
-                fromHttp = doAll.BytesFromHttp,
-                peerOffloadPercent = OffloadPercent(doAll.BytesFromPeers + doAll.BytesFromCacheServer, doAll.TotalBytesDownloaded),
+                TotalBytesDownloaded = doAll.TotalBytesDownloaded,
+                FromPeers = doAll.BytesFromPeers,
+                FromCacheServer = doAll.BytesFromCacheServer,
+                FromHttp = doAll.BytesFromHttp,
+                PeerOffloadPercent = OffloadPercent(doAll.BytesFromPeers + doAll.BytesFromCacheServer, doAll.TotalBytesDownloaded),
             }
         };
     }

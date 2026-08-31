@@ -217,7 +217,7 @@ public class VerdictCalibrationTests
     private static readonly JsonSerializerOptions Wire = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private static JsonElement BuildJson(IReadOnlyList<VerdictCalibrationDailyAggregate> daily, DateTime today, int days)
-        => JsonSerializer.SerializeToElement(VerdictCalibrationResponse.Build(daily, "global", today, days), Wire);
+        => JsonSerializer.SerializeToElement(VerdictCalibrationResponseBuilder.Build(daily, "global", today, days), Wire);
 
     [Fact]
     public void Response_sums_the_window_and_computes_share_rate_and_trend()
@@ -297,5 +297,5 @@ public class VerdictCalibrationTests
     [InlineData("500", 180)]
     [InlineData("14", 14)]
     public void ClampDays_bounds_the_window(string? raw, int expected)
-        => Assert.Equal(expected, VerdictCalibrationResponse.ClampDays(raw));
+        => Assert.Equal(expected, VerdictCalibrationResponseBuilder.ClampDays(raw));
 }

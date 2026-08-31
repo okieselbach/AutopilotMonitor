@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Shared.Models.Metrics
     /// <summary>
     /// SLA metrics response for a given tenant and time window.
     /// </summary>
-    public class SlaMetricsResponse
+    public class SlaMetricsResponse : IApiResponse
     {
         // Target echo (so the dashboard knows the configured targets)
         public decimal? TargetSuccessRate { get; set; }

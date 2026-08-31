@@ -159,16 +159,18 @@ public class DeleteSessionFunctionTests
 
     // ── Anonymous-object reflection helpers ───────────────────────────────────────────────
 
+    // IgnoreCase: the Enqueued arm is a typed DTO (PascalCase properties, camelCased on the
+    // wire by ApiJsonOptions); the error arms stay anonymous (camelCase). Both resolve here.
     private static void AssertProperty(object body, string propertyName, object? expected)
     {
-        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
         Assert.NotNull(prop);
         Assert.Equal(expected, prop!.GetValue(body));
     }
 
     private static T GetProperty<T>(object body, string propertyName)
     {
-        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
         Assert.NotNull(prop);
         var value = prop!.GetValue(body);
         return (T)value!;

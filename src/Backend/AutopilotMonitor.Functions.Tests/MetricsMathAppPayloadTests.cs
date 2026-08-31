@@ -18,7 +18,7 @@ public class MetricsMathAppPayloadTests
     private static JsonElement Build(IEnumerable<AppInstallSummary> summaries)
     {
         var payload = MetricsMath.BuildAppMetricsPayload(summaries);
-        return JsonSerializer.SerializeToElement(payload);
+        return TestWire.SerializeToElement(payload);
     }
 
     [Fact]

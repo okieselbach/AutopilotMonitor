@@ -155,6 +155,42 @@ export interface AdminIdentityBinding {
   readonly isObjectIdPinned: boolean;
 }
 
+/** Response of GET global/metrics/agent-efficiency (GetGlobalAgentEfficiency). */
+export interface AgentEfficiencyMetricsResponse {
+  windowDays: number;
+  sessionLimit: number;
+  /** Echo of the requested tenant filter; null = cross-tenant aggregate. */
+  tenantId?: string;
+  /** Sessions the scan covered — compare against SessionLimit for truncation. */
+  sessionsScanned: number;
+  sessionsWithSnapshots: number;
+  byVersion: AgentVersionEfficiency[];
+  overall?: AgentVersionEfficiency;
+  computedAt: string;
+  computeDurationMs: number;
+  fromCache: boolean;
+}
+
+export interface AgentVersionEfficiency {
+  /** Null on the cross-version "overall" bucket (omitted on the wire). */
+  agentVersion?: string;
+  sessionsScanned: number;
+  sessionsWithSnapshots: number;
+  spoolPressureSessions: number;
+  avgCpuPercent?: PercentileStats;
+  maxCpuPercent?: PercentileStats;
+  maxWorkingSetMb?: PercentileStats;
+  maxPrivateBytesMb?: PercentileStats;
+  maxThreadCount?: PercentileStats;
+  maxHandleCount?: PercentileStats;
+  maxSpoolDepth?: PercentileStats;
+  maxSpoolFileBytes?: PercentileStats;
+  apiLatencyMs?: PercentileStats;
+  apiRequestCount?: PercentileStats;
+  crashRate?: CrashRateMetrics;
+  topOffenders?: EfficiencyOffender[];
+}
+
 /** Defines how to analyze collected events to detect issues Analyze rules run server-side during event ingestion */
 export interface AnalyzeRule {
   /** Unique rule identifier (e.g., "ANALYZE-NET-001") */
@@ -227,12 +263,261 @@ export interface AnalyzeRuleListResponse {
   rules: AnalyzeRule[];
 }
 
+/** One of the top 5 failure codes of the analytics window. */
+export interface AppAnalyticsFailureCode {
+  code: string;
+  /** First observed exit code; absent when none of the rows carried one. */
+  exitCode?: number;
+  count: number;
+  sampleMessage: string;
+}
+
+/** Response of GET apps/{appName}/analytics and its global variant. */
+export interface AppAnalyticsResponse {
+  success: boolean;
+  appName: string;
+  appType: string;
+  windowDays: number;
+  collisionExcluded: number;
+  /** "day" (windows up to 30 days) or "week". */
+  bucket: string;
+  summary: AppAnalyticsSummary;
+  timeSeries: AppAnalyticsTimeBucket[];
+  versionBreakdown: AppVersionBreakdownItem[];
+  installerPhaseBreakdown: AppInstallerPhaseCount[];
+  topFailureCodes: AppAnalyticsFailureCode[];
+  /** Succeeded installs whose detection re-check reported NotDetected. */
+  detectionLiesCount: number;
+  deviceModelBreakdown: AppDeviceModelBreakdownItem[];
+  /** Active duration-regression episodes for this app (tracker rows). */
+  versionRegressions: AppVersionRegressionAlert[];
+}
+
+/** Headline aggregate of one app's analytics window. */
+export interface AppAnalyticsSummary {
+  totalInstalls: number;
+  succeeded: number;
+  skipped: number;
+  unmeasured: number;
+  failed: number;
+  failureRate: number;
+  avgDurationSeconds: number;
+  p95DurationSeconds: number;
+  avgDownloadBytes: number;
+  /** "improving" | "worsening" | "stable". */
+  trend: string;
+  /** Absent when either window half has under 5 finished installs. */
+  trendDelta?: number;
+  /** Share of installs with AttemptNumber > 1 (0-1, three decimals). */
+  flakinessScore: number;
+}
+
+/** One day/week bucket of the analytics time series. */
+export interface AppAnalyticsTimeBucket {
+  bucketStart: string;
+  installs: number;
+  succeeded: number;
+  failed: number;
+  failureRate: number;
+  avgDurationSeconds: number;
+}
+
+/** Per device-model failure aggregate (lift vs the app's baseline rate, descending). */
+export interface AppDeviceModelBreakdownItem {
+  manufacturer: string;
+  model: string;
+  installs: number;
+  failed: number;
+  failureRate: number;
+  liftVsBaseline: number;
+}
+
+/** One failure code with its occurrence count. */
+export interface AppFailureCodeCount {
+  code: string;
+  count: number;
+}
+
 /** Consent-probe verdict embedded in app-homing responses (success and deny alike). Built by AppHomingFunction.ProbePayload. */
 export interface AppHomingProbeWire {
   /** False when the decision needed no probe (e.g. GA force flip). */
   attempted: boolean;
   succeeded: boolean;
   isTransient: boolean;
+}
+
+/** App install SLA snapshot. */
+export interface AppInstallSlaSnapshot {
+  totalInstalls: number;
+  succeeded: number;
+  failed: number;
+  successRate: number;
+  targetMet: boolean;
+  /** Top failing apps by failure count. */
+  topFailingApps: TopFailingApp[];
+}
+
+/** Failed installs per installer phase (descending). */
+export interface AppInstallerPhaseCount {
+  phase: string;
+  failed: number;
+}
+
+/** One app's aggregate across its install rows in the window. */
+export interface AppMetricsAppGroup {
+  appName: string;
+  totalInstalls: number;
+  succeeded: number;
+  skipped: number;
+  unmeasured: number;
+  failed: number;
+  /** Failed / (failed + succeeded) as a percentage; skips never count as attempts. */
+  failureRate: number;
+  /** Average measured FINAL-attempt duration (whole seconds); 0 with no measured installs. */
+  avgDurationSeconds: number;
+  maxDurationSeconds: number;
+  measuredInstalls: number;
+  avgDownloadBytes: number;
+  doTotalBytesDownloaded: number;
+  doBytesFromPeers: number;
+  doBytesFromCacheServer: number;
+  doBytesFromHttp: number;
+  peerOffloadPercent: number;
+  /** Top 3 failure codes by count, descending. */
+  topFailureCodes: AppFailureCodeCount[];
+}
+
+/** Fleet-wide Delivery Optimization rollup across every install row in the window. */
+export interface AppMetricsDeliveryOptimization {
+  totalBytesDownloaded: number;
+  fromPeers: number;
+  fromCacheServer: number;
+  fromHttp: number;
+  /** Share of bytes not pulled from the CDN (peers + Microsoft Connected Cache), 0-100 one decimal. */
+  peerOffloadPercent: number;
+}
+
+/** Response of GET metrics/app and GET global/metrics/app: per-app install health over the requested window (slowest apps by average FINAL-attempt duration, top failing apps) plus the fleet Delivery Optimization rollup. */
+export interface AppMetricsResponse {
+  success: boolean;
+  totalApps: number;
+  totalInstalls: number;
+  totalSkipped: number;
+  totalUnmeasured: number;
+  /** Rows excluded from per-app groups because their name-keyed row merged distinct appIds. */
+  totalCollisionExcluded: number;
+  slowestApps: AppMetricsAppGroup[];
+  topFailingApps: AppMetricsAppGroup[];
+  deliveryOptimization: AppMetricsDeliveryOptimization;
+}
+
+export interface AppScriptMetrics {
+  avgAppsPerSession: number;
+  totalUniqueApps: number;
+  avgPlatformScriptsPerSession: number;
+  avgRemediationScriptsPerSession: number;
+  totalPlatformScripts: number;
+  totalRemediationScripts: number;
+}
+
+/** One install row of the app-sessions drilldown (failed first, then in-progress, newest first). */
+export interface AppSessionItem {
+  sessionId: string;
+  tenantId: string;
+  deviceName: string;
+  manufacturer: string;
+  model: string;
+  appVersion: string;
+  status: string;
+  installerPhase: string;
+  failureCode: string;
+  /** Absent when the install carried no exit code. */
+  exitCode?: number;
+  attemptNumber: number;
+  startedAt: string;
+  durationSeconds: number;
+  /** 2+ = the IME processed this app in multiple passes (device-ESP evaluation + real install). */
+  installPassCount: number;
+}
+
+/** Response of GET apps/{appName}/sessions and its global variant (offset-paged). */
+export interface AppSessionsResponse {
+  success: boolean;
+  total: number;
+  offset: number;
+  limit: number;
+  items: AppSessionItem[];
+}
+
+/** Per-app-version aggregate (installs descending). */
+export interface AppVersionBreakdownItem {
+  appVersion: string;
+  installs: number;
+  failed: number;
+  failureRate: number;
+  measuredInstalls: number;
+  medianDurationSeconds: number;
+  p95DurationSeconds: number;
+}
+
+/** One ACTIVE app-version duration regression: an app whose newest version's median install duration rose ≥2× (and ≥5 minutes absolute) over the previous version's median, both sides with enough measured installs. Persisted as the appversionregression|{app}|{version} keyspace of the notification tracker table — the row IS the dedup (one bell per episode), and the versionRegressions[] payload on the app-analytics response. Deleted when the episode re-arms (median falls back under 1.5× or the version drains out of the horizon) or by the tracker's 30-day retention sweep. Numbers refresh on every radar pass while the episode stays active; FirstNotifiedAt never moves. */
+export interface AppVersionRegressionAlert {
+  tenantId: string;
+  appName: string;
+  /** The regressed (newer) version — episode key together with the app. */
+  currentVersion: string;
+  /** The comparison version: latest first-seen strictly before the current version's first-seen. */
+  previousVersion: string;
+  currentMedianSeconds: number;
+  previousMedianSeconds: number;
+  /** Measured installs backing each median (gate: both ≥10). */
+  currentMeasuredCount: number;
+  previousMeasuredCount: number;
+  /** Current median ÷ previous median (gate: ≥2.0; previous median is never 0 — measured durations are ≥1s). */
+  lift: number;
+  /** When the episode first fired (bell + ops event moment). Never moves on refresh; drives the 30d retention re-arm. */
+  firstNotifiedAt: string;
+  /** Last radar pass that re-confirmed/refreshed this episode. */
+  lastEvaluatedAt: string;
+}
+
+/** One app row of the apps list (failed desc, then failure rate, then name). */
+export interface AppsListItem {
+  appName: string;
+  appType: string;
+  totalInstalls: number;
+  succeeded: number;
+  skipped: number;
+  unmeasured: number;
+  failed: number;
+  failureRate: number;
+  avgDurationSeconds: number;
+  maxDurationSeconds: number;
+  avgDownloadBytes: number;
+  /** "improving" | "worsening" | "stable". */
+  trend: string;
+  /** Failure-rate delta between window halves; absent when either half has under 5 finished installs. */
+  trendDelta?: number;
+  lastSeenAt: string;
+}
+
+/** Response of GET apps/list and GET global/apps/list. Legacy mode (no pageSize) returns the full array with the paging keys absent; opt-in pagination adds count/offset/pageSize and a nextLink while more pages remain. */
+export interface AppsListResponse {
+  success: boolean;
+  totalApps: number;
+  totalInstalls: number;
+  /** Rows excluded because their name-keyed row merged distinct appIds. */
+  collisionExcluded: number;
+  windowDays: number;
+  /** Rows on this page; absent in legacy full-array mode. */
+  count?: number;
+  /** Absent in legacy full-array mode. */
+  offset?: number;
+  /** Absent in legacy full-array mode. */
+  pageSize?: number;
+  apps: AppsListItem[];
+  /** Next-page link; absent in legacy mode and on the last page. */
+  nextLink?: string;
 }
 
 export interface AuditLogEntry {
@@ -390,6 +675,22 @@ export interface CpeMappingItem {
   createdAt: string;
 }
 
+export interface CrashExceptionSummary {
+  exceptionType: string;
+  count: number;
+}
+
+export interface CrashRateMetrics {
+  totalStarts: number;
+  cleanExits: number;
+  exceptionCrashes: number;
+  hardKills: number;
+  rebootKills: number;
+  firstRuns: number;
+  crashRatePercent: number;
+  topExceptions: CrashExceptionSummary[];
+}
+
 /** Response of POST rules/analyze/{ruleId}/create-from-template: the newly created custom rule instantiated from the template. */
 export interface CreateAnalyzeRuleFromTemplateResponse {
   success: boolean;
@@ -534,6 +835,22 @@ export interface DeletionRowKeySample {
   rk: string;
 }
 
+export interface DeliveryLatencyMetrics {
+  p50Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  avgMs: number;
+  sampleCount: number;
+  clockSkewPercent: number;
+}
+
+export interface DeploymentTypeMetrics {
+  userDriven: number;
+  whiteGlove: number;
+  userDrivenPercentage: number;
+  whiteGlovePercentage: number;
+}
+
 /** Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Items are HealthCheck objects (backend-project type, serialized by runtime type); non-GA callers get a filtered list. */
 export interface DetailedHealthCheckResponse {
   service: string;
@@ -563,6 +880,66 @@ export interface DeviceHistory {
   /** Journey-grouping algorithm version (truthfulness rule 8: a definition change never silently mixes semantics). */
   journeyVersion: number;
   lastUpdated: string;
+}
+
+/** One attempt-histogram bucket: how many completed journeys took exactly Attempts attempts. */
+export interface DeviceJourneyAttemptBucket {
+  attempts: number;
+  journeyCount: number;
+}
+
+/** Daily First-Time-Right rollup for one (tenant, date) — F2 PR4 (insights spec §F2). A journey counts on the StartedAt date of its COMPLETING success session (same StartedAt-date bucketing as every other daily aggregate; the rolling sweep re-buckets late-terminating sessions idempotently). Only journeys that ended with a terminal success are counted — open journeys (no success yet, incl. WhiteGlove waiting for its user session) and gap-abandoned journeys never enter numerator or denominator. Counts are additive across days, so a window rate is the sum of daily rows — no rolling-window row is needed (unlike the median-based time-attribution aggregates). Rows are written even below the ≥20-completed-journeys UI gate: the UI needs the n to say "insufficient data (n=3)" (truthfulness rule 4). Junk-serial exclusions are disclosed per day (rule 7). "global" mirror rows sum all tenants. */
+export interface DeviceJourneyDailyAggregate {
+  /** Calendar day (UTC, "yyyy-MM-dd") the completing success sessions STARTED. */
+  date: string;
+  /** Tenant GUID, or "global" for the cross-tenant row. */
+  tenantId: string;
+  /** Journey-grouping algorithm version the counts were computed with (rule 8). */
+  journeyVersion: number;
+  /** Journeys completed (first terminal success) on this date — the FTR denominator. */
+  completedJourneyCount: number;
+  /** Completed journeys with attempt count == 1 — the FTR numerator. */
+  firstTimeRightCount: number;
+  /** Attempt distribution across the completed journeys, ordered by attempts ascending. */
+  attemptHistogram: DeviceJourneyAttemptBucket[];
+  /** Terminal sessions on this date excluded for junk/placeholder serials — disclosed, never silent (rule 7). */
+  excludedSessionCount: number;
+  computedAt: string;
+}
+
+/** Response of GET metrics/device-journeys and GET global/metrics/device-journeys: daily First-Time-Right rows of the window plus their sums, the merged attempt histogram, and the repeat-devices violator list (absent on the cross-tenant aggregate). */
+export interface DeviceJourneyMetricsResponse {
+  success: boolean;
+  windowDays: number;
+  totals: DeviceJourneyWindowTotals;
+  /** Daily rows of the window, date ordinal order. */
+  daily: DeviceJourneyDailyAggregate[];
+  /** Devices whose current journey took at least 2 attempts; absent on the cross-tenant aggregate (no per-device drill there). */
+  repeatDevices?: DeviceJourneyRepeatDevice[];
+}
+
+/** One repeat-device violator row (current journey took at least 2 attempts, newest terminal session in the window). */
+export interface DeviceJourneyRepeatDevice {
+  serialNumber: string;
+  manufacturer: string;
+  model: string;
+  attempts: number;
+  journeyCount: number;
+  lastStatus: string;
+  lastSessionId: string;
+  lastStartedAt: string;
+  /** Failure reason of the newest failed attempt; empty when unavailable (fail-soft point-read). */
+  lastFailureReason: string;
+}
+
+/** Window totals of the device-journey response (additive sums over the daily rows). */
+export interface DeviceJourneyWindowTotals {
+  completedJourneys: number;
+  firstTimeRight: number;
+  /** Null with zero completed journeys — no rate claim, never 0 (truthfulness rule 1). */
+  ftrRatePct?: number;
+  excludedSessions: number;
+  attemptHistogram: DeviceJourneyAttemptBucket[];
 }
 
 /** One serial-number bucket in the GetDeviceNotRegistered aggregation. All values are self-reported by devices through the unauthenticated distress channel — UNVERIFIED. */
@@ -603,6 +980,18 @@ export interface DeviceSessionRef {
   adminMarked: boolean;
 }
 
+/** Wire projection of one built-in diagnostics section. Condition travels as the enum NAME ("Always" | "RealmJoinWatcher" | "DevicePreparation"), never the integer — the web switches on the string. */
+export interface DiagnosticsBuiltInSectionWire {
+  id: string;
+  zipFolder: string;
+  /** UNEXPANDED source folder (may contain %ProgramData% or the user-profile token). */
+  sourceFolder: string;
+  patterns: string[];
+  includeSubfolders: boolean;
+  description: string;
+  condition: string;
+}
+
 /** Response of POST diagnostics/download-ticket: a short-lived, self-authenticating download URL for one diagnostics blob (HMAC ticket in the query string). */
 export interface DiagnosticsDownloadTicketResponse {
   success: boolean;
@@ -614,6 +1003,24 @@ export interface DiagnosticsDownloadTicketResponse {
   destination: string;
   /** Best-effort blob size, or null when the size probe timed out/failed — the key is omitted when null. */
   sizeBytes?: number;
+}
+
+/** Represents a log file path (or wildcard pattern) to include in the diagnostics ZIP package. Global (built-in) entries are defined by Global Admins; tenants may add their own. */
+export interface DiagnosticsLogPath {
+  /** File system path or wildcard pattern. Environment variables are expanded by the agent. Wildcards are only allowed in the last path segment (e.g. "C:\Windows\Panther\*.log"). */
+  path: string;
+  /** Human-readable description shown in the portal. */
+  description: string;
+  /** True when defined globally by a Global Admin — displayed as read-only for tenants. False when added by the tenant itself. */
+  isBuiltIn: boolean;
+  /** When true, the agent also collects matching files from subdirectories recursively. Subdirectory structure is preserved in the ZIP (e.g. AdditionalLogs/Logs/subfolder/file.log). Default is false (top-level only). */
+  includeSubfolders: boolean;
+}
+
+/** Response of GET diagnostics/paths: what every diagnostics package collects before a tenant's own entries — the built-in section catalog (compiled into the agent) and the platform-wide global paths set by Global Admins. Member-readable by design. */
+export interface DiagnosticsPathsResponse {
+  builtIn: DiagnosticsBuiltInSectionWire[];
+  globalPaths: DiagnosticsLogPath[];
 }
 
 /** Shared response of POST global/notifications/dismiss-all and POST notifications/dismiss-all: how many notifications were dismissed. */
@@ -657,6 +1064,14 @@ export interface DryRunAnalyzeRuleResponse {
   sessionId: string;
   /** The RuleDryRun trace (AutopilotMonitor.Functions.Services) — typed object here only because that class lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged. */
   result: unknown;
+}
+
+export interface EfficiencyOffender {
+  sessionId: string;
+  tenantId: string;
+  deviceName?: string;
+  dimension: string;
+  value: number;
 }
 
 /** Response of DELETE global/email-templates/{kind}: reset to the built-in template. */
@@ -756,6 +1171,104 @@ export interface EpssRefreshRunWire {
   finishedUtc?: string;
 }
 
+/** Response of GET feedback/eligibility: whether the caller should be shown the feedback prompt. */
+export interface FeedbackEligibilityResponse {
+  eligible: boolean;
+}
+
+/** One feedback interaction as rendered on the Global Admin dashboard. */
+export interface FeedbackEntryWire {
+  type?: string;
+  upn?: string;
+  tenantId?: string;
+  displayName?: string;
+  /** Absent on dismissals. */
+  rating?: number;
+  /** Absent on dismissals. */
+  comment?: string;
+  dismissed: boolean;
+  submitted: boolean;
+  /** ISO-8601 round-trip string; absent when never stamped. */
+  interactedAt?: string;
+  historyRowKey?: string;
+  domainName?: string;
+}
+
+/** Response of GET feedback/all (Global Admin dashboard): every stored feedback entry. */
+export interface FeedbackListResponse {
+  feedback: FeedbackEntryWire[];
+}
+
+export interface FleetDailyPoint {
+  date: string;
+  success: number;
+  failed: number;
+}
+
+export interface FleetFailingModel {
+  model: string;
+  failed: number;
+  /** All sessions on this model in the window, including in-flight ones. */
+  total: number;
+  /** Failed / (Failed + Succeeded) * 100, rounded — finished enrollments only. */
+  failureRate: number;
+}
+
+export interface FleetFailureReason {
+  reason: string;
+  count: number;
+}
+
+/** Server-computed Fleet Health aggregates. Replaces the client-side pass that drained up to 200k raw sessions into the browser and aggregated on the main thread. Built once per request from the windowed session list — see MetricsMath.BuildFleetHealthPayload. Presentation-only derivations (bar-chart maxima, weekday/month axis labels) stay on the client; this payload carries the data, not the formatting. */
+export interface FleetHealthMetrics {
+  success: boolean;
+  days: number;
+  stats: FleetHealthStats;
+  /** One entry per day in the window, oldest-first. Date is UTC "yyyy-MM-dd". */
+  dailyData: FleetDailyPoint[];
+  /** Top failure reasons by count (descending). */
+  failureReasons: FleetFailureReason[];
+  /** Device models by enrollment volume (descending). */
+  modelHealth: FleetModelHealth[];
+  /** Device models by average successful enrollment duration (descending). */
+  slowestModels: FleetSlowModel[];
+  /** Device models by failure count (descending). */
+  topFailingModels: FleetFailingModel[];
+  computedAt: string;
+}
+
+export interface FleetHealthStats {
+  total: number;
+  succeeded: number;
+  failed: number;
+  inProgress: number;
+  /** Terminal, non-failure sessions (timeout reclassification). Surfaced as its own count; not a failure. */
+  incomplete: number;
+  /** Succeeded / (Succeeded + Failed) * 100 (one decimal) — finished enrollments only, matching the SLA convention. 0 when nothing has finished yet (clients render "—"). */
+  successRate: number;
+  /** Average duration in minutes over non-in-progress sessions that carry a duration. Kept for API compatibility; the cards lead with the median, which a handful of multi-hour outliers (overnight ESP, WhiteGlove late user phase) cannot drag around. */
+  avgDurationMinutes: number;
+  /** Median duration in minutes over the same population as AvgDurationMinutes. */
+  medianDurationMinutes: number;
+  /** 90th-percentile duration in minutes over the same population — the tail signal the median alone would hide. */
+  p90DurationMinutes: number;
+}
+
+export interface FleetModelHealth {
+  model: string;
+  /** All sessions on this model in the window, including in-flight ones. */
+  total: number;
+  succeeded: number;
+  /** Clients derive the per-model rate as Succeeded / (Succeeded + Failed). */
+  failed: number;
+}
+
+export interface FleetSlowModel {
+  model: string;
+  avgMinutes: number;
+  count: number;
+}
+
 /** Defines what data the agent should collect Gather rules are delivered to the agent via the config API and can be managed (enabled/disabled, created) through the portal */
 export interface GatherRule {
   /** Unique rule identifier (e.g., "GATHER-NET-001") */
@@ -828,6 +1341,18 @@ export interface GeographicLocationSessionsResponse {
   success: boolean;
   sessions: LocationSessionRow[];
   totalCount: number;
+}
+
+/** Response containing geographic performance metrics aggregated by location. */
+export interface GeographicMetricsResponse {
+  success: boolean;
+  locations: LocationMetrics[];
+  globalAverages: GlobalAverages;
+  computedAt: string;
+  totalSessions: number;
+  locationsWithData: number;
+  /** Whether geo-location collection is enabled for this tenant */
+  geoLocationEnabled: boolean;
 }
 
 /** Response of GET global/presence: users active within the requested window. */
@@ -1169,12 +1694,42 @@ export interface GetVulnerabilitySyncStatusResponse {
   epssLastRun?: EpssRefreshRunWire;
 }
 
+/** Global average benchmarks for geographic comparison. */
+export interface GlobalAverages {
+  avgDurationMinutes: number;
+  medianDurationMinutes: number;
+  avgMinutesPerApp: number;
+  avgThroughputBytesPerSec: number;
+  stdDevDurationMinutes: number;
+  /** Global request-weighted average agent→backend API latency (ms); 0 = no data yet */
+  avgApiLatencyMs: number;
+  /** Global median of per-session average API latency (ms), robust against outliers; 0 = no data yet */
+  medianApiLatencyMs: number;
+  /** Global weighted average peer caching percentage */
+  avgDoPercentPeerCaching: number;
+  /** Total peer bytes across all locations with DO data */
+  totalDoBytesFromPeers: number;
+  /** Total HTTP bytes across all locations with DO data */
+  totalDoBytesFromHttp: number;
+}
+
 /** One feature row of the graph-permissions status matrix: the feature identifier, the granted verdict (null while the snapshot is transient) and the Graph application permissions the feature requires. */
 export interface GraphFeatureStatusItem {
   name: string;
   /** Granted verdict, or null when the snapshot is transient (verdict unknown) — the key is omitted when null. */
   granted?: boolean;
   requiredPermissions: string[];
+}
+
+export interface HardwareCount {
+  name: string;
+  count: number;
+  percentage: number;
+}
+
+export interface HardwareMetrics {
+  topManufacturers: HardwareCount[];
+  topModels: HardwareCount[];
 }
 
 /** One manufacturer+model bucket in the GetHardwareRejected aggregation. All values are self-reported by devices through the unauthenticated distress channel — UNVERIFIED. */
@@ -1253,6 +1808,58 @@ export interface ImeLogPatternListResponse {
   patterns: ImeLogPattern[];
 }
 
+export interface ImePatternDriftAlert {
+  version: string;
+  patternId: string;
+  baselineVersion: string;
+  baselineRate: number;
+  sessions: number;
+  flaggedAt?: string;
+}
+
+export interface ImePatternHealthCell {
+  version: string;
+  patternId: string;
+  sessions: number;
+  sessionsWithHit: number;
+  hits: number;
+  rate: number;
+  driftFlaggedAt?: string;
+}
+
+export interface ImePatternHealthPattern {
+  patternId: string;
+  category?: string;
+  enabled: boolean;
+  /** Hit rate on the baseline version; null without a baseline. */
+  baselineRate?: number;
+  /** True when the baseline rate is at or above the expected threshold. */
+  expected: boolean;
+}
+
+/** Response of GET metrics/ime-pattern-health. */
+export interface ImePatternHealthResponse {
+  baselineVersion?: string;
+  minBaselineSessions: number;
+  expectedHitRate: number;
+  minCandidateSessions: number;
+  versions: ImePatternHealthVersion[];
+  patterns: ImePatternHealthPattern[];
+  cells: ImePatternHealthCell[];
+  alerts: ImePatternDriftAlert[];
+  generatedAt: string;
+}
+
+export interface ImePatternHealthVersion {
+  version: string;
+  /** Sessions that delivered a histogram on this version (not the ImeVersionHistory session count). */
+  sessions: number;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  /** Total sessions per ImeVersionHistory (includes sessions without a terminal run). */
+  fleetSessions?: number;
+}
+
 /** A tracked IME version sighting. Permanent archive that survives data retention. */
 export interface ImeVersionHistoryEntry {
   version: string;
@@ -1277,11 +1884,24 @@ export interface ImeVersionHistoryEntry {
   msiSourceUrl?: string;
 }
 
+/** Redacted IME version row served to non-global callers of GET metrics/ime-versions: the platform-wide rollout facts without the first-seen tenant/session identifiers or the archive columns (see GetImeVersionHistoryFunction.BuildResponsePayload). */
+export interface ImeVersionHistoryLeanEntry {
+  version: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sessionCount: number;
+}
+
 /** Response of GET auth/is-global-admin: whether the caller holds the Global Admin platform role, echoing the caller's UPN. */
 export interface IsGlobalAdminResponse {
   isGlobalAdmin: boolean;
   /** Caller's UPN from the token, or null when the token carries no UPN claim — the key is omitted when null. */
   upn?: string;
+}
+
+/** Response of GET global/backups: every backupId in the critical-table-backups container, newest first. Serialized with SerializerOptions (the backup surface's own options), not the ApiJsonOptions pipeline. */
+export interface ListBackupsResponse {
+  backupIds: string[];
 }
 
 /** Success body of GET /api/global/raw/tables (ListRawTables): the queryable table names. */
@@ -1294,6 +1914,64 @@ export interface ListRawTablesResponse {
 export interface ListTenantConfigBackupsResponse {
   tenantId: string;
   backups: TenantConfigBackupItem[];
+}
+
+/** Performance metrics for a single geographic location. */
+export interface LocationMetrics {
+  locationKey: string;
+  country: string;
+  region: string;
+  city: string;
+  loc: string;
+  sessionCount: number;
+  succeeded: number;
+  failed: number;
+  successRate: number;
+  avgDurationMinutes: number;
+  medianDurationMinutes: number;
+  p95DurationMinutes: number;
+  /** Average number of apps installed per session at this location */
+  avgAppCount: number;
+  /** Average minutes per app (AvgDurationMinutes / AvgAppCount) */
+  minutesPerApp: number;
+  /** Normalized score: 100 = global median, lower is better */
+  appLoadScore: number;
+  /** Average download throughput in bytes/sec at this location */
+  avgThroughputBytesPerSec: number;
+  totalDownloadBytes: number;
+  /** Percentage difference from global avg duration (negative = faster) */
+  durationVsGlobalPct: number;
+  /** Percentage difference from global avg throughput (positive = faster) */
+  throughputVsGlobalPct: number;
+  /** Average agent→backend HTTP round-trip (ms) at this location, weighted per session by its request count. 0 when no session here carries latency data (pre-feature agents). A single corrupt session average (e.g. a request spanning a sleep/hibernate) can dominate this figure — use MedianApiLatencyMs as the display statistic. */
+  avgApiLatencyMs: number;
+  /** Median of the per-session average agent→backend round-trips (ms) at this location — robust against outlier sessions. 0 when no session here carries latency data. */
+  medianApiLatencyMs: number;
+  /** Sessions at this location that carry API-latency data */
+  apiLatencySessionCount: number;
+  /** Percentage difference from global median API latency (positive = slower/farther) */
+  apiLatencyVsGlobalPct: number;
+  isOutlier: boolean;
+  /** "fast", "slow", or null */
+  outlierDirection?: string;
+  /** Sessions at this location that have DO telemetry data */
+  doSessionCount: number;
+  /** Weighted percentage of bytes from peers (0-100), computed from total peer/total DO bytes */
+  avgDoPercentPeerCaching: number;
+  /** Total bytes downloaded from all peer sources */
+  totalDoBytesFromPeers: number;
+  /** Total bytes downloaded from HTTP/CDN */
+  totalDoBytesFromHttp: number;
+  /** Bytes from LAN peers */
+  totalDoBytesFromLanPeers: number;
+  /** Bytes from group peers */
+  totalDoBytesFromGroupPeers: number;
+  /** Bytes from internet peers */
+  totalDoBytesFromInternetPeers: number;
+  /** Bytes from link-local peers (same subnet) */
+  totalDoBytesFromLinkLocalPeers: number;
+  /** Bytes served from a Microsoft Connected Cache (MCC) — separate from BytesFromPeers */
+  totalDoBytesFromCacheServer: number;
 }
 
 /** Lean projection of LocationSessionRow used as the default drilldown row. Fields chosen to support the typical MCP triage flow (which session, when, where, how big a deal, was DO active). Built by GetGeographicLocationSessionsFunction.ToLeanRow. */
@@ -1513,6 +2191,17 @@ export interface NvdRefreshRunWire {
   finishedUtc?: string;
 }
 
+/** 202/200 response body for the offboarding endpoint. Fields point the caller at the History row so subsequent reporting / status polling can resolve back to the audit trail. EarliestProcessingAt drives the "data deletion starts in mm ss" countdown in the Web UI's drain-barrier state. */
+export interface OffboardResponse {
+  tenantId: string;
+  status: string;
+  historyPartitionKey: string;
+  historyRowKey: string;
+  message: string;
+  /** UTC timestamp before which the worker MUST NOT start Phase 2. Drives the cache-drain-barrier countdown UI. Absent on the idempotent-Completed/Failed branches. */
+  earliestProcessingAt?: string;
+}
+
 export interface OpsEventEntry {
   id: string;
   category: string;
@@ -1534,6 +2223,26 @@ export interface OpsEventListResponse {
   nextLink?: string;
 }
 
+/** Distribution of a per-session statistic across a version bucket. */
+export interface PercentileStats {
+  p50: number;
+  p95: number;
+  max: number;
+  avg: number;
+  sampleCount: number;
+}
+
+export interface PerformanceMetrics {
+  avgDurationMinutes: number;
+  medianDurationMinutes: number;
+  p95DurationMinutes: number;
+  p99DurationMinutes: number;
+  /** Number of sessions contributing to the duration distribution (after the >0 filter). */
+  sampleCount: number;
+  /** Number of sessions whose raw duration exceeded the clamp ceiling and were capped before aggregation. A non-zero value flags stuck/non-terminal sessions skewing the window — the percentiles above are computed on the clamped values, not the runaway wall-clock duration. */
+  clampedSessionCount: number;
+}
+
 /** Defines a usage plan tier with request limits. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. */
 export interface PlanTierDefinition {
   name: string;
@@ -1545,6 +2254,72 @@ export interface PlanTierDefinition {
 /** Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions. */
 export interface PlanTierDefinitionsResponse {
   tiers: PlanTierDefinition[];
+}
+
+/** Response of GET global/metrics/platform (GetGlobalPlatformMetrics). */
+export interface PlatformAgentMetricsResponse {
+  sessions: SessionAgentMetric[];
+  deliveryLatency?: DeliveryLatencyMetrics;
+  crashRate?: CrashRateMetrics;
+  computedAt: string;
+  computeDurationMs: number;
+  fromCache: boolean;
+  windowDays: number;
+  sessionLimit: number;
+  /** Sessions the scan actually covered in the window (before the has-snapshots filter that shapes Sessions). Callers must compare THIS against SessionLimit to decide whether the window was truncated — Sessions.Count understates truncation on fleets where many sessions emit no agent_metrics_snapshot. */
+  sessionsScanned: number;
+}
+
+/** Pre-computed platform-wide statistics for the public landing page. Stored as a single row (PartitionKey: "global", RowKey: "current"). Incremented during registration/ingest/login; the daily maintenance recompute treats every cumulative counter as a monotonic "since release" high-water-mark (raise-only — the scanned tables are retention-pruned, so a raw recompute would regress the figures). Only TotalSignedUpTenants is current-state (its source table is not retention-pruned). See MaintenanceService.BuildMonotonicPlatformStats. */
+export interface PlatformStats {
+  /** Total enrollment sessions monitored since launch */
+  totalEnrollments: number;
+  /** Total unique users who logged in */
+  totalUsers: number;
+  /** Total unique tenants using the platform (have at least one session) */
+  totalTenants: number;
+  /** Total tenants signed up (have a tenant configuration entry) */
+  totalSignedUpTenants: number;
+  /** Total unique device models seen (manufacturer + model) */
+  uniqueDeviceModels: number;
+  /** Total events processed across all tenants */
+  totalEventsProcessed: number;
+  /** Total successful enrollments */
+  successfulEnrollments: number;
+  /** Total analysis issues detected */
+  issuesDetected: number;
+  /** When these stats were last fully recomputed */
+  lastFullCompute: string;
+  /** When these stats were last updated (including incremental) */
+  lastUpdated: string;
+}
+
+/** Platform usage metrics response */
+export interface PlatformUsageMetrics {
+  /** Session metrics */
+  sessions: SessionMetrics;
+  /** Tenant metrics */
+  tenants: TenantMetrics;
+  /** User metrics (requires Entra ID authentication) */
+  users: UserMetrics;
+  /** Performance metrics */
+  performance: PerformanceMetrics;
+  /** Hardware metrics */
+  hardware: HardwareMetrics;
+  /** Deployment type metrics (User Driven vs White Glove) */
+  deploymentTypes: DeploymentTypeMetrics;
+  /** App and script count metrics */
+  appScripts: AppScriptMetrics;
+  /** Platform statistics (cumulative since release) */
+  platformStats?: PlatformStats;
+  /** When these metrics were computed */
+  computedAt: string;
+  /** How long it took to compute (milliseconds) */
+  computeDurationMs: number;
+  /** Whether result is from cache */
+  fromCache: boolean;
+  /** Time window (in days) the metrics were computed over. */
+  windowDays: number;
 }
 
 /** Response of GET /api/progress/sessions/{sessionId}/events — the session's event stream after the serial knowledge proof passed. */
@@ -1771,6 +2546,43 @@ export interface RulePrecondition {
   description?: string;
 }
 
+/** One ACTIVE rule-frequency regression (F3, insights spec §F3): an analyze rule whose 7-day hit rate rose ≥2× over its 28-day baseline with disjoint Wilson intervals. Persisted as the ruleregression|{ruleId} keyspace of the notification tracker table — the row IS the dedup (one bell per episode), the badge state (rules page) and the regressions[] payload (rule-stats response). Deleted when the rate re-arms (falls under 1.5× baseline or stops firing) or by the tracker's 30-day retention sweep (spec: retention cleanup re-arms). Numbers are refreshed on every radar pass while the episode stays active; FirstNotifiedAt never moves. */
+export interface RuleRegressionAlert {
+  tenantId: string;
+  ruleId: string;
+  ruleTitle: string;
+  windowFireCount: number;
+  windowSessionCount: number;
+  baselineFireCount: number;
+  baselineSessionCount: number;
+  windowRatePct: number;
+  baselineRatePct: number;
+  /** Window rate ÷ baseline rate. Null when the baseline rate is 0 (a NEW signal has no finite lift — never invented). */
+  lift?: number;
+  /** Trailing 7-day window ("yyyy-MM-dd", inclusive) the current numbers describe. */
+  windowStartDate: string;
+  windowEndDate: string;
+  /** Dimension concentration captured when the alert FIRST fired (stable story); null = no clear concentration. */
+  dimension?: RuleRegressionDimension;
+  /** When the episode first fired (bell + ops event moment). Never moves on refresh; drives the 30d retention re-arm. */
+  firstNotifiedAt: string;
+  /** Last radar pass that re-confirmed/refreshed this episode. */
+  lastEvaluatedAt: string;
+}
+
+/** The dominant dimension value among a regression's hit sessions — CORRELATION only, and every consumer's wording must say so ("correlated — not necessarily causal", insights spec §F3 / truthfulness rule 6). Null on an alert means "no clear dimension concentration" — the radar never stretches for one. */
+export interface RuleRegressionDimension {
+  /** "osBuild", "model", "agentVersion" or "imeVersion". */
+  dimension: string;
+  value: string;
+  /** Hit sessions carrying this value (gate: ≥5). */
+  hitCount: number;
+  hitSharePct: number;
+  allSharePct: number;
+  /** HitShare ÷ AllShare (gate: ≥2.0). */
+  lift: number;
+}
+
 /** Result of an analyze rule evaluation against a session's events Stored in the RuleResults table and displayed in the session detail UI */
 export interface RuleResult {
   /** Unique identifier for this result */
@@ -1811,6 +2623,56 @@ export interface RuleResult {
   notifiedAt?: string;
 }
 
+/** Echo of the effective date window ("yyyy-MM-dd"). */
+export interface RuleStatsPeriod {
+  start: string;
+  end: string;
+}
+
+/** Response of GET metrics/rule-stats and GET global/metrics/rule-stats: per-rule firing aggregates over the requested window, the active rule-frequency regression episodes (tenant scope only — empty on the cross-tenant aggregate), and window totals. */
+export interface RuleStatsResponse {
+  rules: RuleStatsRuleAggregate[];
+  regressions: RuleRegressionAlert[];
+  summary: RuleStatsSummary;
+}
+
+/** One rule's aggregate across all dates in the window (fires descending). */
+export interface RuleStatsRuleAggregate {
+  ruleId: string;
+  ruleType: string;
+  ruleTitle: string;
+  category: string;
+  severity: string;
+  fireCount: number;
+  evaluationCount: number;
+  sessionsEvaluated: number;
+  /** Fires per evaluation as a percentage (one decimal); 0 with no evaluations. */
+  hitRate: number;
+  /** Average confidence score across fires (one decimal); 0 with no fires. */
+  avgConfidenceScore: number;
+  /** Per-day trend rows, oldest first (one row per stored date). */
+  trend: RuleTrendPoint[];
+}
+
+/** Window totals of a rule-stats response. */
+export interface RuleStatsSummary {
+  totalEvaluations: number;
+  totalFires: number;
+  overallHitRate: number;
+  /** Rule id with the most fires; absent when the window holds no rules. */
+  topRuleByFireCount?: string;
+  /** Distinct rule count — set on the global route only (the key is absent on the tenant route, preserving its historical shape). */
+  uniqueRules?: number;
+  period: RuleStatsPeriod;
+}
+
+/** One day of a rule's trend ("yyyy-MM-dd"). */
+export interface RuleTrendPoint {
+  date: string;
+  fireCount: number;
+  evaluationCount: number;
+}
+
 /** Response of POST vulnerability/cpe-mapping on a successful save. */
 export interface SaveCustomCpeMappingResponse {
   success: boolean;
@@ -1826,6 +2688,33 @@ export interface SearchSessionsResponse {
   sessions: Partial<SessionSummary>[];
   /** Absent when there is no further page. */
   nextLink?: string;
+}
+
+export interface SessionAgentMetric {
+  sessionId: string;
+  tenantId: string;
+  deviceName?: string;
+  manufacturer?: string;
+  model?: string;
+  startedAt?: string;
+  status?: string;
+  agentVersion?: string;
+  snapshotCount: number;
+  totalBytesUp: number;
+  totalBytesDown: number;
+  totalRequests: number;
+  avgCpu: number;
+  maxCpu: number;
+  avgWorkingSet: number;
+  maxWorkingSet: number;
+  avgPrivateBytes: number;
+  avgLatency: number;
+  avgSpoolDepth: number;
+  maxSpoolDepth: number;
+  peakSpoolDepth: number;
+  maxSpoolFileBytes: number;
+  totalEventsEmitted: number;
+  spoolPressureDetected: boolean;
 }
 
 /** Wire shape of one session annotation as returned by the session-scoped annotation endpoints (lane implied by context, tenant/session implied by the route). Built by AnnotationWire.ToWire. */
@@ -1898,6 +2787,15 @@ export interface SessionDeletionProgressWire {
   lastResidualSampleJson?: string;
 }
 
+/** Success body (202 Accepted) of the V2 cascade-delete enqueue — the non-success arms stay anonymous error bodies by design (one shape: success=false + message). */
+export interface SessionDeletionQueuedResponse {
+  success: boolean;
+  /** Always "queued". */
+  status: string;
+  manifestId?: string;
+  message: string;
+}
+
 /** Paged session listing envelope shared by GetSessions, GetAllSessions, SearchSessionsByCve and SearchSessionsByEvent (identical wire shape). */
 export interface SessionListResponse {
   success: boolean;
@@ -1905,6 +2803,21 @@ export interface SessionListResponse {
   sessions: SessionSummary[];
   /** Absent when there is no further page. */
   nextLink?: string;
+}
+
+export interface SessionMetrics {
+  total: number;
+  /** Cumulative enrollment sessions since the tenant signed up (retention-independent per-tenant counter, see TenantStats). Null on the platform-wide (all-tenants) metrics, which carry the cumulative figure in PlatformStats instead. */
+  totalAllTime?: number;
+  today: number;
+  last7Days: number;
+  last30Days: number;
+  succeeded: number;
+  failed: number;
+  inProgress: number;
+  /** Terminal, non-failure sessions (timeout reclassification): the sweep classified them as Incomplete instead of Failed. Surfaced as its own count and deliberately excluded from SuccessRate (denominator = Succeeded + Failed only), mirroring SessionStats and FleetHealthStats. See tasks/enrollment-status-reclassification.md §5. */
+  incomplete: number;
+  successRate: number;
 }
 
 /** Success body of GET global/session-reports/download-url: short-lived SAS download URL for a session report blob. */
@@ -1939,6 +2852,26 @@ export interface SessionReportMetadata {
   diagnosticsBlobName?: string;
   /** Outcome of the diagnostics copy: "Copied" or one of the "Failed:*" reasons. Null when the submitter did not request the copy. */
   diagnosticsCopyStatus?: string;
+}
+
+/** Body of POST global/sessions/{id}/restore for every outcome (success AND reject — the outcome/status mapping decides the HTTP code, the shape stays one). */
+export interface SessionRestoreResponse {
+  success: boolean;
+  /** SessionRestoreOutcome name (e.g. "Restored", "DryRunOk", "RejectManifestNotFound"). */
+  outcome: string;
+  /** "full" | "partial" | "dryRun"; absent on early rejects. */
+  mode?: string;
+  /** Operator-readable reason; absent on clean successes. */
+  message?: string;
+  /** Reject diagnostics; absent otherwise. */
+  currentState?: string;
+  /** Reject diagnostics; absent otherwise. */
+  pendingManifestId?: string;
+  rowsRestoredByTable: Record<string, number>;
+  rowsSkippedByTable: Record<string, number>;
+  wouldRestoreByTable: Record<string, number>;
+  inventoryReIncrements: number;
+  durationMs: number;
 }
 
 /** Aggregated session counters for the dashboard stats cards. Computed server-side over a windowed scan of the SessionsIndex so the numbers don't drift with whatever the client happens to have paginated into memory. */
@@ -2149,6 +3082,42 @@ export interface SignalRecord {
   payloadJson: string;
 }
 
+/** SLA metrics response for a given tenant and time window. */
+export interface SlaMetricsResponse {
+  targetSuccessRate?: number;
+  targetMaxDurationMinutes?: number;
+  targetAppInstallSuccessRate?: number;
+  /** Current ISO week SLA snapshot. */
+  currentWeek: SlaSnapshot;
+  /** Weekly trend (newest first). */
+  weeklyTrend: SlaWeeklyTrend[];
+  /** Sessions that breached SLA targets (failed or exceeded duration). */
+  violators: SlaViolatorSession[];
+  /** App install SLA snapshot (null if no app install target configured). */
+  appInstallSla?: AppInstallSlaSnapshot;
+  computedAt: string;
+  fromCache: boolean;
+  computeDurationMs: number;
+}
+
+/** SLA compliance snapshot for a single period (ISO week). */
+export interface SlaSnapshot {
+  /** ISO week identifier, e.g. "2026-W15". */
+  week: string;
+  totalCompleted: number;
+  succeeded: number;
+  failed: number;
+  successRate: number;
+  avgDurationMinutes: number;
+  p95DurationMinutes: number;
+  /** Number of sessions that exceeded the duration target. */
+  durationViolationCount: number;
+  /** Whether the success rate target is met. */
+  successRateMet: boolean;
+  /** Whether the P95 duration target is met. */
+  durationTargetMet: boolean;
+}
+
 /** A session that violated SLA targets. */
 export interface SlaViolatorSession {
   sessionId: string;
@@ -2162,6 +3131,19 @@ export interface SlaViolatorSession {
   failureReason?: string;
   /** "Failed", "DurationExceeded", or "Both". */
   violationType: string;
+}
+
+/** SLA compliance trend entry for one ISO week. */
+export interface SlaWeeklyTrend {
+  /** ISO week identifier, e.g. "2026-W15". */
+  week: string;
+  successRate: number;
+  p95DurationMinutes: number;
+  appInstallSuccessRate: number;
+  totalCompleted: number;
+  successRateMet: boolean;
+  durationTargetMet: boolean;
+  appInstallTargetMet: boolean;
 }
 
 /** One completed sleep episode observed during the session (system_sleep_episode payload — enteredAt/exitedAt are the authoritative instants, never the event's own timestamp, which is stamped at wake and may be clamped). Cross-cutting annotation like RebootSpan: sleep overlaps the segment it started in and is NOT part of the wall-clock partition — the session really took that long; the span explains where the time went. */
@@ -2482,6 +3464,41 @@ export interface TenantDeletionManifestSessionNode {
   manifests: TenantDeletionManifestItem[];
 }
 
+/** Read-time entitlement surface of the resolved edition. */
+export interface TenantFeatureEntitlements {
+  retentionCapDays: number;
+  /** Absent when the platform default applies. */
+  userRateLimitPerMinute?: number;
+  delegatedAdminAllowed: boolean;
+  mcpUsagePlan: string;
+}
+
+/** Response of GET config/{tenantId}/feature-flags: the member-readable subset of the tenant configuration — UI display toggles, feature switches and the read-time edition/entitlement surface. Adding a field here is a deliberate decision that the field is non-sensitive (no webhook URLs, SAS tokens, allowlists, addresses). */
+export interface TenantFeatureFlagsResponse {
+  /** EFFECTIVE bootstrap availability (Pro includes it; the GA flag is the additive Community enable) — field name kept for web compatibility. */
+  bootstrapTokenEnabled: boolean;
+  /** Whether an on-demand diagnostics upload can succeed right now (mode not Off + usable destination). Deliberately no destination detail. */
+  diagnosticsUploadConfigured: boolean;
+  /** Drives the "Autopilot Device Validation disabled" dashboard banner. */
+  validateAutopilotDevice: boolean;
+  /** Dual app-reg self-service migration: consent flow targets the NEW app registration. Non-sensitive — exposes no client ids. */
+  appHomingFunnelActive: boolean;
+  showScriptOutput: boolean;
+  enableSoftwareInventoryAnalyzer: boolean;
+  enableIntegrityBypassAnalyzer: boolean;
+  /** EFFECTIVE gather-rule unrestricted mode (Pro edition + GA gate + tenant toggle). */
+  unrestrictedMode: boolean;
+  /** Resolved edition, lowercase ("community" / "pro"). */
+  edition: string;
+  isTrial: boolean;
+  /** Absent unless the tenant is on an active trial. */
+  trialExpiresUtc?: string;
+  trialAvailable: boolean;
+  /** Whether a contact address is stored (boolean only — the address stays admin-gated). */
+  contactEmailSet: boolean;
+  entitlements: TenantFeatureEntitlements;
+}
+
 /** A Tenant Group: an app-internal named bundle of tenants. A delegated admin assigned to the group (see TenantGroupAssignment) gains read scope to every tenant in TenantIds. Adding a tenant to the group grants it to all assignees at once. */
 export interface TenantGroup {
   groupId: string;
@@ -2510,6 +3527,12 @@ export interface TenantGroupAssignment {
 /** Response of GET global/tenant-groups: every group with tenants + assignees. */
 export interface TenantGroupListResponse {
   groups: TenantGroup[];
+}
+
+export interface TenantMetrics {
+  total: number;
+  active7Days: number;
+  active30Days: number;
 }
 
 /** Snapshot of a tenant's custom rule row written by the offboarding handler during Phase 2.D-archive, BEFORE the original row is safe-wiped. Survives forever so a Global Admin can review (and selectively delete) the tenant's custom rules from /admin/customs-archive after offboarding completes. Storage layout (see PR3.B plan §3.2): PartitionKey: "{normalizedTenantId}_{historyRowKey}". One partition per offboarding run — Re-Re-Offboarding produces a fresh, immutable partition each time so multiple runs co-exist without RowKey collisions.RowKey: "{originalTable}_{base64url(originalRowKey)}". The table-name prefix disambiguates collisions across the three rules tables; the base64url encoding of avoids the Azure-Tables RowKey-forbidden characters (#, ?, /, \, control chars). */
@@ -2549,8 +3572,61 @@ export interface TestWebhookNotificationResponse {
   message: string;
 }
 
+/** Per-app rollup of ESP-blocking install intervals across the clean sessions of an aggregate row. The what-if numbers are the per-session critical-path savings from removing this app (recomputed union end without it) — an upper BOUND by construction: UI copy must say "up to", never "you will save" (truthfulness rule 3). */
+export interface TimeAttributionBlockingAppStat {
+  appId: string;
+  appName: string;
+  /** Clean sessions with a measured interval for this app (row gate: ≥5). */
+  sessionCount: number;
+  medianSeconds: number;
+  p75Seconds: number;
+  medianSavingSeconds: number;
+  p75SavingSeconds: number;
+}
+
+/** Daily fleet rollup of session time attribution for one (tenant, enrollment class, date) — F1 PR2 (insights spec §F1 "Data & compute changes"). Enrollment classes are never mixed (a WhiteGlove flow has a structurally different time profile than user-driven). Only breakdowns with None enter the statistics; flagged sessions are excluded WITH a disclosed count (truthfulness rule 7). Rows are written even below the ≥20-session UI gate — the UI needs the n to say "insufficient data (n=3)" instead of silently rendering a small-n median (rule 4). Recomputed idempotently by the rolling 30-day maintenance sweep. */
+export interface TimeAttributionDailyAggregate {
+  /** Calendar day (UTC) the sessions STARTED, "yyyy-MM-dd" — same bucketing as the usage snapshots. */
+  date: string;
+  /** Tenant GUID, or "global" for the cross-tenant row. */
+  tenantId: string;
+  /** Enrollment class: "user_driven", "whiteglove", "self_deploying" or "device_preparation" (WDP v2). */
+  enrollmentClass: string;
+  /** Attribution algorithm version the underlying breakdowns were computed with (rule 8: never mix definitions). */
+  attributionVersion: number;
+  /** Breakdowns with QualityFlags == None that formed the statistics. */
+  cleanSessionCount: number;
+  /** Flagged breakdowns excluded from the statistics (disclosed, never silent). */
+  flaggedExcludedCount: number;
+  /** Terminal sessions of this bucket without a computable breakdown (e.g. events aged out before backfill). */
+  missingBreakdownCount: number;
+  segmentStats: TimeAttributionSegmentStat[];
+  /** Top blocking apps by median interval, gated at ≥5 sessions per app, capped at 20. */
+  topBlockingApps: TimeAttributionBlockingAppStat[];
+  computedAt: string;
+}
+
 /** Data-quality flags for a SessionTimeBreakdown (truthfulness rule 7: problems flag the record and exclude it from fleet aggregates with a disclosed count, rather than silently skewing them). */
 export type TimeAttributionFlags = "None" | "ClockSkewDropped" | "PartialObservation" | "BlockingSetUnknown" | "BlockingSetTruncated" | "WhiteGloveAnchorsIncomplete" | "PriorEnrollmentResidue";
+
+/** Response of GET metrics/time-attribution and GET global/metrics/time-attribution: the rolling 30-day range statistics per enrollment class plus the daily rows for the per-day trend. The range window is FIXED at the sweep's 30 days. */
+export interface TimeAttributionMetricsResponse {
+  success: boolean;
+  windowDays: number;
+  /** Range statistics per enrollment class (never mixed), class-name ordinal order. */
+  classes: TimeAttributionDailyAggregate[];
+  /** Daily rows of the window, date ordinal order. */
+  daily: TimeAttributionDailyAggregate[];
+}
+
+/** Distribution of one attribution segment across the clean sessions of an aggregate row. Values are whole seconds; a session that has no span of this segment contributes 0 — the distribution answers "time spent in this segment per enrollment of this class", not "per enrollment that happened to enter it". */
+export interface TimeAttributionSegmentStat {
+  /** Segment key (TimeAttributionSegments), including "unattributed" — the stack must sum to the wall clock (truthfulness rule 2). */
+  segmentKey: string;
+  medianSeconds: number;
+  p75Seconds: number;
+  p90Seconds: number;
+}
 
 /** One contiguous attributed span inside an observation window. */
 export interface TimeAttributionSpan {
@@ -2572,6 +3648,14 @@ export interface TopCve {
   priority: string;
   affectedSessions: number;
   sampleSoftware: string[];
+}
+
+/** An app with a high failure rate. */
+export interface TopFailingApp {
+  appName: string;
+  failCount: number;
+  totalCount: number;
+  successRate: number;
 }
 
 /** One serial-number bucket in the GetTpmPssUnsupported aggregation. All values are self-reported by devices through the unauthenticated distress channel — UNVERIFIED. */
@@ -2709,6 +3793,19 @@ export interface UpsertSessionAnnotationResponse {
   annotation: SessionAnnotationItem;
 }
 
+export interface UserMetrics {
+  /** Total unique users (available after Entra ID integration) */
+  total: number;
+  /** Daily logins across all users */
+  dailyLogins: number;
+  /** Active users in last 7 days */
+  active7Days: number;
+  /** Active users in last 30 days */
+  active30Days: number;
+  /** Note about availability */
+  note: string;
+}
+
 /** Aggregated daily usage summary across endpoints (and optionally users). */
 export interface UserUsageDailySummary {
   date: string;
@@ -2727,6 +3824,97 @@ export interface UserUsageRecord {
   date: string;
   requestCount: number;
   lastRequestAt: string;
+}
+
+/** One ACTIVE verdict-calibration alert episode (operator-only). Persisted as the verdictcalibration|{kind}|{path}|{status} keyspace of the notification tracker — the row IS the dedup (one ops event per episode) and the alerts[] payload of the calibration endpoint. Deleted when the signal re-arms (share back under 1.5× baseline, path stops occurring, evidence-gap share back under 15 %) or by the tracker's 30-day retention sweep. Numbers refresh on every radar pass; FirstNotifiedAt never moves. Dimension concentration is CORRELATION only — every consumer says so. */
+export interface VerdictCalibrationAlert {
+  tenantId: string;
+  /** One of VerdictCalibrationAlertKinds. */
+  kind: string;
+  /** Verdict path, or the group label for group kinds ("sweep+maxlife", "r6"). */
+  verdictPath: string;
+  /** Status the path produced, or "*" for group kinds. */
+  status: string;
+  windowHitCount: number;
+  windowSessionCount: number;
+  baselineHitCount: number;
+  baselineSessionCount: number;
+  windowRatePct: number;
+  baselineRatePct: number;
+  /** Window rate ÷ baseline rate. Null when the baseline rate is 0 or the kind is absolute (evidence gap). */
+  lift?: number;
+  windowStartDate: string;
+  windowEndDate: string;
+  /** Dimension concentration captured when the alert FIRST fired; null = no clear concentration. */
+  dimension?: RuleRegressionDimension;
+  firstNotifiedAt: string;
+  lastEvaluatedAt: string;
+}
+
+/** One verdict path × status row of the calibration matrix. */
+export interface VerdictCalibrationPathRow {
+  verdictPath: string;
+  status: string;
+  count: number;
+  sharePct: number;
+  derivedCount: number;
+  eligible7d: number;
+  reEnrolled7d: number;
+  /** Null below the minimum eligible count — never a rate on a handful of sessions. */
+  reEnrollRatePct?: number;
+  overriddenByAdmin: number;
+  overriddenByLateCompletion: number;
+  overriddenOther: number;
+  window7: VerdictCalibrationTrendWindow;
+  baseline28: VerdictCalibrationTrendWindow;
+  /** Window share ÷ baseline share; null when the baseline share is 0 (a new path has no finite lift — never invented). */
+  lift?: number;
+}
+
+/** Response of GET global/metrics/verdict-calibration: per verdict path, how many sessions it produced in the window, its share, overrides attributed to the prior path, the 7-day re-enrollment proxy, a 7d-vs-28d trend, and the active drift alerts. Operator-only classifier diagnostics. */
+export interface VerdictCalibrationResponse {
+  success: boolean;
+  /** Partition echo: a tenant GUID, or "global" for the cross-tenant aggregate. */
+  tenantId: string;
+  windowDays: number;
+  /** Inclusive window start ("yyyy-MM-dd"). */
+  windowStart: string;
+  /** Inclusive window end ("yyyy-MM-dd", today). */
+  windowEnd: string;
+  /** Newest aggregate compute time in the window; absent when the window holds no rows. */
+  computedAt?: string;
+  /** Distinct aggregation algorithm versions contributing to the window, ascending. */
+  versions: number[];
+  totals: VerdictCalibrationTotals;
+  trend: VerdictCalibrationTrendMeta;
+  /** Rows ordered by count descending, then path/status ordinal. */
+  paths: VerdictCalibrationPathRow[];
+  /** Active drift episodes, newest first. */
+  alerts: VerdictCalibrationAlert[];
+}
+
+/** Window totals of the calibration matrix. */
+export interface VerdictCalibrationTotals {
+  sessions: number;
+  terminal: number;
+  derived: number;
+  /** Aggregate days that contributed to the window. */
+  days: number;
+}
+
+/** Trend denominators shared by every row (single source, never per-row copies). */
+export interface VerdictCalibrationTrendMeta {
+  windowDays: number;
+  baselineDays: number;
+  windowSessions: number;
+  baselineSessions: number;
+}
+
+/** One trend window of a path row. */
+export interface VerdictCalibrationTrendWindow {
+  count: number;
+  sessions: number;
+  sharePct: number;
 }
 
 export interface VerificationIssue {

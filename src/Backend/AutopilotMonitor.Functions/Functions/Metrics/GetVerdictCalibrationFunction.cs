@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
                 var tenantIdFilter = query["tenantId"];
-                var days = VerdictCalibrationResponse.ClampDays(query["days"]);
+                var days = VerdictCalibrationResponseBuilder.ClampDays(query["days"]);
                 var partition = "global";
                 if (!string.IsNullOrWhiteSpace(tenantIdFilter))
                 {
@@ -57,14 +57,14 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 var today = DateTime.UtcNow.Date;
                 // One read covers both the requested window and the trend horizon (7d window + 28d baseline).
-                var readDays = Math.Max(days, VerdictCalibrationResponse.TrendHorizonDays);
+                var readDays = Math.Max(days, VerdictCalibrationResponseBuilder.TrendHorizonDays);
                 var daily = await _metricsRepo.GetVerdictCalibrationAggregatesAsync(
-                    partition, VerdictCalibrationResponse.InclusiveWindowStart(today, readDays), today);
+                    partition, VerdictCalibrationResponseBuilder.InclusiveWindowStart(today, readDays), today);
                 // Active drift episodes of this partition (tracker keyspace; fail-soft empty).
                 var alerts = await _tracker.GetVerdictCalibrationAlertsAsync(partition);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(VerdictCalibrationResponse.Build(daily, partition, today, days, alerts));
+                await response.WriteAsJsonAsync(VerdictCalibrationResponseBuilder.Build(daily, partition, today, days, alerts));
                 return response;
             }
             catch (Exception ex)
@@ -77,8 +77,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
     }
 
-    /// <summary>Pure response builder — internal static so the matrix arithmetic is pinned by tests.</summary>
-    internal static class VerdictCalibrationResponse
+    /// <summary>
+    /// Pure response builder — internal static so the matrix arithmetic is pinned by tests.
+    /// The row/envelope DTOs live in AutopilotMonitor.Shared.Models
+    /// (Models/Metrics/VerdictCalibrationApiModels.cs) so the manifest exports them.
+    /// </summary>
+    internal static class VerdictCalibrationResponseBuilder
     {
         internal const int DefaultWindowDays = 30;
         internal const int MaxWindowDays = 180; // aggregate retention
@@ -95,37 +99,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// <summary>"Last N days" = exactly N calendar day keys including today (both range ends inclusive).</summary>
         internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));
 
-        internal sealed class PathRow
-        {
-            public string VerdictPath { get; set; } = string.Empty;
-            public string Status { get; set; } = string.Empty;
-            public int Count { get; set; }
-            public double SharePct { get; set; }
-            public int DerivedCount { get; set; }
-            public int Eligible7d { get; set; }
-            public int ReEnrolled7d { get; set; }
-            /// <summary>Null below the minimum eligible count — never a rate on a handful of sessions.</summary>
-            public double? ReEnrollRatePct { get; set; }
-            public int OverriddenByAdmin { get; set; }
-            public int OverriddenByLateCompletion { get; set; }
-            public int OverriddenOther { get; set; }
-            public TrendWindow Window7 { get; set; } = new();
-            public TrendWindow Baseline28 { get; set; } = new();
-            /// <summary>Window share ÷ baseline share; null when the baseline share is 0 (a new path has no finite lift — never invented).</summary>
-            public double? Lift { get; set; }
-        }
-
-        internal sealed class TrendWindow
-        {
-            public int Count { get; set; }
-            public int Sessions { get; set; }
-            public double SharePct { get; set; }
-        }
-
         /// <summary>Minimum eligible sessions before a re-enrollment rate is stated (truthfulness: no rate on n&lt;20).</summary>
         internal const int MinEligibleForRate = 20;
 
-        internal static object Build(
+        internal static VerdictCalibrationResponse Build(
             IReadOnlyList<VerdictCalibrationDailyAggregate> daily, string partition, DateTime today, int days,
             IReadOnlyList<VerdictCalibrationAlert>? alerts = null)
         {
@@ -133,18 +110,18 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             var trendWindowStart = Key(InclusiveWindowStart(today, TrendWindowDays));
             var baselineStart = Key(InclusiveWindowStart(today, TrendHorizonDays));
 
-            var rows = new Dictionary<(string Path, string Status), PathRow>();
+            var rows = new Dictionary<(string Path, string Status), VerdictCalibrationPathRow>();
             int sessions = 0, terminal = 0, derived = 0;
             int trendSessions = 0, baselineSessions = 0;
             DateTime? computedAt = null;
             var versions = new HashSet<int>();
 
-            PathRow Row(VerdictCalibrationBucket b)
+            VerdictCalibrationPathRow Row(VerdictCalibrationBucket b)
             {
                 var key = (b.VerdictPath, b.Status);
                 if (!rows.TryGetValue(key, out var row))
                 {
-                    row = new PathRow { VerdictPath = b.VerdictPath, Status = b.Status };
+                    row = new VerdictCalibrationPathRow { VerdictPath = b.VerdictPath, Status = b.Status };
                     rows[key] = row;
                 }
                 return row;
@@ -206,20 +183,32 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     : null;
             }
 
-            return new
+            return new VerdictCalibrationResponse
             {
-                success = true,
-                tenantId = partition,
-                windowDays = days,
-                windowStart,
-                windowEnd = Key(today),
-                computedAt,
-                versions = versions.OrderBy(v => v).ToArray(),
-                totals = new { sessions, terminal, derived, days = daily.Count(d => string.CompareOrdinal(d.Date, windowStart) >= 0) },
-                trend = new { windowDays = TrendWindowDays, baselineDays = TrendBaselineDays, windowSessions = trendSessions, baselineSessions },
-                paths = list,
+                Success = true,
+                TenantId = partition,
+                WindowDays = days,
+                WindowStart = windowStart,
+                WindowEnd = Key(today),
+                ComputedAt = computedAt,
+                Versions = versions.OrderBy(v => v).ToArray(),
+                Totals = new VerdictCalibrationTotals
+                {
+                    Sessions = sessions,
+                    Terminal = terminal,
+                    Derived = derived,
+                    Days = daily.Count(d => string.CompareOrdinal(d.Date, windowStart) >= 0),
+                },
+                Trend = new VerdictCalibrationTrendMeta
+                {
+                    WindowDays = TrendWindowDays,
+                    BaselineDays = TrendBaselineDays,
+                    WindowSessions = trendSessions,
+                    BaselineSessions = baselineSessions,
+                },
+                Paths = list,
                 // Wording contract shared with the rule radar: a dimension is correlated, not causal.
-                alerts = (alerts ?? Array.Empty<VerdictCalibrationAlert>())
+                Alerts = (alerts ?? Array.Empty<VerdictCalibrationAlert>())
                     .OrderByDescending(a => a.FirstNotifiedAt)
                     .ToList(),
             };

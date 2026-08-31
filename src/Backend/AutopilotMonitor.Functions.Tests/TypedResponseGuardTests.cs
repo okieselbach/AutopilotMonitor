@@ -47,6 +47,50 @@ public class TypedResponseGuardTests
     /// </summary>
     private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase);
 
+    // ── Bypass-shape guards (closed 2026-08-31) ─────────────────────────────────────────
+    // Regexes A/B only see the INLINE literal `...(new { ... })`. Three bypass shapes let a
+    // response ship untyped anyway and are ratcheted here with EMPTY baselines:
+    //   C: the literal parked in a variable first (`var result = new { ... };` →
+    //      `WriteAsJsonAsync(result)`), which is how rule-stats escaped the 08-31 migration,
+    //   D: hand-serialized bodies (`WriteStringAsync(JsonSerializer.Serialize(new { ... }))`),
+    //   E: builder methods declared `object` / `Task<object>` returning `new { ... }`
+    //      (verdict-calibration's Build). A fourth shape — local `WriteJson(req, object)`
+    //      wrappers — is closed structurally: wrappers take a `T : IApiResponse` generic.
+
+    /// <summary>Identifier passed to WriteAsJsonAsync — flagged when the SAME file assigns that identifier an anonymous object.</summary>
+    private static readonly Regex WriteAsJsonIdentifier =
+        new(@"WriteAsJsonAsync\(\s*([A-Za-z_]\w*)\s*[,)]", RegexOptions.Compiled);
+
+    private static readonly Regex SerializeAnonymous =
+        new(@"JsonSerializer\.Serialize(?:<[^>]+>)?\(\s*new\s*\{", RegexOptions.Compiled);
+
+    private static readonly Regex ObjectReturningBuilder =
+        new(@"\b(?:object|Task<object>)\s+\w*(?:Build|Compute|Payload|Response)\w*\s*\(", RegexOptions.Compiled);
+
+    /// <summary>EMPTY — an anonymous object smuggled through a local variable is the same regression as an inline one.</summary>
+    private static readonly Dictionary<string, int> IdentifierBaseline = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// JsonSerializer.Serialize(new { ... }) sites that are NOT responses. The single entry is
+    /// an outgoing HTTP CLIENT request body (App Insights query POST) — not response debt.
+    /// Everything else must be a typed DTO (error shapes are tolerated by the shape check).
+    /// </summary>
+    private static readonly Dictionary<string, int> SerializeBaseline = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Functions/Raw/AppInsightsQueryFunction.cs"] = 1,
+    };
+
+    /// <summary>
+    /// A Build*/Compute*/*Payload/*Response method declared object hides its wire shape from
+    /// every type check. The single tolerated site is BuildV2ResponseBody: its SUCCESS arm is
+    /// the typed <c>SessionDeletionQueuedResponse</c>, but the method returns a union with the
+    /// anonymous ERROR arms (tolerated by design), so its declared type must stay object.
+    /// </summary>
+    private static readonly Dictionary<string, int> ObjectBuilderBaseline = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Functions/Sessions/DeleteSessionFunction.cs"] = 1,
+    };
+
     [Fact]
     public void Anonymous_helper_success_bodies_never_exceed_the_frozen_baseline()
     {
@@ -64,6 +108,42 @@ public class TypedResponseGuardTests
                 .Count(m => !IsErrorShape(text, m.Index + m.Length)),
             WriteBaseline,
             "anonymous success WriteAsJsonAsync(new { ... })");
+    }
+
+    [Fact]
+    public void Anonymous_objects_smuggled_through_a_variable_into_WriteAsJsonAsync_are_flagged()
+    {
+        AssertRatchet(
+            text => WriteAsJsonIdentifier.Matches(text).Count(m =>
+            {
+                var ident = m.Groups[1].Value;
+                if (ident == "new") return false;
+                var assign = new Regex(@"(?:var\s+)?" + Regex.Escape(ident) + @"\s*=\s*new\s*\{");
+                var a = assign.Match(text);
+                // Tolerate error-shaped variables the same way inline literals are tolerated.
+                return a.Success && !IsErrorShape(text, a.Index + a.Length);
+            }),
+            IdentifierBaseline,
+            "WriteAsJsonAsync(<variable holding an anonymous object>)");
+    }
+
+    [Fact]
+    public void Anonymous_JsonSerializer_Serialize_success_bodies_never_exceed_the_frozen_baseline()
+    {
+        AssertRatchet(
+            text => SerializeAnonymous.Matches(text)
+                .Count(m => !IsErrorShape(text, m.Index + m.Length)),
+            SerializeBaseline,
+            "anonymous success JsonSerializer.Serialize(new { ... })");
+    }
+
+    [Fact]
+    public void Object_returning_response_builders_are_flagged()
+    {
+        AssertRatchet(
+            text => ObjectReturningBuilder.Matches(text).Count,
+            ObjectBuilderBaseline,
+            "object/Task<object>-returning Build*/Compute*/*Payload/*Response method");
     }
 
     /// <summary>

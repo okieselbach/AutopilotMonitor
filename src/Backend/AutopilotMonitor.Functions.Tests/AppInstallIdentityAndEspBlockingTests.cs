@@ -265,7 +265,7 @@ public class AppInstallIdentityAndEspBlockingTests
             Summary("Company Portal", status: "Failed", collision: true),
         };
 
-        var root = JsonSerializer.SerializeToElement(MetricsMath.BuildAppMetricsPayload(summaries));
+        var root = TestWire.SerializeToElement(MetricsMath.BuildAppMetricsPayload(summaries));
 
         Assert.Equal(1, root.GetProperty("totalApps").GetInt32());          // collided name forms no group
         Assert.Equal(4, root.GetProperty("totalInstalls").GetInt32());      // raw row count unchanged
@@ -282,7 +282,7 @@ public class AppInstallIdentityAndEspBlockingTests
             Summary("Company Portal", collision: true),
         };
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
 
         var apps = root.GetProperty("apps").EnumerateArray().ToList();
@@ -305,7 +305,7 @@ public class AppInstallIdentityAndEspBlockingTests
             Summary("Company Portal", status: "Failed", collision: true), // the second identity's failure
         };
 
-        var root = JsonSerializer.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
+        var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             summaries, repo.Object, "Company Portal", days: 30));
 
         Assert.Equal(1, root.GetProperty("collisionExcluded").GetInt32());
@@ -324,7 +324,7 @@ public class AppInstallIdentityAndEspBlockingTests
 
         var summaries = new List<AppInstallSummary> { Summary("Company Portal", collision: true) };
 
-        var root = JsonSerializer.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
+        var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             summaries, repo.Object, "Company Portal", days: 30));
 
         Assert.Equal(1, root.GetProperty("collisionExcluded").GetInt32());

@@ -363,7 +363,7 @@ public class AppVersionRegressionRadarTests
             Install("1.0", 50, status: "Failed"),               // failed — excluded from durations
         };
 
-        var root = JsonSerializer.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
+        var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             rows, sessionRepo.Object, App, days: 30));
 
         var version = root.GetProperty("versionBreakdown")[0];
@@ -383,19 +383,18 @@ public class AppVersionRegressionRadarTests
             .ReturnsAsync((SessionSummary?)null);
 
         var alert = Alert();
-        // The Functions host serializes camelCase on the wire; mirror that here so the
+        // TestWire serializes with the REAL wire options (ApiJsonOptions — camelCase), so the
         // asserted property names match what the web client actually parses.
-        var wireOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         // Empty-data early return still surfaces the block (episodes can outlive window data).
-        var emptyRoot = JsonSerializer.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
+        var emptyRoot = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             new List<AppInstallSummary>(), sessionRepo.Object, App, days: 30,
-            new List<AppVersionRegressionAlert> { alert }), wireOptions);
+            new List<AppVersionRegressionAlert> { alert }));
         Assert.Equal(1, emptyRoot.GetProperty("versionRegressions").GetArrayLength());
 
-        var root = JsonSerializer.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
+        var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             new List<AppInstallSummary> { Install("1.0", 100) }, sessionRepo.Object, App, days: 30,
-            new List<AppVersionRegressionAlert> { alert }), wireOptions);
+            new List<AppVersionRegressionAlert> { alert }));
 
         var regression = root.GetProperty("versionRegressions")[0];
         Assert.Equal("2.0", regression.GetProperty("currentVersion").GetString());

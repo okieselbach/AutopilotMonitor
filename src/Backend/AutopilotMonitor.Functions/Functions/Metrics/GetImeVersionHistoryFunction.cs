@@ -66,11 +66,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// Global scope sees every row, unconfirmed ones included — that is where a bogus claim
         /// is investigated.
         ///
-        /// Returned as <see cref="object"/> on purpose — System.Text.Json serializes an
-        /// `object` declared type using the RUNTIME type, so both branches keep the exact
-        /// wire format they had while the projection was inline.
+        /// Returned as <c>IReadOnlyList&lt;object&gt;</c> — System.Text.Json serializes each
+        /// element using its RUNTIME type, so both branches keep the exact wire format they
+        /// had while the projection was inline. Both element types are manifest-exported
+        /// (<see cref="ImeVersionHistoryEntry"/> / <see cref="ImeVersionHistoryLeanEntry"/>).
         /// </summary>
-        public static object BuildResponsePayload(
+        public static IReadOnlyList<object> BuildResponsePayload(
             IEnumerable<ImeVersionHistoryEntry> versions, bool hasGlobalScope)
         {
             if (hasGlobalScope)
@@ -80,7 +81,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             return versions
                 .Where(IsFleetConfirmed)
-                .Select(v => new { v.Version, v.FirstSeenAt, v.LastSeenAt, v.SessionCount })
+                .Select(v => new ImeVersionHistoryLeanEntry
+                {
+                    Version = v.Version,
+                    FirstSeenAt = v.FirstSeenAt,
+                    LastSeenAt = v.LastSeenAt,
+                    SessionCount = v.SessionCount,
+                })
                 .ToList();
         }
 

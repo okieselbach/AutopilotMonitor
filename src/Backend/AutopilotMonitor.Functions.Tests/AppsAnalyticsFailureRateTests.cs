@@ -53,7 +53,7 @@ public class AppsAnalyticsFailureRateTests
             A("InProgress"),
         };
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
 
         var app = root.GetProperty("apps")[0];
@@ -67,7 +67,7 @@ public class AppsAnalyticsFailureRateTests
     {
         var summaries = new List<AppInstallSummary> { A("InProgress"), A("InProgress") };
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
 
         Assert.Equal(0d, root.GetProperty("apps")[0].GetProperty("failureRate").GetDouble());
@@ -90,7 +90,7 @@ public class AppsAnalyticsFailureRateTests
         for (var i = 0; i < 2; i++) summaries.Add(A("Succeeded", startedAt: secondHalf));
         for (var i = 0; i < 10; i++) summaries.Add(A("InProgress", startedAt: secondHalf));
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
 
         var app = root.GetProperty("apps")[0];
@@ -109,12 +109,13 @@ public class AppsAnalyticsFailureRateTests
         for (var i = 0; i < 4; i++) summaries.Add(A("Failed", startedAt: now.AddDays(-5)));
         for (var i = 0; i < 10; i++) summaries.Add(A("InProgress", startedAt: now.AddDays(-5)));
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
 
         var app = root.GetProperty("apps")[0];
         Assert.Equal("stable", app.GetProperty("trend").GetString());
-        Assert.Equal(JsonValueKind.Null, app.GetProperty("trendDelta").ValueKind);
+        // Wire options omit null keys (WhenWritingNull): a withheld delta has no key at all.
+        Assert.False(app.TryGetProperty("trendDelta", out _));
     }
 
     // ── /apps/{appName}/analytics ───────────────────────────────────────────
@@ -131,7 +132,7 @@ public class AppsAnalyticsFailureRateTests
         }
         var result = await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
             summaries, sessionRepo, "Contoso App", days: 30);
-        return JsonSerializer.SerializeToElement(result);
+        return TestWire.SerializeToElement(result);
     }
 
     [Fact]
@@ -176,7 +177,7 @@ public class AppsAnalyticsFailureRateTests
 
         var summaries = new List<AppInstallSummary> { A("Failed"), A("Succeeded"), skip, unmeasured };
 
-        var root = JsonSerializer.SerializeToElement(
+        var root = TestWire.SerializeToElement(
             AppsAnalyticsHelper.BuildAppsListResponse(summaries, days: 30));
         var app = root.GetProperty("apps")[0];
 
