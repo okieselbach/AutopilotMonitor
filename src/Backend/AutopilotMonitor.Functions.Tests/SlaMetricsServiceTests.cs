@@ -65,7 +65,15 @@ public class SlaMetricsServiceTests
         int? durationSeconds = null,
         DateTime? startedAt = null)
     {
-        var started = startedAt ?? DateTime.UtcNow.AddHours(-1);
+        // The CurrentWeek asserts require the session to fall into the CURRENT ISO week
+        // (SlaMetricsService groups by GetIsoWeekKey, weeks start Monday 00:00 UTC).
+        // A plain "now - 1h" crosses into LAST week during the first hour of every
+        // Monday (UTC) and empties CurrentWeek — exactly the CI failure on
+        // Mon 2026-08-31 00:20Z. Clamp the anchor to the week's Monday instead.
+        var now = DateTime.UtcNow;
+        var isoWeekMonday = now.Date.AddDays(-(((int)now.DayOfWeek + 6) % 7));
+        var anHourAgo = now.AddHours(-1);
+        var started = startedAt ?? (anHourAgo >= isoWeekMonday ? anHourAgo : isoWeekMonday);
         return new SessionSummary
         {
             SessionId = Guid.NewGuid().ToString(),
