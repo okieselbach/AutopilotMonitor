@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -68,7 +69,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 _logger.LogInformation("Admin note updated for report {ReportId} by {User}", reportId, userIdentifier);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true });
+                await response.WriteAsJsonAsync(new SuccessOnlyResponse { Success = true });
                 return response;
             }
             catch (Exception ex)

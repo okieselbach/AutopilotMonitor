@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -46,7 +47,7 @@ public class IdentityBindingManagementFunction
     {
         var bindings = await _bindings.GetAllAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { bindings });
+        await response.WriteAsJsonAsync(new IdentityBindingListResponse { Bindings = bindings });
         return response;
     }
 
@@ -90,7 +91,7 @@ public class IdentityBindingManagementFunction
             binding.IsObjectIdPinned ? binding.ObjectId : "(unpinned)", currentUpn);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { binding });
+        await response.WriteAsJsonAsync(new IdentityBindingResponse { Binding = binding });
         return response;
     }
 

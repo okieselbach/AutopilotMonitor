@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnrollmentEvent } from "@/types";
+import { makeEvent } from "@/test/factories";
 import {
   filterAnchorEvents,
   isAnchorEvent,
@@ -14,18 +15,18 @@ import {
  * "filter accidentally drops Death-Rattle (which has both keys)" gets caught.
  */
 
-const mkEvent = (overrides: Partial<EnrollmentEvent> = {}): EnrollmentEvent => ({
-  eventId: "e-default",
-  sessionId: "s-1",
-  timestamp: "2026-05-01T13:45:32Z",
-  eventType: "agent_started",
-  severity: "Info",
-  source: "Agent",
-  phase: -1,
-  message: "msg",
-  sequence: 0,
-  ...overrides,
-});
+const mkEvent = (overrides: Partial<EnrollmentEvent> = {}): EnrollmentEvent =>
+  makeEvent({
+    eventId: "e-default",
+    sessionId: "s-1",
+    timestamp: "2026-05-01T13:45:32Z",
+    eventType: "agent_started",
+    source: "Agent",
+    phase: -1,
+    message: "msg",
+    sequence: 0,
+    ...overrides,
+  });
 
 describe("isAnchorEvent", () => {
   it("returns true when data.decisionState is an object", () => {

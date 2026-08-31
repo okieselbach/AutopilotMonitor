@@ -77,10 +77,10 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                     _logger.LogInformation($"Successfully marked session {sessionId} as failed");
                     var response = req.CreateResponse(HttpStatusCode.OK);
-                    await response.WriteAsJsonAsync(new
+                    await response.WriteAsJsonAsync(new SuccessMessageResponse
                     {
-                        success = true,
-                        message = $"Session {sessionId} marked as failed"
+                        Success = true,
+                        Message = $"Session {sessionId} marked as failed"
                     });
 
                     // Send SignalR notification to update all clients in the tenant

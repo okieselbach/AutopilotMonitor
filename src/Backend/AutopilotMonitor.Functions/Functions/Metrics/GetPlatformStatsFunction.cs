@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -68,30 +69,30 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     // TODO: get values from azure blob storage /stats/platform-stats.json, calculation is done nightly in maintenance function and not here
                     // maybe used later for SWA-API passthrough - andvantage same does for usage metrics
                     // alternative landing receives stats from blob storage and not from this endpoint, then we can remove this endpoint and call blob storage directly from landing page (CORS)
-                    await response.WriteAsJsonAsync(new
+                    await response.WriteAsJsonAsync(new GetPlatformStatsResponse
                     {
-                        totalEnrollments = 0,
-                        totalUsers = 0,
-                        totalTenants = 0,
-                        uniqueDeviceModels = 0,
-                        totalEventsProcessed = 0,
-                        successfulEnrollments = 0,
-                        issuesDetected = 0,
-                        lastUpdated = (DateTime?)null
+                        TotalEnrollments = 0,
+                        TotalUsers = 0,
+                        TotalTenants = 0,
+                        UniqueDeviceModels = 0,
+                        TotalEventsProcessed = 0,
+                        SuccessfulEnrollments = 0,
+                        IssuesDetected = 0,
+                        LastUpdated = null
                     });
                 }
                 else
                 {
-                    await response.WriteAsJsonAsync(new
+                    await response.WriteAsJsonAsync(new GetPlatformStatsResponse
                     {
-                        totalEnrollments = stats.TotalEnrollments,
-                        totalUsers = stats.TotalUsers,
-                        totalTenants = stats.TotalTenants,
-                        totalSignedUpTenants = stats.TotalSignedUpTenants,
-                        uniqueDeviceModels = stats.UniqueDeviceModels,
-                        totalEventsProcessed = stats.TotalEventsProcessed,
-                        successfulEnrollments = stats.SuccessfulEnrollments,
-                        issuesDetected = stats.IssuesDetected
+                        TotalEnrollments = stats.TotalEnrollments,
+                        TotalUsers = stats.TotalUsers,
+                        TotalTenants = stats.TotalTenants,
+                        TotalSignedUpTenants = stats.TotalSignedUpTenants,
+                        UniqueDeviceModels = stats.UniqueDeviceModels,
+                        TotalEventsProcessed = stats.TotalEventsProcessed,
+                        SuccessfulEnrollments = stats.SuccessfulEnrollments,
+                        IssuesDetected = stats.IssuesDetected
                     });
                 }
 

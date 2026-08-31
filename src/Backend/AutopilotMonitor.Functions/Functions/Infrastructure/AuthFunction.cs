@@ -213,7 +213,7 @@ public class AuthFunction
         var isAdmin = await _globalAdminService.IsGlobalAdminAsync(AdminIdentity.FromPrincipal(principal));
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { isGlobalAdmin = isAdmin, upn });
+        await response.WriteAsJsonAsync(new IsGlobalAdminResponse { IsGlobalAdmin = isAdmin, Upn = upn });
         return response;
     }
 
@@ -232,7 +232,7 @@ public class AuthFunction
         var admins = await _globalAdminService.GetAllGlobalAdminsAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { admins });
+        await response.WriteAsJsonAsync(new GetGlobalAdminsResponse { Admins = admins });
         return response;
     }
 
@@ -290,7 +290,7 @@ public class AuthFunction
         _logger.LogInformation($"Global Admin added: {body.Upn} by {currentUpn}");
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { admin = newAdmin });
+        await response.WriteAsJsonAsync(new AddGlobalAdminResponse { Admin = newAdmin });
         return response;
     }
 

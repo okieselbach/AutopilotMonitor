@@ -1,20 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { computeWhiteGloveSplitSequence } from "../../app/sessions/utils/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
+import { makeEvent } from "@/test/factories";
 
 // Fixture builder — keeps the tests focused on sequence/eventType only.
 function ev(seq: number, eventType: string, phase = 0): EnrollmentEvent {
-  return {
+  return makeEvent({
     eventId: `e${seq}`,
     sessionId: "s1",
     timestamp: new Date(2026, 4, 4, 10, 0, seq).toISOString(),
     eventType,
-    severity: "Info",
     source: "Agent",
     phase,
     message: eventType,
     sequence: seq,
-  };
+  });
 }
 
 describe("computeWhiteGloveSplitSequence", () => {

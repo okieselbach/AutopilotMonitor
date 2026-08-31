@@ -154,12 +154,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                         basePath, pagination.PageSize, wireToken, query);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new QueryRawEventsResponse
                 {
-                    tenantId,
-                    count = filtered.Count,
-                    events = RawEntityProjection.Project(filtered, fields),
-                    nextLink = singleNextLink,
+                    TenantId = tenantId,
+                    Count = filtered.Count,
+                    Events = RawEntityProjection.Project(filtered, fields),
+                    NextLink = singleNextLink,
                 });
             }
 
@@ -218,12 +218,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                     basePath, pagination.PageSize, wireToken, query);
             }
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new QueryRawEventsResponse
             {
-                tenantId,
-                count = events.Count,
-                events = RawEntityProjection.Project(events, fields),
-                nextLink,
+                TenantId = tenantId,
+                Count = events.Count,
+                Events = RawEntityProjection.Project(events, fields),
+                NextLink = nextLink,
             });
         }
 

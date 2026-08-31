@@ -15,7 +15,7 @@ https://docs.autopilotmonitor.com (separate repository).
 * [Version Contract](versioning.md) - One version shape for agent, backend and MCP: the ETag-CAS counter blob that mints build numbers, and the manifests published only after a deploy is verified live.
 * [Customer Script Publishing](script-publishing.md) - How the customer-facing PowerShell scripts reach download.autopilotmonitor.com/agent/, why publishing is decoupled from agent releases, and the guards keeping the published copy, the version badge and the portal's version oracle in agreement.
 * [URL Registry](url-registry.md) - Every well-known host lives in one registry file per component (Constants.cs / utils/config.ts / src/config.ts), enforced by guard tests; includes the agent-download migration to the download alias and its deploy-order constraint.
-* [Drift Guards](drift-guards.md) - The 2026-08 fragility-audit follow-up contracts: SignalR message-name catalog (typed on both ends), the inverted-tick RowKey codec, tombstone table tagging, the shrink-only OkAsync baseline, per-section config PATCH with the section field map, and the web's scoped-endpoint builders + sidebar visibility matrix.
+* [Drift Guards](drift-guards.md) - The 2026-08 fragility-audit follow-up contracts: SignalR message-name catalog (typed on both ends), the inverted-tick RowKey codec, tombstone table tagging, typed wire DTOs (IApiResponse + generated wire-types.generated.ts, empty anonymous-body baselines), per-section config PATCH with the section field map, and the web's scoped-endpoint builders + sidebar visibility matrix.
 
 # Agent
 

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.GraphResolution;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
@@ -82,13 +83,13 @@ public class GetGraphPermissionsStatusFunction
                 snapshot = new GraphPermissionSnapshot { IsTransient = true };
             }
 
-            var features = GraphFeatureCatalog.Features.Select(featureName => new
+            var features = GraphFeatureCatalog.Features.Select(featureName => new GraphFeatureStatusItem
             {
-                name = featureName,
-                granted = snapshot.IsTransient
+                Name = featureName,
+                Granted = snapshot.IsTransient
                     ? (bool?)null
                     : GraphFeatureCatalog.IsFeatureGranted(featureName, snapshot.GrantedRoles),
-                requiredPermissions = GraphFeatureCatalog.RequiredPermissions(featureName),
+                RequiredPermissions = GraphFeatureCatalog.RequiredPermissions(featureName),
             }).ToList();
 
             EmitStatusChecked(requestCtx.TargetTenantId, requestCtx.UserPrincipalName, snapshot);
@@ -98,12 +99,12 @@ public class GetGraphPermissionsStatusFunction
             var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
             var homedClientId = _appRegistry.ResolveForTenant(tenantConfig).ClientId;
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new GetGraphPermissionsStatusResponse
             {
-                clientId = homedClientId ?? string.Empty,
-                isTransient = snapshot.IsTransient,
-                grantedRoles = snapshot.GrantedRoles.ToArray(),
-                features,
+                ClientId = homedClientId ?? string.Empty,
+                IsTransient = snapshot.IsTransient,
+                GrantedRoles = snapshot.GrantedRoles.ToArray(),
+                Features = features,
             });
         }
         catch (Exception ex)

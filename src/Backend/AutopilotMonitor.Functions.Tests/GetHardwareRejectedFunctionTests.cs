@@ -57,8 +57,8 @@ public class GetHardwareRejectedFunctionTests
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
         Assert.Single(aggregated);
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(3, (int)item.attemptCount);
+        var item = aggregated[0];
+        Assert.Equal(3, (int)item.AttemptCount);
     }
 
     [Fact]
@@ -77,8 +77,8 @@ public class GetHardwareRejectedFunctionTests
         Assert.Equal(4, totalRawReports);
         Assert.Equal(2, aggregated.Count);
 
-        var dell = ToDynamic(aggregated.First(a => ((string)ToDynamic(a).manufacturer).Equals("Dell", StringComparison.OrdinalIgnoreCase)));
-        Assert.Equal(3, (int)dell.attemptCount);
+        var dell = aggregated.First(a => a.Manufacturer.Equals("Dell", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(3, (int)dell.AttemptCount);
     }
 
     [Fact]
@@ -94,9 +94,9 @@ public class GetHardwareRejectedFunctionTests
 
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(2, (int)item.uniqueSerials);
-        Assert.Equal(4, (int)item.attemptCount);
+        var item = aggregated[0];
+        Assert.Equal(2, (int)item.UniqueSerials);
+        Assert.Equal(4, (int)item.AttemptCount);
     }
 
     [Fact]
@@ -108,10 +108,10 @@ public class GetHardwareRejectedFunctionTests
 
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        var samples = (IEnumerable<object>)item.sampleSerialNumbers;
+        var item = aggregated[0];
+        var samples = (IEnumerable<object>)item.SampleSerialNumbers;
         Assert.Equal(5, samples.Count());
-        Assert.Equal(8, (int)item.uniqueSerials);
+        Assert.Equal(8, (int)item.UniqueSerials);
     }
 
     // =========================================================================
@@ -134,9 +134,9 @@ public class GetHardwareRejectedFunctionTests
 
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal(t1, (DateTime)item.firstSeen);
-        Assert.Equal(t3, (DateTime)item.lastSeen);
+        var item = aggregated[0];
+        Assert.Equal(t1, (DateTime)item.FirstSeen);
+        Assert.Equal(t3, (DateTime)item.LastSeen);
     }
 
     [Fact]
@@ -152,12 +152,12 @@ public class GetHardwareRejectedFunctionTests
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
         Assert.Equal(3, aggregated.Count);
-        var first = ToDynamic(aggregated[0]);
-        var second = ToDynamic(aggregated[1]);
-        var third = ToDynamic(aggregated[2]);
+        var first = aggregated[0];
+        var second = aggregated[1];
+        var third = aggregated[2];
 
-        Assert.True((DateTime)first.lastSeen > (DateTime)second.lastSeen);
-        Assert.True((DateTime)second.lastSeen > (DateTime)third.lastSeen);
+        Assert.True((DateTime)first.LastSeen > (DateTime)second.LastSeen);
+        Assert.True((DateTime)second.LastSeen > (DateTime)third.LastSeen);
     }
 
     // =========================================================================
@@ -176,10 +176,10 @@ public class GetHardwareRejectedFunctionTests
         var (aggregated, _) = GetHardwareRejectedFunction.BuildAggregatedResult(reports);
 
         Assert.Single(aggregated);
-        var item = ToDynamic(aggregated[0]);
-        Assert.Equal("", (string)item.manufacturer);
-        Assert.Equal("", (string)item.model);
-        Assert.Equal(2, (int)item.attemptCount);
+        var item = aggregated[0];
+        Assert.Equal("", (string)item.Manufacturer);
+        Assert.Equal("", (string)item.Model);
+        Assert.Equal(2, (int)item.AttemptCount);
     }
 
     // =========================================================================
@@ -199,14 +199,4 @@ public class GetHardwareRejectedFunctionTests
             AgentTimestamp = ingestedAt,
         };
 
-    private static dynamic ToDynamic(object obj)
-    {
-        var type = obj.GetType();
-        var dict = new System.Dynamic.ExpandoObject() as IDictionary<string, object?>;
-        foreach (var prop in type.GetProperties())
-        {
-            dict[prop.Name] = prop.GetValue(obj);
-        }
-        return dict;
-    }
 }

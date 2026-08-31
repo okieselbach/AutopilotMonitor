@@ -7,6 +7,7 @@ import {
   type SessionExportEvent,
   type SessionCsvData,
 } from "../sessionExportUtils";
+import { makeEvent } from "@/test/factories";
 
 // CWE-1236: device-originated strings must reach the spreadsheet as inert text.
 describe("csvCell", () => {
@@ -32,11 +33,11 @@ describe("csvCell", () => {
 
 describe("CSV exports neutralize device-controlled fields", () => {
   it("event export", () => {
-    const ev: SessionExportEvent = {
+    const ev: SessionExportEvent = makeEvent({
       eventId: "e1", sessionId: "s1", tenantId: "t1", timestamp: "2026-01-01T00:00:00Z",
-      eventType: "=evil", severity: "Info", source: "+src", phase: 0,
+      eventType: "=evil", source: "+src", phase: 0,
       message: "=1+1", sequence: 1, data: { k: "v" },
-    };
+    });
     const row = generateCsvExport([ev]).split("\n")[1];
     expect(row).toContain(`"'=evil"`);
     expect(row).toContain(`"'+src"`);

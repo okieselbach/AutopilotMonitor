@@ -36,7 +36,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var rules = await _ruleService.GetAllRulesForTenantAsync(tenantId);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, rules });
+            await response.WriteAsJsonAsync(new GatherRuleListResponse { Success = true, Rules = rules });
             return response;
         }
 
@@ -82,7 +82,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 var success = await _ruleService.CreateRuleAsync(tenantId, rule);
 
                 var response = req.CreateResponse(success ? HttpStatusCode.Created : HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { success, message = success ? "Rule created" : "Failed to create rule" });
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule created" : "Failed to create rule" });
                 return response;
             }
             catch (InvalidOperationException ex)
@@ -138,7 +138,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             {
                 var success = await _ruleService.UpdateRuleAsync(tenantId, rule);
                 var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
+                await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule updated" : "Failed to update rule" });
                 return response;
             }
             catch (InvalidOperationException ex)
@@ -242,7 +242,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _ruleService.DeleteRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule deleted" : "Failed to delete rule" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule deleted" : "Failed to delete rule" });
             return response;
         }
     }

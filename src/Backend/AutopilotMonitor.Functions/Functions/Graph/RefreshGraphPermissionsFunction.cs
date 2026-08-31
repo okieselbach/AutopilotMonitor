@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.GraphResolution;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -60,7 +61,7 @@ public class RefreshGraphPermissionsFunction
                 _logger.LogDebug(ex, "GraphAddOnRefreshTriggered telemetry emit failed");
             }
 
-            return await req.OkAsync(new { success = true });
+            return await req.OkAsync(new SuccessOnlyResponse { Success = true });
         }
         catch (Exception ex)
         {

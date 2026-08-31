@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EnrollmentEvent } from "@/types";
+import { makeEvent, makeSession } from "@/test/factories";
 import {
   buildProgressSteps,
   computeOverallProgress,
@@ -18,22 +19,19 @@ import {
  */
 
 function ev(sequence: number, eventType: string, phase = -1, data?: Record<string, unknown>): EnrollmentEvent {
-  return {
+  return makeEvent({
     eventId: `evt-${sequence}`,
     sessionId: "s",
-    timestamp: "2026-08-28T10:00:00Z",
     eventType,
-    severity: "Info",
     source: "test",
     phase,
-    message: "",
     sequence,
-    data,
-  };
+    data: data ?? {},
+  });
 }
 
-const v1 = { status: "InProgress", currentPhase: 0, enrollmentType: "v1" };
-const v2 = { status: "InProgress", currentPhase: 0, enrollmentType: "v2" };
+const v1 = makeSession({ status: "InProgress", currentPhase: 0, enrollmentType: "v1" });
+const v2 = makeSession({ status: "InProgress", currentPhase: 0, enrollmentType: "v2" });
 
 describe("buildProgressSteps", () => {
   it("v1 shows the seven ESP steps without Complete", () => {
@@ -119,7 +117,7 @@ describe("resolveActiveStepIndex", () => {
 
   it("Failed without any declared phase falls back to the app step when apps ran, else the start", () => {
     const steps = buildProgressSteps(v1, false);
-    const failed = { ...v1, status: "Failed", currentPhase: 99 };
+    const failed = makeSession({ ...v1, status: "Failed", currentPhase: 99 });
     expect(resolveActiveStepIndex({ steps, session: failed, events: [], hasAppActivity: true })).toBe(3);
     expect(resolveActiveStepIndex({ steps, session: failed, events: [], hasAppActivity: false })).toBe(0);
   });

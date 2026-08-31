@@ -1,6 +1,5 @@
 ﻿using System.IO.Compression;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using AutopilotMonitor.Functions.DataAccess;
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Functions.Ingest;
@@ -49,14 +48,9 @@ builder.UseMiddleware<McpQuotaEnforcementMiddleware>();
 // authenticated web users so a Global Admin can see who is active right now. Throttled + fail-open.
 builder.UseMiddleware<UserPresenceMiddleware>();
 
-// Configure JSON serialization to use camelCase
-builder.Services.Configure<JsonSerializerOptions>(options =>
-{
-    options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-    options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-    // Serialize enums as strings for better readability and frontend compatibility
-    options.Converters.Add(new JsonStringEnumConverter());
-});
+// Configure JSON serialization to the wire settings (camelCase, absent-when-null, string enums).
+// Single source: ApiJsonOptions — test harnesses build their serializer from the same settings.
+builder.Services.Configure<JsonSerializerOptions>(ApiJsonOptions.Apply);
 
 builder.Services
     .AddApplicationInsightsTelemetryWorkerService()

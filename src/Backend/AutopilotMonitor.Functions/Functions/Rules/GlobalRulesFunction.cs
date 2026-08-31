@@ -57,7 +57,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var rules = await _gatherRuleService.GetAllRulesForTenantAsync(tenantId);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, rules });
+            await response.WriteAsJsonAsync(new GatherRuleListResponse { Success = true, Rules = rules });
             return response;
         }
 
@@ -83,7 +83,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var rules = await _analyzeRuleService.GetAllRulesForTenantAsync(tenantId);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, rules });
+            await response.WriteAsJsonAsync(new AnalyzeRuleListResponse { Success = true, Rules = rules });
             return response;
         }
 
@@ -120,7 +120,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _gatherRuleService.UpdateRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule updated" : "Failed to update rule" });
             return response;
         }
 
@@ -151,7 +151,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _gatherRuleService.DeleteRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule deleted" : "Failed to delete rule" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule deleted" : "Failed to delete rule" });
             return response;
         }
 
@@ -179,7 +179,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _analyzeRuleService.UpdateRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule updated" : "Failed to update rule" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule updated" : "Failed to update rule" });
             return response;
         }
 
@@ -210,7 +210,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _analyzeRuleService.DeleteRuleAsync(tenantId, rule);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Rule deleted" : "Failed to delete rule" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Rule deleted" : "Failed to delete rule" });
             return response;
         }
 

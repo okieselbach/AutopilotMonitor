@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ public class GlobalNotificationsFunction
         var notifications = await _notificationService.GetActiveNotificationsAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, notifications });
+        await response.WriteAsJsonAsync(new NotificationListResponse { Success = true, Notifications = notifications });
         return response;
     }
 
@@ -57,7 +58,7 @@ public class GlobalNotificationsFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true });
+        await response.WriteAsJsonAsync(new SuccessOnlyResponse { Success = true });
         return response;
     }
 
@@ -72,7 +73,7 @@ public class GlobalNotificationsFunction
         var dismissedCount = await _notificationService.DismissAllNotificationsAsync();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, dismissedCount });
+        await response.WriteAsJsonAsync(new DismissAllNotificationsResponse { Success = true, DismissedCount = dismissedCount });
         return response;
     }
 }

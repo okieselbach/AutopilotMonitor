@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.Logging;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -97,7 +98,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 request.SampleLines!.Count, result.MatchCount, result.ParseFailureCount, isTextMode ? "text" : "cmtrace");
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, format = isTextMode ? "text" : "cmtrace", result });
+            await response.WriteAsJsonAsync(new TestLogPatternResponse { Success = true, Format = isTextMode ? "text" : "cmtrace", Result = result });
             return response;
         }
 
@@ -213,32 +214,6 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         }
     }
 
-    /// <summary>Aggregate outcome of one pattern test. Serialized camelCase to clients.</summary>
-    public sealed class LogPatternTestResult
-    {
-        public int MatchCount { get; set; }
-        public int ParseFailureCount { get; set; }
-        public int TimeoutCount { get; set; }
-        public List<LogPatternLineResult> Lines { get; } = new();
-        public List<string> Notes { get; } = new();
-    }
-
-    public sealed class LogPatternLineResult
-    {
-        public int LineNumber { get; set; }
-
-        /// <summary>matched | no_match | parse_failed | regex_timeout</summary>
-        public string Outcome { get; set; } = string.Empty;
-
-        /// <summary>The named/numbered capture groups exactly as they would land in the
-        /// emitted event's data (group "0" excluded, unsuccessful groups omitted).</summary>
-        public Dictionary<string, string>? Groups { get; set; }
-
-        public string? MatchedText { get; set; }
-
-        /// <summary>cmtrace mode only: the parsed component/type/message the regex ran against.</summary>
-        public string? Component { get; set; }
-        public int? CmTraceType { get; set; }
-        public string? Message { get; set; }
-    }
+    // LogPatternTestResult / LogPatternLineResult moved to
+    // AutopilotMonitor.Shared.Models.RulesApiModels (wire contract, exported to TypeScript).
 }

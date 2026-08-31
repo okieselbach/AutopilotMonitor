@@ -3,6 +3,7 @@ using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -87,13 +88,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var report = ReducerVerifier.Verify(
                     tenantIdForLoad, sessionId, signals, transitions, currentReducerVersion);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionReducerVerificationResponse
                 {
-                    success = true,
-                    truncated = signals.Count >= MaxSignalsToLoad
+                    Success = true,
+                    Truncated = signals.Count >= MaxSignalsToLoad
                         || transitions.Count >= MaxTransitionsToLoad
                         || SignalQueryLimits.IsPayloadBudgetExhausted(signals, SignalQueryLimits.DefaultMaxTotalPayloadChars),
-                    report,
+                    Report = report,
                 });
             }
             catch (Exception ex)

@@ -170,12 +170,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 nextLink = SearchSessionsPagination.BuildNextLink(basePath, pagination.PageSize, wireToken, query);
             }
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new QueryRawSessionsResponse
             {
-                tenantId,
-                count = page.Items.Count,
-                sessions = sessionsPayload,
-                nextLink,
+                TenantId = tenantId,
+                Count = page.Items.Count,
+                Sessions = sessionsPayload,
+                NextLink = nextLink,
             });
         }
     }

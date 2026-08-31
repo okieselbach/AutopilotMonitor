@@ -115,12 +115,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     if (EventFieldProjection.WantsData(filterFields))
                         ErrorCodeEnricher.EnrichEvents(filtered);
 
-                    return await req.OkAsync(new
+                    return await req.OkAsync(new GetSessionEventsResponse
                     {
-                        success = true,
-                        sessionId,
-                        count = filtered.Count,
-                        events = EventFieldProjection.Project(filtered, filterFields),
+                        Success = true,
+                        SessionId = sessionId,
+                        Count = filtered.Count,
+                        Events = EventFieldProjection.Project(filtered, filterFields),
                     });
                 }
 
@@ -208,13 +208,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         extras: extras.Count > 0 ? extras : null);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionEventsResponse
                 {
-                    success = true,
-                    sessionId,
-                    count = pageItems.Count,
-                    events = EventFieldProjection.Project(pageItems, filterFields),
-                    nextLink,
+                    Success = true,
+                    SessionId = sessionId,
+                    Count = pageItems.Count,
+                    Events = EventFieldProjection.Project(pageItems, filterFields),
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

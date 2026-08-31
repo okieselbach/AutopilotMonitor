@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using AutopilotMonitor.Functions.Functions.Rules;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -43,10 +44,12 @@ public class GatherRulesFunctionAuthorEndpointTests
 
     private static FunctionContext BuildContext(ClaimsPrincipal? principal)
     {
-        // WriteAsJsonAsync resolves the serializer from InstanceServices.
+        // WriteAsJsonAsync resolves the serializer from InstanceServices — use the production
+        // wire settings so assertions run against the shape the deployed worker serializes.
         var services = new ServiceCollection();
         services.AddOptions();
-        services.Configure<WorkerOptions>(o => o.Serializer = new JsonObjectSerializer());
+        services.Configure<WorkerOptions>(o => o.Serializer =
+            new JsonObjectSerializer(ApiJsonOptions.Create()));
         var provider = services.BuildServiceProvider();
 
         var items = new Dictionary<object, object>();

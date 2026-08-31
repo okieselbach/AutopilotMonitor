@@ -7,15 +7,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
-
-interface QuickSearchResult {
-  sessionId: string;
-  serialNumber: string;
-  deviceName: string;
-  status: string;
-  startedAt: string;
-  matchedField: 'sessionId' | 'serialNumber' | 'deviceName';
-}
+// Wire type of the typeahead endpoint — matchedField is "sessionId" | "serialNumber" |
+// "deviceName" on the wire but typed string; fieldLabel handles unknown values anyway.
+import type { QuickSearchResult } from '@/utils/wire-types.generated';
 
 const fieldLabel = (field: string) => {
   switch (field) {

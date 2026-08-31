@@ -1,6 +1,7 @@
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -42,21 +43,21 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var now = DateTime.UtcNow;
                 var active = await _metricsRepo.GetActivePresenceAsync(TimeSpan.FromMinutes(windowMinutes));
 
-                var users = active.Select(u => new
+                var users = active.Select(u => new ActiveUserItem
                 {
-                    tenantId = u.TenantId,
-                    upn = u.Upn,
-                    userRole = u.UserRole,
-                    lastSeen = u.LastSeen,
-                    secondsAgo = (int)Math.Max(0, (now - u.LastSeen).TotalSeconds)
+                    TenantId = u.TenantId,
+                    Upn = u.Upn,
+                    UserRole = u.UserRole,
+                    LastSeen = u.LastSeen,
+                    SecondsAgo = (int)Math.Max(0, (now - u.LastSeen).TotalSeconds)
                 }).ToList();
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetActiveUsersResponse
                 {
-                    success = true,
-                    windowMinutes,
-                    activeCount = users.Count,
-                    users
+                    Success = true,
+                    WindowMinutes = windowMinutes,
+                    ActiveCount = users.Count,
+                    Users = users
                 });
             }
             catch (Exception ex)

@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -49,17 +50,17 @@ public class EmailTemplatesFunction
 
         var overrideEntry = await _templates.GetOverrideAsync(templateKind);
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new
+        await response.WriteAsJsonAsync(new EmailTemplateResponse
         {
-            kind = EmailTemplateService.KindKey(templateKind),
-            subject = EmailTemplateService.Subject(templateKind),
-            isOverridden = overrideEntry is not null,
-            html = overrideEntry?.Html ?? EmailTemplateService.BuiltInRaw(templateKind),
-            builtInHtml = EmailTemplateService.BuiltInRaw(templateKind),
-            updatedBy = overrideEntry?.UpdatedBy,
-            updatedUtc = overrideEntry?.UpdatedUtc,
-            placeholder = EmailTemplateService.DomainPlaceholder,
-            maxLength = EmailTemplateService.MaxHtmlLength,
+            Kind = EmailTemplateService.KindKey(templateKind),
+            Subject = EmailTemplateService.Subject(templateKind),
+            IsOverridden = overrideEntry is not null,
+            Html = overrideEntry?.Html ?? EmailTemplateService.BuiltInRaw(templateKind),
+            BuiltInHtml = EmailTemplateService.BuiltInRaw(templateKind),
+            UpdatedBy = overrideEntry?.UpdatedBy,
+            UpdatedUtc = overrideEntry?.UpdatedUtc,
+            Placeholder = EmailTemplateService.DomainPlaceholder,
+            MaxLength = EmailTemplateService.MaxHtmlLength,
         });
         return response;
     }
@@ -82,7 +83,7 @@ public class EmailTemplatesFunction
         var saved = await _templates.SaveOverrideAsync(templateKind, body!.Html!, upn);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { kind = saved.Kind, isOverridden = true, updatedBy = saved.UpdatedBy, updatedUtc = saved.UpdatedUtc });
+        await response.WriteAsJsonAsync(new EmailTemplateSaveResponse { Kind = saved.Kind, IsOverridden = true, UpdatedBy = saved.UpdatedBy, UpdatedUtc = saved.UpdatedUtc });
         return response;
     }
 
@@ -98,7 +99,7 @@ public class EmailTemplatesFunction
         await _templates.DeleteOverrideAsync(templateKind, TenantHelper.GetUserIdentifier(req));
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { kind = EmailTemplateService.KindKey(templateKind), isOverridden = false });
+        await response.WriteAsJsonAsync(new EmailTemplateResetResponse { Kind = EmailTemplateService.KindKey(templateKind), IsOverridden = false });
         return response;
     }
 
@@ -145,7 +146,7 @@ public class EmailTemplatesFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { sentTo = toEmail, domainName = tenantConfig.DomainName, draft = draft is not null });
+        await response.WriteAsJsonAsync(new EmailTemplateTestSendResponse { SentTo = toEmail, DomainName = tenantConfig.DomainName, Draft = draft is not null });
         return response;
     }
 

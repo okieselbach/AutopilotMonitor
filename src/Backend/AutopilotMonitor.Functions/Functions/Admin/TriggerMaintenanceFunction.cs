@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -72,13 +73,13 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var result = await _maintenanceService.RunManualAsync(targetDate, aggregateOnly, userEmail);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new TriggerMaintenanceResponse
                 {
-                    success = true,
-                    message = "Maintenance tasks completed",
-                    result = result,
-                    triggeredBy = userEmail,
-                    triggeredAt = DateTime.UtcNow
+                    Success = true,
+                    Message = "Maintenance tasks completed",
+                    Result = result,
+                    TriggeredBy = userEmail,
+                    TriggeredAt = DateTime.UtcNow
                 });
 
                 return response;

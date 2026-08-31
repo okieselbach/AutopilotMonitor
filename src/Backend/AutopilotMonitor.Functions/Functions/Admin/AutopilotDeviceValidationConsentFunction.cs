@@ -6,6 +6,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.GraphResolution;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
@@ -147,10 +148,10 @@ public class AutopilotDeviceValidationConsentFunction
             requestCtx.TargetTenantId, requestCtx.UserPrincipalName, redirectUri);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new
+        await response.WriteAsJsonAsync(new AutopilotConsentUrlResponse
         {
-            consentUrl,
-            willAutoFlipHoming = funnel
+            ConsentUrl = consentUrl,
+            WillAutoFlipHoming = funnel
         });
         return response;
     }
@@ -183,11 +184,11 @@ public class AutopilotDeviceValidationConsentFunction
         });
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new
+        await response.WriteAsJsonAsync(new AutopilotConsentStatusResponse
         {
-            isConsented = result.IsConsented,
-            message = result.Message,
-            homingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped
+            IsConsented = result.IsConsented,
+            Message = result.Message,
+            HomingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped
         });
         return response;
     }
@@ -266,12 +267,12 @@ public class AutopilotDeviceValidationConsentFunction
         });
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new
+        await response.WriteAsJsonAsync(new AutopilotAccessCheckResponse
         {
-            accessPresent,
-            isTransient,
-            requiredPermission = GraphAppPermissions.DeviceManagementServiceConfigReadAll,
-            homingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped,
+            AccessPresent = accessPresent,
+            IsTransient = isTransient,
+            RequiredPermission = GraphAppPermissions.DeviceManagementServiceConfigReadAll,
+            HomingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped,
         });
         return response;
     }

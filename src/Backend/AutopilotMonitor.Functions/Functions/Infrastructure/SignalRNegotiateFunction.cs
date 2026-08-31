@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -69,7 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             // Exactly the shape the @microsoft/signalr client's negotiate protocol expects.
-            await response.WriteAsJsonAsync(new { url = negotiation.Value.Url, accessToken = negotiation.Value.AccessToken });
+            await response.WriteAsJsonAsync(new SignalRNegotiateResponse { Url = negotiation.Value.Url, AccessToken = negotiation.Value.AccessToken });
 
             return response;
         }

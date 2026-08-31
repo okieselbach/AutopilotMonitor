@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -39,12 +40,12 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var reports = await _repository.GetDistressReportsAsync(tenantId, maxResults: 200);
                 var (aggregated, totalRawReports) = BuildAggregatedResult(reports);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new HardwareRejectedResponse
                 {
-                    success = true,
-                    aggregated,
-                    totalRawReports,
-                    dataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Manufacturer, model, and serial number values are self-reported by devices."
+                    Success = true,
+                    Aggregated = aggregated,
+                    TotalRawReports = totalRawReports,
+                    DataQualityNotice = "This data is from pre-authentication distress reports and is UNVERIFIED. Manufacturer, model, and serial number values are self-reported by devices."
                 });
             }
             catch (Exception ex)
@@ -57,7 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
         /// Filters distress reports to HardwareNotAllowed and aggregates by manufacturer+model.
         /// Extracted as public static for testability.
         /// </summary>
-        public static (List<object> aggregated, int totalRawReports) BuildAggregatedResult(
+        public static (List<HardwareRejectedItem> aggregated, int totalRawReports) BuildAggregatedResult(
             List<DistressReportEntry> reports)
         {
             var hardwareReports = reports
@@ -79,19 +80,19 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList();
 
-                    return new
+                    return new HardwareRejectedItem
                     {
-                        manufacturer = mostRecent.Manufacturer ?? "",
-                        model = mostRecent.Model ?? "",
-                        attemptCount = g.Count(),
-                        uniqueSerials = serials.Count,
-                        firstSeen = g.Min(r => r.IngestedAt),
-                        lastSeen = g.Max(r => r.IngestedAt),
-                        sampleSerialNumbers = serials.Take(5).ToList()
+                        Manufacturer = mostRecent.Manufacturer ?? "",
+                        Model = mostRecent.Model ?? "",
+                        AttemptCount = g.Count(),
+                        UniqueSerials = serials.Count,
+                        FirstSeen = g.Min(r => r.IngestedAt),
+                        LastSeen = g.Max(r => r.IngestedAt),
+                        SampleSerialNumbers = serials.Take(5).ToList()
                     };
                 })
-                .OrderByDescending(a => a.lastSeen)
-                .ToList<object>();
+                .OrderByDescending(a => a.LastSeen)
+                .ToList();
 
             return (aggregated, hardwareReports.Count);
         }

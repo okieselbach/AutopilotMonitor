@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Diagnostics;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -104,14 +105,14 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                     tenantId, blobName, destinationLabel, requestCtx.UserPrincipalName, expiresAt.ToString("O"));
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new DiagnosticsDownloadTicketResponse
                 {
-                    success = true,
-                    url = $"/api/diagnostics/download?t={Uri.EscapeDataString(ticket)}",
-                    expiresAt,
-                    blobName,
-                    destination = destinationLabel,
-                    sizeBytes,
+                    Success = true,
+                    Url = $"/api/diagnostics/download?t={Uri.EscapeDataString(ticket)}",
+                    ExpiresAt = expiresAt,
+                    BlobName = blobName,
+                    Destination = destinationLabel,
+                    SizeBytes = sizeBytes,
                 });
                 return response;
             }

@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -46,7 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 if (parsed.PageSize == null)
                 {
                     var reports = await _sessionReportService.GetAllReportsAsync(parsed.FilterTenantId);
-                    return await req.OkAsync(new { success = true, count = reports.Count, reports });
+                    return await req.OkAsync(new SessionReportListResponse { Success = true, Count = reports.Count, Reports = reports });
                 }
 
                 string? azureToken = null;
@@ -79,12 +80,12 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         parsed.PageSize.Value, wireToken, parsed.FilterTenantId);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new SessionReportListResponse
                 {
-                    success = true,
-                    count = page.Items.Count,
-                    reports = page.Items,
-                    nextLink,
+                    Success = true,
+                    Count = page.Items.Count,
+                    Reports = page.Items,
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

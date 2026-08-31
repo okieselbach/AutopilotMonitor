@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -60,10 +61,10 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     return notFound;
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionResponse
                 {
-                    success = true,
-                    session
+                    Success = true,
+                    Session = session
                 });
             }
             catch (Exception ex)

@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Offboarding;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -50,7 +51,7 @@ public class CustomsArchiveQueryFunction
         var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
         var filterTenantId = query["tenantId"];
 
-        var summaries = new Dictionary<string, RunSummary>(System.StringComparer.Ordinal);
+        var summaries = new Dictionary<string, CustomsArchiveRunSummary>(System.StringComparer.Ordinal);
 
         var source = string.IsNullOrEmpty(filterTenantId)
             ? _archive.QueryAllAsync()
@@ -61,7 +62,7 @@ public class CustomsArchiveQueryFunction
             var key = entry.PartitionKey;
             if (!summaries.TryGetValue(key, out var summary))
             {
-                summary = new RunSummary
+                summary = new CustomsArchiveRunSummary
                 {
                     PartitionKey = entry.PartitionKey,
                     TenantId = entry.TenantId,
@@ -91,7 +92,7 @@ public class CustomsArchiveQueryFunction
             .ToList();
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, count = runs.Count, runs });
+        await response.WriteAsJsonAsync(new CustomsArchiveRunListResponse { Success = true, Count = runs.Count, Runs = runs });
         return response;
     }
 
@@ -108,10 +109,10 @@ public class CustomsArchiveQueryFunction
         string historyRowKey)
     {
         var normalizedTenantId = tenantId.ToLowerInvariant();
-        var items = new List<EntrySummary>();
+        var items = new List<CustomsArchiveEntrySummary>();
         await foreach (var entry in _archive.QueryByRunAsync(normalizedTenantId, historyRowKey))
         {
-            items.Add(new EntrySummary
+            items.Add(new CustomsArchiveEntrySummary
             {
                 PartitionKey = entry.PartitionKey,
                 RowKey = entry.RowKey,
@@ -123,7 +124,7 @@ public class CustomsArchiveQueryFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, count = items.Count, entries = items });
+        await response.WriteAsJsonAsync(new CustomsArchiveEntryListResponse { Success = true, Count = items.Count, Entries = items });
         return response;
     }
 
@@ -148,7 +149,7 @@ public class CustomsArchiveQueryFunction
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, entry });
+        await response.WriteAsJsonAsync(new CustomsArchiveEntryResponse { Success = true, Entry = entry });
         return response;
     }
 
@@ -189,7 +190,7 @@ public class CustomsArchiveQueryFunction
             requestCtx.UserPrincipalName, normalizedTenantId, historyRowKey, archiveRowKey);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true });
+        await response.WriteAsJsonAsync(new SuccessOnlyResponse { Success = true });
         return response;
     }
 
@@ -229,7 +230,7 @@ public class CustomsArchiveQueryFunction
             requestCtx.UserPrincipalName, normalizedTenantId, historyRowKey, deleted);
 
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { success = true, deleted });
+        await response.WriteAsJsonAsync(new CustomsArchiveDeleteRunResponse { Success = true, Deleted = deleted });
         return response;
     }
 
@@ -238,26 +239,5 @@ public class CustomsArchiveQueryFunction
         if (string.IsNullOrEmpty(s)) return string.Empty;
         if (s.Length <= maxLength) return s;
         return s.Substring(0, maxLength) + "…";
-    }
-
-    public class RunSummary
-    {
-        public string PartitionKey { get; set; } = string.Empty;
-        public string TenantId { get; set; } = string.Empty;
-        public string HistoryRowKey { get; set; } = string.Empty;
-        public System.DateTime ArchivedAt { get; set; }
-        public int GatherRulesCount { get; set; }
-        public int AnalyzeRulesCount { get; set; }
-        public int ImeLogPatternsCount { get; set; }
-    }
-
-    public class EntrySummary
-    {
-        public string PartitionKey { get; set; } = string.Empty;
-        public string RowKey { get; set; } = string.Empty;
-        public string OriginalTable { get; set; } = string.Empty;
-        public string OriginalRowKey { get; set; } = string.Empty;
-        public System.DateTime ArchivedAt { get; set; }
-        public string EntityJsonPreview { get; set; } = string.Empty;
     }
 }

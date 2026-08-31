@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -32,11 +33,11 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var reports = await _repository.GetAllDistressReportsAsync(maxResults: 500);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new DistressReportListResponse
                 {
-                    success = true,
-                    count = reports.Count,
-                    reports
+                    Success = true,
+                    Count = reports.Count,
+                    Reports = reports
                 });
                 return response;
             }

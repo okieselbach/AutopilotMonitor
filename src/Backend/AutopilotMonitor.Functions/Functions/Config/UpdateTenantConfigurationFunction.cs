@@ -201,11 +201,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new UpdateTenantConfigurationResponse
                 {
-                    success = true,
-                    message = "Configuration updated successfully",
-                    config = config
+                    Success = true,
+                    Message = "Configuration updated successfully",
+                    Config = config
                 });
                 return response;
             }

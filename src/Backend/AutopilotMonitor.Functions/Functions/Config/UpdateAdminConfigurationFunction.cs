@@ -98,11 +98,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 );
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new UpdateAdminConfigurationResponse
                 {
-                    success = true,
-                    message = "Admin configuration updated successfully",
-                    config = config
+                    Success = true,
+                    Message = "Admin configuration updated successfully",
+                    Config = config
                 });
                 return response;
             }

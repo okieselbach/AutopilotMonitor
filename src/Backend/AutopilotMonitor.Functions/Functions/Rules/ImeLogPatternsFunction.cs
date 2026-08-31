@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var patterns = await _patternService.GetAllPatternsForTenantAsync(tenantId);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, patterns });
+            await response.WriteAsJsonAsync(new ImeLogPatternListResponse { Success = true, Patterns = patterns });
             return response;
         }
 
@@ -76,7 +76,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var success = await _patternService.UpdateGlobalPatternAsync(pattern);
             var response = req.CreateResponse(success ? HttpStatusCode.OK : HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(new { success, message = success ? "Global pattern updated" : "Failed to update global pattern" });
+            await response.WriteAsJsonAsync(new SuccessMessageResponse { Success = success, Message = success ? "Global pattern updated" : "Failed to update global pattern" });
             return response;
         }
 
@@ -94,12 +94,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 var (deleted, written) = await _patternService.ReseedBuiltInPatternsAsync();
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new ReseedImeLogPatternsResponse
                 {
-                    success = true,
-                    message = $"Reseed complete: {deleted} old patterns removed, {written} patterns written from code.",
-                    deleted,
-                    written
+                    Success = true,
+                    Message = $"Reseed complete: {deleted} old patterns removed, {written} patterns written from code.",
+                    Deleted = deleted,
+                    Written = written
                 });
                 return response;
             }

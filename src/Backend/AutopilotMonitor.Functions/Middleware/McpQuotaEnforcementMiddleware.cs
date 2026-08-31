@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -123,15 +124,15 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
         httpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
         httpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
         httpContext.Response.ContentType = "application/json";
-        await httpContext.Response.WriteAsJsonAsync(new
+        await httpContext.Response.WriteAsJsonAsync(new McpQuotaExceededResponse
         {
-            quotaExceeded = true,
-            plan = decision.Plan,
-            scope = decision.Scope,
-            limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-            used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
-            resetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
+            QuotaExceeded = true,
+            Plan = decision.Plan,
+            Scope = decision.Scope,
+            Limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
+            Used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
+            ResetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            Message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
         });
     }
 

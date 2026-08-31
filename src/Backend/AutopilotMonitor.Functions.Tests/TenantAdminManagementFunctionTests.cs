@@ -224,10 +224,11 @@ public class TenantAdminManagementFunctionTests
     {
         var services = new ServiceCollection();
         services.AddOptions();
-        // Mirror the production camelCase policy so camelCase test bodies bind to the
-        // PascalCase request models exactly like real web requests do.
+        // Production wire settings (camelCase policy binds camelCase test bodies to the
+        // PascalCase request models exactly like real web requests do; absent-when-null and
+        // string enums match what the deployed worker serializes).
         services.Configure<WorkerOptions>(o => o.Serializer =
-            new JsonObjectSerializer(new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            new JsonObjectSerializer(ApiJsonOptions.Create()));
         var provider = services.BuildServiceProvider();
 
         var requestContext = new RequestContext

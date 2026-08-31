@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -81,7 +82,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     var logs = string.IsNullOrEmpty(filterTenantId)
                         ? await _maintenanceRepo.GetAllAuditLogsAsync(parsed.DateFrom, parsed.DateTo, filters)
                         : await _maintenanceRepo.GetAuditLogsAsync(filterTenantId, parsed.DateFrom, parsed.DateTo, filters);
-                    return await req.OkAsync(new { success = true, count = logs.Count, logs });
+                    return await req.OkAsync(new AuditLogListResponse { Success = true, Count = logs.Count, Logs = logs });
                 }
 
                 string? azureToken = null;
@@ -133,12 +134,12 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                         extras: nextLinkExtras);
                 }
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new AuditLogListResponse
                 {
-                    success = true,
-                    count = page.Items.Count,
-                    logs = page.Items,
-                    nextLink,
+                    Success = true,
+                    Count = page.Items.Count,
+                    Logs = page.Items,
+                    NextLink = nextLink,
                 });
             }
             catch (Exception ex)

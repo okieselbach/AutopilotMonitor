@@ -159,7 +159,7 @@ namespace AutopilotMonitor.Shared.Models.Deletion
         /// <summary>
         /// Composite-key string used as a lookup identity. Three-part null-safe join with a
         /// separator character that cannot legitimately appear in any normalized component
-        /// (we use <c>''</c>, START OF HEADING — never present in publisher / name / version).
+        /// (we use <c>U+0001</c>, START OF HEADING — never present in publisher / name / version).
         /// </summary>
         public static string CompositeKey(string vendor, string name, string version)
             => $"{vendor}{name}{version}";

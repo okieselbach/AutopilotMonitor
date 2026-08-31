@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -212,7 +213,7 @@ public class SubmitOffboardingFeedbackFunction
     private static async Task<HttpResponseData> Ok(HttpRequestData req)
     {
         var r = req.CreateResponse(HttpStatusCode.OK);
-        await r.WriteAsJsonAsync(new { success = true });
+        await r.WriteAsJsonAsync(new SuccessOnlyResponse { Success = true });
         return r;
     }
 

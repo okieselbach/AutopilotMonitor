@@ -2,6 +2,7 @@ using System.Net;
 using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -68,7 +69,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 _logger.LogInformation("Generated session report download URL for blob {BlobName}", blobName);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new { success = true, downloadUrl });
+                await response.WriteAsJsonAsync(new SessionReportDownloadUrlResponse { Success = true, DownloadUrl = downloadUrl });
                 return response;
             }
             catch (Exception ex)

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using AutopilotMonitor.Shared.DataAccess;
 
 namespace AutopilotMonitor.Shared.Models
 {
@@ -96,7 +98,8 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Response from session report submission
     /// </summary>
-    public class SubmitSessionReportResponse
+    // Declaration order == wire order.
+    public class SubmitSessionReportResponse : IApiResponse
     {
         public bool Success { get; set; }
         public string Message { get; set; } = default!;
@@ -135,5 +138,139 @@ namespace AutopilotMonitor.Shared.Models
         /// Null when the submitter did not request the copy.
         /// </summary>
         public string? DiagnosticsCopyStatus { get; set; }
+    }
+
+    /// <summary>
+    /// One serial-number bucket in the GetDeviceNotRegistered aggregation. All values are
+    /// self-reported by devices through the unauthenticated distress channel — UNVERIFIED.
+    /// </summary>
+    // Declaration order == wire order.
+    public class DeviceNotRegisteredItem
+    {
+        public string SerialNumber { get; set; } = default!;
+        public string Manufacturer { get; set; } = default!;
+        public string Model { get; set; } = default!;
+
+        /// <summary>Sticky-true across the bucket: once any report carried the W365 marker.</summary>
+        public bool IsCloudPc { get; set; }
+        public int AttemptCount { get; set; }
+        public DateTime FirstSeen { get; set; }
+        public DateTime LastSeen { get; set; }
+    }
+
+    /// <summary>
+    /// Success body of GET audit/device-not-registered: unregistered-device rejections
+    /// aggregated by serial number over the distress-report retention window.
+    /// </summary>
+    // Declaration order == wire order.
+    public class DeviceNotRegisteredResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public IReadOnlyList<DeviceNotRegisteredItem> Aggregated { get; set; } = default!;
+
+        /// <summary>Count of raw DeviceNotRegistered distress reports before aggregation.</summary>
+        public int TotalRawReports { get; set; }
+        public string DataQualityNotice { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// One manufacturer+model bucket in the GetHardwareRejected aggregation. All values are
+    /// self-reported by devices through the unauthenticated distress channel — UNVERIFIED.
+    /// </summary>
+    // Declaration order == wire order.
+    public class HardwareRejectedItem
+    {
+        public string Manufacturer { get; set; } = default!;
+        public string Model { get; set; } = default!;
+        public int AttemptCount { get; set; }
+        public int UniqueSerials { get; set; }
+        public DateTime FirstSeen { get; set; }
+        public DateTime LastSeen { get; set; }
+
+        /// <summary>Up to five distinct serial numbers from the bucket.</summary>
+        public IReadOnlyList<string> SampleSerialNumbers { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Success body of GET audit/hardware-rejected: hardware-whitelist rejections
+    /// aggregated by manufacturer+model over the distress-report retention window.
+    /// </summary>
+    // Declaration order == wire order.
+    public class HardwareRejectedResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public IReadOnlyList<HardwareRejectedItem> Aggregated { get; set; } = default!;
+
+        /// <summary>Count of raw HardwareNotAllowed distress reports before aggregation.</summary>
+        public int TotalRawReports { get; set; }
+        public string DataQualityNotice { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// One serial-number bucket in the GetTpmPssUnsupported aggregation. All values are
+    /// self-reported by devices through the unauthenticated distress channel — UNVERIFIED.
+    /// </summary>
+    // Declaration order == wire order.
+    public class TpmPssUnsupportedItem
+    {
+        public string SerialNumber { get; set; } = default!;
+        public string Manufacturer { get; set; } = default!;
+        public string Model { get; set; } = default!;
+        public int AttemptCount { get; set; }
+        public DateTime FirstSeen { get; set; }
+        public DateTime LastSeen { get; set; }
+    }
+
+    /// <summary>
+    /// Success body of GET audit/tpm-pss-unsupported: devices whose TPM cannot perform
+    /// RSA-PSS signing, aggregated by serial number over the distress-report retention window.
+    /// </summary>
+    // Declaration order == wire order.
+    public class TpmPssUnsupportedResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public IReadOnlyList<TpmPssUnsupportedItem> Aggregated { get; set; } = default!;
+
+        /// <summary>Count of raw TpmPssUnsupported distress reports before aggregation.</summary>
+        public int TotalRawReports { get; set; }
+        public string DataQualityNotice { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Success body of GET global/session-reports — both the non-paged and the paged variant
+    /// (the non-paged variant simply carries no nextLink; WhenWritingNull keeps the wire
+    /// identical to the historical shape).
+    /// </summary>
+    // Declaration order == wire order.
+    public class SessionReportListResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<SessionReportMetadata> Reports { get; set; } = default!;
+
+        /// <summary>Absolute-path link to the next page; null/absent on the last page and in non-paged responses.</summary>
+        public string? NextLink { get; set; }
+    }
+
+    /// <summary>
+    /// Success body of GET global/distress-reports: all pre-auth distress reports (Global Admin).
+    /// </summary>
+    // Declaration order == wire order.
+    public class DistressReportListResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<DistressReportEntry> Reports { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Success body of GET global/session-reports/download-url: short-lived SAS download URL
+    /// for a session report blob.
+    /// </summary>
+    // Declaration order == wire order.
+    public class SessionReportDownloadUrlResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string DownloadUrl { get; set; } = default!;
     }
 }

@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -50,17 +51,17 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var backups = await _backupRepo.ListByPartitionAsync(requestCtx.TargetTenantId, max);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new ListTenantConfigBackupsResponse
                 {
-                    tenantId = requestCtx.TargetTenantId,
-                    backups = backups.Select(b => new
+                    TenantId = requestCtx.TargetTenantId,
+                    Backups = backups.Select(b => new TenantConfigBackupItem
                     {
-                        backupId = b.RowKey,
-                        backupTakenAt = b.BackupTakenAt,
-                        changedBy = b.ChangedBy,
-                        source = b.Source,
-                        reason = b.Reason,
-                        diff = TryParseDiff(b.DiffJson),
+                        BackupId = b.RowKey,
+                        BackupTakenAt = b.BackupTakenAt,
+                        ChangedBy = b.ChangedBy,
+                        Source = b.Source,
+                        Reason = b.Reason,
+                        Diff = TryParseDiff(b.DiffJson),
                     }),
                 });
                 return response;

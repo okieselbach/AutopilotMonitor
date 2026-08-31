@@ -627,6 +627,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// A tracked IME version sighting. Permanent archive that survives data retention.
     /// </summary>
+    [WireContract]
     public class ImeVersionHistoryEntry
     {
         public string Version { get; set; } = default!;
@@ -691,5 +692,258 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Current <c>MsiArchiveUpdatedAt</c> of the row (null when new or never touched).</summary>
         public DateTime? MsiArchiveUpdatedAt { get; set; }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Typed wire DTOs for the Sessions function folder (anonymous-object → typed migration).
+    // Envelope classes implement IApiResponse; nested item classes stay flat and carry no
+    // marker interface. Property declaration order IS the JSON key order.
+    // -------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Paged session listing envelope shared by GetSessions, GetAllSessions,
+    /// SearchSessionsByCve and SearchSessionsByEvent (identical wire shape).
+    /// </summary>
+    // Declaration order == wire order.
+    public class SessionListResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<SessionSummary> Sessions { get; set; } = default!;
+        /// <summary>Absent when there is no further page.</summary>
+        public string? NextLink { get; set; }
+    }
+
+    /// <summary>
+    /// SearchSessions envelope. <see cref="Sessions"/> carries full <see cref="SessionSummary"/>
+    /// items, or dictionary projections of them when the caller passed a <c>fields=</c> subset.
+    /// </summary>
+    // Declaration order == wire order.
+    public class SearchSessionsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        [ProjectedItems(typeof(SessionSummary))]
+        public IReadOnlyList<object> Sessions { get; set; } = default!;
+        /// <summary>Absent when there is no further page.</summary>
+        public string? NextLink { get; set; }
+    }
+
+    /// <summary>Dashboard stats envelope shared by GetSessionStats and GetAllSessionStats.</summary>
+    // Declaration order == wire order.
+    public class SessionStatsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public SessionStats Stats { get; set; } = default!;
+    }
+
+    /// <summary>Single-session detail envelope (GetSession).</summary>
+    // Declaration order == wire order.
+    public class GetSessionResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public SessionSummary Session { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Session events envelope (GetSessionEvents, paginated and unpaginated paths).
+    /// <see cref="Events"/> carries full <see cref="EnrollmentEvent"/> items, or dictionary
+    /// projections of them when the caller passed a <c>fields=</c> subset.
+    /// </summary>
+    // Declaration order == wire order.
+    public class GetSessionEventsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string SessionId { get; set; } = default!;
+        public int Count { get; set; }
+        [ProjectedItems(typeof(EnrollmentEvent))]
+        public IReadOnlyList<object> Events { get; set; } = default!;
+        /// <summary>Absent on the unpaginated path and when there is no further page.</summary>
+        public string? NextLink { get; set; }
+    }
+
+    /// <summary>SignalLog read envelope (GetSessionSignals).</summary>
+    // Declaration order == wire order.
+    public class GetSessionSignalsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string SessionId { get; set; } = default!;
+        public int Count { get; set; }
+        /// <summary>True when the result hit the row cap or the cumulative payload budget.</summary>
+        public bool Truncated { get; set; }
+        public IReadOnlyList<SignalRecord> Signals { get; set; } = default!;
+    }
+
+    /// <summary>Reducer-verification envelope (GetSessionReducerVerification).</summary>
+    // Declaration order == wire order.
+    public class GetSessionReducerVerificationResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>True when signals or transitions hit a load cap or the payload budget.</summary>
+        public bool Truncated { get; set; }
+        public ReducerVerificationReport Report { get; set; } = default!;
+    }
+
+    /// <summary>Decision-graph envelope (GetSessionDecisionGraph).</summary>
+    // Declaration order == wire order.
+    public class GetSessionDecisionGraphResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public bool Truncated { get; set; }
+        public DecisionGraphProjection Graph { get; set; } = default!;
+    }
+
+    /// <summary>Cross-tenant listing of sessions in a cascade-deletion state (GetSessionDeletionsList).</summary>
+    // Declaration order == wire order.
+    public class GetSessionDeletionsListResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string State { get; set; } = default!;
+        /// <summary>Echo of the request filter; absent unless the caller passed it.</summary>
+        public int? StrandedSinceMinutes { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<SessionDeletionListItem> Sessions { get; set; } = default!;
+    }
+
+    /// <summary>One session row in a cascade-deletion state (GetSessionDeletionsList).</summary>
+    // Declaration order == wire order.
+    public class SessionDeletionListItem
+    {
+        public string TenantId { get; set; } = default!;
+        public string SessionId { get; set; } = default!;
+        public string DeletionState { get; set; } = default!;
+        public string ManifestId { get; set; } = default!;
+        /// <summary>Row timestamp, pre-formatted round-trip ("o").</summary>
+        public string Timestamp { get; set; } = default!;
+        public int AgeMinutes { get; set; }
+    }
+
+    /// <summary>Per-tenant deletion-manifest tree envelope (GetTenantDeletionManifests).</summary>
+    // Declaration order == wire order.
+    public class GetTenantDeletionManifestsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string TenantId { get; set; } = default!;
+        /// <summary>Echo of the optional sessionId filter; absent when not passed.</summary>
+        public string? SessionFilter { get; set; }
+        public int SessionCount { get; set; }
+        public int ManifestCount { get; set; }
+        public IReadOnlyList<TenantDeletionManifestSessionNode> Sessions { get; set; } = default!;
+    }
+
+    /// <summary>One session grouping in the deletion-manifest tree (GetTenantDeletionManifests).</summary>
+    // Declaration order == wire order.
+    public class TenantDeletionManifestSessionNode
+    {
+        public string SessionId { get; set; } = default!;
+        public int ManifestCount { get; set; }
+        /// <summary>Newest manifest timestamp under this session, pre-formatted round-trip ("o").</summary>
+        public string LatestManifestUtc { get; set; } = default!;
+        public IReadOnlyList<TenantDeletionManifestItem> Manifests { get; set; } = default!;
+    }
+
+    /// <summary>One manifest blob under a session (GetTenantDeletionManifests).</summary>
+    // Declaration order == wire order.
+    public class TenantDeletionManifestItem
+    {
+        public string ManifestId { get; set; } = default!;
+        public long SizeBytes { get; set; }
+        /// <summary>Blob last-modified, pre-formatted round-trip ("o").</summary>
+        public string LastModifiedUtc { get; set; } = default!;
+    }
+
+    /// <summary>Tenants that have at least one deletion-manifest blob (GetTenantsWithDeletionManifests).</summary>
+    // Declaration order == wire order.
+    public class GetTenantsWithDeletionManifestsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<string> TenantIds { get; set; } = default!;
+    }
+
+    /// <summary>Typeahead quick-search envelope (QuickSearchSessions).</summary>
+    // Declaration order == wire order.
+    public class QuickSearchSessionsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public IReadOnlyList<QuickSearchResult> Results { get; set; } = default!;
+    }
+
+    /// <summary>Dry-run cascade-delete preview envelope (GetSessionDeletePreview, mode=summary).</summary>
+    // Declaration order == wire order.
+    public class GetSessionDeletePreviewResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>Always <c>"summary"</c> — full/download modes bypass the JSON envelope.</summary>
+        public string Mode { get; set; } = default!;
+        /// <summary>Operator hint when a cascade is already in flight; absent otherwise.</summary>
+        public string? InFlightHint { get; set; }
+        public Dictionary<string, int> PreflightCounts { get; set; } = default!;
+        /// <summary>Up to five sample row keys per table/step.</summary>
+        public Dictionary<string, List<DeletionRowKeySample>> SampleKeys { get; set; } = default!;
+        public long EstimatedRowCount { get; set; }
+        /// <summary>-1 when the size estimation itself failed.</summary>
+        public long EstimatedSnapshotBytes { get; set; }
+        public long BuilderDurationMs { get; set; }
+        public string SchemaHash { get; set; } = default!;
+        public string ManifestId { get; set; } = default!;
+    }
+
+    /// <summary>One sampled table row key (delete preview / stored manifest summary).</summary>
+    // Declaration order == wire order.
+    public class DeletionRowKeySample
+    {
+        public string Pk { get; set; } = default!;
+        public string Rk { get; set; } = default!;
+    }
+
+    /// <summary>Stored cascade-delete snapshot summary envelope (GetSessionDeletionManifest, mode=summary).</summary>
+    // Declaration order == wire order.
+    public class GetSessionDeletionManifestResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>Always <c>"summary"</c> — full/download modes bypass the JSON envelope.</summary>
+        public string Mode { get; set; } = default!;
+        /// <summary>Always <c>"stored"</c> (vs the delete-preview's freshly built manifest).</summary>
+        public string Source { get; set; } = default!;
+        public string ManifestId { get; set; } = default!;
+        public string SchemaHash { get; set; } = default!;
+        public string SnapshotSha256 { get; set; } = default!;
+        public long EstimatedRowCount { get; set; }
+        public long EstimatedSnapshotBytes { get; set; }
+        public Dictionary<string, int> PreflightCounts { get; set; } = default!;
+        /// <summary>Up to five sample row keys per table/step.</summary>
+        public Dictionary<string, List<DeletionRowKeySample>> SampleKeys { get; set; } = default!;
+        /// <summary>Absent while no progress blob exists yet (Preparing phase) or it could not be read.</summary>
+        public SessionDeletionProgressWire? Progress { get; set; }
+    }
+
+    /// <summary>Worker progress projection nested in <see cref="GetSessionDeletionManifestResponse"/>.</summary>
+    // Declaration order == wire order.
+    public class SessionDeletionProgressWire
+    {
+        public string SnapshotSha256 { get; set; } = default!;
+        public HashSet<int> CompletedStepOrders { get; set; } = default!;
+        public bool VerificationDone { get; set; }
+        public bool TombstoneStarted { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public int AggregateDecrementsApplied { get; set; }
+        public int RestoreReIncrementsApplied { get; set; }
+        public string? LastFailureType { get; set; }
+        public string? LastFailureMessage { get; set; }
+        /// <summary>The verifier's OBSERVED residual count, capped at the sample size (lower bound at the cap).</summary>
+        public int? LastObservedResidualCount { get; set; }
+        public string? LastResidualSampleJson { get; set; }
+    }
+
+    /// <summary>Server-action queue acknowledgement (QueueSessionAction, 202 Accepted).</summary>
+    // Declaration order == wire order.
+    public class QueueSessionActionResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = default!;
+        /// <summary>Server-stamped enqueue time (UTC).</summary>
+        public DateTime QueuedAt { get; set; }
     }
 }

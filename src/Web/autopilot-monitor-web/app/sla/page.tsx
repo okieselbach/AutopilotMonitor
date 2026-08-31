@@ -55,18 +55,10 @@ interface SlaWeeklyTrend {
   appInstallTargetMet: boolean;
 }
 
-interface SlaViolatorSession {
-  sessionId: string;
-  tenantId: string;
-  deviceName: string;
-  serialNumber: string;
-  startedAt: string;
-  completedAt: string | null;
-  durationSeconds: number | null;
-  status: number;
-  failureReason: string | null;
-  violationType: string;
-}
+// Wire type of the SLA endpoint — note status is a NUMBER there (the C# SessionStatus
+// enum serialized as int; rendered via statusLabels below), unlike the string status
+// on SessionSummary.
+import type { SlaViolatorSession } from "@/utils/wire-types.generated";
 
 interface TopFailingApp {
   appName: string;

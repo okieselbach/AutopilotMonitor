@@ -138,7 +138,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     _logger.LogInformation(
                         "Annotation cleared for session {SessionId} lane {Lane} by {User}",
                         sessionId, normalizedLane, userIdentifier);
-                    return await req.OkAsync(new { success = true, deleted = true });
+                    return await req.OkAsync(new UpsertSessionAnnotationDeletedResponse { Success = true, Deleted = true });
                 }
 
                 var existing = await _annotationRepo.GetAsync(effectiveTenantId, sessionId, normalizedLane);
@@ -166,10 +166,10 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     "Annotation saved for session {SessionId} lane {Lane} by {User} (verdict={Verdict})",
                     sessionId, normalizedLane, userIdentifier, verdict ?? "none");
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new UpsertSessionAnnotationResponse
                 {
-                    success = true,
-                    annotation = AnnotationWire.ToWire(annotation),
+                    Success = true,
+                    Annotation = AnnotationWire.ToWire(annotation),
                 });
             }
             catch (Exception ex)

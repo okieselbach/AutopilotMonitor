@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -100,12 +101,12 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new MaintenanceJobRunResponse
                 {
-                    success = true,
-                    result,
-                    triggeredBy = userEmail,
-                    triggeredAt = DateTime.UtcNow,
+                    Success = true,
+                    Result = result,
+                    TriggeredBy = userEmail,
+                    TriggeredAt = DateTime.UtcNow,
                 });
                 return response;
             }

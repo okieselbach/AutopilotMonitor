@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Notifications;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -85,11 +86,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     channel.Url, (WebhookProviderType)channel.ProviderType, testAlert, channel.GetCustomHeaders(), channel.GetSigningSecret());
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new
+                await response.WriteAsJsonAsync(new TestWebhookNotificationResponse
                 {
-                    success = result.Success,
-                    statusCode = result.StatusCode,
-                    message = result.Message
+                    Success = result.Success,
+                    StatusCode = result.StatusCode,
+                    Message = result.Message
                 });
                 return response;
             }

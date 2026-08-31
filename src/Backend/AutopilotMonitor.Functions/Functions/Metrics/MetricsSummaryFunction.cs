@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,7 @@ public class MetricsSummaryFunction
             var summary = await _metricsRepo.GetMetricsSummaryAsync(tenantId, days);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, summary, windowDays = days });
+            await response.WriteAsJsonAsync(new MetricsSummaryResponse { Success = true, Summary = summary, WindowDays = days });
             return response;
         }
         catch (Exception ex)
@@ -66,7 +67,7 @@ public class MetricsSummaryFunction
                 days);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new { success = true, summary, windowDays = days });
+            await response.WriteAsJsonAsync(new MetricsSummaryResponse { Success = true, Summary = summary, WindowDays = days });
             return response;
         }
         catch (Exception ex)

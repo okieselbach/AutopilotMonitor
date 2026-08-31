@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { groupEventsByPhase } from "../../app/sessions/utils/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
+import { makeEvent as makeWireEvent } from "@/test/factories";
 
 /**
  * Pins the P13 guardrail: the timeline orders by SEQUENCE, never by time. Sequence is a
@@ -15,17 +16,15 @@ const PHASE_NAMES: Record<number, string> = { 0: "Unknown", 1: "Start" };
 const PHASE_ORDER = ["Start"];
 
 function makeEvent(sequence: number, timestamp: string, phase = 0): EnrollmentEvent {
-  return {
+  return makeWireEvent({
     eventId: `evt-${sequence}`,
     sessionId: "s",
     timestamp,
     eventType: "status_update",
-    severity: "Info",
     source: "DecisionEngine",
     phase,
-    message: "",
     sequence,
-  };
+  });
 }
 
 describe("groupEventsByPhase ordering", () => {

@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -122,7 +123,7 @@ public class TenantAdminManagementFunction
         _logger.LogInformation($"Tenant member added: {body.Upn} with role {role} to tenant {requestCtx.TargetTenantId} by {upn}");
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { admin = newAdmin });
+        await response.WriteAsJsonAsync(new TenantAdminCreatedResponse { Admin = newAdmin });
         return response;
     }
 

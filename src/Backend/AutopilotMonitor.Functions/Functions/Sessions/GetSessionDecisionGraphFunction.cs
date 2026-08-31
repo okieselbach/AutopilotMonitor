@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -62,11 +63,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                 var projection = DecisionGraphBuilder.Build(effectiveTenantId, sessionId, transitions);
 
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetSessionDecisionGraphResponse
                 {
-                    success = true,
-                    truncated = transitions.Count >= MaxTransitionsToLoad,
-                    graph = projection,
+                    Success = true,
+                    Truncated = transitions.Count >= MaxTransitionsToLoad,
+                    Graph = projection,
                 });
             }
             catch (Exception ex)

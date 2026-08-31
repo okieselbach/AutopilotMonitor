@@ -4,6 +4,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -44,11 +45,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var tenantIds = await _blob.ListTenantsWithDeletionManifestsAsync(
                     req.FunctionContext.CancellationToken);
                 var sorted = tenantIds.OrderBy(t => t, StringComparer.Ordinal).ToList();
-                return await req.OkAsync(new
+                return await req.OkAsync(new GetTenantsWithDeletionManifestsResponse
                 {
-                    success = true,
-                    count = sorted.Count,
-                    tenantIds = sorted,
+                    Success = true,
+                    Count = sorted.Count,
+                    TenantIds = sorted,
                 });
             }
             catch (Exception ex)

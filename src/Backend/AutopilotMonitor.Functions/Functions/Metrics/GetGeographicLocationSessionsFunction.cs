@@ -82,12 +82,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 if (full)
                 {
-                    await response.WriteAsJsonAsync(new { success = true, sessions = rows, totalCount = rows.Count });
+                    await response.WriteAsJsonAsync(new GeographicLocationSessionsResponse { Success = true, Sessions = rows, TotalCount = rows.Count });
                 }
                 else
                 {
                     var lean = rows.Select(ToLeanRow).ToList();
-                    await response.WriteAsJsonAsync(new { success = true, sessions = lean, totalCount = lean.Count });
+                    await response.WriteAsJsonAsync(new GeographicLocationSessionsLeanResponse { Success = true, Sessions = lean, TotalCount = lean.Count });
                 }
                 return response;
             }
@@ -155,25 +155,25 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         /// the full <see cref="LocationSessionRow"/>. Callers needing the full shape
         /// pass <c>?full=1</c>.
         /// </summary>
-        internal static object ToLeanRow(LocationSessionRow r) => new
+        internal static LocationSessionLeanRow ToLeanRow(LocationSessionRow r) => new LocationSessionLeanRow
         {
-            sessionId = r.SessionId,
-            tenantId = r.TenantId,
-            serialNumber = r.SerialNumber,
-            deviceName = r.DeviceName,
-            manufacturer = r.Manufacturer,
-            model = r.Model,
-            startedAt = r.StartedAt,
-            completedAt = r.CompletedAt,
-            status = r.Status,
-            failureReason = r.FailureReason,
-            durationSeconds = r.DurationSeconds,
-            enrollmentType = r.EnrollmentType,
-            geoCountry = r.GeoCountry,
-            geoCity = r.GeoCity,
-            totalAppCount = r.TotalAppCount,
-            hasDoTelemetry = r.HasDoTelemetry,
-            doPercentPeerCaching = r.DoPercentPeerCaching,
+            SessionId = r.SessionId,
+            TenantId = r.TenantId,
+            SerialNumber = r.SerialNumber,
+            DeviceName = r.DeviceName,
+            Manufacturer = r.Manufacturer,
+            Model = r.Model,
+            StartedAt = r.StartedAt,
+            CompletedAt = r.CompletedAt,
+            Status = r.Status,
+            FailureReason = r.FailureReason,
+            DurationSeconds = r.DurationSeconds,
+            EnrollmentType = r.EnrollmentType,
+            GeoCountry = r.GeoCountry,
+            GeoCity = r.GeoCity,
+            TotalAppCount = r.TotalAppCount,
+            HasDoTelemetry = r.HasDoTelemetry,
+            DoPercentPeerCaching = r.DoPercentPeerCaching,
         };
     }
 }

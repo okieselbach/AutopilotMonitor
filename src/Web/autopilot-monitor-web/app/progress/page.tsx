@@ -481,12 +481,12 @@ export default function ProgressPortalPage() {
                   <div className="bg-green-50 rounded-lg p-4 text-center">
                     <p className="text-sm text-green-700 font-medium">
                       Your device is ready to use! Total setup time:{" "}
-                      {Math.round(session.durationSeconds / 60)} minutes.
+                      {Math.round((session.durationSeconds ?? 0) / 60)} minutes.
                     </p>
                     <p className="text-xs text-green-600 mt-1">
                       Completed at{" "}
                       {new Date(
-                        new Date(session.startedAt).getTime() + session.durationSeconds * 1000
+                        new Date(session.startedAt).getTime() + (session.durationSeconds ?? 0) * 1000
                       ).toLocaleString(undefined, {
                         dateStyle: "medium",
                         timeStyle: "short",

@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -108,12 +109,12 @@ public class SearchSessionsByCveFunction
                 nextLink = SearchSessionsByCvePagination.BuildNextLink(basePath, pagination.PageSize, wireToken, query);
             }
 
-            return await req.OkAsync(new
+            return await req.OkAsync(new SessionListResponse
             {
-                success = true,
-                count = page.Items.Count,
-                sessions = page.Items,
-                nextLink,
+                Success = true,
+                Count = page.Items.Count,
+                Sessions = page.Items,
+                NextLink = nextLink,
             });
         }
         catch (Exception ex)

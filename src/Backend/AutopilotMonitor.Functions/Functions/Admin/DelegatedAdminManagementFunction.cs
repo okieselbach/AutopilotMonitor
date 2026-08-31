@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -50,7 +51,7 @@ public class DelegatedAdminManagementFunction
     {
         var assignments = await _delegatedAdminService.GetAllAsync();
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { assignments });
+        await response.WriteAsJsonAsync(new DelegatedAdminListResponse { Assignments = assignments });
         return response;
     }
 
@@ -108,7 +109,7 @@ public class DelegatedAdminManagementFunction
             entry.Upn, entry.TenantId, entry.Role, currentUpn);
 
         var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { assignment = entry });
+        await response.WriteAsJsonAsync(new DelegatedAdminGrantResponse { Assignment = entry });
         return response;
     }
 

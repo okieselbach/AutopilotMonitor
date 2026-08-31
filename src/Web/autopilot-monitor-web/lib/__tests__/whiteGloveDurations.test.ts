@@ -1,20 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { computeWhiteGloveDurations } from "../../app/sessions/utils/eventHelpers";
 import type { EnrollmentEvent } from "@/types";
+import { makeEvent } from "@/test/factories";
 
 // Fixture builder — sequence and timestamp are the only fields that matter here.
 function ev(seq: number, eventType: string, isoTs: string): EnrollmentEvent {
-  return {
+  return makeEvent({
     eventId: `e${seq}`,
     sessionId: "s1",
     timestamp: isoTs,
     eventType,
-    severity: "Info",
     source: "Agent",
-    phase: 0,
     message: eventType,
     sequence: seq,
-  };
+  });
 }
 
 describe("computeWhiteGloveDurations", () => {

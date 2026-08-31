@@ -80,11 +80,11 @@ public class ProgressPortalFunction
             var match = FindBestMatch(page.Items, search, allowSubstring: requestCtx.IsTenantMemberOrGlobalAdmin());
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new ProgressLookupSessionResponse
             {
-                success = true,
-                found = match != null,
-                session = match
+                Success = true,
+                Found = match != null,
+                Session = match
             });
             return response;
         }
@@ -224,12 +224,12 @@ public class ProgressPortalFunction
             var events = await _sessionRepo.GetSessionEventsAsync(requestedTenantId, sessionId);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new
+            await response.WriteAsJsonAsync(new ProgressGetSessionEventsResponse
             {
-                success = true,
-                sessionId = sessionId,
-                count = events.Count,
-                events = events
+                Success = true,
+                SessionId = sessionId,
+                Count = events.Count,
+                Events = events
             });
             return response;
         }
