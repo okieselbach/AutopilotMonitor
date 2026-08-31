@@ -143,23 +143,19 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Per-tenant session-status tally envelope shared by MetricsSummary and
-    /// MetricsSummaryGlobal. <see cref="Summary"/> items are repository-built rows shaped
-    /// like <see cref="MetricsSummaryTenantItem"/>.
+    /// MetricsSummaryGlobal.
     /// </summary>
     // Declaration order == wire order.
     public class MetricsSummaryResponse : IApiResponse
     {
         public bool Success { get; set; }
-
-        [ProjectedItems(typeof(MetricsSummaryTenantItem))]
-        public IReadOnlyList<object> Summary { get; set; } = default!;
-
+        public IReadOnlyList<MetricsSummaryTenantItem> Summary { get; set; } = default!;
         public int WindowDays { get; set; }
     }
 
     /// <summary>
-    /// Wire shape of one per-tenant status tally in <see cref="MetricsSummaryResponse"/>
-    /// (documentation type — the repository still builds the rows; every key is always present).
+    /// One per-tenant status tally in <see cref="MetricsSummaryResponse"/>. WindowDays is
+    /// repeated per item (envelope carries it too — historical wire shape, kept for parity).
     /// </summary>
     // Declaration order == wire order.
     public class MetricsSummaryTenantItem

@@ -203,38 +203,23 @@ public class McpUserFunction
         var result = await _mcpUserService.IsAllowedAsync(upn, principal?.GetTenantId(), principal?.GetObjectId());
 
         var response = req.CreateResponse(result.IsAllowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
-        var payload = new Dictionary<string, object?>
+        // Only surface platform-role flags when the caller actually has one (null ⇒ key omitted).
+        // A normal tenant user gets neither field: the MCP access-guard reads `globalRole` to decide
+        // cross-tenant routing (and keeps reading `isGlobalAdmin === true` for back-compat /
+        // write-tier hints), and we avoid hinting to ordinary callers that a platform tier even
+        // exists. delegatedTenantIds bounds cross-tenant routing (/api/global/*?tenantId=<managed>)
+        // to exactly these tenants and is only emitted for a caller holding a delegated assignment.
+        await response.WriteAsJsonAsync(new CheckMcpAccessResponse
         {
-            ["allowed"] = result.IsAllowed,
-            ["upn"] = result.Upn,
-            ["accessGrant"] = result.AccessGrant,
-            ["reason"] = result.Reason,
-        };
-        // Only surface platform-role flags when the caller actually has one. A normal tenant user gets
-        // neither field: the MCP access-guard reads `globalRole` to decide cross-tenant routing (and
-        // keeps reading `isGlobalAdmin === true` for back-compat / write-tier hints), and we avoid
-        // hinting to ordinary callers that a platform tier even exists.
-        if (result.IsGlobalAdmin)
-        {
-            payload["isGlobalAdmin"] = true;
-        }
-        if (!string.IsNullOrEmpty(result.GlobalRole))
-        {
-            payload["globalRole"] = result.GlobalRole; // "GlobalAdmin" | "GlobalReader"
-        }
-        // Delegated (scoped-global / MSP) scope, when present. The MCP access-guard reads
-        // delegatedTenantIds to route the caller cross-tenant (/api/global/*?tenantId=<managed>) bounded to
-        // exactly these tenants, and to reject any tool call that does not name one of them. Only emitted
-        // for a caller that actually holds a delegated assignment — ordinary tenant users get neither field.
-        if (result.DelegatedTenantIds is { Count: > 0 })
-        {
-            payload["delegatedTenantIds"] = result.DelegatedTenantIds; // string[] (lowercase)
-        }
-        if (!string.IsNullOrEmpty(result.DelegatedRole))
-        {
-            payload["delegatedRole"] = result.DelegatedRole; // "DelegatedAdmin" | "DelegatedReader"
-        }
-        await response.WriteAsJsonAsync(payload);
+            Allowed = result.IsAllowed,
+            Upn = result.Upn,
+            AccessGrant = result.AccessGrant,
+            Reason = result.Reason,
+            IsGlobalAdmin = result.IsGlobalAdmin ? true : null,
+            GlobalRole = string.IsNullOrEmpty(result.GlobalRole) ? null : result.GlobalRole,
+            DelegatedTenantIds = result.DelegatedTenantIds is { Count: > 0 } ? result.DelegatedTenantIds : null,
+            DelegatedRole = string.IsNullOrEmpty(result.DelegatedRole) ? null : result.DelegatedRole,
+        });
         return response;
     }
 }

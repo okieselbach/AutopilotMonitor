@@ -1,5 +1,9 @@
 # Log
 
+## 2026-08-31 (2)
+
+* **Update**: `drift-guards.md` — typisierung follow-up: the deliberately-untyped remainder (RuleDryRun trace, HealthCheck, GlobalNotificationDto, TenantConfigFieldSchema, maintenance run reports, MetricsSummary items, auth/me, auth/mcp) is typed end-to-end; a new object-slot reflection ratchet in `TypedResponseGuardTests` closes the class (baseline: `RuleDryRunCondition.Evidence` only). Deliberate wire change: global-admins / tenant-admins / preview-whitelist rows are flat read models (`GlobalAdminRow` / `TenantAdminRow` / `PreviewWhitelistTenantEntry`) without partitionKey/rowKey/eTag/timestamp, pinned by exact-JSON shape tests.
+
 ## 2026-08-31 (1)
 
 * **Update**: `drift-guards.md` — the shrink-only OkAsync baseline became the typed API contract (`feat/typed-api-contract`): all 175 anonymous success bodies (44 helper + 134 raw minus overlaps already typed) are flat `IApiResponse` DTOs in Shared, both `TypedResponseGuardTests` baselines are empty regression guards, the untyped `OkAsync/CreatedAsync(object)` overloads are gone, and every migrated site carries an ordinal wire-parity proof. `SharedManifestParityTests` schemaVersion 2 exports the full type graph (208 types incl. `[WireContract]` extras) with C# `<summary>` JSDoc into `utils/wire-types.generated.ts`; web hand-types re-export from it; freshness pinned by vitest + the new `shared-manifests-in-sync` CI job.

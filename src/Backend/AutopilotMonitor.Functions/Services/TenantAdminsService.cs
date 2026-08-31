@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -83,7 +84,7 @@ public class TenantAdminsService
     /// <param name="tenantId">Tenant ID</param>
     /// <param name="upn">User Principal Name</param>
     /// <param name="addedBy">UPN of the admin who is adding this user</param>
-    public virtual async Task<TenantAdminEntity> AddTenantAdminAsync(string tenantId, string upn, string addedBy)
+    public virtual async Task<TenantAdminRow> AddTenantAdminAsync(string tenantId, string upn, string addedBy)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
@@ -95,10 +96,8 @@ public class TenantAdminsService
 
         _logger.LogInformation($"Added Tenant Admin: {upn} to tenant {tenantId} by {addedBy}");
 
-        return new TenantAdminEntity
+        return new TenantAdminRow
         {
-            PartitionKey = tenantId,
-            RowKey = upn,
             TenantId = tenantId,
             Upn = upn,
             IsEnabled = true,
@@ -155,7 +154,7 @@ public class TenantAdminsService
     /// <summary>
     /// Gets all Tenant Admins for a specific tenant
     /// </summary>
-    public virtual async Task<List<TenantAdminEntity>> GetTenantAdminsAsync(string tenantId)
+    public virtual async Task<List<TenantAdminRow>> GetTenantAdminsAsync(string tenantId)
     {
         SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
 
@@ -165,10 +164,8 @@ public class TenantAdminsService
 
         _logger.LogInformation($"Retrieved {members.Count} Tenant Admins for tenant {tenantId}");
 
-        return members.Select(m => new TenantAdminEntity
+        return members.Select(m => new TenantAdminRow
         {
-            PartitionKey = m.TenantId,
-            RowKey = m.Upn,
             TenantId = m.TenantId,
             Upn = m.Upn,
             IsEnabled = m.IsEnabled,
@@ -255,7 +252,7 @@ public class TenantAdminsService
     /// <summary>
     /// Adds a tenant member with a specific role.
     /// </summary>
-    public async Task<TenantAdminEntity> AddTenantMemberAsync(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens = false)
+    public async Task<TenantAdminRow> AddTenantMemberAsync(string tenantId, string upn, string addedBy, string role, bool canManageBootstrapTokens = false)
     {
         tenantId = tenantId.ToLowerInvariant();
         upn = upn.ToLowerInvariant();
@@ -267,10 +264,8 @@ public class TenantAdminsService
 
         _logger.LogInformation("Added tenant member: {Upn} with role {Role} to tenant {TenantId} by {AddedBy}", upn, role, tenantId, addedBy);
 
-        return new TenantAdminEntity
+        return new TenantAdminRow
         {
-            PartitionKey = tenantId,
-            RowKey = upn,
             TenantId = tenantId,
             Upn = upn,
             IsEnabled = true,

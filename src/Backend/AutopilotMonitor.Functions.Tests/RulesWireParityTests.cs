@@ -302,24 +302,29 @@ public class RulesWireParityTests
     }
 
     // ---- GetPreviewWhitelist -------------------------------------------------------------
+    // DELIBERATE wire change (2026-08-31 entity-hygiene pass): rows carried the tenant id only
+    // in partitionKey plus garbage entity defaults; the contract is now { tenantId } per row.
 
     [Fact]
-    public void GetPreviewWhitelistResponse_matches_the_approved_tenant_listing_shape()
+    public void GetPreviewWhitelistResponse_pins_the_approved_tenant_listing_shape()
     {
-        var approved = new List<PreviewWhitelistEntity>
+        var approved = new List<PreviewWhitelistTenantEntry>
         {
-            new PreviewWhitelistEntity
-            {
-                PartitionKey = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d",
-                RowKey = "approved",
-                ApprovedAt = new DateTime(2026, 8, 30, 9, 30, 0, DateTimeKind.Utc),
-                ApprovedBy = "admin@contoso.com",
-            },
+            new PreviewWhitelistTenantEntry { TenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d" },
+            new PreviewWhitelistTenantEntry { TenantId = "7b7b46b3-40c3-4f2f-9a1b-6d9f1a2b3c4e" },
         };
 
-        AssertParity(
-            new { tenants = approved },
-            new GetPreviewWhitelistResponse { Tenants = approved });
+        var json = TestWire.Serialize(new GetPreviewWhitelistResponse { Tenants = approved });
+        Assert.Equal(
+            "{\"tenants\":["
+            + "{\"tenantId\":\"6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d\"},"
+            + "{\"tenantId\":\"7b7b46b3-40c3-4f2f-9a1b-6d9f1a2b3c4e\"}"
+            + "]}",
+            json);
+        Assert.DoesNotContain("partitionKey", json);
+        Assert.DoesNotContain("rowKey", json);
+        Assert.DoesNotContain("eTag", json);
+        Assert.DoesNotContain("approvedAt", json);
     }
 
     // ---- GetPreviewNotificationEmail -----------------------------------------------------

@@ -17,9 +17,9 @@ export interface ActiveUserItem {
   secondsAgo: number;
 }
 
-/** Response of POST auth/global-admins (201): the created GlobalAdminEntity (backend-project type, serialized by runtime type). */
+/** Response of POST auth/global-admins (201): the created row. */
 export interface AddGlobalAdminResponse {
-  admin: unknown;
+  admin: GlobalAdminRow;
 }
 
 /** Response of POST vulnerability/ignored-software: how many entries were added. */
@@ -540,6 +540,29 @@ export interface AuditLogListResponse {
   nextLink?: string;
 }
 
+/** Success body of GET auth/me: the caller's resolved identity, roles and effective entitlement flags. Blocked outcomes (TenantSuspended / PendingActivation) are error shapes and stay anonymous by design. */
+export interface AuthMeResponse {
+  tenantId: string;
+  upn: string;
+  displayName: string;
+  objectId: string;
+  isGlobalAdmin: boolean;
+  isGlobalReader: boolean;
+  isTenantAdmin: boolean;
+  /** True when the caller holds delegated ("MSP") assignments to other tenants. */
+  isDelegated: boolean;
+  /** The OTHER tenants this caller may manage; empty for non-delegated callers. */
+  delegatedTenantIds: string[];
+  /** Tenant role (Admin / Operator / Viewer); the key is omitted for a roleless caller. */
+  role?: string;
+  canManageBootstrapTokens: boolean;
+  hasMcpAccess: boolean;
+  /** "primary" or "legacy" — which app registration this tenant is homed on. */
+  homedApp: string;
+  bootstrapTokenEnabled: boolean;
+  unrestrictedModeEnabled: boolean;
+}
+
 /** Response of POST vulnerability/cpe-mapping/auto-resolve: per-item outcomes plus totals. */
 export interface AutoResolveCpeMappingResponse {
   resolved: AutoResolveResultItem[];
@@ -586,6 +609,35 @@ export interface AutopilotConsentUrlResponse {
   consentUrl: string;
   /** True when the self-service app-homing funnel targeted the primary app registration. */
   willAutoFlipHoming: boolean;
+}
+
+/** Response of POST maintenance/backfill-occurred-utc: the backfill run report plus trigger attribution. Key layout is identical to ReclassifyJobRunResponse — the two one-shot job triggers share one wire shape, split into two classes only for the typed slot. */
+export interface BackfillJobRunResponse {
+  success: boolean;
+  result: BackfillResult;
+  triggeredBy: string;
+  triggeredAt: string;
+}
+
+/** Run report of the one-shot OccurredUtc backfill (POST maintenance/backfill-occurred-utc). */
+export interface BackfillResult {
+  table: string;
+  dryRun: boolean;
+  rowsExamined: number;
+  wouldWrite: number;
+  written: number;
+  skippedAlreadySet: number;
+  skippedUndecodable: number;
+  errors: number;
+  nextContinuation?: string;
+  samples: BackfillSample[];
+}
+
+/** One sampled row of a backfill run. PartitionKey/RowKey are PAYLOAD here — they identify the sampled storage row in a Global-Admin-only run report, not ITableEntity metadata. */
+export interface BackfillSample {
+  partitionKey: string;
+  rowKey: string;
+  decodedUtc: string;
 }
 
 /** Response of POST devices/block: block/kill acknowledgement. */
@@ -646,6 +698,22 @@ export interface BlockingAppInterval {
   startUtc: string;
   endUtc: string;
   seconds: number;
+}
+
+/** Body of GET auth/mcp (200 when allowed, 403 when denied — same shape on both). The four platform/delegated keys are emitted ONLY when the caller actually holds the tier (null ⇒ key omitted): ordinary tenant users must not learn a platform tier exists, and IsGlobalAdmin is only ever emitted as literal true. */
+export interface CheckMcpAccessResponse {
+  allowed: boolean;
+  upn: string;
+  accessGrant: string;
+  reason: string;
+  /** Back-compat / write-tier hint for the MCP access-guard; true or omitted, never false. */
+  isGlobalAdmin?: boolean;
+  /** "GlobalAdmin" | "GlobalReader"; omitted without a platform role. */
+  globalRole?: string;
+  /** Managed tenant ids (lowercase) of a delegated (MSP) caller; omitted otherwise. */
+  delegatedTenantIds?: string[];
+  /** "DelegatedAdmin" | "DelegatedReader"; omitted without delegated scope. */
+  delegatedRole?: string;
 }
 
 /** A factor that increases confidence when matched */
@@ -851,12 +919,12 @@ export interface DeploymentTypeMetrics {
   whiteGlovePercentage: number;
 }
 
-/** Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Items are HealthCheck objects (backend-project type, serialized by runtime type); non-GA callers get a filtered list. */
+/** Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Non-GA callers get a filtered check list. */
 export interface DetailedHealthCheckResponse {
   service: string;
   timestamp: string;
   overallStatus: string;
-  checks: unknown[];
+  checks: HealthCheck[];
   version: string;
   commitHash: string;
   buildUtc: string;
@@ -1062,8 +1130,8 @@ export interface DistressReportListResponse {
 export interface DryRunAnalyzeRuleResponse {
   success: boolean;
   sessionId: string;
-  /** The RuleDryRun trace (AutopilotMonitor.Functions.Services) — typed object here only because that class lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged. */
-  result: unknown;
+  /** The full diagnostic trace of the evaluation. */
+  result: RuleDryRun;
 }
 
 export interface EfficiencyOffender {
@@ -1393,9 +1461,9 @@ export interface GetDeviceHistoryResponse {
   attemptNumber?: number;
 }
 
-/** Response of GET auth/global-admins: every Global Admin/Reader row. Items are GlobalAdminEntity table entities (backend-project type, serialized by runtime type — includes the ITableEntity keys, exactly as the anonymous site did). */
+/** Response of GET auth/global-admins: every Global Admin/Reader row. */
 export interface GetGlobalAdminsResponse {
-  admins: unknown[];
+  admins: GlobalAdminRow[];
 }
 
 /** Global daily MCP/API usage summaries envelope (GetGlobalMcpUsageDaily). The MCP server paginates over the summaries key — its name is wire-critical. */
@@ -1485,8 +1553,7 @@ export interface GetPreviewNotificationEmailResponse {
 
 /** Response of GET preview/whitelist: every approved tenant (Global Admin only). */
 export interface GetPreviewWhitelistResponse {
-  /** PreviewWhitelistEntity rows (AutopilotMonitor.Functions.DataAccess.TableStorage) — element-typed object here only because that entity lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged. */
-  tenants: unknown[];
+  tenants: PreviewWhitelistTenantEntry[];
 }
 
 /** Session ids where a rule produced a result within the window (GetRuleHitSessions) — powers the dashboard's ?ruleId= deep link. */
@@ -1632,8 +1699,7 @@ export interface GetSessionTimeAttributionResponse {
 export interface GetTenantConfigFieldsSchemaResponse {
   count: number;
   writableCount: number;
-  /** Schema entries (TenantConfigFieldSchema records, defined in the Functions project — typed as object here because Shared cannot reference it). */
-  fields: unknown[];
+  fields: TenantConfigFieldSchema[];
 }
 
 /** Per-tenant deletion-manifest tree envelope (GetTenantDeletionManifests). */
@@ -1694,6 +1760,17 @@ export interface GetVulnerabilitySyncStatusResponse {
   epssLastRun?: EpssRefreshRunWire;
 }
 
+/** One Global Admin/Reader row on the wire. Deliberately NOT the storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the pre-2026-08-31 wire carried are storage internals and were dropped from the contract (no consumer read them). */
+export interface GlobalAdminRow {
+  /** User Principal Name (lowercase). */
+  upn: string;
+  isEnabled: boolean;
+  addedDate: string;
+  addedBy: string;
+  /** "GlobalAdmin" or "GlobalReader" (legacy empty rows are normalized to GlobalAdmin). */
+  role: string;
+}
+
 /** Global average benchmarks for geographic comparison. */
 export interface GlobalAverages {
   avgDurationMinutes: number;
@@ -1711,6 +1788,16 @@ export interface GlobalAverages {
   totalDoBytesFromPeers: number;
   /** Total HTTP bytes across all locations with DO data */
   totalDoBytesFromHttp: number;
+}
+
+/** One in-app notification (global pool or tenant-scoped; both endpoints share this DTO). A null Href key is omitted (WhenWritingNull). */
+export interface GlobalNotificationDto {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  href?: string;
+  createdAt: string;
 }
 
 /** One feature row of the graph-permissions status matrix: the feature identifier, the granted verdict (null while the snapshot is transient) and the Graph application permissions the feature requires. */
@@ -1751,6 +1838,15 @@ export interface HardwareRejectedResponse {
   /** Count of raw HardwareNotAllowed distress reports before aggregation. */
   totalRawReports: number;
   dataQualityNotice: string;
+}
+
+/** One health check result inside GET health/detailed / health/mcp. Details is a heterogeneous per-check bag by design (endpoint URLs only for Global Admins); a null Details key is omitted (WhenWritingNull). */
+export interface HealthCheck {
+  name: string;
+  description: string;
+  status: string;
+  message: string;
+  details?: Record<string, unknown>;
 }
 
 /** Response of GET health: liveness probe plus the backend build identity. */
@@ -2100,19 +2196,26 @@ export interface LogPatternTestResult {
   readonly notes: string[];
 }
 
-/** Shared response of the one-shot maintenance job triggers (POST maintenance/backfill-occurred-utc, POST maintenance/reclassify-legacy): the service's run report plus trigger attribution. */
-export interface MaintenanceJobRunResponse {
+/** Run report of a manual maintenance run (POST maintenance/trigger). */
+export interface MaintenanceResult {
   success: boolean;
-  /** The service-specific run report (BackfillResult / ReclassificationResult — types owned by the Functions project, so this stays object; serialized by runtime type, wire-identical). */
-  result: unknown;
+  error?: string;
   triggeredBy: string;
   triggeredAt: string;
+  durationMs: number;
+  stalledSessionsChecked: boolean;
+  metricsAggregated: boolean;
+  aggregatedDate?: string;
+  dataCleanupExecuted: boolean;
+  platformStatsRecomputed: boolean;
+  devicesBlockedForExcessiveData: number;
+  contactEmailsBackfilled: number;
 }
 
-/** Response of GET health/mcp: the standalone MCP-server reachability probe. The check is a HealthCheck object (backend-project type, serialized by runtime type). */
+/** Response of GET health/mcp: the standalone MCP-server reachability probe. */
 export interface McpHealthCheckResponse {
   timestamp: string;
-  check: unknown;
+  check: HealthCheck;
 }
 
 /** 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted (structurally a success shape: first key is quotaExceeded). */
@@ -2147,14 +2250,14 @@ export interface McpUserEntry {
   usagePlan?: string;
 }
 
-/** Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal. Summary items are repository-built rows shaped like MetricsSummaryTenantItem. */
+/** Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal. */
 export interface MetricsSummaryResponse {
   success: boolean;
-  summary: Partial<MetricsSummaryTenantItem>[];
+  summary: MetricsSummaryTenantItem[];
   windowDays: number;
 }
 
-/** Wire shape of one per-tenant status tally in MetricsSummaryResponse (documentation type — the repository still builds the rows; every key is always present). */
+/** One per-tenant status tally in MetricsSummaryResponse. WindowDays is repeated per item (envelope carries it too — historical wire shape, kept for parity). */
 export interface MetricsSummaryTenantItem {
   tenantId: string;
   totalSessions: number;
@@ -2171,10 +2274,10 @@ export interface MetricsSummaryTenantItem {
   windowDays: number;
 }
 
-/** Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first. Items are GlobalNotificationDto objects (backend-project type, serialized by runtime type). */
+/** Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first. */
 export interface NotificationListResponse {
   success: boolean;
-  notifications: unknown[];
+  notifications: GlobalNotificationDto[];
 }
 
 /** Outcome of the last NVD stale-cache refresh walk on THIS instance (in-memory). */
@@ -2322,6 +2425,11 @@ export interface PlatformUsageMetrics {
   windowDays: number;
 }
 
+/** One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31 wire carried synthetic PreviewWhitelistEntity rows whose only real datum was the tenant id in partitionKey (plus garbage defaults) — the contract is now just the id. */
+export interface PreviewWhitelistTenantEntry {
+  tenantId: string;
+}
+
 /** Response of GET /api/progress/sessions/{sessionId}/events — the session's event stream after the serial knowledge proof passed. */
 export interface ProgressGetSessionEventsResponse {
   success: boolean;
@@ -2401,6 +2509,40 @@ export interface RebootSpan {
   seconds: number;
   /** Segment the reboot started in (TimeAttributionSegments key, or "unattributed" when it began in an unattributed hole). */
   segmentKey: string;
+}
+
+/** Run report of the legacy-session reclassification job (POST maintenance/reclassify-legacy). */
+export interface ReclassificationResult {
+  mode: string;
+  dryRun: boolean;
+  tenantsExamined: number;
+  sessionsExamined: number;
+  wouldChange: number;
+  changed: number;
+  toSucceeded: number;
+  toIncomplete: number;
+  keptFailed: number;
+  skipped: number;
+  errors: number;
+  /** True when the maxSessions cap stopped the run before the backlog was exhausted — re-run to continue. */
+  capReached: boolean;
+  readonly samples: ReclassificationSample[];
+}
+
+export interface ReclassificationSample {
+  tenantId: string;
+  sessionId: string;
+  oldStatus: string;
+  newStatus: string;
+  reason: string;
+}
+
+/** Response of POST maintenance/reclassify-legacy: the reclassification run report plus trigger attribution. See BackfillJobRunResponse for the shared key layout. */
+export interface ReclassifyJobRunResponse {
+  success: boolean;
+  result: ReclassificationResult;
+  triggeredBy: string;
+  triggeredAt: string;
 }
 
 /** Structural health report for a session's persisted SignalLog + DecisionTransitions journal. Produced by GET /api/sessions/{id}/reducer-verification (Plan §M5, admin/ops endpoint, not tenant-exposed). Scope: this report covers structural invariants that can be checked without running the reducer — ordinal contiguity, cross-references, ReducerVersion drift, counts. A full engine replay with per-step diff would require polymorphic deserialisation of the DecisionSignal.Evidence payload and is a dedicated follow-up. */
@@ -2528,6 +2670,53 @@ export interface RuleCondition {
   eventAFilterOperator: string;
   /** Value for the Event A filter. */
   eventAFilterValue: string;
+}
+
+/** Full diagnostic trace of one dry-run evaluation. Serialized camelCase to clients. */
+export interface RuleDryRun {
+  verdict: string;
+  /** Number of events in the session the rule was evaluated against. */
+  eventCount: number;
+  readonly preconditions: RuleDryRunPrecondition[];
+  readonly conditions: RuleDryRunCondition[];
+  /** Empty unless all required conditions were met (mirrors the production path, which never reaches factor evaluation otherwise). */
+  readonly confidenceFactors: RuleDryRunFactor[];
+  baseConfidence: number;
+  /** base + matched factor weights, capped at 100. Null when the evaluation ended before the confidence stage (precondition skip / required miss / nothing matched). */
+  finalConfidence?: number;
+  confidenceThreshold: number;
+  /** True only for verdict "fired" AND the rule's effective MarkSessionAsFailed flag. The dry-run itself never touches the session. */
+  wouldMarkSessionAsFailed: boolean;
+  /** The evidence map exactly as the production path would persist it on a RuleResult — keys are condition signals (plus factor_* markers). Clients use it to preview {{token}} interpolation of explanation/remediation. Values are heterogeneous evidence objects by design. */
+  matchedConditions?: Record<string, unknown>;
+}
+
+export interface RuleDryRunCondition {
+  signal: string;
+  source: string;
+  eventType?: string;
+  required: boolean;
+  matched: boolean;
+  /** Matched: the evidence dictionary (eventId, timestamp, field, value, …). Not matched: the evaluator's reason string (e.g. "no matching events"). */
+  evidence?: unknown;
+  /** How many session events have this condition's eventType at all — the first thing an author checks when a condition unexpectedly doesn't match. Null when the condition has no eventType. */
+  matchingEventCount?: number;
+}
+
+export interface RuleDryRunFactor {
+  signal: string;
+  condition: string;
+  weight: number;
+  matched: boolean;
+}
+
+export interface RuleDryRunPrecondition {
+  source: string;
+  eventType: string;
+  dataField?: string;
+  operator?: string;
+  value?: string;
+  passed: boolean;
 }
 
 /** A device-fact gate evaluated before a rule's conditions. Pure boolean filter — does not contribute to evidence or confidence. When any precondition on a rule fails, the rule is silently skipped (no result emitted). Currently only event_data source is supported. */
@@ -3223,8 +3412,22 @@ export interface TemplateVariable {
 
 /** Response of POST tenants/{tenantId}/admins: the created tenant member. */
 export interface TenantAdminCreatedResponse {
-  /** The stored TenantAdminEntity row (type owned by the Functions project, so this stays object; serialized by runtime type, wire-identical). */
-  admin: unknown;
+  admin: TenantAdminRow;
+}
+
+/** One tenant member (Admin / Operator / Viewer) on the wire — the item of the bare-array GET tenants/{tenantId}/admins and the created member of the POST. Deliberately NOT the storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the pre-2026-08-31 wire carried are storage internals and were dropped from the contract (no consumer read them). */
+export interface TenantAdminRow {
+  /** Tenant ID (lowercase). */
+  tenantId: string;
+  /** User Principal Name (lowercase). */
+  upn: string;
+  isEnabled: boolean;
+  addedDate: string;
+  addedBy: string;
+  /** Role: "Admin", "Operator", "Viewer". A null (legacy pre-role row) omits the key and means Admin. */
+  role?: string;
+  /** Whether this Operator can manage bootstrap tokens (only relevant for Operator). */
+  canManageBootstrapTokens: boolean;
 }
 
 /** One pre-write config snapshot in GET config/{tenantId}/backups — metadata only, the raw EntityJson (clear-text secrets) is never returned. */
@@ -3239,6 +3442,18 @@ export interface TenantConfigBackupItem {
   reason?: string;
   /** Masked "old → new" change summary, or null when unparseable — the key is omitted when null. */
   diff?: Record<string, string>;
+}
+
+/** One entry of the tenant-config field schema (built by TenantConfigPatchService.BuildFieldsSchema). Serialized camelCase; null Format/Reason keys are omitted (WhenWritingNull) — the null and set cases are pinned by ConfigWireParityTests. */
+export interface TenantConfigFieldSchema {
+  name: string;
+  type: string;
+  format?: string;
+  nullable: boolean;
+  writable: boolean;
+  reason?: string;
+  gaOnly: boolean;
+  revertProtected: boolean;
 }
 
 /** Success response of PATCH config/{tenantId}/fields and POST config/{tenantId}/revert (both flow through the same outcome writer): which fields changed, the masked diff, and the pre-write backup id. */
@@ -3696,8 +3911,7 @@ export interface TriggerEpssSyncResponse {
 export interface TriggerMaintenanceResponse {
   success: boolean;
   message: string;
-  /** The MaintenanceResult run report (type owned by the Functions project, so this stays object; serialized by runtime type, wire-identical). */
-  result: unknown;
+  result: MaintenanceResult;
   triggeredBy: string;
   triggeredAt: string;
 }

@@ -494,13 +494,13 @@
     },
     "AddGlobalAdminResponse": {
       "kind": "object",
-      "doc": "Response of POST auth/global-admins (201): the created GlobalAdminEntity (backend-project type, serialized by runtime type).",
+      "doc": "Response of POST auth/global-admins (201): the created row.",
       "fields": [
         {
           "name": "admin",
           "type": {
-            "kind": "primitive",
-            "name": "unknown"
+            "kind": "ref",
+            "name": "GlobalAdminRow"
           }
         }
       ]
@@ -2905,6 +2905,125 @@
         }
       ]
     },
+    "AuthMeResponse": {
+      "kind": "object",
+      "doc": "Success body of GET auth/me: the caller's resolved identity, roles and effective entitlement flags. Blocked outcomes (TenantSuspended / PendingActivation) are error shapes and stay anonymous by design.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "displayName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "isGlobalAdmin",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "isGlobalReader",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "isTenantAdmin",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "isDelegated",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the caller holds delegated (\"MSP\") assignments to other tenants."
+        },
+        {
+          "name": "delegatedTenantIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "The OTHER tenants this caller may manage; empty for non-delegated callers."
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Tenant role (Admin / Operator / Viewer); the key is omitted for a roleless caller."
+        },
+        {
+          "name": "canManageBootstrapTokens",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "hasMcpAccess",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "homedApp",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"primary\" or \"legacy\" — which app registration this tenant is homed on."
+        },
+        {
+          "name": "bootstrapTokenEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "unrestrictedModeEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
     "AutoResolveCpeMappingResponse": {
       "kind": "object",
       "doc": "Response of POST vulnerability/cpe-mapping/auto-resolve: per-item outcomes plus totals.",
@@ -3083,6 +3202,147 @@
             "name": "boolean"
           },
           "doc": "True when the self-service app-homing funnel targeted the primary app registration."
+        }
+      ]
+    },
+    "BackfillJobRunResponse": {
+      "kind": "object",
+      "doc": "Response of POST maintenance/backfill-occurred-utc: the backfill run report plus trigger attribution. Key layout is identical to ReclassifyJobRunResponse — the two one-shot job triggers share one wire shape, split into two classes only for the typed slot.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "ref",
+            "name": "BackfillResult"
+          }
+        },
+        {
+          "name": "triggeredBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "triggeredAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "BackfillResult": {
+      "kind": "object",
+      "doc": "Run report of the one-shot OccurredUtc backfill (POST maintenance/backfill-occurred-utc).",
+      "fields": [
+        {
+          "name": "table",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dryRun",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "rowsExamined",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "wouldWrite",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "written",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skippedAlreadySet",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skippedUndecodable",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "errors",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "nextContinuation",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "samples",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "BackfillSample"
+            }
+          }
+        }
+      ]
+    },
+    "BackfillSample": {
+      "kind": "object",
+      "doc": "One sampled row of a backfill run. PartitionKey/RowKey are PAYLOAD here — they identify the sampled storage row in a Global-Admin-only run report, not ITableEntity metadata.",
+      "fields": [
+        {
+          "name": "partitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "decodedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       ]
     },
@@ -3354,6 +3614,79 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "CheckMcpAccessResponse": {
+      "kind": "object",
+      "doc": "Body of GET auth/mcp (200 when allowed, 403 when denied — same shape on both). The four platform/delegated keys are emitted ONLY when the caller actually holds the tier (null ⇒ key omitted): ordinary tenant users must not learn a platform tier exists, and IsGlobalAdmin is only ever emitted as literal true.",
+      "fields": [
+        {
+          "name": "allowed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "accessGrant",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "isGlobalAdmin",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Back-compat / write-tier hint for the MCP access-guard; true or omitted, never false."
+        },
+        {
+          "name": "globalRole",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "\"GlobalAdmin\" | \"GlobalReader\"; omitted without a platform role."
+        },
+        {
+          "name": "delegatedTenantIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Managed tenant ids (lowercase) of a delegated (MSP) caller; omitted otherwise."
+        },
+        {
+          "name": "delegatedRole",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "\"DelegatedAdmin\" | \"DelegatedReader\"; omitted without delegated scope."
         }
       ]
     },
@@ -4247,7 +4580,7 @@
     },
     "DetailedHealthCheckResponse": {
       "kind": "object",
-      "doc": "Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Items are HealthCheck objects (backend-project type, serialized by runtime type); non-GA callers get a filtered list.",
+      "doc": "Response of GET health/detailed: the full system health report (always 200; per-check status is in the body). Non-GA callers get a filtered check list.",
       "fields": [
         {
           "name": "service",
@@ -4275,8 +4608,8 @@
           "type": {
             "kind": "array",
             "element": {
-              "kind": "primitive",
-              "name": "unknown"
+              "kind": "ref",
+              "name": "HealthCheck"
             }
           }
         },
@@ -5200,10 +5533,10 @@
         {
           "name": "result",
           "type": {
-            "kind": "primitive",
-            "name": "unknown"
+            "kind": "ref",
+            "name": "RuleDryRun"
           },
-          "doc": "The RuleDryRun trace (AutopilotMonitor.Functions.Services) — typed object here only because that class lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged."
+          "doc": "The full diagnostic trace of the evaluation."
         }
       ]
     },
@@ -6579,15 +6912,15 @@
     },
     "GetGlobalAdminsResponse": {
       "kind": "object",
-      "doc": "Response of GET auth/global-admins: every Global Admin/Reader row. Items are GlobalAdminEntity table entities (backend-project type, serialized by runtime type — includes the ITableEntity keys, exactly as the anonymous site did).",
+      "doc": "Response of GET auth/global-admins: every Global Admin/Reader row.",
       "fields": [
         {
           "name": "admins",
           "type": {
             "kind": "array",
             "element": {
-              "kind": "primitive",
-              "name": "unknown"
+              "kind": "ref",
+              "name": "GlobalAdminRow"
             }
           }
         }
@@ -6951,11 +7284,10 @@
           "type": {
             "kind": "array",
             "element": {
-              "kind": "primitive",
-              "name": "unknown"
+              "kind": "ref",
+              "name": "PreviewWhitelistTenantEntry"
             }
-          },
-          "doc": "PreviewWhitelistEntity rows (AutopilotMonitor.Functions.DataAccess.TableStorage) — element-typed object here only because that entity lives in the Functions assembly; System.Text.Json serializes the runtime type, so the wire shape is unchanged."
+          }
         }
       ]
     },
@@ -7599,11 +7931,10 @@
           "type": {
             "kind": "array",
             "element": {
-              "kind": "primitive",
-              "name": "unknown"
+              "kind": "ref",
+              "name": "TenantConfigFieldSchema"
             }
-          },
-          "doc": "Schema entries (TenantConfigFieldSchema records, defined in the Functions project — typed as object here because Shared cannot reference it)."
+          }
         }
       ]
     },
@@ -7877,6 +8208,49 @@
         }
       ]
     },
+    "GlobalAdminRow": {
+      "kind": "object",
+      "doc": "One Global Admin/Reader row on the wire. Deliberately NOT the storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the pre-2026-08-31 wire carried are storage internals and were dropped from the contract (no consumer read them).",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "User Principal Name (lowercase)."
+        },
+        {
+          "name": "isEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "addedDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "addedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"GlobalAdmin\" or \"GlobalReader\" (legacy empty rows are normalized to GlobalAdmin)."
+        }
+      ]
+    },
     "GlobalAverages": {
       "kind": "object",
       "doc": "Global average benchmarks for geographic comparison.",
@@ -7955,6 +8329,55 @@
             "name": "number"
           },
           "doc": "Total HTTP bytes across all locations with DO data"
+        }
+      ]
+    },
+    "GlobalNotificationDto": {
+      "kind": "object",
+      "doc": "One in-app notification (global pool or tenant-scoped; both endpoints share this DTO). A null Href key is omitted (WhenWritingNull).",
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "href",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "createdAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       ]
     },
@@ -8135,6 +8558,51 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "HealthCheck": {
+      "kind": "object",
+      "doc": "One health check result inside GET health/detailed / health/mcp. Details is a heterogeneous per-check bag by design (endpoint URLs only for Global Admins); a null Details key is omitted (WhenWritingNull).",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "description",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "details",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "unknown"
+            }
+          },
+          "optional": true
         }
       ]
     },
@@ -9882,9 +10350,9 @@
         }
       ]
     },
-    "MaintenanceJobRunResponse": {
+    "MaintenanceResult": {
       "kind": "object",
-      "doc": "Shared response of the one-shot maintenance job triggers (POST maintenance/backfill-occurred-utc, POST maintenance/reclassify-legacy): the service's run report plus trigger attribution.",
+      "doc": "Run report of a manual maintenance run (POST maintenance/trigger).",
       "fields": [
         {
           "name": "success",
@@ -9894,12 +10362,12 @@
           }
         },
         {
-          "name": "result",
+          "name": "error",
           "type": {
             "kind": "primitive",
-            "name": "unknown"
+            "name": "string"
           },
-          "doc": "The service-specific run report (BackfillResult / ReclassificationResult — types owned by the Functions project, so this stays object; serialized by runtime type, wire-identical)."
+          "optional": true
         },
         {
           "name": "triggeredBy",
@@ -9914,12 +10382,69 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "durationMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "stalledSessionsChecked",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "metricsAggregated",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "aggregatedDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "dataCleanupExecuted",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "platformStatsRecomputed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "devicesBlockedForExcessiveData",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "contactEmailsBackfilled",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
         }
       ]
     },
     "McpHealthCheckResponse": {
       "kind": "object",
-      "doc": "Response of GET health/mcp: the standalone MCP-server reachability probe. The check is a HealthCheck object (backend-project type, serialized by runtime type).",
+      "doc": "Response of GET health/mcp: the standalone MCP-server reachability probe.",
       "fields": [
         {
           "name": "timestamp",
@@ -9931,8 +10456,8 @@
         {
           "name": "check",
           "type": {
-            "kind": "primitive",
-            "name": "unknown"
+            "kind": "ref",
+            "name": "HealthCheck"
           }
         }
       ]
@@ -10081,7 +10606,7 @@
     },
     "MetricsSummaryResponse": {
       "kind": "object",
-      "doc": "Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal. Summary items are repository-built rows shaped like MetricsSummaryTenantItem.",
+      "doc": "Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal.",
       "fields": [
         {
           "name": "success",
@@ -10095,7 +10620,7 @@
           "type": {
             "kind": "array",
             "element": {
-              "kind": "partial",
+              "kind": "ref",
               "name": "MetricsSummaryTenantItem"
             }
           }
@@ -10111,7 +10636,7 @@
     },
     "MetricsSummaryTenantItem": {
       "kind": "object",
-      "doc": "Wire shape of one per-tenant status tally in MetricsSummaryResponse (documentation type — the repository still builds the rows; every key is always present).",
+      "doc": "One per-tenant status tally in MetricsSummaryResponse. WindowDays is repeated per item (envelope carries it too — historical wire shape, kept for parity).",
       "fields": [
         {
           "name": "tenantId",
@@ -10202,7 +10727,7 @@
     },
     "NotificationListResponse": {
       "kind": "object",
-      "doc": "Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first. Items are GlobalNotificationDto objects (backend-project type, serialized by runtime type).",
+      "doc": "Shared response of GET global/notifications and GET notifications: the active (non-dismissed) notifications visible to the caller, newest first.",
       "fields": [
         {
           "name": "success",
@@ -10216,8 +10741,8 @@
           "type": {
             "kind": "array",
             "element": {
-              "kind": "primitive",
-              "name": "unknown"
+              "kind": "ref",
+              "name": "GlobalNotificationDto"
             }
           }
         }
@@ -10847,6 +11372,19 @@
         }
       ]
     },
+    "PreviewWhitelistTenantEntry": {
+      "kind": "object",
+      "doc": "One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31 wire carried synthetic PreviewWhitelistEntity rows whose only real datum was the tenant id in partitionKey (plus garbage defaults) — the contract is now just the id.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "ProgressGetSessionEventsResponse": {
       "kind": "object",
       "doc": "Response of GET /api/progress/sessions/{sessionId}/events — the session's event stream after the serial knowledge proof passed.",
@@ -11183,6 +11721,182 @@
             "name": "string"
           },
           "doc": "Segment the reboot started in (TimeAttributionSegments key, or \"unattributed\" when it began in an unattributed hole)."
+        }
+      ]
+    },
+    "ReclassificationResult": {
+      "kind": "object",
+      "doc": "Run report of the legacy-session reclassification job (POST maintenance/reclassify-legacy).",
+      "fields": [
+        {
+          "name": "mode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dryRun",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "tenantsExamined",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsExamined",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "wouldChange",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "changed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "toSucceeded",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "toIncomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "keptFailed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "skipped",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "errors",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "capReached",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the maxSessions cap stopped the run before the backlog was exhausted — re-run to continue."
+        },
+        {
+          "name": "samples",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ReclassificationSample"
+            }
+          },
+          "readonly": true
+        }
+      ]
+    },
+    "ReclassificationSample": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "oldStatus",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "newStatus",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "ReclassifyJobRunResponse": {
+      "kind": "object",
+      "doc": "Response of POST maintenance/reclassify-legacy: the reclassification run report plus trigger attribution. See BackfillJobRunResponse for the shared key layout.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "result",
+          "type": {
+            "kind": "ref",
+            "name": "ReclassificationResult"
+          }
+        },
+        {
+          "name": "triggeredBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "triggeredAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       ]
     },
@@ -11698,6 +12412,246 @@
             "name": "string"
           },
           "doc": "Value for the Event A filter."
+        }
+      ]
+    },
+    "RuleDryRun": {
+      "kind": "object",
+      "doc": "Full diagnostic trace of one dry-run evaluation. Serialized camelCase to clients.",
+      "fields": [
+        {
+          "name": "verdict",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "eventCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Number of events in the session the rule was evaluated against."
+        },
+        {
+          "name": "preconditions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleDryRunPrecondition"
+            }
+          },
+          "readonly": true
+        },
+        {
+          "name": "conditions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleDryRunCondition"
+            }
+          },
+          "readonly": true
+        },
+        {
+          "name": "confidenceFactors",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleDryRunFactor"
+            }
+          },
+          "readonly": true,
+          "doc": "Empty unless all required conditions were met (mirrors the production path, which never reaches factor evaluation otherwise)."
+        },
+        {
+          "name": "baseConfidence",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "finalConfidence",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "base + matched factor weights, capped at 100. Null when the evaluation ended before the confidence stage (precondition skip / required miss / nothing matched)."
+        },
+        {
+          "name": "confidenceThreshold",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "wouldMarkSessionAsFailed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True only for verdict \"fired\" AND the rule's effective MarkSessionAsFailed flag. The dry-run itself never touches the session."
+        },
+        {
+          "name": "matchedConditions",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "unknown"
+            }
+          },
+          "optional": true,
+          "doc": "The evidence map exactly as the production path would persist it on a RuleResult — keys are condition signals (plus factor_* markers). Clients use it to preview {{token}} interpolation of explanation/remediation. Values are heterogeneous evidence objects by design."
+        }
+      ]
+    },
+    "RuleDryRunCondition": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "signal",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "eventType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "required",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "matched",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "evidence",
+          "type": {
+            "kind": "primitive",
+            "name": "unknown"
+          },
+          "optional": true,
+          "doc": "Matched: the evidence dictionary (eventId, timestamp, field, value, …). Not matched: the evaluator's reason string (e.g. \"no matching events\")."
+        },
+        {
+          "name": "matchingEventCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "How many session events have this condition's eventType at all — the first thing an author checks when a condition unexpectedly doesn't match. Null when the condition has no eventType."
+        }
+      ]
+    },
+    "RuleDryRunFactor": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "signal",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "condition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "weight",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "matched",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
+    "RuleDryRunPrecondition": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "eventType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dataField",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "operator",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "value",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "passed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       ]
     },
@@ -14852,10 +15806,69 @@
         {
           "name": "admin",
           "type": {
+            "kind": "ref",
+            "name": "TenantAdminRow"
+          }
+        }
+      ]
+    },
+    "TenantAdminRow": {
+      "kind": "object",
+      "doc": "One tenant member (Admin / Operator / Viewer) on the wire — the item of the bare-array GET tenants/{tenantId}/admins and the created member of the POST. Deliberately NOT the storage entity: the ITableEntity keys (partitionKey/rowKey/eTag/timestamp) that the pre-2026-08-31 wire carried are storage internals and were dropped from the contract (no consumer read them).",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
             "kind": "primitive",
-            "name": "unknown"
+            "name": "string"
           },
-          "doc": "The stored TenantAdminEntity row (type owned by the Functions project, so this stays object; serialized by runtime type, wire-identical)."
+          "doc": "Tenant ID (lowercase)."
+        },
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "User Principal Name (lowercase)."
+        },
+        {
+          "name": "isEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "addedDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "addedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Role: \"Admin\", \"Operator\", \"Viewer\". A null (legacy pre-role row) omits the key and means Admin."
+        },
+        {
+          "name": "canManageBootstrapTokens",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether this Operator can manage bootstrap tokens (only relevant for Operator)."
         }
       ]
     },
@@ -14913,6 +15926,70 @@
           },
           "optional": true,
           "doc": "Masked \"old → new\" change summary, or null when unparseable — the key is omitted when null."
+        }
+      ]
+    },
+    "TenantConfigFieldSchema": {
+      "kind": "object",
+      "doc": "One entry of the tenant-config field schema (built by TenantConfigPatchService.BuildFieldsSchema). Serialized camelCase; null Format/Reason keys are omitted (WhenWritingNull) — the null and set cases are pinned by ConfigWireParityTests.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "format",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "nullable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "writable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "gaOnly",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "revertProtected",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       ]
     },
@@ -16838,10 +17915,9 @@
         {
           "name": "result",
           "type": {
-            "kind": "primitive",
-            "name": "unknown"
-          },
-          "doc": "The MaintenanceResult run report (type owned by the Functions project, so this stays object; serialized by runtime type, wire-identical)."
+            "kind": "ref",
+            "name": "MaintenanceResult"
+          }
         },
         {
           "name": "triggeredBy",

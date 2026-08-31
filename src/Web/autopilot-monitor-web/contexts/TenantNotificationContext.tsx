@@ -6,15 +6,10 @@ import { useSignalR } from './SignalRContext';
 import { canFetchTenantNotifications } from './tenantNotificationsGate';
 import { api } from '@/lib/api';
 import { authenticatedFetch } from '@/lib/authenticatedFetch';
+import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
 
-export interface TenantNotification {
-  id: string;
-  type: string;
-  title: string;
-  message: string;
-  href?: string;
-  createdAt: string;
-}
+// Both notification endpoints share one backend DTO; the alias keeps the established local name.
+export type TenantNotification = GlobalNotificationDto;
 
 interface TenantNotificationContextType {
   tenantNotifications: TenantNotification[];
@@ -54,7 +49,7 @@ export function TenantNotificationProvider({ children }: { children: React.React
         getAccessToken,
       );
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as NotificationListResponse;
         setTenantNotifications(data.notifications ?? []);
       }
     } catch {

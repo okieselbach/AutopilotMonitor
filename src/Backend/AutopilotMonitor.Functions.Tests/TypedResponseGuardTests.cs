@@ -176,6 +176,101 @@ public class TypedResponseGuardTests
             + string.Join("\n  ", nonFlat));
     }
 
+    // ── Object-slot ratchet (closed 2026-08-31, typisierung follow-up) ──────────────────
+    // Regexes A-E police the FUNCTION side; this one polices the DTOs themselves: a Shared
+    // wire type carrying an `object` (or collection-of-object) property hides that slot's
+    // shape from the manifest exactly like an anonymous body would. `[ProjectedItems]` slots
+    // (fields=-projections) and dictionary VALUES (heterogeneous bags by design, e.g.
+    // HealthCheck.Details) are exempt.
+
+    /// <summary>
+    /// The deliberately-open object slots. Every other object-typed property on a reachable
+    /// wire type is a regression: give the slot a concrete Shared type.
+    /// </summary>
+    private static readonly HashSet<string> ObjectSlotBaseline = new(StringComparer.Ordinal)
+    {
+        // Matched: heterogeneous evidence dictionary; not matched: the evaluator's reason string.
+        "AutopilotMonitor.Shared.Models.RuleDryRunCondition.Evidence",
+    };
+
+    [Fact]
+    public void No_reachable_wire_type_property_is_object_typed_outside_the_baseline()
+    {
+        var shared = typeof(IApiResponse).Assembly;
+        var roots = shared.GetTypes().Where(t =>
+            !t.IsInterface && !t.IsAbstract &&
+            (typeof(IApiResponse).IsAssignableFrom(t) ||
+             t.GetCustomAttributes(typeof(WireContractAttribute), inherit: false).Length > 0));
+
+        var seen = new HashSet<Type>();
+        var queue = new Queue<Type>(roots);
+        var offenders = new List<string>();
+        var baselineHits = new HashSet<string>(StringComparer.Ordinal);
+
+        while (queue.Count > 0)
+        {
+            var type = queue.Dequeue();
+            if (!seen.Add(type))
+                continue;
+
+            foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                if (prop.GetCustomAttributes(typeof(ProjectedItemsAttribute), inherit: false).Length > 0)
+                    continue; // fields=-projection slot: IReadOnlyList<object> by design.
+
+                var slotType = prop.PropertyType;
+                var elementType = EnumerableElementType(slotType);
+                var effective = elementType ?? slotType;
+
+                if (effective == typeof(object))
+                {
+                    var slot = $"{type.FullName}.{prop.Name}";
+                    if (ObjectSlotBaseline.Contains(slot))
+                        baselineHits.Add(slot);
+                    else
+                        offenders.Add(slot);
+                }
+                else if (effective.Assembly == shared && effective.IsClass && effective != typeof(string))
+                {
+                    queue.Enqueue(effective);
+                }
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "object-typed properties on reachable wire types (shape invisible to the manifest) — "
+            + "give the slot a concrete Shared type or document it in ObjectSlotBaseline:\n  "
+            + string.Join("\n  ", offenders.OrderBy(s => s, StringComparer.Ordinal)));
+
+        // Ratchet down: a baseline entry whose slot no longer exists (or is no longer object)
+        // must be removed, so the documented-debt list stays truthful.
+        var stale = ObjectSlotBaseline.Except(baselineHits).ToList();
+        Assert.True(stale.Count == 0,
+            "ObjectSlotBaseline entries that no longer match an object-typed slot — remove them:\n  "
+            + string.Join("\n  ", stale));
+    }
+
+    /// <summary>
+    /// Element type of a generic IEnumerable&lt;T&gt; slot (arrays included), EXCEPT dictionaries —
+    /// dictionary values are heterogeneous bags by design and stay exempt. Null for scalars.
+    /// </summary>
+    private static Type? EnumerableElementType(Type type)
+    {
+        if (type == typeof(string))
+            return null;
+        if (type.IsArray)
+            return type.GetElementType();
+        var enumerable = new[] { type }.Concat(type.GetInterfaces())
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+        if (enumerable == null)
+            return null;
+        var element = enumerable.GetGenericArguments()[0];
+        // KeyValuePair element ⇒ the slot is a dictionary; values are exempt by design.
+        if (element.IsGenericType && element.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+            return null;
+        return element;
+    }
+
     /// <summary>
     /// Error shape = first property of the anonymous object is <c>error</c> or <c>message</c>
     /// (assigned or C# shorthand), or the literal <c>success = false</c>. Everything else —

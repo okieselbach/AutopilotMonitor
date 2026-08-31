@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import { extractTokenClaims, isTokenExpired } from './auth.js';
 import { runWithCaller } from './client.js';
 import { API_BASE_URL, getPublicBaseUrl, parsePositiveInt } from './config.js';
+import type { CheckMcpAccessResponse } from './generated/wire-types.generated.js';
 
 const BASE_URL = API_BASE_URL;
 
@@ -187,19 +188,9 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
       return { allowed: false, reason: `Backend returned ${res.status} with empty body`, isGlobalAdmin: false, isGlobalReader: false, infraError: true };
     }
 
-    const data = JSON.parse(text) as {
-      allowed: boolean;
-      reason?: string;
-      accessGrant?: string;
-      isGlobalAdmin?: boolean;
-      // Platform role: "GlobalAdmin" | "GlobalReader" (absent → no platform role). The read-only
-      // GlobalReader gets the same cross-tenant routing as GA because this server is read-only.
-      globalRole?: string;
-      // Delegated (scoped-global / MSP) scope: the managed tenant IDs (lowercase) and strongest role.
-      // Present only for a caller that holds a delegated assignment.
-      delegatedTenantIds?: unknown;
-      delegatedRole?: string;
-    };
+    // Wire type is generated from the backend DTO (CheckMcpAccessResponse). The read-only
+    // GlobalReader gets the same cross-tenant routing as GA because this server is read-only.
+    const data = JSON.parse(text) as CheckMcpAccessResponse;
     // Normalize defensively: accept only a non-empty array of strings, lowercased. Anything else
     // (missing, wrong type, empty) collapses to undefined → the caller is treated as non-delegated.
     const delegatedTenantIds = Array.isArray(data.delegatedTenantIds)

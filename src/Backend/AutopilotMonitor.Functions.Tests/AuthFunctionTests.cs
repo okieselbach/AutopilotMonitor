@@ -471,7 +471,8 @@ public class AuthFunctionTests
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Converts anonymous object to dynamic for property access in tests.
+    /// Exposes a body (typed DTO or anonymous error shape) as dynamic under its WIRE key names
+    /// (camelCase), so the asserts read the same casing a client would.
     /// </summary>
     private static dynamic ToDynamic(object obj)
     {
@@ -479,7 +480,7 @@ public class AuthFunctionTests
         var dict = new System.Dynamic.ExpandoObject() as IDictionary<string, object?>;
         foreach (var prop in type.GetProperties())
         {
-            dict[prop.Name] = prop.GetValue(obj);
+            dict[System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(prop.Name)] = prop.GetValue(obj);
         }
         return dict;
     }

@@ -305,9 +305,9 @@ public class AdminWireParityTests
     // ---- BackfillOccurredUtc / ReclassifyLegacySessions (shared envelope) ----------------
 
     [Fact]
-    public void MaintenanceJobRunResponse_matches_the_backfill_shape()
+    public void BackfillJobRunResponse_matches_the_backfill_shape()
     {
-        var result = new OccurredUtcBackfillService.BackfillResult
+        var result = new BackfillResult
         {
             Table = "audit",
             DryRun = true,
@@ -330,7 +330,7 @@ public class AdminWireParityTests
                 triggeredBy = userEmail,
                 triggeredAt,
             },
-            new MaintenanceJobRunResponse
+            new BackfillJobRunResponse
             {
                 Success = true,
                 Result = result,
@@ -340,9 +340,9 @@ public class AdminWireParityTests
     }
 
     [Fact]
-    public void MaintenanceJobRunResponse_matches_the_reclassify_shape()
+    public void ReclassifyJobRunResponse_matches_the_reclassify_shape()
     {
-        var result = new LegacyReclassificationService.ReclassificationResult
+        var result = new ReclassificationResult
         {
             Mode = "legacy_timeouts",
             DryRun = false,
@@ -368,7 +368,7 @@ public class AdminWireParityTests
                 triggeredBy = userEmail,
                 triggeredAt,
             },
-            new MaintenanceJobRunResponse
+            new ReclassifyJobRunResponse
             {
                 Success = true,
                 Result = result,
@@ -768,14 +768,15 @@ public class AdminWireParityTests
     }
 
     // ---- TenantAdminManagement (AddTenantAdmin) ------------------------------------------
+    // DELIBERATE wire change (2026-08-31 entity-hygiene pass): the row is TenantAdminRow, not
+    // the raw TenantAdminEntity — partitionKey/rowKey/eTag/timestamp are gone from the wire.
+    // These pins fix the NEW shape exactly (key names, order, table-key absence).
 
     [Fact]
-    public void TenantAdminCreatedResponse_matches_the_created_member_shape()
+    public void TenantAdminCreatedResponse_pins_the_created_member_shape()
     {
-        var newAdmin = new TenantAdminEntity
+        var newAdmin = new TenantAdminRow
         {
-            PartitionKey = SampleTenantId,
-            RowKey = "operator@contoso.com",
             TenantId = SampleTenantId,
             Upn = "operator@contoso.com",
             IsEnabled = true,
@@ -784,9 +785,46 @@ public class AdminWireParityTests
             Role = "Operator",
         };
 
-        AssertParity(
-            new { admin = newAdmin },
-            new TenantAdminCreatedResponse { Admin = newAdmin });
+        Assert.Equal(
+            "{\"admin\":{"
+            + $"\"tenantId\":\"{SampleTenantId}\","
+            + "\"upn\":\"operator@contoso.com\","
+            + "\"isEnabled\":true,"
+            + "\"addedDate\":\"2026-08-30T14:00:00Z\","
+            + "\"addedBy\":\"admin@contoso.com\","
+            + "\"role\":\"Operator\","
+            + "\"canManageBootstrapTokens\":false}}",
+            TestWire.Serialize(new TenantAdminCreatedResponse { Admin = newAdmin }));
+    }
+
+    [Fact]
+    public void TenantAdminRow_omits_a_null_role_and_never_emits_table_keys()
+    {
+        // Legacy pre-role rows have Role = null → the key vanishes (WhenWritingNull), and the
+        // ITableEntity keys of the storage entity must never reappear on the wire.
+        var row = new TenantAdminRow
+        {
+            TenantId = SampleTenantId,
+            Upn = "legacy@contoso.com",
+            IsEnabled = true,
+            AddedDate = new DateTime(2026, 8, 30, 14, 5, 0, DateTimeKind.Utc),
+            AddedBy = "admin@contoso.com",
+            Role = null,
+        };
+
+        var json = TestWire.Serialize(row);
+        Assert.Equal(
+            $"{{\"tenantId\":\"{SampleTenantId}\","
+            + "\"upn\":\"legacy@contoso.com\","
+            + "\"isEnabled\":true,"
+            + "\"addedDate\":\"2026-08-30T14:05:00Z\","
+            + "\"addedBy\":\"admin@contoso.com\","
+            + "\"canManageBootstrapTokens\":false}",
+            json);
+        Assert.DoesNotContain("partitionKey", json);
+        Assert.DoesNotContain("rowKey", json);
+        Assert.DoesNotContain("eTag", json);
+        Assert.DoesNotContain("timestamp", json);
     }
 
     // ---- TenantGroupManagement -----------------------------------------------------------

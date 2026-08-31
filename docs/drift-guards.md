@@ -68,6 +68,18 @@ sites the 2026-08-13 audit froze). Three layers enforce it:
 - **`*WireParityTests`**: each migrated site carries an ordinal old-anonymous-literal
   vs. new-DTO serialization proof (production `ApiJsonOptions`), including a null case
   per key that WhenWritingNull omits.
+- **Object-slot ratchet** (2026-08-31 typisierung follow-up): a reflection walk over
+  the reachable wire-type graph fails on any `object` / collection-of-`object`
+  property outside `ObjectSlotBaseline` (sole entry: `RuleDryRunCondition.Evidence`,
+  heterogeneous by design). `[ProjectedItems]` slots and dictionary VALUES are exempt.
+  The former deliberately-untyped slots (RuleDryRun trace, HealthCheck,
+  GlobalNotificationDto, TenantConfigFieldSchema, maintenance run reports,
+  MetricsSummary items, auth/me, auth/mcp) are concrete Shared types now. The raw
+  table entities left the wire entirely in the same pass: global-admins,
+  tenant-admins and preview-whitelist serve flat rows (`GlobalAdminRow` /
+  `TenantAdminRow` / `PreviewWhitelistTenantEntry`) WITHOUT
+  partitionKey/rowKey/eTag/timestamp — a deliberate wire change pinned by exact-JSON
+  shape tests instead of parity facts.
 
 The DTO rules: declaration order == wire order; a property is nullable exactly when a
 site can emit null (the key then vanishes — never add non-null defaults that would

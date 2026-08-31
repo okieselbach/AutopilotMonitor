@@ -16,6 +16,107 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class InfrastructureWireParityTests
 {
+    // ---- AuthFunction: auth/me success body ----------------------------------------------
+    // Left side: the exact anonymous literal BuildAuthResult produced before AuthMeResponse.
+
+    [Fact]
+    public void AuthMeResponse_matches_the_success_shape()
+    {
+        var tenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d";
+        var upn = "admin@contoso.com";
+        var displayName = "Admin User";
+        var objectId = "0b6f7a37-1111-4d61-9c93-0aa111111111";
+        var managedTenantIds = new[] { "7b7b46b3-40c3-4f2f-9a1b-6d9f1a2b3c4e" };
+
+        AssertParity(
+            new
+            {
+                tenantId,
+                upn,
+                displayName,
+                objectId,
+                isGlobalAdmin = false,
+                isGlobalReader = false,
+                isTenantAdmin = true,
+                isDelegated = true,
+                delegatedTenantIds = managedTenantIds,
+                role = "Admin",
+                canManageBootstrapTokens = true,
+                hasMcpAccess = true,
+                homedApp = "primary",
+                bootstrapTokenEnabled = true,
+                unrestrictedModeEnabled = false
+            },
+            new AuthMeResponse
+            {
+                TenantId = tenantId,
+                Upn = upn,
+                DisplayName = displayName,
+                ObjectId = objectId,
+                IsGlobalAdmin = false,
+                IsGlobalReader = false,
+                IsTenantAdmin = true,
+                IsDelegated = true,
+                DelegatedTenantIds = managedTenantIds,
+                Role = "Admin",
+                CanManageBootstrapTokens = true,
+                HasMcpAccess = true,
+                HomedApp = "primary",
+                BootstrapTokenEnabled = true,
+                UnrestrictedModeEnabled = false
+            });
+    }
+
+    [Fact]
+    public void AuthMeResponse_omits_a_null_role()
+    {
+        // A roleless caller (e.g. pure GlobalReader): role was null in the anonymous literal,
+        // so the key vanished — the DTO must vanish it identically.
+        var tenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d";
+        var upn = "reader@contoso.com";
+        var displayName = "Reader User";
+        var objectId = "0b6f7a37-2222-4d61-9c93-0aa222222222";
+        string? role = null;
+
+        AssertParity(
+            new
+            {
+                tenantId,
+                upn,
+                displayName,
+                objectId,
+                isGlobalAdmin = false,
+                isGlobalReader = true,
+                isTenantAdmin = false,
+                isDelegated = false,
+                delegatedTenantIds = Array.Empty<string>(),
+                role,
+                canManageBootstrapTokens = false,
+                hasMcpAccess = true,
+                homedApp = "legacy",
+                bootstrapTokenEnabled = false,
+                unrestrictedModeEnabled = false
+            },
+            new AuthMeResponse
+            {
+                TenantId = tenantId,
+                Upn = upn,
+                DisplayName = displayName,
+                ObjectId = objectId,
+                IsGlobalAdmin = false,
+                IsGlobalReader = true,
+                IsTenantAdmin = false,
+                IsDelegated = false,
+                DelegatedTenantIds = Array.Empty<string>(),
+                Role = null,
+                CanManageBootstrapTokens = false,
+                HasMcpAccess = true,
+                HomedApp = "legacy",
+                BootstrapTokenEnabled = false,
+                UnrestrictedModeEnabled = false
+            });
+    }
+
     // ---- AuthFunction: IsGlobalAdmin -----------------------------------------------------
 
     [Fact]
@@ -40,26 +141,111 @@ public class InfrastructureWireParityTests
             new IsGlobalAdminResponse { IsGlobalAdmin = isAdmin, Upn = null });
     }
 
-    // ---- AuthFunction: GetGlobalAdmins ---------------------------------------------------
+    // ---- McpUserFunction: CheckMcpAccess (auth/mcp) --------------------------------------
+    // Left side: the exact Dictionary<string, object?> the site built before the DTO —
+    // insertion order == wire order, conditional keys only present when the tier applies.
 
     [Fact]
-    public void GetGlobalAdminsResponse_matches_the_entity_listing_shape()
+    public void CheckMcpAccessResponse_matches_the_plain_user_shape()
     {
-        var admins = new List<GlobalAdminEntity>
+        var payload = new Dictionary<string, object?>
         {
-            new GlobalAdminEntity
+            ["allowed"] = true,
+            ["upn"] = "analyst@contoso.com",
+            ["accessGrant"] = "whitelist",
+            ["reason"] = "whitelisted",
+        };
+
+        AssertParity(
+            payload,
+            new CheckMcpAccessResponse
             {
-                RowKey = "admin@contoso.com",
-                Timestamp = new DateTimeOffset(2026, 8, 30, 10, 0, 0, TimeSpan.Zero),
+                Allowed = true,
+                Upn = "analyst@contoso.com",
+                AccessGrant = "whitelist",
+                Reason = "whitelisted",
+            });
+    }
+
+    [Fact]
+    public void CheckMcpAccessResponse_matches_the_platform_and_delegated_shape()
+    {
+        var delegatedTenantIds = new[] { "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d" };
+        var payload = new Dictionary<string, object?>
+        {
+            ["allowed"] = true,
+            ["upn"] = "admin@contoso.com",
+            ["accessGrant"] = "global-admin",
+            ["reason"] = "platform role",
+            ["isGlobalAdmin"] = true,
+            ["globalRole"] = "GlobalAdmin",
+            ["delegatedTenantIds"] = delegatedTenantIds,
+            ["delegatedRole"] = "DelegatedAdmin",
+        };
+
+        AssertParity(
+            payload,
+            new CheckMcpAccessResponse
+            {
+                Allowed = true,
+                Upn = "admin@contoso.com",
+                AccessGrant = "global-admin",
+                Reason = "platform role",
+                IsGlobalAdmin = true,
+                GlobalRole = "GlobalAdmin",
+                DelegatedTenantIds = delegatedTenantIds,
+                DelegatedRole = "DelegatedAdmin",
+            });
+    }
+
+    [Fact]
+    public void CheckMcpAccessResponse_matches_the_denied_shape()
+    {
+        // 403 body: same shape, allowed=false, no conditional keys. isGlobalAdmin must never
+        // appear as false — the DTO's null slot omits it exactly like the old dictionary did.
+        var payload = new Dictionary<string, object?>
+        {
+            ["allowed"] = false,
+            ["upn"] = "user@contoso.com",
+            ["accessGrant"] = "",
+            ["reason"] = "not whitelisted",
+        };
+
+        AssertParity(
+            payload,
+            new CheckMcpAccessResponse
+            {
+                Allowed = false,
+                Upn = "user@contoso.com",
+                AccessGrant = "",
+                Reason = "not whitelisted",
+                IsGlobalAdmin = null,
+                GlobalRole = null,
+                DelegatedTenantIds = null,
+                DelegatedRole = null,
+            });
+    }
+
+    // ---- AuthFunction: GetGlobalAdmins / AddGlobalAdmin ----------------------------------
+    // DELIBERATE wire change (2026-08-31 entity-hygiene pass): rows are GlobalAdminRow, not the
+    // raw GlobalAdminEntity — partitionKey/rowKey/eTag/timestamp are gone from the wire.
+    // These pins fix the NEW shape exactly (key names, order, table-key absence).
+
+    [Fact]
+    public void GetGlobalAdminsResponse_pins_the_row_listing_shape()
+    {
+        var admins = new List<GlobalAdminRow>
+        {
+            new GlobalAdminRow
+            {
                 Upn = "admin@contoso.com",
                 IsEnabled = true,
                 AddedDate = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Utc),
                 AddedBy = "root@fabrikam.com",
                 Role = "GlobalAdmin",
             },
-            new GlobalAdminEntity
+            new GlobalAdminRow
             {
-                RowKey = "reader@fabrikam.com",
                 Upn = "reader@fabrikam.com",
                 IsEnabled = false,
                 AddedDate = new DateTime(2026, 8, 2, 9, 0, 0, DateTimeKind.Utc),
@@ -68,19 +254,24 @@ public class InfrastructureWireParityTests
             },
         };
 
-        AssertParity(
-            new { admins },
-            new GetGlobalAdminsResponse { Admins = admins });
+        var json = TestWire.Serialize(new GetGlobalAdminsResponse { Admins = admins });
+        Assert.Equal(
+            "{\"admins\":["
+            + "{\"upn\":\"admin@contoso.com\",\"isEnabled\":true,\"addedDate\":\"2026-08-01T09:00:00Z\",\"addedBy\":\"root@fabrikam.com\",\"role\":\"GlobalAdmin\"},"
+            + "{\"upn\":\"reader@fabrikam.com\",\"isEnabled\":false,\"addedDate\":\"2026-08-02T09:00:00Z\",\"addedBy\":\"admin@contoso.com\",\"role\":\"GlobalReader\"}"
+            + "]}",
+            json);
+        Assert.DoesNotContain("partitionKey", json);
+        Assert.DoesNotContain("rowKey", json);
+        Assert.DoesNotContain("eTag", json);
+        Assert.DoesNotContain("timestamp", json);
     }
 
-    // ---- AuthFunction: AddGlobalAdmin ----------------------------------------------------
-
     [Fact]
-    public void AddGlobalAdminResponse_matches_the_created_entity_shape()
+    public void AddGlobalAdminResponse_pins_the_created_row_shape()
     {
-        var newAdmin = new GlobalAdminEntity
+        var newAdmin = new GlobalAdminRow
         {
-            RowKey = "new.admin@contoso.com",
             Upn = "new.admin@contoso.com",
             IsEnabled = true,
             AddedDate = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc),
@@ -88,9 +279,9 @@ public class InfrastructureWireParityTests
             Role = "GlobalAdmin",
         };
 
-        AssertParity(
-            new { admin = newAdmin },
-            new AddGlobalAdminResponse { Admin = newAdmin });
+        Assert.Equal(
+            "{\"admin\":{\"upn\":\"new.admin@contoso.com\",\"isEnabled\":true,\"addedDate\":\"2026-08-30T12:00:00Z\",\"addedBy\":\"admin@contoso.com\",\"role\":\"GlobalAdmin\"}}",
+            TestWire.Serialize(new AddGlobalAdminResponse { Admin = newAdmin }));
     }
 
     // ---- HealthCheckFunction: HealthCheck ------------------------------------------------

@@ -224,23 +224,23 @@ public class ConfigWireParityTests
         IReadOnlyList<TenantConfigFieldSchema> schema = new List<TenantConfigFieldSchema>
         {
             new TenantConfigFieldSchema(
-                Name: "contactEmail",
-                Type: "string",
-                Format: "email",
-                Nullable: true,
-                Writable: true,
-                Reason: null,
-                GaOnly: false,
-                RevertProtected: false),
+                name: "contactEmail",
+                type: "string",
+                format: "email",
+                nullable: true,
+                writable: true,
+                reason: null,
+                gaOnly: false,
+                revertProtected: false),
             new TenantConfigFieldSchema(
-                Name: "homedAppClientId",
-                Type: "string",
-                Format: null,
-                Nullable: true,
-                Writable: false,
-                Reason: "system-owned",
-                GaOnly: true,
-                RevertProtected: true),
+                name: "homedAppClientId",
+                type: "string",
+                format: null,
+                nullable: true,
+                writable: false,
+                reason: "system-owned",
+                gaOnly: true,
+                revertProtected: true),
         };
 
         AssertParity(

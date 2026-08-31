@@ -1,4 +1,5 @@
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services;

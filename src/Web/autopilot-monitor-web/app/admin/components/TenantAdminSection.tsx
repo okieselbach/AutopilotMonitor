@@ -4,16 +4,10 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
+import type { TenantAdminRow } from "@/utils/wire-types.generated";
 
-interface TenantAdmin {
-  tenantId: string;
-  upn: string;
-  isEnabled: boolean;
-  addedDate: string;
-  addedBy: string;
-  role: string | null;
-  canManageBootstrapTokens: boolean;
-}
+// Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
+type TenantAdmin = TenantAdminRow;
 
 interface TenantAdminSectionProps {
   tenantId: string;

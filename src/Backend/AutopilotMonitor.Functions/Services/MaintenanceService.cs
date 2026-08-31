@@ -16,24 +16,7 @@ using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Services
 {
-    /// <summary>
-    /// Result of a maintenance operation
-    /// </summary>
-    public class MaintenanceResult
-    {
-        public bool Success { get; set; }
-        public string? Error { get; set; }
-        public string TriggeredBy { get; set; } = string.Empty;
-        public DateTime TriggeredAt { get; set; }
-        public int DurationMs { get; set; }
-        public bool StalledSessionsChecked { get; set; }
-        public bool MetricsAggregated { get; set; }
-        public string? AggregatedDate { get; set; }
-        public bool DataCleanupExecuted { get; set; }
-        public bool PlatformStatsRecomputed { get; set; }
-        public int DevicesBlockedForExcessiveData { get; set; }
-        public int ContactEmailsBackfilled { get; set; }
-    }
+    // MaintenanceResult is wire contract and lives in AutopilotMonitor.Shared.Models (AdminApiModels.cs).
 
     /// <summary>
     /// Dedicated service for maintenance tasks:

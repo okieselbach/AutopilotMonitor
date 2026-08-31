@@ -560,8 +560,9 @@ public class MetricsWireParityTests
     public void MetricsSummaryResponse_matches_the_tally_shape()
     {
         var days = 30;
-        // GetMetricsSummaryAsync returns List<object> of repository-built per-tenant rows
-        // (shape mirrored from TableStorageService.GetMetricsSummaryAsync).
+        // Left: the exact anonymous per-tenant row GetMetricsSummaryAsync built before the
+        // MetricsSummaryTenantItem substitution — proves the DTO item is wire-identical
+        // (incl. the windowDays duplicate on every item).
         var summary = new List<object>
         {
             new
@@ -586,7 +587,24 @@ public class MetricsWireParityTests
             new MetricsSummaryResponse
             {
                 Success = true,
-                Summary = summary,
+                Summary = new List<MetricsSummaryTenantItem>
+                {
+                    new MetricsSummaryTenantItem
+                    {
+                        TenantId = "6a6a35a2-30b2-4f2f-9a1b-6d9f1a2b3c4d",
+                        TotalSessions = 10,
+                        Succeeded = 6,
+                        Failed = 2,
+                        InProgress = 1,
+                        Pending = 0,
+                        Stalled = 0,
+                        AwaitingUser = 0,
+                        Incomplete = 1,
+                        Other = 0,
+                        FailureRate = 25.0,
+                        WindowDays = days,
+                    },
+                },
                 WindowDays = days,
             });
     }

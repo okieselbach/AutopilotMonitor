@@ -5,6 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import type { AdminConfiguration, OpsAlertRule } from "@/types/adminConfig";
+import type { GetPreviewWhitelistResponse } from "@/utils/wire-types.generated";
 
 // Re-export so existing `import { AdminConfiguration } from "../AdminConfigContext"` consumers keep working
 export type { AdminConfiguration, OpsAlertRule };
@@ -297,9 +298,9 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       setTenants(data);
 
       if (previewRes.ok) {
-        const previewData = await previewRes.json();
+        const previewData = (await previewRes.json()) as GetPreviewWhitelistResponse;
         const approvedIds = new Set<string>(
-          (previewData.tenants || []).map((t: { partitionKey: string }) => t.partitionKey)
+          (previewData.tenants || []).map((t) => t.tenantId)
         );
         setPreviewApproved(approvedIds);
       }
