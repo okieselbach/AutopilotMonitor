@@ -25,7 +25,10 @@ public class ProgressPortalFunction
     private readonly ILogger<ProgressPortalFunction> _logger;
     private readonly ISessionRepository _sessionRepo;
 
-    /// <summary>How many latest sessions the lookup scans — the portal's pre-existing horizon.</summary>
+    /// <summary>
+    /// Page size of the substring fallback (members/GA only): the newest sessions the fuzzy
+    /// match scans. Exact serial / device-name lookups are index queries without a horizon.
+    /// </summary>
     internal const int LookupPageSize = 100;
 
     public ProgressPortalFunction(
@@ -76,8 +79,7 @@ public class ProgressPortalFunction
                     requestCtx.UserPrincipalName, tenantId);
             }
 
-            var page = await _sessionRepo.GetSessionsPageAsync(tenantId, days: null, pageSize: LookupPageSize, continuation: null);
-            var match = FindBestMatch(page.Items, search, allowSubstring: requestCtx.IsTenantMemberOrGlobalAdmin());
+            var match = await ResolveSessionAsync(_sessionRepo, tenantId, search, allowSubstring: requestCtx.IsTenantMemberOrGlobalAdmin());
 
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new ProgressLookupSessionResponse
@@ -101,6 +103,38 @@ public class ProgressPortalFunction
             });
             return errorResponse;
         }
+    }
+
+    /// <summary>
+    /// Resolves the search term to at most one session. Exact serial, then exact device name —
+    /// both as index queries over the whole tenant partition, so a device whose enrollment is
+    /// older than the newest hundred sessions is still found (the previous newest-N page silently
+    /// answered "not found" for it). Only members/GA fall through to the substring match over the
+    /// newest <see cref="LookupPageSize"/> sessions; roleless callers get exact-or-nothing (the
+    /// knowledge proof). An exact hit always wins over a fuzzy one — a substring may otherwise
+    /// resolve to a different, newer device.
+    /// </summary>
+    internal static async Task<SessionSummary?> ResolveSessionAsync(
+        ISessionRepository sessionRepo, string tenantId, string search, bool allowSubstring)
+    {
+        var query = search.Trim();
+        if (query.Length == 0)
+            return null;
+
+        var sessionId = await sessionRepo.FindNewestSessionIdBySerialAsync(tenantId, query)
+            ?? await sessionRepo.FindNewestSessionIdByDeviceNameAsync(tenantId, query);
+        if (sessionId != null)
+        {
+            var session = await sessionRepo.GetSessionAsync(tenantId, sessionId);
+            if (session != null)
+                return session;
+        }
+
+        if (!allowSubstring)
+            return null;
+
+        var page = await sessionRepo.GetSessionsPageAsync(tenantId, days: null, pageSize: LookupPageSize, continuation: null);
+        return FindBestMatch(page.Items, query, allowSubstring: true);
     }
 
     /// <summary>

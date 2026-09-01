@@ -1,7 +1,10 @@
 using AutopilotMonitor.Functions.Functions.Progress;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Pagination;
+using Moq;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -63,6 +66,94 @@ public class ProgressPortalFunctionTests
         Assert.NotNull(entry);
         Assert.Equal(EndpointPolicy.AuthenticatedUser, entry!.Policy);
         Assert.Equal(TenantScoping.QueryParam, entry.TenantScoping);
+    }
+
+    // ── ResolveSessionAsync: exact index lookups first, substring page only for members/GA ──
+
+    private const string TenantId = "11111111-1111-1111-1111-111111111111";
+
+    private static Mock<ISessionRepository> Repo(
+        string? bySerial = null, string? byDeviceName = null, SessionSummary? session = null, params SessionSummary[] newestPage)
+    {
+        var repo = new Mock<ISessionRepository>(MockBehavior.Strict);
+        repo.Setup(r => r.FindNewestSessionIdBySerialAsync(TenantId, It.IsAny<string>())).ReturnsAsync(bySerial);
+        repo.Setup(r => r.FindNewestSessionIdByDeviceNameAsync(TenantId, It.IsAny<string>())).ReturnsAsync(byDeviceName);
+        if (session != null)
+            repo.Setup(r => r.GetSessionAsync(TenantId, session.SessionId)).ReturnsAsync(session);
+        repo.Setup(r => r.GetSessionsPageAsync(TenantId, null, ProgressPortalFunction.LookupPageSize, null))
+            .ReturnsAsync(new RawPage<SessionSummary>(newestPage, null));
+        return repo;
+    }
+
+    [Fact]
+    public async Task Resolve_exact_serial_hit_is_served_from_the_index_not_the_newest_page()
+    {
+        // THE FINDING: the newest-100 page missed any enrollment older than that horizon and
+        // answered "Device Not Found". The index lookup has no horizon; the page is never read.
+        var old = Session(ageMinutes: 100_000);
+        var repo = Repo(bySerial: old.SessionId, session: old);
+
+        var match = await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, "  pf3xkq7 ", allowSubstring: false);
+
+        Assert.Same(old, match);
+        repo.Verify(r => r.FindNewestSessionIdBySerialAsync(TenantId, "pf3xkq7"), Times.Once);
+        repo.Verify(r => r.GetSessionsPageAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Resolve_falls_back_to_exact_device_name_when_the_serial_misses()
+    {
+        var byName = Session();
+        var repo = Repo(byDeviceName: byName.SessionId, session: byName);
+
+        var match = await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, Device, allowSubstring: false);
+
+        Assert.Same(byName, match);
+        repo.Verify(r => r.FindNewestSessionIdByDeviceNameAsync(TenantId, Device), Times.Once);
+    }
+
+    [Fact]
+    public async Task Resolve_roleless_caller_gets_no_substring_fallback()
+    {
+        var repo = Repo(newestPage: Session(serial: "PF3XKQ7-EXTRA"));
+
+        var match = await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, "PF3XKQ7", allowSubstring: false);
+
+        Assert.Null(match);
+        repo.Verify(r => r.GetSessionsPageAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Resolve_member_falls_back_to_substring_over_the_newest_page()
+    {
+        var fuzzy = Session(serial: "PF3XKQ7-EXTRA");
+        var repo = Repo(newestPage: fuzzy);
+
+        var match = await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, "3XKQ", allowSubstring: true);
+
+        Assert.Same(fuzzy, match);
+    }
+
+    [Fact]
+    public async Task Resolve_exact_hit_beats_a_newer_substring_match_for_members()
+    {
+        // A helpdesk substring query used to land on whichever newer device contained the
+        // fragment inside the page; the exact device wins now even when it is older.
+        var exact = Session(ageMinutes: 5_000);
+        var newerFuzzy = Session(serial: "PF3XKQ7-NEWER", ageMinutes: 0);
+        var repo = Repo(bySerial: exact.SessionId, session: exact, newestPage: newerFuzzy);
+
+        var match = await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, Serial, allowSubstring: true);
+
+        Assert.Same(exact, match);
+    }
+
+    [Fact]
+    public async Task Resolve_blank_search_is_null_without_any_storage_call()
+    {
+        var repo = new Mock<ISessionRepository>(MockBehavior.Strict);
+
+        Assert.Null(await ProgressPortalFunction.ResolveSessionAsync(repo.Object, TenantId, "   ", allowSubstring: true));
     }
 
     // ── FindBestMatch: roleless callers need the EXACT serial / device name ──
