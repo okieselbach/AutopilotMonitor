@@ -81,10 +81,10 @@ public class CloudPcDeviceValidatorTests
         var body = $@"{{
             ""value"":[{{
                 ""id"":""423a1fb4-6033-4b69-a31f-e7f3f54194dc"",
-                ""displayName"":""GKT-CloudPC - Obi-Wan Kenobi"",
+                ""displayName"":""CPC-Contoso - Obi-Wan Kenobi"",
                 ""managedDeviceId"":""{DeviceId}"",
                 ""managedDeviceName"":""CPC-cloud-AY5HT"",
-                ""userPrincipalName"":""cloudadmin@gktatooine.net"",
+                ""userPrincipalName"":""cloudadmin@contoso.com"",
                 ""servicePlanName"":""Cloud PC Enterprise 2vCPU/4GB/128GB""
             }}]
         }}";

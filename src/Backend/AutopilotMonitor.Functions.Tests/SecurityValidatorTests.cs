@@ -21,7 +21,7 @@ public class SecurityValidatorTests
     [InlineData("", false)]
     [InlineData("   ", false)]                                   // whitespace only
     [InlineData("not-a-guid", false)]
-    [InlineData(@"DESKTOP-DIU8038\defaultuser0", false)]         // regression: agent-as-defaultuser0 sent this as TenantId
+    [InlineData(@"DESKTOP-CONTOSO\defaultuser0", false)]         // regression: agent-as-defaultuser0 sent this as TenantId
     [InlineData("a1b2c3d4e5f67890abcdef1234567890", false)]      // no dashes → not standard format
     [InlineData("{a1b2c3d4-e5f6-7890-abcd-ef1234567890}", false)] // braced {…} not accepted
     public void IsValidGuid_reflects_guid_format(string? input, bool expected)

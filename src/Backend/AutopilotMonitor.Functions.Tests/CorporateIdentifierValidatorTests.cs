@@ -22,12 +22,12 @@ namespace AutopilotMonitor.Functions.Tests;
 public class CorporateIdentifierValidatorTests
 {
     private const string TenantId = "11111111-1111-1111-1111-111111111111";
-    private const string Serial = "7801-5131-4473-3387-5637-4002-18";
+    private const string Serial = "1234-5678-9012-3456-7890-1234-56";
     private const string MmsIdentifier = $"Microsoft Corporation,Virtual Machine,{Serial}";
     // The form Intune actually stores (field-verified 2026-08-17 in the portal list):
     // uppercased, spaces and dashes stripped per component.
-    private const string StoredIdentifier = "MICROSOFTCORPORATION,VIRTUALMACHINE,78015131447333875637400218";
-    private const string StoredSerial = "78015131447333875637400218";
+    private const string StoredIdentifier = "MICROSOFTCORPORATION,VIRTUALMACHINE,12345678901234567890123456";
+    private const string StoredSerial = "12345678901234567890123456";
 
     private sealed class SequenceHandler : HttpMessageHandler
     {
@@ -200,7 +200,7 @@ public class CorporateIdentifierValidatorTests
     [Theory]
     [InlineData("Microsoft Corporation", "MICROSOFTCORPORATION")]
     [InlineData("Virtual Machine", "VIRTUALMACHINE")]
-    [InlineData("7801-5131-4473-3387-5637-4002-18", "78015131447333875637400218")]
+    [InlineData("1234-5678-9012-3456-7890-1234-56", "12345678901234567890123456")]
     [InlineData("ThinkPad T14 Gen 3", "THINKPADT14GEN3")]
     [InlineData("Serial.With.Periods", "SERIALWITHPERIODS")]
     public void NormalizeComponent_matchesIntunePortalNormalization(string raw, string expected)

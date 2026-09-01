@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class SessionAnnotationsPaginationTests
 {
-    private const string Caller = "b54dc1af-5320-4f60-b5d4-821e0cf2a359";
+    private const string Caller = "11111111-1111-1111-1111-111111111111";
 
     [Fact]
     public void ParseQuery_reads_and_trims_q()

@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class IngestOnDemandDiagnosticsTests
 {
-    private const string TenantId = "b54dc1af-5320-4f60-b5d4-821e0cf2a359";
+    private const string TenantId = "11111111-1111-1111-1111-111111111111";
     private const string HostedBlob =
         TenantId + "/AgentDiagnostics-8e4cc8ae-1111-2222-3333-444455556666-20260724170902-server-requested.zip";
 

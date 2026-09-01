@@ -644,7 +644,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
         [Fact]
         public void AutoUpdate_fires_once_with_previous_and_new_version_when_binary_version_changes_after_detection()
         {
-            // gktatooine session 946ccbd6: realmjoin_detected read 4.21.4 from the MSI-shipped
+            // Observed on a test-tenant session: realmjoin_detected read 4.21.4 from the MSI-shipped
             // binary; nine minutes later the tray AppUpdater swapped it for 4.21.18 and rewrote
             // Uninstall\RealmJoin. The Detected read is the baseline; the re-read after the
             // Uninstall-key change must surface exactly one auto-update event.
