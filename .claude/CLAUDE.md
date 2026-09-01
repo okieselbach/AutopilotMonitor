@@ -34,5 +34,5 @@ Contributor/AI-facing docs (customer docs live in the `autopilotmonitor-docs` re
 
 - Write a concept doc only for durable knowledge a later change could silently break: invariants, architecture decisions, non-obvious mechanisms — not for every feature. YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp`.
 - Register it in `docs/index.md`. There is no `log.md` — the commit message is the log. `index.md` is a reserved name.
-- Commit inside the submodule first, then bump the gitlink here (same rule as `.claude/commands`).
+- Commit inside the submodule first, then bump the gitlink here (same rule as `.claude/commands` and the private `infra/` submodule, `okieselbach/Autopilot-Monitor-infra`).
 - English, structural markdown (`# Schema`, `# Examples`, `# Citations`). Links between docs are RELATIVE — never `/`-prefixed, that breaks GitHub navigation.

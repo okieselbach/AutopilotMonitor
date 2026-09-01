@@ -4,3 +4,6 @@
 [submodule "docs"]
 	path = docs
 	url = https://github.com/okieselbach/Autopilot-Monitor-docs-internal.git
+[submodule "infra"]
+	path = infra
+	url = https://github.com/okieselbach/Autopilot-Monitor-infra.git

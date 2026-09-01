@@ -124,7 +124,6 @@ scripts/Migration/
 # @secure() parameter with an empty default, injected at deploy time, and image
 # pull runs on managed identity. Keep it that way: never commit a resolved secret
 # value or a *.parameters.json holding one.
-infra/*.parameters.json
 
 # M2 — local raw session fixtures before anonymization (plan §4 M2)
 tests/fixtures/enrollment-sessions-local/
