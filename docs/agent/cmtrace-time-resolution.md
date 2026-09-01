@@ -4,7 +4,7 @@ title: CMTrace Time Resolution — Per-Line Self-Anchoring
 description: How the agent converts bias-less CMTrace local times to UTC without trusting any process's timezone belief — each provably fresh line anchors its own offset against the agent clock on the 15-minute grid; everything not provably fresh falls back uniformly and says so.
 resource: src/Agent/AutopilotMonitor.Agent.V2.Core/Monitoring/Enrollment/Ime
 tags: [agent, ime, cmtrace, timestamps, timezone, calibration, provenance]
-timestamp: 2026-08-30
+timestamp: 2026-09-01
 ---
 
 # Problem
@@ -138,6 +138,22 @@ Bias-dominated sessions are suppressed (writer-declared offsets cannot be an anc
 regression); `measuredWriterOffsetMinutes` is never consulted (sticky after era
 flip-backs). Kill switch: app setting `CmTraceSkewTripwireDisabled`. Goal state: the event
 never fires — any hit is an anchoring case the per-line design misses, or a detector bug.
+
+Samples are windowed to the session's most recent INGEST ERA before any of that is
+computed: the batch stamps of both sides are walked backwards from the newest one and the
+era ends at the first `ReceivedAt` gap wider than 2 h. A session partition is not one agent
+run — a pre-provisioning session's Part 1 is written by whatever agent build was current
+weeks earlier, and its events stay in the partition forever. Field 2026-09-01 (sessions
+`e797117b` / `c06d639d` / `d7c8032b`, one tenant): 26 IME samples at exactly −60 min from a
+2026-08-20 technician leg under agent 2.0.1409 — before per-line anchoring — outnumbered the
+3…9 clean samples of the user leg that completed that morning and fired the tripwire against
+2.0.1445, a build the device had self-updated to minutes earlier. The skew was real, 12 days
+old, and already fixed; no scan-wide statistic can tell those apart, because event rows carry
+no agent version. The era boundary can. `eraStartUtc` and the excluded per-side sample counts
+travel in the ops event, so an inherited leg stays visible without being alarmed on. The
+2 h threshold sits above any in-leg upload gap (a live agent uploads self-metrics every few
+minutes, reports `session_stalled` at 60 min idle, and the maintenance sweep classifies
+silence at 2 h) and below every pre-provisioning handover.
 
 Device-clock problems (the customer-actionable cousin) are covered separately by the
 `clock_skew` analyze condition behind `ANALYZE-DEV-008`, which excludes IME-derived events

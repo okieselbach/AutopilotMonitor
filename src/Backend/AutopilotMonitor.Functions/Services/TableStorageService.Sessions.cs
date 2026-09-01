@@ -3545,9 +3545,6 @@ namespace AutopilotMonitor.Functions.Services
 
                 int total = 0, reboots = 0;
                 var skew = new SessionSkewScan();
-                var imeBatches = new HashSet<DateTime>();
-                var otherBatches = new HashSet<DateTime>();
-                const int maxSkewSamplesPerSide = 20_000;
                 await foreach (var entity in query)
                 {
                     total++;
@@ -3563,14 +3560,11 @@ namespace AutopilotMonitor.Functions.Services
                     var occurredAt = ResolveEventTimestampOrNull(entity);
                     if (!receivedAt.HasValue || !occurredAt.HasValue)
                         continue;
+                    // ReceivedAt travels with the sample: the detector windows on ingest eras
+                    // and derives its distinct-batch counts from the same era-filtered set.
                     var isIme = string.Equals(entity.GetString("Source"), "ImeLogTracker", StringComparison.OrdinalIgnoreCase);
-                    var side = isIme ? skew.ImeDeltaMinutes : skew.OtherDeltaMinutes;
-                    if (side.Count < maxSkewSamplesPerSide)
-                        side.Add((receivedAt.Value - occurredAt.Value).TotalMinutes);
-                    (isIme ? imeBatches : otherBatches).Add(receivedAt.Value);
+                    skew.Add(isIme, (receivedAt.Value - occurredAt.Value).TotalMinutes, receivedAt.Value);
                 }
-                skew.ImeDistinctBatchCount = imeBatches.Count;
-                skew.OtherDistinctBatchCount = otherBatches.Count;
                 return (total, reboots, skew);
             }
             catch (Exception ex)

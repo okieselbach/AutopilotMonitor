@@ -672,6 +672,7 @@ namespace AutopilotMonitor.Functions.Services
                     $"({result.GridSteps}x15min grid, residual {result.ResidualMinutes:0.0} min, {result.GridConformantFraction:P0} of IME samples on grid; " +
                     $"median dIME {result.MedianImeDeltaMinutes:0.0} / dOther {result.MedianOtherDeltaMinutes:0.0} min; " +
                     $"{result.ImeSampleCount}/{result.OtherSampleCount} samples over {result.ImeBatchCount}/{result.OtherBatchCount} batches; " +
+                    $"ingest era from {result.EraStartUtc:yyyy-MM-ddTHH:mm:ss}Z, {result.ImeSamplesOutsideEra}/{result.OtherSamplesOutsideEra} older samples excluded; " +
                     $"origins: {(origins.Length > 0 ? origins : "none")})";
 
                 await _opsEventService.RecordCmTraceTimeSkewRegressionAsync(tenantId, sessionId, agentVersion, message, new
@@ -688,6 +689,9 @@ namespace AutopilotMonitor.Functions.Services
                     otherSampleCount = result.OtherSampleCount,
                     imeBatchCount = result.ImeBatchCount,
                     otherBatchCount = result.OtherBatchCount,
+                    eraStartUtc = result.EraStartUtc,
+                    imeSamplesOutsideEra = result.ImeSamplesOutsideEra,
+                    otherSamplesOutsideEra = result.OtherSamplesOutsideEra,
                     sourceOffsetOrigins = histogram,
                 });
             }

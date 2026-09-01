@@ -1,5 +1,9 @@
 # Log
 
+## 2026-09-01 (1)
+
+* **Update**: `agent/cmtrace-time-resolution.md` — the backend skew tripwire now judges only the session's most recent ingest era (batch stamps walked back from the newest, split at the first `ReceivedAt` gap > 2 h). Pre-provisioning partitions hold a Part 1 leg written weeks earlier by an older agent build: on 2026-09-01 three sessions of one tenant fired on 26 IME samples at −60 min left by agent 2.0.1409 on 2026-08-20 (pre per-line anchoring), against a device already self-updated to 2.0.1445. `SessionSkewScan` carries `ReceivedAt` per sample (distinct-batch counts derive from the era-filtered set; the cap keeps the newest samples), and the ops event reports `eraStartUtc` plus the excluded per-side counts.
+
 ## 2026-08-31 (2)
 
 * **Update**: `drift-guards.md` — typisierung follow-up: the deliberately-untyped remainder (RuleDryRun trace, HealthCheck, GlobalNotificationDto, TenantConfigFieldSchema, maintenance run reports, MetricsSummary items, auth/me, auth/mcp) is typed end-to-end; a new object-slot reflection ratchet in `TypedResponseGuardTests` closes the class (baseline: `RuleDryRunCondition.Evidence` only). Deliberate wire change: global-admins / tenant-admins / preview-whitelist rows are flat read models (`GlobalAdminRow` / `TenantAdminRow` / `PreviewWhitelistTenantEntry`) without partitionKey/rowKey/eTag/timestamp, pinned by exact-JSON shape tests.
