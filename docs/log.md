@@ -1,5 +1,10 @@
 # Log
 
+## 2026-09-01 (8)
+
+* **New**: `backend/demo-session-import.md` - the `import-session` skill (submodule) clones a session under a new id into the operator tenant gktatooine.net for live demos: export of the 23 cascade steps with EDM annotations, one replacement table over every key and string (tenant, session id, scrub tokens: UPNs -> Star-Wars pool, domains, device name, serial, thumbprints, MACs, public IPs), `EventId` re-keyed via uuid5, chunked PayloadJson re-chunked, `Owner*`/deletion/diagnostics columns dropped, SoftwareInventory counters bumped with ETag merge. Safety: insert-only under the new id (409 instead of overwrite), key invariant before the first write and as the rollback guard, zero-leak assertion, automatic rollback on any failed write plus a manual `rollback`, `apply --dry-run`. Provenance in the globaladmin lane; removal via the product's delete cascade. First import verified end to end (1954 rows, 3 min).
+
+
 ## 2026-09-01 (7)
 
 * **Update**: `backend/session-annotations.md` - the annotation lists gain a free-text note search: `?q=` on both `sessions/annotations/list` and `global/session-annotations` (MCP `list_session_annotations` `query`), a case-insensitive substring over note + verdict, applied in the same client-of-Azure back-fill loop as `ruleId` and bound into the continuation fingerprint. Portal: a debounced search box on the Annotations page. Motivation: demo sessions imported into the operator's own tenant fall out of every time window; a note ("wifi switch") plus this search is how they are found again.
