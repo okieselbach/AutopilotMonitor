@@ -186,6 +186,10 @@ public class VerdictPathTests
         Assert.Equal((VerdictPaths.AgentCompleteSoft, true), VerdictPathDerivation.Derive(Row(SessionStatus.Succeeded, soft: true)));
         Assert.Equal((VerdictPaths.AgentFailed, true), VerdictPathDerivation.Derive(Row(SessionStatus.Failed, failureReason: "ESP timeout (0x800705B4)")));
         Assert.Equal((VerdictPaths.AgentEspFailureFallback, true), VerdictPathDerivation.Derive(Row(SessionStatus.Failed, failureReason: "ESP failure (backend fallback)")));
+        // The ingest fallback copies the agent's esp_failure message verbatim (ShellCoreTracker literal) —
+        // that is what the pre-instrumentation rows carry, not the "(backend fallback)" default.
+        Assert.Equal((VerdictPaths.AgentEspFailureFallback, true), VerdictPathDerivation.Derive(Row(SessionStatus.Failed,
+            failureReason: "ESP (Enrollment Status Page) reported a failure: WhiteGlove_Failed")));
         Assert.Equal((VerdictPaths.SweepStalled, true), VerdictPathDerivation.Derive(Row(SessionStatus.Stalled, failureReason: "Agent silent for 130min (detected by maintenance sweep)")));
         Assert.Equal((VerdictPaths.AgentStallProbe, true), VerdictPathDerivation.Derive(Row(SessionStatus.Stalled, failureReason: "Agent reported stall after 60min without progress (stall_probe)")));
         Assert.Equal(("legacy:superseded", true), VerdictPathDerivation.Derive(Row(SessionStatus.Incomplete, failureReason: "Superseded by session abc: re-registered")));

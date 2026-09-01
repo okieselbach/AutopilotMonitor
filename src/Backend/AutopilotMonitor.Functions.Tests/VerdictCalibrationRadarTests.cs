@@ -118,6 +118,59 @@ public class VerdictCalibrationRadarTests
     }
 
     [Fact]
+    public void Legacy_rule_rows_carry_the_per_path_baseline_across_the_cutover()
+    {
+        // Production 2026-09-02: legacy:r6 on every baseline day, one stamped day (8 hits) at the
+        // end of the baseline, sweep:r6 at the SAME rate in the window. Without folding legacy:r6
+        // into the sweep:r6 baseline the single stamped day passes the 5-hit floor and the
+        // rename reads as an 8× share regression.
+        var flat = Horizon(w => new[]
+        {
+            ("sweep:r6", "Incomplete", w ? 4 : 0),
+            ("legacy:r6", "Incomplete", w ? 0 : 4),
+            ("agent:complete", "Succeeded", 16),
+        });
+        var findings = VerdictCalibrationRadar.Evaluate(flat, Target);
+        Assert.DoesNotContain(findings, f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        Assert.DoesNotContain(findings, f => f.Kind == VerdictCalibrationAlertKinds.SilenceShareRegression);
+
+        // A real jump under the new name is still visible — and its baseline is the folded one.
+        var jump = Horizon(w => new[]
+        {
+            ("sweep:r6", "Incomplete", w ? 4 : 0),
+            ("legacy:r6", "Incomplete", w ? 0 : 1),
+            ("agent:complete", "Succeeded", w ? 16 : 19),
+        });
+        var f = Assert.Single(VerdictCalibrationRadar.Evaluate(jump, Target),
+            x => x.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+        Assert.Equal("sweep:r6", f.VerdictPath);
+        Assert.Equal(28, f.WindowHitCount);
+        Assert.Equal(28, f.BaselineHitCount);
+        Assert.Equal(4.0, f.Lift);
+
+        // Re-arm and refresh read the same folded sums, so the flat shape clears an open episode…
+        var episode = new VerdictCalibrationAlert { Kind = VerdictCalibrationAlertKinds.ShareRegression, VerdictPath = "sweep:r6", Status = "Incomplete" };
+        Assert.True(VerdictCalibrationRadar.ShouldReArm(episode, flat, Target));
+        Assert.Equal((28, 140, 112, 560), VerdictCalibrationRadar.CurrentSums(episode, flat, Target));
+        // …while the jump keeps it burning.
+        Assert.False(VerdictCalibrationRadar.ShouldReArm(episode, jump, Target));
+    }
+
+    [Fact]
+    public void Legacy_rule_rows_never_contribute_window_hits_to_the_stamped_path()
+    {
+        // Baseline only: a derived row inside the window (impossible after the cutover, but the
+        // rule must hold) does not become sweep:r6 window evidence — legacy never alerts per-path.
+        var rows = Horizon(w => new[]
+        {
+            ("legacy:r6", "Incomplete", w ? 4 : 1),
+            ("agent:complete", "Succeeded", w ? 16 : 19),
+        });
+        Assert.DoesNotContain(VerdictCalibrationRadar.Evaluate(rows, Target),
+            f => f.Kind == VerdictCalibrationAlertKinds.ShareRegression);
+    }
+
+    [Fact]
     public void Share_regression_needs_ten_window_hits()
     {
         // 7 window hits at 5% vs an established 1.07% baseline — lift ~4.7, but verdict shares

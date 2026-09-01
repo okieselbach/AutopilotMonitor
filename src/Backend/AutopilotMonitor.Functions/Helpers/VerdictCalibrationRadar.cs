@@ -40,8 +40,9 @@ public class VerdictCalibrationFinding
 /// </list>
 /// Derived (<c>legacy:*</c>) paths never alert per-path — pre-instrumentation attribution is too
 /// weak for that — but their rule-shaped subset DOES feed the silence and classifier-verdict
-/// group sums so the groups stay continuous across the 2026-08-23 instrumentation cutover
-/// (see <see cref="Summarize"/>). Agent-declared paths (<c>agent:*</c>, <c>register:*</c>) are excluded
+/// group sums AND the per-path BASELINE of the matching <c>sweep:{rule}</c> path, so both the
+/// groups and the per-path comparisons stay continuous across the 2026-08-23 instrumentation
+/// cutover (see <see cref="Summarize"/>). Agent-declared paths (<c>agent:*</c>, <c>register:*</c>) are excluded
 /// from the per-path share regression: their share tracks the customer's workflow mix (a
 /// WhiteGlove rollout week doubles <c>agent:whiteglove_pending</c>; a Continue-Anyway tenant
 /// lives on <c>agent:complete_soft</c>) — real signals, but not about the BACKEND classifier
@@ -64,8 +65,12 @@ public static class VerdictCalibrationRadar
     /// Minimum baseline hits before a PER-PATH share regression is meaningful. A path with no
     /// established baseline cannot regress — it is new vocabulary (or a renamed path), and
     /// alerting on it just counts the rollout: the 2026-08-23 instrumentation cut over from
-    /// legacy:* to sweep:*/register:* names and fired seven zero-baseline artifacts. The group
-    /// kinds are exempt — their baselines carry the legacy continuity (see <see cref="Summarize"/>).
+    /// legacy:* to sweep:*/register:* names and fired seven zero-baseline artifacts. The floor
+    /// alone did not close the cutover: the first stamped day already delivered 8 sweep:r6 /
+    /// 15 sweep:r5_incomplete baseline hits and the rename fired again a week later (lift 8×
+    /// against a one-day baseline, read 2026-09-02) — the legacy continuity in
+    /// <see cref="Summarize"/> is what carries the baseline. The group kinds are exempt from the
+    /// floor for the same reason.
     /// </summary>
     public const int MinBaselineHits = 5;
     public const int MinWindowSessions = RuleRegressionRadar.MinWindowSessions;
@@ -241,6 +246,18 @@ public static class VerdictCalibrationRadar
         return detail.Length >= 2 && detail[0] == 'r' && char.IsDigit(detail[1]);
     }
 
+    /// <summary>The stamped path a derived rule row continues: <c>legacy:r6</c> → <c>sweep:r6</c>.</summary>
+    private static string LegacyContinuityPath(string legacyPath)
+        => VerdictPaths.Compose(VerdictPaths.OriginSweep, legacyPath.Substring(LegacyOrigin.Length + 1));
+
+    private static void AddPathHits(Horizon h, (string Path, string Status) key, int count, bool inWindow)
+    {
+        h.Paths.TryGetValue(key, out var sums);
+        h.Paths[key] = inWindow
+            ? new PathSums(sums.WindowHits + count, sums.BaselineHits)
+            : new PathSums(sums.WindowHits, sums.BaselineHits + count);
+    }
+
     internal readonly record struct PathSums(int WindowHits, int BaselineHits);
 
     internal sealed class Horizon
@@ -268,8 +285,14 @@ public static class VerdictCalibrationRadar
     /// the writers' own reason literals, which is strong enough for a group sum (though still too
     /// weak for per-path alerting). Counting them symmetrically (window AND baseline) keeps the
     /// silence and classifier-verdict groups continuous across the cutover; without this the groups
-    /// had a near-zero baseline by construction and fired a lift-124 artifact. Legacy rows only
-    /// exist for pre-instrumentation sessions, so the term self-deprecates as they age out.
+    /// had a near-zero baseline by construction and fired a lift-124 artifact. The same rows also
+    /// carry the per-path BASELINE of <c>sweep:{rule}</c> (the sweep is the bare-literal writer
+    /// the derivation cannot tell from a late reconcile): a stamped <c>sweep:r6</c> window is
+    /// compared against <c>legacy:r6</c> + <c>sweep:r6</c> baseline days, so the rename itself
+    /// never reads as a share regression (2026-09-02: lift 8× against the single stamped
+    /// baseline day). Baseline only — a legacy row never contributes WINDOW hits to a stamped
+    /// path, so derived data can never be what a per-path alert points at. Legacy rows only
+    /// exist for pre-instrumentation sessions, so both terms self-deprecate as they age out.
     /// (Non-rule legacy paths — <c>legacy:superseded</c>, <c>legacy:wg_awaiting</c>,
     /// <c>legacy:unknown</c> — stay excluded: superseded is a registration write, unknown is
     /// unattributable, and wg_awaiting is a negligible tail.)
@@ -294,14 +317,12 @@ public static class VerdictCalibrationRadar
             foreach (var b in row.Buckets)
             {
                 if (b.Count == 0) continue;
-                var key = (b.VerdictPath, b.Status);
-                h.Paths.TryGetValue(key, out var sums);
-                h.Paths[key] = inWindow
-                    ? new PathSums(sums.WindowHits + b.Count, sums.BaselineHits)
-                    : new PathSums(sums.WindowHits, sums.BaselineHits + b.Count);
-
                 var origin = VerdictPaths.Origin(b.VerdictPath);
                 var legacyRule = IsLegacyClassifierPath(b.VerdictPath, origin);
+
+                AddPathHits(h, (b.VerdictPath, b.Status), b.Count, inWindow);
+                if (legacyRule && !inWindow)
+                    AddPathHits(h, (LegacyContinuityPath(b.VerdictPath), b.Status), b.Count, inWindow: false);
                 if (origin == VerdictPaths.OriginSweep || origin == VerdictPaths.OriginMaxLifetime || legacyRule)
                 {
                     if (inWindow) h.SilenceWindowHits += b.Count; else h.SilenceBaselineHits += b.Count;

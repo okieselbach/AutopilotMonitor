@@ -33,6 +33,13 @@ namespace AutopilotMonitor.Functions.Helpers
         private const string SweepStalledPrefix = "Agent silent for";
         private const string AgentStallProbePrefix = "Agent reported stall after";
         private const string EspFallbackLiteral = "ESP failure (backend fallback)";
+        /// <summary>
+        /// Agent esp_failure event message (ShellCoreTracker) that the ingest fallback copies verbatim
+        /// into FailureReason — the stamped path for that write is <see cref="VerdictPaths.AgentEspFailureFallback"/>,
+        /// so pre-instrumentation rows must derive the same way (without this they read as
+        /// agent:failed and the cutover showed a fake agent:failed → esp_failure_fallback shift, 2026-09-02).
+        /// </summary>
+        private const string EspFailureMessagePrefix = "ESP (Enrollment Status Page) reported a failure";
         /// <summary>Pre-classifier blanket timeout verdict (LegacyReclassificationService) — never agent-reported.</summary>
         private const string LegacyBlanketTimeoutPrefix = "Session timed out";
         private const string MaxLifetimeSuffix = "max-lifetime watchdog";
@@ -77,7 +84,8 @@ namespace AutopilotMonitor.Functions.Helpers
                     if (Starts(failureReason, R1Prefix)) return Classifier(failureReason, ClassifierRules.R1ExplicitFailure);
                     if (string.Equals(failureSource, "max_lifetime_watchdog", StringComparison.OrdinalIgnoreCase))
                         return VerdictPaths.Compose(VerdictPaths.OriginMaxLifetime, ClassifierRules.R1ExplicitFailure);
-                    if (failureReason.Contains(EspFallbackLiteral, StringComparison.Ordinal)) return VerdictPaths.AgentEspFailureFallback;
+                    if (failureReason.Contains(EspFallbackLiteral, StringComparison.Ordinal)
+                        || Starts(failureReason, EspFailureMessagePrefix)) return VerdictPaths.AgentEspFailureFallback;
                     if (Starts(failureReason, LegacyBlanketTimeoutPrefix)) return VerdictPaths.LegacyUnknown;
                     if (failureReason.Length > 0 && failureSource.Length == 0) return VerdictPaths.AgentFailed;
                     return VerdictPaths.LegacyUnknown;
