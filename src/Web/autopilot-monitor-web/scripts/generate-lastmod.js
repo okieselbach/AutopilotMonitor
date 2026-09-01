@@ -13,33 +13,26 @@ const path = require("path");
 const WEB_ROOT = path.resolve(__dirname, "..");
 const OUTPUT_FILE = path.join(WEB_ROOT, "utils/page-lastmod.generated.ts");
 
-// URL path -> source file(s) relative to WEB_ROOT
-// For docs sections, we check the section component file
+// URL path -> source file(s) relative to WEB_ROOT.
+// Must list exactly the public pages emitted by app/sitemap.ts; the sitemap
+// fails the build for any URL missing here. Documentation and the changelog
+// live on docs.autopilotmonitor.com (GitBook) and are not part of this site.
 const PAGE_MAP = {
   "/": ["app/page.tsx"],
   "/about": ["app/about/page.tsx"],
+  "/get-started": ["app/get-started/page.tsx"],
+  "/plans": ["app/plans/page.tsx", "components/plans/planData.ts"],
   "/buy": ["app/buy/page.tsx"],
   "/help": ["app/help/page.tsx"],
-  "/plans": ["app/plans/page.tsx", "components/plans/planData.ts"],
-  "/roadmap": ["app/roadmap/page.tsx"],
-  "/changelog": ["app/changelog/page.tsx"],
   "/privacy": ["app/privacy/page.tsx"],
   "/terms": ["app/terms/page.tsx"],
-  "/docs": ["app/docs/docsNavSections.ts", "app/docs/[section]/page.tsx"],
-  "/docs/private-preview": ["app/docs/sections/SectionPrivatePreview.tsx"],
-  "/docs/overview": ["app/docs/sections/SectionOverview.tsx"],
-  "/docs/general": ["app/docs/sections/SectionGeneral.tsx"],
-  "/docs/setup": ["app/docs/sections/SectionSetup.tsx"],
-  "/docs/agent": ["app/docs/sections/SectionAgent.tsx"],
-  "/docs/agent-setup": ["app/docs/sections/SectionAgentSetup.tsx"],
-  "/docs/settings": ["app/docs/sections/SectionSettings.tsx"],
-  "/docs/gather-rules": ["app/docs/sections/SectionGatherRules.tsx"],
-  "/docs/analyze-rules": ["app/docs/sections/SectionAnalyzeRules.tsx"],
-  "/docs/ime-log-patterns": ["app/docs/sections/SectionImeLogPatterns.tsx"],
 };
 
 function getLastCommitDate(filePath) {
   const absolutePath = path.join(WEB_ROOT, filePath);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`generate-lastmod: source file not found: ${filePath}`);
+  }
   try {
     const date = execSync(
       `git log -1 --format=%aI -- "${absolutePath}"`,

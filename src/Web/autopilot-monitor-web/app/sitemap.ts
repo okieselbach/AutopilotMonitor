@@ -7,13 +7,20 @@ import { SITE_URL } from "@/utils/config";
 
 const BASE_URL = SITE_URL;
 
+// Build-time only (static export): a URL missing from PAGE_LASTMOD means
+// scripts/generate-lastmod.js drifted from this list -- fail the build rather
+// than emit "now" as lastmod on every deploy.
 function lastmod(urlPath: string): Date {
   const iso = PAGE_LASTMOD[urlPath];
-  return iso ? new Date(iso) : new Date();
+  if (!iso) {
+    throw new Error(`sitemap: no lastmod entry for ${urlPath} (add it to scripts/generate-lastmod.js PAGE_MAP)`);
+  }
+  return new Date(iso);
 }
 
-// Documentation lives at docs.autopilotmonitor.com (GitBook) and is indexed
-// there; the old /docs/* URLs permanently redirect (see next.config.ts).
+// Documentation and the changelog live at docs.autopilotmonitor.com (GitBook)
+// and are indexed there; the old /docs/* and /changelog URLs permanently
+// redirect (see staticwebapp.config.json).
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
