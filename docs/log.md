@@ -1,5 +1,13 @@
 # Log
 
+## 2026-09-01 (4)
+
+* **Update**: `drift-guards.md` — MCP tool vocabularies are generated, not retyped. The codegen now emits `wire-vocabularies.generated.ts` (VALUES: session statuses, event severities, ops categories/severities/types, annotation lanes/verdicts) alongside the MCP's wire types, byte-pinned by the MCP freshness suite and the `shared-manifests-in-sync` CI job; the tool schemas derive their `z.enum()` from it. Found by the switch: `search_sessions` had offered 5 of 8 session statuses (no `AwaitingUser`/`Incomplete`) and both event readers 4 of 6 severities (no `Debug`/`Trace`). `vocabulary-drift.guard.test.ts` ratchets the remaining inline enums against a reasoned baseline. New `OpsEventTypes` (Shared) gives the 77 ops event types a canonical home — `OpsEventService` write sites use the constants (a raw literal now fails the dual-register test), and `get_resource(name="ops_event_types")` serves the vocabulary to the model.
+
+## 2026-09-01 (2)
+
+* **New**: `backend/ops-events-query-surface.md` - the ops-events read gains server-side `eventType` / `severity` / `minSeverity` filters (audit-log filter pattern: one parse helper, one clause appender used by both filter builders, values folded into the continuation fingerprint and echoed on nextLink). `minSeverity` expands to an OR-set because the severity names sort `Critical < Error < Info < Warning` lexicographically; the ladder is now shared with `OpsAlertDispatchService`. Fixed alongside: the paged cross-category fan-out skipped `Platform` (Azure Monitor alerts) because its category list had drifted from `OpsEventCategory` - the list is now `OpsEventCategory.All` with a reflection coverage test. MCP `get_ops_events` exposes the filters plus a client-resolved `days` shorthand.
+
 ## 2026-09-01 (1)
 
 * **Update**: `agent/cmtrace-time-resolution.md` — the backend skew tripwire now judges only the session's most recent ingest era (batch stamps walked back from the newest, split at the first `ReceivedAt` gap > 2 h). Pre-provisioning partitions hold a Part 1 leg written weeks earlier by an older agent build: on 2026-09-01 three sessions of one tenant fired on 26 IME samples at −60 min left by agent 2.0.1409 on 2026-08-20 (pre per-line anchoring), against a device already self-updated to 2.0.1445. `SessionSkewScan` carries `ReceivedAt` per sample (distinct-batch counts derive from the era-filtered set; the cap keeps the newest samples), and the ops event reports `eraStartUtc` plus the excluded per-side counts.

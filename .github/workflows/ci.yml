@@ -155,14 +155,16 @@ jobs:
           node-version: '22'
 
       # JSON ↔ C# parity is the dotnet job's SharedManifestParityTests; this job pins
-      # JSON ↔ generated TS (shared-manifests.generated.ts + wire-types.generated.ts).
+      # JSON ↔ generated TS (shared-manifests.generated.ts, wire-types.generated.ts and the
+      # MCP's wire-types + wire-vocabularies copies - the vocabularies are what the MCP
+      # tool input schemas derive their z.enum() from).
       - name: Regenerate
         run: node scripts/generate-shared-manifest-types.js
         working-directory: src/Web/autopilot-monitor-web
 
       - name: Fail if the generated files drifted
         run: |
-          if ! git diff --quiet -- src/Web/autopilot-monitor-web/utils/shared-manifests.generated.ts src/Web/autopilot-monitor-web/utils/wire-types.generated.ts src/McpServer/autopilot-monitor-mcp/src/generated/wire-types.generated.ts; then
+          if ! git diff --quiet -- src/Web/autopilot-monitor-web/utils/shared-manifests.generated.ts src/Web/autopilot-monitor-web/utils/wire-types.generated.ts src/McpServer/autopilot-monitor-mcp/src/generated/wire-types.generated.ts src/McpServer/autopilot-monitor-mcp/src/generated/wire-vocabularies.generated.ts; then
             echo "::error::Generated wire types are out of date. Run 'npm run generate:manifests' in src/Web/autopilot-monitor-web and commit the result."
             git diff --stat
             exit 1

@@ -1,7 +1,7 @@
 ---
 type: Concept
-title: Drift Guards — SignalR Names, RowKeys, Wire DTOs, Config Sections, Scoped Routing
-description: The 2026-08 fragility-audit follow-up contracts that turn formerly hand-synchronized mirrors into enforced ones — SignalR message-name catalog, the inverted-tick RowKey codec, tombstone table tagging, typed wire DTOs with generated TypeScript interfaces, per-section config PATCH, and the web's scoped-endpoint builders.
+title: Drift Guards — SignalR Names, RowKeys, Wire DTOs, Tool Vocabularies, Config Sections, Scoped Routing
+description: The 2026-08 fragility-audit follow-up contracts that turn formerly hand-synchronized mirrors into enforced ones — SignalR message-name catalog, the inverted-tick RowKey codec, tombstone table tagging, typed wire DTOs with generated TypeScript interfaces, the MCP's generated tool vocabularies with their inline-enum ratchet, per-section config PATCH, and the web's scoped-endpoint builders.
 resource: /src/Backend/AutopilotMonitor.Functions.Tests/TypedResponseGuardTests.cs
 tags:
   - contracts
@@ -100,6 +100,44 @@ it. Freshness is pinned by the vitest suite and the `shared-manifests-in-sync` C
 job. Unmappable shapes (non-string dictionary keys, foreign BCL classes) fail the
 manifest build instead of degrading to `unknown`.
 
+## Tool vocabularies — the MCP derives them, it no longer retypes them
+
+Wire TYPES reached the MCP from day one (`src/generated/wire-types.generated.ts`, the
+same codegen output the web gets). Vocabularies did not: types are erased at runtime and
+a `z.enum([...])` needs values, so every MCP tool schema hand-typed its own copy of
+statuses, severities and categories — with nothing to compare against. The copies drifted
+exactly as you would expect: `search_sessions` offered 5 of 8 session statuses (no
+`AwaitingUser`, no `Incomplete`), both event readers offered 4 of 6 severities (no `Debug`,
+no `Trace`), and `get_ops_events` named 6 ops categories while the backend wrote 7. None of
+that surfaces as an error — the tool just quietly cannot ask for the missing value.
+
+The vocabularies now ship as VALUES. `MCP_VOCABULARIES` in the codegen maps manifest
+sections onto `src/generated/wire-vocabularies.generated.ts` (`export const
+SESSION_STATUSES = [...] as const` plus its union type); the tool schemas do
+`z.enum(SESSION_STATUSES)` and descriptions interpolate the list instead of spelling it.
+Freshness is pinned twice: `wire-types-freshness.test.ts` compares the committed file
+byte-for-byte against a fresh codegen run, and the `shared-manifests-in-sync` CI job
+diffs it after regenerating.
+
+`vocabulary-drift.guard.test.ts` is the ratchet that keeps it that way: every inline
+`z.enum([...])` left in `src/tools/*.ts` must be on a baseline that names why it has no
+backend owner (MCP-local knobs like `depth: fast|deep`, plus three free-string columns —
+rule type, connection type, CVE risk — that have no C# constants class yet). A new
+hand-typed list fails until it is derived or reviewed onto the baseline, and a stale
+baseline entry fails too.
+
+Ops event types got the missing owner: they were bare literals at the `OpsEventService`
+call sites, so nothing could enumerate them and both the portal alert-rule catalog and the
+MCP had to retype the list. `OpsEventTypes` (Shared) now declares all 77; the write sites
+use the constants (a raw literal fails `OpsEventTypeDualRegisterTests`), the manifest
+exports them, and `get_resource(name="ops_event_types")` serves categories + severities +
+types to the model from the generated copy.
+
+Backend-internal lists follow the same rule: a list that enumerates a constants class IS
+the class. `TableOpsEventRepository.AllCategories` is `OpsEventCategory.All` rather than a
+retyped copy — the copy had gone stale and silently hid every `Platform` (Azure Monitor)
+event from the paged cross-category read while the unpaged path still showed it.
+
 ## Tenant settings — per-section PATCH
 
 The web's Settings sections no longer PUT the full ~92-field configuration. Each
@@ -141,6 +179,9 @@ list in `sectionFieldMap.test.ts`.
 # Citations
 
 - `src/Shared/AutopilotMonitor.Shared/Constants.cs` — SignalRMessages catalog
+- `src/Web/autopilot-monitor-web/scripts/generate-shared-manifest-types.js` — `MCP_VOCABULARIES`, the vocabulary codegen
+- `src/McpServer/autopilot-monitor-mcp/src/__tests__/vocabulary-drift.guard.test.ts` — the inline-enum ratchet
+- `src/Shared/AutopilotMonitor.Shared/DataAccess/OpsEventTypes.cs` + `OpsEventTypeDualRegisterTests.cs`
 - `src/Backend/AutopilotMonitor.Functions/Helpers/RowKeyCodec.cs` + `RowKeyCodecTests.cs`
 - `src/Shared/AutopilotMonitor.Shared/Models/Deletion/DeletionManifest.cs` — `DeletionRowDump.Table`, `DeletionTombstoneTables`
 - `src/Backend/AutopilotMonitor.Functions.Tests/TypedResponseGuardTests.cs` + `WireTypeManifestBuilder.cs` + the `*WireParityTests` files

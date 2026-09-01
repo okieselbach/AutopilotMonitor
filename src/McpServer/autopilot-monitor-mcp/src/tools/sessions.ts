@@ -16,6 +16,8 @@ import type {
   GetSessionEventsResponse,
   GetSessionResponse,
 } from '../generated/wire-types.generated.js';
+// Generated vocabularies (values, not just types) — see wire-vocabularies.generated.ts.
+import { EVENT_SEVERITIES, SESSION_STATUSES } from '../generated/wire-vocabularies.generated.js';
 
 // ── Session summary constants ───────────────────────────────────────────
 
@@ -120,7 +122,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
-        status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed']).optional()
+        status: z.enum(SESSION_STATUSES).optional()
           .describe('Enrollment status filter. Pending = White Glove pre-provisioning done, awaiting user enrollment; ' +
                     'Stalled = no progress for a while (non-terminal, can heal back to InProgress).'),
         serialNumber: z.string().optional().describe('Device serial number (exact match)'),
@@ -414,7 +416,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         sessionId: SessionIdSchema.describe('Session UUID'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session.', 'Tenant ID. If omitted, auto-resolved from the session.')),
         eventType: z.string().optional().describe('Filter to only events of this type'),
-        severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
+        severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
           .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),

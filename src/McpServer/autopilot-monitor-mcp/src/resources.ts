@@ -118,6 +118,28 @@ export function registerResources(server: McpServer): void {
   );
 
   server.registerResource(
+    'ops_event_types',
+    'autopilot://ops-event-types',
+    {
+      title: 'Ops Event Vocabularies',
+      mimeType: 'application/json',
+      description:
+        'The three vocabularies get_ops_events filters by: OpsEvents categories (partition keys), ' +
+        'severities in ladder order, and every ops event type the backend can write. Generated from ' +
+        'the C# constants, so it never advertises a phantom type nor omits a real one.',
+    },
+    async () => ({
+      contents: [
+        {
+          uri: 'autopilot://ops-event-types',
+          mimeType: 'application/json',
+          text: JSON.stringify(getResourceContent('ops_event_types'), null, 2),
+        },
+      ],
+    })
+  );
+
+  server.registerResource(
     'rule_guardrails',
     'autopilot://rule-guardrails',
     {

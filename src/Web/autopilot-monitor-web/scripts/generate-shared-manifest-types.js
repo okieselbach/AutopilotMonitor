@@ -13,6 +13,10 @@
  *  - a second copy of the wire types into the MCP server
  *    (src/McpServer/autopilot-monitor-mcp/src/generated/wire-types.generated.ts),
  *    whose tools read the same backend responses.
+ *  - wire-vocabularies.generated.ts for the MCP: the vocabulary sections as runtime
+ *    ARRAYS, so tool input schemas derive their z.enum() from backend truth instead
+ *    of retyping it (types alone are erased at runtime — that gap is what let the
+ *    MCP enums drift).
  *
  * Run: node scripts/generate-shared-manifest-types.js  (npm run generate:manifests)
  * Freshness of the web outputs is pinned by utils/__tests__/sharedManifestParity.test.ts,
@@ -29,6 +33,8 @@ const DEST_TYPES = path.join(WEB_ROOT, "utils", "wire-types.generated.ts");
 // Second copy for the MCP server (same repo) — its tools read the same backend wire.
 const MCP_ROOT = path.resolve(WEB_ROOT, "..", "..", "McpServer", "autopilot-monitor-mcp");
 const DEST_MCP_TYPES = path.join(MCP_ROOT, "src", "generated", "wire-types.generated.ts");
+// Values (not types) for the MCP tool schemas — see MCP_VOCABULARIES.
+const DEST_MCP_VOCAB = path.join(MCP_ROOT, "src", "generated", "wire-vocabularies.generated.ts");
 
 const HEADER =
   "// GENERATED from shared-manifests.json — do not edit by hand.\n" +
@@ -58,6 +64,75 @@ function buildWireTypesSource(manifestJsonText) {
 /** Pure builder for the MCP server's src/generated/wire-types.generated.ts copy. */
 function buildMcpWireTypesSource(manifestJsonText) {
   return buildWireTypesSourceWithHeader(manifestJsonText, MCP_HEADER);
+}
+
+/**
+ * Manifest section → exported const name, for the MCP's VALUE copy of the vocabularies.
+ *
+ * The web reads vocabularies straight off SHARED_MANIFEST (an `as const` literal module),
+ * but the MCP only ever received the TYPES file — and types are erased at runtime, while a
+ * `z.enum([...])` needs values. That asymmetry is why every MCP tool had to retype its
+ * vocabularies by hand, with nothing to compare against. Sections listed here are emitted as
+ * runtime arrays so the tools can derive their enums instead.
+ *
+ * Add a section here only when the MCP actually consumes it — an unused export is one more
+ * thing to keep honest for no gain.
+ */
+const MCP_VOCABULARIES = [
+  { section: "sessionStatuses", constName: "SESSION_STATUSES", typeName: "SessionStatusName",
+    doc: "Enrollment session statuses (C# SessionStatus)." },
+  { section: "eventSeverities", constName: "EVENT_SEVERITIES", typeName: "EventSeverityName",
+    doc: "Telemetry event severities (C# EventSeverity) — includes Debug and Trace." },
+  { section: "opsEventCategories", constName: "OPS_EVENT_CATEGORIES", typeName: "OpsEventCategoryName",
+    doc: "Ops event categories = OpsEvents partition keys (C# OpsEventCategory)." },
+  { section: "opsEventSeverities", constName: "OPS_EVENT_SEVERITIES", typeName: "OpsEventSeverityName",
+    doc: "Ops event severities, ascending (C# OpsEventSeverity) — the order IS the ladder." },
+  { section: "opsEventTypes", constName: "OPS_EVENT_TYPES", typeName: "OpsEventTypeName",
+    doc: "Every ops event type the backend can write (C# OpsEventTypes)." },
+  { section: "annotationLanes", constName: "ANNOTATION_LANES", typeName: "AnnotationLane",
+    doc: "Session-annotation lanes (C# AnnotationLanes)." },
+  { section: "annotationVerdicts", constName: "ANNOTATION_VERDICTS", typeName: "AnnotationVerdict",
+    doc: "Session-annotation verdicts (C# AnnotationVerdicts)." },
+];
+
+/**
+ * Pure builder for the MCP server's src/generated/wire-vocabularies.generated.ts.
+ * Same freshness contract as the wire types: byte-equal to a fresh run or the MCP suite fails.
+ */
+function buildMcpVocabulariesSource(manifestJsonText) {
+  const manifest = JSON.parse(manifestJsonText);
+  if (manifest.schemaVersion !== 2) {
+    throw new Error("shared-manifests.json must be schemaVersion 2");
+  }
+
+  const parts = [
+    MCP_HEADER +
+      "//\n" +
+      "// Vocabularies reflected from AutopilotMonitor.Shared. These are VALUES (not just types)\n" +
+      "// so tool input schemas can derive their z.enum() from the backend truth instead of\n" +
+      "// retyping it — a hand-typed list drifts silently and the tool then advertises a\n" +
+      "// vocabulary the backend no longer has (or omits one it gained).\n",
+  ];
+
+  for (const { section, constName, typeName, doc } of MCP_VOCABULARIES) {
+    const value = manifest[section];
+    if (value === undefined) {
+      throw new Error(`shared-manifests.json is missing the "${section}" section (MCP vocabulary)`);
+    }
+    // Enum sections are name→ordinal maps; the MCP only ever filters by NAME.
+    const values = Array.isArray(value) ? value : Object.keys(value);
+    if (values.length === 0) {
+      throw new Error(`Manifest section "${section}" is empty — the reflection source is likely broken`);
+    }
+    parts.push("");
+    parts.push(jsdoc(doc, ""));
+    parts.push(`export const ${constName} = [`);
+    for (const v of values) parts.push(`  ${JSON.stringify(v)},`);
+    parts.push(`] as const;`);
+    parts.push(`export type ${typeName} = (typeof ${constName})[number];`);
+  }
+
+  return parts.join("\n") + "\n";
 }
 
 function buildWireTypesSourceWithHeader(manifestJsonText, header) {
@@ -140,10 +215,12 @@ function main() {
   fs.mkdirSync(path.dirname(DEST_MCP_TYPES), { recursive: true });
   fs.writeFileSync(DEST_MCP_TYPES, buildMcpWireTypesSource(json), "utf8");
   console.log(`[shared-manifests] Wrote ${path.relative(WEB_ROOT, DEST_MCP_TYPES)}`);
+  fs.writeFileSync(DEST_MCP_VOCAB, buildMcpVocabulariesSource(json), "utf8");
+  console.log(`[shared-manifests] Wrote ${path.relative(WEB_ROOT, DEST_MCP_VOCAB)}`);
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { buildGeneratedSource, buildWireTypesSource, buildMcpWireTypesSource };
+module.exports = { buildGeneratedSource, buildWireTypesSource, buildMcpWireTypesSource, buildMcpVocabulariesSource };
