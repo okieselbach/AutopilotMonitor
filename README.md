@@ -1,4 +1,4 @@
-# <img src="docs/images/logo.svg" height="28" alt="" /> AutopilotMonitor
+# <img src=".github/assets/logo.svg" height="28" alt="" /> AutopilotMonitor
 
 [![Status](https://img.shields.io/badge/status-live-brightgreen)](https://www.autopilotmonitor.com)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20AGPL--3.0-blue)](LICENSE)
@@ -11,12 +11,12 @@ Advanced monitoring and troubleshooting solution for Windows Autopilot deploymen
 Autopilot Monitor is **publicly available** — the Community plan is free. Sign in with your work account at **[autopilotmonitor.com](https://www.autopilotmonitor.com)**; new organizations complete a short activation step after first sign-in.
 
 <p align="center">
-  <img src="docs/images/SessionList.png" width="45%" />
-  <img src="docs/images/FleetHealth.png" width="45%" />
+  <img src=".github/assets/SessionList.png" width="45%" />
+  <img src=".github/assets/FleetHealth.png" width="45%" />
 </p>
 <p align="center">
-  <img src="docs/images/SessionDetails.png" width="45%" />
-  <img src="docs/images/SessionTimeline.png" width="45%" />
+  <img src=".github/assets/SessionDetails.png" width="45%" />
+  <img src=".github/assets/SessionTimeline.png" width="45%" />
 </p>
 
 ## Overview
@@ -27,10 +27,6 @@ Autopilot Monitor provides real-time tracking, intelligent diagnostics, and auto
 - **Monitoring Agent** — Lightweight .NET application that collects telemetry and evidence during enrollment
 - **Backend API** — Azure Functions-based ingestion and processing pipeline
 - **Web Dashboard** — Next.js application for real-time monitoring and fleet analytics
-
-## Architecture
-
-For detailed information about the system architecture, components, and data flow, see [Architecture Documentation](docs/architecture.md).
 
 ## Documentation
 
