@@ -134,8 +134,8 @@ function HomeContent() {
   const joinGlobalAdmins = globalAdminMode && hasGlobalScope;
 
   const {
-    showBlockConfirm, sessionToBlock, blockingDevice, blockedDevicesSet, setBlockedDevicesSet,
-    blockDevice, confirmBlock, cancelBlock,
+    showBlockConfirm, blockTargets, blockingDevice, blockedDevicesSet, setBlockedDevicesSet,
+    blockDevices, confirmBlock, cancelBlock,
   } = useBlockDevice(getAccessToken, addNotification, adminMode, crossTenant);
 
   const {
@@ -147,8 +147,8 @@ function HomeContent() {
   });
 
   const {
-    showDeleteConfirm, sessionToDelete, pendingDeletions,
-    deleteSession, confirmDelete, cancelDelete,
+    showDeleteConfirm, deleteTargets, pendingDeletions,
+    deleteSessions, confirmDelete, cancelDelete,
   } = useDeleteSession(getAccessToken, addNotification, adminMode, removeSession);
 
   const {
@@ -542,9 +542,9 @@ function HomeContent() {
               user={user}
               columnFilters={columnFilters}
               onColumnFiltersChange={setColumnFilters}
-              onDeleteSession={deleteSession}
+              onDeleteSessions={deleteSessions}
               pendingDeletions={pendingDeletions}
-              onBlockDevice={blockDevice}
+              onBlockDevices={blockDevices}
               fullWidth={fullWidth}
               onToggleFullWidth={toggleFullWidth}
               sessionLinkTarget={
@@ -558,18 +558,18 @@ function HomeContent() {
       </main>
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && sessionToDelete && (
+      {showDeleteConfirm && (
         <DeleteConfirmModal
-          sessionToDelete={sessionToDelete}
+          targets={deleteTargets}
           onConfirm={confirmDelete}
           onCancel={cancelDelete}
         />
       )}
 
       {/* Block Device Confirmation Modal */}
-      {showBlockConfirm && sessionToBlock && (
+      {showBlockConfirm && (
         <BlockConfirmModal
-          sessionToBlock={sessionToBlock}
+          targets={blockTargets}
           blockingDevice={blockingDevice}
           onConfirm={confirmBlock}
           onCancel={cancelBlock}

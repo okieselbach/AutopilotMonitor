@@ -11,6 +11,8 @@ import { fuzzyContains } from "@/utils/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { TenantFilterBar } from "./TenantFilterBar";
+import type { DeleteTarget } from "../hooks/useDeleteSession";
+import type { BlockTarget } from "../hooks/useBlockDevice";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -94,7 +96,8 @@ interface SessionTableProps {
   user: { isGlobalAdmin?: boolean } | null;
   columnFilters: Record<string, Set<string>>;
   onColumnFiltersChange: (filters: Record<string, Set<string>>) => void;
-  onDeleteSession: (sessionId: string, tenantId: string, deviceName?: string) => void;
+  /** Opens the delete confirm for one session (row icon) or many (Select mode). */
+  onDeleteSessions: (targets: DeleteTarget[]) => void;
   /**
    * Sessions currently awaiting the cascade worker's `sessionDeleted` SignalR notification.
    * When this set contains a session id, the action cell renders a spinner instead of the
@@ -102,7 +105,8 @@ interface SessionTableProps {
    * drained server-side.
    */
   pendingDeletions: ReadonlySet<string>;
-  onBlockDevice: (serialNumber: string, tenantId: string, deviceName?: string) => void;
+  /** Opens the block confirm for one device (row icon) or many (Select mode). */
+  onBlockDevices: (targets: BlockTarget[]) => void;
   fullWidth: boolean;
   onToggleFullWidth: () => void;
   /** Builds the row's navigation target. Defaults to `/sessions/{id}`; a cross-tenant viewer overrides it to
@@ -146,9 +150,9 @@ export function SessionTable({
   user,
   columnFilters,
   onColumnFiltersChange,
-  onDeleteSession,
+  onDeleteSessions,
   pendingDeletions,
-  onBlockDevice,
+  onBlockDevices,
   fullWidth,
   onToggleFullWidth,
   sessionLinkTarget,
@@ -164,6 +168,14 @@ export function SessionTable({
   const searchDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1);
+
+  // Select mode: opt-in multi-select for bulk delete / block. Off by default so the table
+  // looks and navigates exactly as before; while on, row clicks toggle selection instead of
+  // opening the session and a checkbox column appears that is NOT part of the column selector.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // Anchor for Shift+click range selection (within the current page).
+  const lastToggledIdRef = useRef<string | null>(null);
 
   // Fuzzy-match sessions by multiple fields for search dropdown (two-phase: exact then Levenshtein)
   interface SearchSuggestion {
@@ -312,7 +324,99 @@ export function SessionTable({
     return true;
   });
 
-  const colSpan = activeColumns.length;
+  // Select mode needs the admin-only actions; derive instead of syncing state when admin
+  // mode flips off underneath an open selection.
+  const selecting = selectMode && adminMode;
+  const canBlock = globalAdminMode && !!user?.isGlobalAdmin;
+  const colSpan = activeColumns.length + (selecting ? 1 : 0);
+
+  const isSelectable = (s: Session) => !pendingDeletions.has(s.sessionId);
+
+  // Effective selection = selected ∩ currently visible (filtered) ∩ not already queued for
+  // deletion. Derived at read time so rows that vanish (deleted, filtered out) or get queued
+  // drop out of the count without an effect.
+  const selectedSessions = useMemo(() => {
+    if (!selecting || selectedIds.size === 0) return [] as Session[];
+    return sortedSessions.filter((s) => selectedIds.has(s.sessionId) && !pendingDeletions.has(s.sessionId));
+  }, [selecting, selectedIds, sortedSessions, pendingDeletions]);
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    lastToggledIdRef.current = null;
+  };
+
+  const toggleSelection = (session: Session, shiftKey: boolean) => {
+    if (!isSelectable(session)) return;
+    const anchor = lastToggledIdRef.current;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && anchor) {
+        const ids = paginatedSessions.map((s) => s.sessionId);
+        const a = ids.indexOf(anchor);
+        const b = ids.indexOf(session.sessionId);
+        if (a >= 0 && b >= 0) {
+          for (const s of paginatedSessions.slice(Math.min(a, b), Math.max(a, b) + 1)) {
+            if (isSelectable(s)) next.add(s.sessionId);
+          }
+          return next;
+        }
+      }
+      if (next.has(session.sessionId)) next.delete(session.sessionId);
+      else next.add(session.sessionId);
+      return next;
+    });
+    lastToggledIdRef.current = session.sessionId;
+  };
+
+  const selectablePage = paginatedSessions.filter(isSelectable);
+  const pageSelectedCount = selectablePage.filter((s) => selectedIds.has(s.sessionId)).length;
+  const allPageSelected = selectablePage.length > 0 && pageSelectedCount === selectablePage.length;
+  const togglePage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const s of selectablePage) {
+        if (allPageSelected) next.delete(s.sessionId);
+        else next.add(s.sessionId);
+      }
+      return next;
+    });
+  };
+
+  // Esc leaves Select mode — unless the user is typing in a field (search, filters).
+  useEffect(() => {
+    if (!selecting) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      setSelectMode(false);
+      setSelectedIds(new Set());
+      lastToggledIdRef.current = null;
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [selecting]);
+
+  const requestBulkDelete = () => {
+    if (selectedSessions.length === 0) return;
+    trackEvent("session_bulk_delete_requested", { count: selectedSessions.length });
+    onDeleteSessions(selectedSessions.map((s) => ({
+      sessionId: s.sessionId,
+      tenantId: s.tenantId,
+      deviceName: s.deviceName || s.serialNumber,
+    })));
+  };
+
+  const requestBulkBlock = () => {
+    if (selectedSessions.length === 0) return;
+    trackEvent("session_bulk_block_requested", { count: selectedSessions.length });
+    onBlockDevices(selectedSessions.map((s) => ({
+      serialNumber: s.serialNumber,
+      tenantId: s.tenantId,
+      deviceName: s.deviceName || s.serialNumber,
+    })));
+  };
 
   return (
     <div className="mt-4 bg-white shadow rounded-lg p-6">
@@ -347,6 +451,29 @@ export function SessionTable({
               <option key={n} value={n}>{n} per page</option>
             ))}
           </select>
+
+          {/* Select mode toggle — admin only, because every bulk action needs the admin actions */}
+          {adminMode && (
+            <button
+              onClick={() => {
+                if (selecting) { exitSelectMode(); return; }
+                trackEvent("session_select_mode_entered", {});
+                setSelectMode(true);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                selecting
+                  ? "text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100"
+                  : "text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+              }`}
+              title={selecting ? "Leave selection mode" : "Select multiple sessions to delete or block them at once"}
+              aria-pressed={selecting}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
+              </svg>
+              {selecting ? "Done" : "Select"}
+            </button>
+          )}
 
           {/* Full-width toggle */}
           <button
@@ -637,10 +764,74 @@ export function SessionTable({
         )}
       </div>
 
+      {/* Bulk action bar — only while selecting, sits directly above the table so the
+          status / column filters above stay usable (filter Failed → select page → delete). */}
+      {selecting && (
+        <div className="mb-3 flex items-center gap-2 flex-wrap rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+          <span className="text-sm font-medium text-blue-900 mr-1">
+            {selectedSessions.length} selected
+          </span>
+          <button
+            onClick={requestBulkDelete}
+            disabled={selectedSessions.length === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete the selected sessions"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete{selectedSessions.length > 0 ? ` ${selectedSessions.length}` : ""}
+          </button>
+          {canBlock && (
+            <button
+              onClick={requestBulkBlock}
+              disabled={selectedSessions.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-orange-600 hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Block the devices of the selected sessions for 24 hours"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              Block{selectedSessions.length > 0 ? ` ${selectedSessions.length}` : ""}
+            </button>
+          )}
+          <button
+            onClick={() => { setSelectedIds(new Set()); lastToggledIdRef.current = null; }}
+            disabled={selectedIds.size === 0}
+            className="px-2 py-1.5 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Clear
+          </button>
+          <span className="hidden md:inline text-xs text-blue-700/70 ml-1">
+            Click rows to select · Shift+click for a range · Esc when done
+          </span>
+          <button
+            onClick={exitSelectMode}
+            className="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-white border border-blue-200 hover:bg-blue-100 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              {selecting && (
+                <th scope="col" className="w-8 pl-4 pr-1 py-3">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !allPageSelected; }}
+                    onChange={togglePage}
+                    disabled={selectablePage.length === 0}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
+                    title={allPageSelected ? "Deselect this page" : "Select this page"}
+                    aria-label={allPageSelected ? "Deselect all sessions on this page" : "Select all sessions on this page"}
+                  />
+                </th>
+              )}
               {activeColumns.map((col) => {
                 if (col.sortKey) {
                   return (
@@ -681,7 +872,7 @@ export function SessionTable({
               })}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className={`bg-white divide-y divide-gray-200 ${selecting ? "select-none" : ""}`}>
             {paginatedSessions.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-6 py-8 text-center text-gray-500">
@@ -699,30 +890,55 @@ export function SessionTable({
                 </td>
               </tr>
             ) : (
-              paginatedSessions.map((session) => (
+              paginatedSessions.map((session) => {
+                const isSelected = selecting && selectedIds.has(session.sessionId);
+                const selectable = isSelectable(session);
+                return (
               <tr
                 key={session.sessionId}
-                onClick={() => { trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" }); router.push(linkFor(session)); }}
-                className="hover:bg-gray-50 cursor-pointer transition-colors"
+                onClick={(e) => {
+                  if (selecting) { toggleSelection(session, e.shiftKey); return; }
+                  trackEvent("session_opened", { sessionId: session.sessionId, status: session.status ?? "" });
+                  router.push(linkFor(session));
+                }}
+                aria-selected={selecting ? isSelected : undefined}
+                className={`transition-colors ${
+                  isSelected ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-gray-50"
+                } ${selecting && !selectable ? "cursor-default" : "cursor-pointer"}`}
               >
+                {selecting && (
+                  <td className="w-8 pl-4 pr-1 py-4">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      disabled={!selectable}
+                      onClick={(e) => { e.stopPropagation(); toggleSelection(session, e.shiftKey); }}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
+                      aria-label={`Select ${session.deviceName || session.serialNumber}`}
+                    />
+                  </td>
+                )}
                 {activeColumns.map((col) => (
                   <SessionCell
                     key={col.key}
                     columnKey={col.key}
                     session={session}
-                    href={linkFor(session)}
+                    href={selecting ? null : linkFor(session)}
                     adminMode={adminMode}
                     globalAdminMode={globalAdminMode}
                     blockedDevicesSet={blockedDevicesSet}
                     user={user}
-                    onDeleteSession={onDeleteSession}
+                    selectMode={selecting}
+                    onDeleteSessions={onDeleteSessions}
                     isDeletionPending={pendingDeletions.has(session.sessionId)}
-                    onBlockDevice={onBlockDevice}
+                    onBlockDevices={onBlockDevices}
                     tenantDomainById={tenantDomainById}
                   />
                 ))}
               </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -791,7 +1007,9 @@ export function SessionTable({
  * tooltips (status badges, tenant copy button, actions) must NOT render this overlay
  * as it would sit above them and swallow their hover/click. aria-hidden + tabIndex -1
  * keep it out of tab order and screen readers — the row's click target is unchanged. */
-function RowLinkOverlay({ href, session }: { href: Route; session: Session }) {
+function RowLinkOverlay({ href, session }: { href: Route | null; session: Session }) {
+  // Select mode passes null: rows toggle selection instead of navigating.
+  if (!href) return null;
   return (
     <Link
       href={href}
@@ -816,22 +1034,26 @@ function SessionCell({
   globalAdminMode,
   blockedDevicesSet,
   user,
-  onDeleteSession,
+  selectMode,
+  onDeleteSessions,
   isDeletionPending,
-  onBlockDevice,
+  onBlockDevices,
   tenantDomainById,
 }: {
   columnKey: string;
   session: Session;
-  href: Route;
+  /** Null while selecting — cells then render no navigation overlay. */
+  href: Route | null;
   adminMode: boolean;
   globalAdminMode: boolean;
   blockedDevicesSet: Set<string>;
   user: { isGlobalAdmin?: boolean } | null;
-  onDeleteSession: (sessionId: string, tenantId: string, deviceName?: string) => void;
+  /** Row-level action icons are hidden while selecting; the bulk bar owns the actions then. */
+  selectMode: boolean;
+  onDeleteSessions: (targets: DeleteTarget[]) => void;
   /** True when the V2 cascade has been queued for this session and we're awaiting `sessionDeleted`. */
   isDeletionPending: boolean;
-  onBlockDevice: (serialNumber: string, tenantId: string, deviceName?: string) => void;
+  onBlockDevices: (targets: BlockTarget[]) => void;
   tenantDomainById: Map<string, string>;
 }) {
   switch (columnKey) {
@@ -1061,14 +1283,14 @@ function SessionCell({
       return (
         <td className="pl-3 pr-4 py-4 whitespace-nowrap text-right text-sm font-medium">
           <div className="flex items-center justify-end gap-2">
-            {globalAdminMode && user?.isGlobalAdmin && !isDeletionPending && (
+            {globalAdminMode && user?.isGlobalAdmin && !isDeletionPending && !selectMode && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onBlockDevice(session.serialNumber, session.tenantId, session.deviceName || session.serialNumber);
+                  onBlockDevices([{ serialNumber: session.serialNumber, tenantId: session.tenantId, deviceName: session.deviceName || session.serialNumber }]);
                 }}
                 className="text-orange-500 hover:text-orange-700 transition-colors"
-                title="Device blocken"
+                title="Block device"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -1089,11 +1311,11 @@ function SessionCell({
                   <path d="M4 12a8 8 0 018-8" strokeWidth="3" className="opacity-75" />
                 </svg>
               </span>
-            ) : (
+            ) : selectMode ? null : (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDeleteSession(session.sessionId, session.tenantId, session.deviceName || session.serialNumber);
+                  onDeleteSessions([{ sessionId: session.sessionId, tenantId: session.tenantId, deviceName: session.deviceName || session.serialNumber }]);
                 }}
                 className="text-red-600 hover:text-red-900 transition-colors"
                 title="Delete session"
