@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -28,7 +29,7 @@ public class BlockedDeviceServiceCrossInstanceTests
     private const string SerialPF55 = "PF55PSKL";
 
     private static BlockedDeviceService CreateService(FakeDeviceSecurityRepository repo) =>
-        new(repo, NullLogger<BlockedDeviceService>.Instance);
+        new(repo, Mock.Of<ISessionRepository>(), NullLogger<BlockedDeviceService>.Instance);
 
     [Theory]
     [InlineData("Block")] // Pauses uploads; session remains alive
@@ -184,17 +185,23 @@ public class BlockedDeviceServiceCrossInstanceTests
             => Task.FromResult(new List<BlockedDeviceEntry>(_entries.Values));
 
         public Task BlockDeviceAsync(string tenantId, string serialNumber, int durationHours,
-            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null)
+            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null,
+            IReadOnlyCollection<string>? aliasDeviceIds = null)
         {
             SetBlock(tenantId, serialNumber, DateTime.UtcNow.AddHours(durationHours), action);
             return Task.CompletedTask;
         }
 
-        public Task UnblockDeviceAsync(string tenantId, string serialNumber)
+        public Task<IReadOnlyList<string>> UnblockDeviceAsync(string tenantId, string serialNumber)
         {
             ClearBlock(tenantId, serialNumber);
-            return Task.CompletedTask;
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
         }
+
+        // Identity leg unused in these tests — no alias rows.
+        public Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds, string? serialNumber)> IsDeviceIdentityBlockedAsync(
+            string tenantId, string intuneDeviceId)
+            => Task.FromResult<(bool, DateTime?, string, string?, string?)>((false, null, "Block", null, null));
 
         // --- Version block surface is unused in these tests ---
         public Task<(bool isBlocked, string action, string? matchedPattern)> IsVersionBlockedAsync(string agentVersion)

@@ -12,11 +12,34 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         // --- Blocked Devices ---
         Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds)> IsDeviceBlockedAsync(string tenantId, string serialNumber);
+
+        /// <summary>
+        /// Point-reads the alias row keyed by the device's certificate identity (Intune device id
+        /// from the client-certificate Subject CN). Same verdict shape as
+        /// <see cref="IsDeviceBlockedAsync"/>; <c>serialNumber</c> is the canonical serial of the
+        /// primary row the alias mirrors, so the caller can act (log, auto-unblock) on the serial
+        /// the block was placed under.
+        /// </summary>
+        Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds, string? serialNumber)> IsDeviceIdentityBlockedAsync(
+            string tenantId, string intuneDeviceId);
+
         Task<List<BlockedDeviceEntry>> GetBlockedDevicesAsync(string tenantId);
         Task<List<BlockedDeviceEntry>> GetAllBlockedDevicesAsync();
+
+        /// <summary>
+        /// Writes the serial-keyed block row plus one alias row per <paramref name="aliasDeviceIds"/>
+        /// entry (certificate identities the device was seen with). Aliases carry the same block
+        /// fields so the kill switch can match a device that omits or forges its serial header.
+        /// </summary>
         Task BlockDeviceAsync(string tenantId, string serialNumber, int durationHours,
-            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null);
-        Task UnblockDeviceAsync(string tenantId, string serialNumber);
+            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null,
+            IReadOnlyCollection<string>? aliasDeviceIds = null);
+
+        /// <summary>
+        /// Removes the serial-keyed row and every alias row it references. Returns the alias
+        /// device ids that were removed so callers can drop their cached identity entries.
+        /// </summary>
+        Task<IReadOnlyList<string>> UnblockDeviceAsync(string tenantId, string serialNumber);
 
         // --- Blocked Versions ---
         Task<(bool isBlocked, string action, string? matchedPattern)> IsVersionBlockedAsync(string agentVersion);

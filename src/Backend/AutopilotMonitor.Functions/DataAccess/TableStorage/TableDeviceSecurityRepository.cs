@@ -56,6 +56,24 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return (true, unblockAt, action, blockedSessionIds);
         }
 
+        public async Task<(bool isBlocked, DateTime? unblockAt, string action, string? blockedSessionIds, string? serialNumber)> IsDeviceIdentityBlockedAsync(
+            string tenantId, string intuneDeviceId)
+        {
+            if (string.IsNullOrEmpty(tenantId) || string.IsNullOrWhiteSpace(intuneDeviceId))
+                return (false, null, "Block", null, null);
+
+            var entity = await TryGetEntityAsync(tenantId, IdentityRowKey(intuneDeviceId));
+            if (entity == null)
+                return (false, null, "Block", null, null);
+
+            var unblockAt = entity.GetDateTimeOffset("UnblockAt")?.UtcDateTime ?? DateTime.MinValue;
+            if (DateTime.UtcNow >= unblockAt)
+                return (false, null, "Block", null, null);
+
+            return (true, unblockAt, entity.GetString("Action") ?? "Block",
+                entity.GetString("BlockedSessionIds"), entity.GetString("SerialNumber"));
+        }
+
         /// <summary>
         /// Point-reads the block row for a serial under its canonical key, falling back to the
         /// legacy verbatim-case key for rows written before serials were canonicalized.
@@ -100,6 +118,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     continue;
                 }
 
+                // Alias rows mirror a primary row (whose AliasDeviceIds names them) — listing them
+                // would show the same serial twice. Expired aliases are still swept above.
+                if (IsIdentityRowKey(entity.RowKey))
+                    continue;
+
                 result.Add(MapToBlockedDeviceEntry(entity, tenantId, now));
                 await MigrateLegacyRowKeyAsync(entity);
             }
@@ -126,6 +149,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     continue;
                 }
 
+                if (IsIdentityRowKey(entity.RowKey))
+                    continue;
+
                 result.Add(MapToBlockedDeviceEntry(entity, entity.PartitionKey, now));
                 await MigrateLegacyRowKeyAsync(entity);
             }
@@ -141,17 +167,21 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         public async Task BlockDeviceAsync(string tenantId, string serialNumber, int durationHours,
-            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null)
+            string blockedByEmail, string? reason = null, string action = "Block", string? blockedSessionId = null,
+            IReadOnlyCollection<string>? aliasDeviceIds = null)
         {
             var now = DateTime.UtcNow;
             var unblockAt = now.AddHours(durationHours);
             var canonicalSerial = CanonicalizeSerial(serialNumber);
 
+            // One read of the current row: merges session scope and keeps aliases an earlier
+            // block already resolved (a re-block never drops an identity the device was seen with).
+            var existing = await GetDeviceBlockEntityAsync(tenantId, serialNumber);
+
             // If a session-aware block already exists, merge session IDs
             string? blockedSessionIds = blockedSessionId;
             if (!string.IsNullOrEmpty(blockedSessionId))
             {
-                var existing = await GetDeviceBlockEntityAsync(tenantId, serialNumber);
                 var existingSessionIds = existing?.GetString("BlockedSessionIds");
 
                 if (existingSessionIds == null)
@@ -167,6 +197,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 }
             }
 
+            var aliases = MergeAliasDeviceIds(ParseAliasDeviceIds(existing?.GetString("AliasDeviceIds")), aliasDeviceIds);
+
             var entity = new TableEntity(tenantId, DeviceRowKey(serialNumber))
             {
                 ["SerialNumber"] = canonicalSerial,
@@ -180,8 +212,27 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
             if (blockedSessionIds != null)
                 entity["BlockedSessionIds"] = blockedSessionIds;
+            if (aliases.Count > 0)
+                entity["AliasDeviceIds"] = string.Join(",", aliases);
 
             await _blockedDevicesTable.UpsertEntityAsync(entity);
+
+            // Alias rows: same verdict fields under the device's certificate identity, so the kill
+            // switch matches the device even when it omits or forges X-Device-SerialNumber
+            // (CWE-807). Never listed (IsAlias) — the primary row is the one operators see.
+            foreach (var deviceId in aliases)
+            {
+                var alias = new TableEntity(tenantId, IdentityRowKey(deviceId));
+                foreach (var kv in entity)
+                {
+                    if (kv.Key is "PartitionKey" or "RowKey" or "Timestamp" or "odata.etag" or "ETag" or "AliasDeviceIds")
+                        continue;
+                    alias[kv.Key] = kv.Value;
+                }
+                alias["IsAlias"] = true;
+                await _blockedDevicesTable.UpsertEntityAsync(alias);
+            }
+
             await DeleteLegacyRowAsync(tenantId, serialNumber);
             await _publisher.PublishAsync("device.blocked", new { tenantId, serialNumber = canonicalSerial, action, durationHours }, tenantId);
         }
@@ -204,13 +255,53 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return false;
         }
 
-        public async Task UnblockDeviceAsync(string tenantId, string serialNumber)
+        public async Task<IReadOnlyList<string>> UnblockDeviceAsync(string tenantId, string serialNumber)
         {
+            // Aliases first, then the primary: a crash in between leaves a listed row that a retry
+            // (or expiry) cleans up, never an invisible alias that keeps the device blocked.
+            var existing = await GetDeviceBlockEntityAsync(tenantId, serialNumber);
+            var aliases = ParseAliasDeviceIds(existing?.GetString("AliasDeviceIds"));
+            foreach (var deviceId in aliases)
+                await DeleteIgnoringNotFoundAsync(tenantId, IdentityRowKey(deviceId));
+
             await DeleteIgnoringNotFoundAsync(tenantId, DeviceRowKey(serialNumber));
             await DeleteLegacyRowAsync(tenantId, serialNumber);
 
             await _publisher.PublishAsync("device.unblocked", new { tenantId, serialNumber = CanonicalizeSerial(serialNumber) }, tenantId);
+            return aliases;
         }
+
+        /// <summary>Alias ids as stored on the primary row (comma-separated, lower-case GUIDs).</summary>
+        internal static List<string> ParseAliasDeviceIds(string? stored)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(stored)) return result;
+            foreach (var raw in stored.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var id = NormalizeDeviceId(raw);
+                if (id != null && !result.Contains(id, StringComparer.OrdinalIgnoreCase))
+                    result.Add(id);
+            }
+            return result;
+        }
+
+        /// <summary>Union of stored and newly resolved alias ids, order preserved (stored first).</summary>
+        internal static List<string> MergeAliasDeviceIds(List<string> stored, IReadOnlyCollection<string>? resolved)
+        {
+            var result = new List<string>(stored);
+            if (resolved == null) return result;
+            foreach (var raw in resolved)
+            {
+                var id = NormalizeDeviceId(raw);
+                if (id != null && !result.Contains(id, StringComparer.OrdinalIgnoreCase))
+                    result.Add(id);
+            }
+            return result;
+        }
+
+        /// <summary>Canonical (lower-case "D") GUID form, null when the value is not a GUID.</summary>
+        internal static string? NormalizeDeviceId(string? raw)
+            => Guid.TryParse(raw?.Trim(), out var parsed) ? parsed.ToString("D") : null;
 
         // -----------------------------------------------------------------------
         // Blocked Versions
@@ -395,6 +486,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 Reason = entity.GetString("Reason"),
                 Action = entity.GetString("Action") ?? "Block",
                 BlockedSessionIds = entity.GetString("BlockedSessionIds")
+                // AliasDeviceIds stays storage-internal: BlockedDeviceEntry is the listing wire
+                // shape (admin UI, MCP) and the identity leg point-reads alias rows on demand.
             };
         }
 
@@ -420,6 +513,19 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             => EncodeRowKey(CanonicalizeSerial(serialNumber));
 
         /// <summary>
+        /// RowKey prefix of alias rows keyed by certificate identity. Cannot collide with a serial
+        /// key: serial keys pass through <see cref="EncodeRowKey"/>, which turns ':' into "%3A".
+        /// </summary>
+        internal const string IdentityRowKeyPrefix = "id:";
+
+        /// <summary>Alias RowKey for an Intune device id (lower-case GUID; non-GUIDs are keyed verbatim-trimmed).</summary>
+        internal static string IdentityRowKey(string intuneDeviceId)
+            => IdentityRowKeyPrefix + (NormalizeDeviceId(intuneDeviceId) ?? intuneDeviceId.Trim().ToLowerInvariant());
+
+        internal static bool IsIdentityRowKey(string? rowKey)
+            => rowKey != null && rowKey.StartsWith(IdentityRowKeyPrefix, StringComparison.Ordinal);
+
+        /// <summary>
         /// RowKey a pre-canonicalization row would have been written under (verbatim case),
         /// or null when it is identical to the canonical key.
         /// </summary>
@@ -435,6 +541,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         /// </summary>
         private async Task MigrateLegacyRowKeyAsync(TableEntity entity)
         {
+            // An alias row carries the primary's SerialNumber by design — re-keying it onto the
+            // serial key would clobber/duplicate the primary and delete the alias.
+            if (IsIdentityRowKey(entity.RowKey))
+                return;
+
             var serial = entity.GetString("SerialNumber") ?? DecodeRowKey(entity.RowKey);
             var canonicalKey = DeviceRowKey(serial);
             if (string.Equals(entity.RowKey, canonicalKey, StringComparison.Ordinal))

@@ -128,6 +128,10 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue(SessionOwnershipPolicy.RequestItemKey, out var ownerBinding) && ownerBinding is string ownerOutcome)
                 requestTelemetry.Properties["SessionOwnerBinding"] = ownerOutcome;
 
+            // DEVICE-IDENTITY-BLOCK-BINDING — set by the kill-switch call sites (telemetry / config).
+            if (context.Items.TryGetValue(DeviceIdentityBinding.RequestItemKey, out var identityBinding) && identityBinding is string identityOutcome)
+                requestTelemetry.Properties[DeviceIdentityBinding.RequestItemKey] = identityOutcome;
+
             var reqCtx = context.GetRequestContext();
             var tenantId = reqCtx.TenantId;
             if (string.IsNullOrEmpty(tenantId))

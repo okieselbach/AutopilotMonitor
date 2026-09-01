@@ -100,7 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     return errorResponse;
                 }
 
-                return await ProcessGetConfigAsync(req, tenantId);
+                return await ProcessGetConfigAsync(req, tenantId, validation.IntuneDeviceId);
             }
             catch (Exception ex)
             {
@@ -218,8 +218,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// <summary>
         /// Core config logic: fetch tenant + admin config, gather rules, IME patterns.
         /// Called by both the cert-auth Run() method and the bootstrap wrapper.
+        /// <paramref name="intuneDeviceId"/> is the certificate identity from the cert Subject CN
+        /// (cert-auth callers); the bootstrap wrapper has none and leaves it null.
         /// </summary>
-        internal async Task<HttpResponseData> ProcessGetConfigAsync(HttpRequestData req, string tenantId)
+        internal async Task<HttpResponseData> ProcessGetConfigAsync(HttpRequestData req, string tenantId, string? intuneDeviceId = null)
         {
             _logger.LogInformation($"GetAgentConfig: Fetching config for tenant {tenantId}");
 
@@ -229,7 +231,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
             // block, empty spool, kill-blind old binary). The full config is still returned —
             // agents that predate the flags keep working unchanged; newer agents terminate on
             // DeviceKillSignal. Shares KillSwitchEvaluator with ingest (incl. the throttled
-            // KillSignalDelivered ops event).
+            // KillSignalDelivered ops event and the certificate-identity leg). This channel has
+            // no session, so a session-scoped block reports as blocked here — the agent only logs
+            // DeviceBlocked on config and acts on DeviceKillSignal; the new session it then
+            // registers lifts a session-scoped block on the telemetry channel.
             var serialNumberHeader = req.Headers.Contains("X-Device-SerialNumber")
                 ? req.Headers.GetValues("X-Device-SerialNumber").FirstOrDefault()
                 : null;
@@ -237,7 +242,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault()
                 : null;
             var killVerdict = await _killSwitchEvaluator.EvaluateAsync(
-                tenantId, serialNumberHeader, agentVersionHeader, channel: "config");
+                tenantId, serialNumberHeader, agentVersionHeader, channel: "config",
+                intuneDeviceId: intuneDeviceId);
+            DeviceIdentityBinding.Stamp(req, killVerdict.IdentityBinding);
 
             // Get tenant configuration
             var tenantConfig = await _configService.GetConfigurationAsync(tenantId);

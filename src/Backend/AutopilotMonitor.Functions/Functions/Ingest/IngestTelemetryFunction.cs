@@ -127,7 +127,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 if (errorResponse != null) return AsOutput(errorResponse);
 
-                // Device + version kill-switches: short-circuit before parsing the body.
+                // Device + version kill-switches: short-circuit before parsing the body. Serial
+                // leg (caller-declared header) AND certificate-identity leg (cert Subject CN — the
+                // one an agent that omits or forges its serial cannot dodge). A session-scoped
+                // block (watchdog auto-block) cannot be decided yet — the session id lives in the
+                // body — so it is re-evaluated below once parsed. Evaluation + kill ops-event live
+                // in KillSwitchEvaluator, shared with the agent-config channel.
                 var serialNumberHeader = req.Headers.Contains("X-Device-SerialNumber")
                     ? req.Headers.GetValues("X-Device-SerialNumber").FirstOrDefault()
                     : null;
@@ -135,9 +140,12 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault()
                     : null;
 
-                var killResponse = await CheckKillSwitchesAsync(
-                    req, tenantIdHeader, serialNumberHeader, agentVersionHeader);
-                if (killResponse != null) return AsOutput(killResponse);
+                var preBodyVerdict = await _killSwitchEvaluator.EvaluateAsync(
+                    tenantIdHeader, serialNumberHeader, agentVersionHeader, channel: "telemetry",
+                    intuneDeviceId: validation.IntuneDeviceId);
+                DeviceIdentityBinding.Stamp(req, preBodyVerdict.IdentityBinding);
+                if (preBodyVerdict.IsBlocked && !preBodyVerdict.IsSessionScoped)
+                    return AsOutput(await WriteDeviceBlockedAsync(req, preBodyVerdict));
 
                 // Defense in depth: cap decompressed body size before buffering it all into
                 // memory + deserialising (same tenant-config knob the removed V1 NDJSON path
@@ -205,6 +213,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         "All telemetry items in a batch must share the same PartitionKey"));
                 }
 
+                // Session-scoped block, session now known: either this is one of the blocked
+                // sessions (stop) or a new enrollment on the same device (auto-unblock — the
+                // watchdog blocked a runaway session, not the device). The version leg runs
+                // again on purpose: the device leg short-circuited it before the body was parsed.
+                if (preBodyVerdict.IsSessionScoped)
+                {
+                    var sessionVerdict = await _killSwitchEvaluator.EvaluateAsync(
+                        bodyTenantId, serialNumberHeader, agentVersionHeader, channel: "telemetry",
+                        intuneDeviceId: validation.IntuneDeviceId, sessionId: sessionId);
+                    if (sessionVerdict.IsBlocked)
+                        return AsOutput(await WriteDeviceBlockedAsync(req, sessionVerdict));
+                }
+
                 // Cascade-delete guard: refuse the batch with 410 Gone when a V2 cascade owns the
                 // Sessions row (states Preparing/Queued/Running/Poisoned). Without this check, the
                 // hot-path writers below (StoreEventsBatchAsync, signal/transition StoreBatchAsync,
@@ -222,6 +243,21 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                         "IngestTelemetry: refused batch — cascade in flight tenant={Tenant} session={Session} state={State} manifestId={ManifestId}",
                         bodyTenantId, sessionId, locked.CurrentState, locked.ManifestId);
                     return AsOutput(await WriteSessionLockedAsync(req, locked));
+                }
+
+                // The header serial is caller-declared; the Sessions row carries the serial the
+                // session was registered under. When they differ, the ROW's serial is held against
+                // the block list too — a mid-session header change must not dodge a block placed
+                // on the registered serial. Cached like every other lookup (negative entries for
+                // healthy devices), so the common case costs nothing.
+                var rowSerial = guardSessionRow?.GetString("SerialNumber");
+                if (!string.IsNullOrWhiteSpace(rowSerial)
+                    && !string.Equals(rowSerial.Trim(), serialNumberHeader?.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    var rowSerialVerdict = await _killSwitchEvaluator.EvaluateAsync(
+                        bodyTenantId, rowSerial, agentVersion: null, channel: "telemetry", sessionId: sessionId);
+                    if (rowSerialVerdict.IsBlocked)
+                        return AsOutput(await WriteDeviceBlockedAsync(req, rowSerialVerdict));
                 }
 
                 // Reuse the guard's full-row read: its Status feeds the stall-heal check inside
@@ -286,35 +322,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             };
 
         /// <summary>
-        /// Runs device-serial and agent-version kill-switch checks (session-scoped blocks still
-        /// use the tenant/serial blanket check — tighter scoping lands once the body is parsed,
-        /// M5.b.2 pipeline share). Returns a 200 response with <c>DeviceBlocked=true</c> (and
-        /// optional <c>DeviceKillSignal=true</c>) if the caller should stop — or null if the
-        /// request may proceed. Evaluation + kill ops-event live in <see cref="KillSwitchEvaluator"/>,
-        /// shared with the agent-config channel.
+        /// 200 with <c>DeviceBlocked=true</c> (and <c>DeviceKillSignal=true</c> for a kill): the
+        /// agent pauses its upload loop until <c>UnblockAt</c>, or self-destructs on a kill.
         /// </summary>
-        private async Task<HttpResponseData?> CheckKillSwitchesAsync(
-            HttpRequestData req, string tenantId, string? serialNumber, string? agentVersion)
-        {
-            var verdict = await _killSwitchEvaluator.EvaluateAsync(
-                tenantId, serialNumber, agentVersion, channel: "telemetry");
-
-            return verdict.IsBlocked
-                ? await WriteDeviceBlockedAsync(req, verdict.IsKill, verdict.UnblockAt, verdict.Message)
-                : null;
-        }
-
-        private async Task<HttpResponseData> WriteDeviceBlockedAsync(
-            HttpRequestData req, bool isKill, DateTime? unblockAt, string message)
+        private static async Task<HttpResponseData> WriteDeviceBlockedAsync(HttpRequestData req, KillSwitchVerdict verdict)
         {
             var response = req.CreateResponse(HttpStatusCode.OK);
             await response.WriteAsJsonAsync(new IngestEventsResponse
             {
                 Success = false,
                 DeviceBlocked = true,
-                DeviceKillSignal = isKill,
-                UnblockAt = unblockAt,
-                Message = message,
+                DeviceKillSignal = verdict.IsKill,
+                UnblockAt = verdict.UnblockAt,
+                Message = verdict.Message,
                 ProcessedAt = DateTime.UtcNow,
             });
             return response;

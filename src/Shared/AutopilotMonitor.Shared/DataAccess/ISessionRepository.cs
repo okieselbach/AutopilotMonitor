@@ -202,6 +202,25 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// </summary>
         Task<List<SessionSummary>> GetOpenSessionsForDeviceAsync(string tenantId, string serialNumber);
 
+        /// <summary>
+        /// Certificate identities (Sessions.OwnerDeviceId, lower-case Intune device id GUIDs) the
+        /// device with this serial has registered sessions under, newest session first, distinct,
+        /// capped at <paramref name="max"/>. Serial matched case-insensitively (as stored + upper
+        /// variant). Feeds the block alias rows so a block placed by serial also matches the
+        /// device's certificate identity. Fail-soft: empty list on storage errors.
+        /// </summary>
+        Task<IReadOnlyList<string>> GetOwnerDeviceIdsForSerialAsync(string tenantId, string serialNumber, int max = 5);
+
+        /// <summary>
+        /// Newest session (by StartedAt) whose serial equals <paramref name="serialNumber"/>
+        /// (as stored, or its upper-case form). Server-side filtered SessionsIndex partition query
+        /// — no page horizon, unlike the newest-N listing. Null when none. Fail-soft.
+        /// </summary>
+        Task<string?> FindNewestSessionIdBySerialAsync(string tenantId, string serialNumber);
+
+        /// <summary>Same as <see cref="FindNewestSessionIdBySerialAsync"/> keyed on DeviceName.</summary>
+        Task<string?> FindNewestSessionIdByDeviceNameAsync(string tenantId, string deviceName);
+
         // --- IME Version History ---
 
         /// <summary>
