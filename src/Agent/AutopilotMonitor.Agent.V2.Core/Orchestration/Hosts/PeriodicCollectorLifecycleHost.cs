@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
+using AutopilotMonitor.DecisionCore.State;
 using AutopilotMonitor.Shared.Models;
 using SharedConstants = AutopilotMonitor.Shared.Constants;
 
@@ -56,6 +57,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly ITelemetrySpool? _telemetrySpool;
         private readonly Persistence.StartupEventGate? _startupGate;
         private readonly Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? _imeTrackerHealthProbe;
+        // Read-only probe into the reducer's current DecisionState (stage + WG classifier
+        // verdict) for the signal-pipeline block of agent_metrics_snapshot. DecisionState is
+        // immutable, so a cross-thread reference read yields a consistent (possibly slightly
+        // stale) snapshot — same access pattern the orchestrator's own Stop path uses.
+        private readonly Func<DecisionState?>? _decisionStateProbe;
 
         // Codex Finding 4 — reference to the concrete SignalIngress (when available) so we
         // can subscribe to its SignalPosted event. This lets us observe activity from
@@ -90,9 +96,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             string agentVersion,
             ITelemetrySpool? telemetrySpool = null,
             Persistence.StartupEventGate? startupGate = null,
-            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null)
+            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null,
+            Func<DecisionState?>? decisionStateProbe = null)
         {
             _imeTrackerHealthProbe = imeTrackerHealthProbe;
+            _decisionStateProbe = decisionStateProbe;
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
             _sessionId = sessionId;
@@ -198,7 +206,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             {
                 _selfMetricsCollector = new AgentSelfMetricsCollector(
                     _sessionId, _tenantId, _post, _networkMetrics, _logger, _agentVersion, _selfMetricsIntervalSeconds, _telemetrySpool,
-                    imeTrackerHealthProbe: _imeTrackerHealthProbe);
+                    imeTrackerHealthProbe: _imeTrackerHealthProbe,
+                    signalPipelineProbe: BuildSignalPipelineProbe());
                 _selfMetricsCollector.Start();
             }
             _idleStopped = false;
@@ -213,6 +222,48 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             try { _selfMetricsCollector?.Stop(); } catch { }
             try { _selfMetricsCollector?.Dispose(); } catch { }
             _selfMetricsCollector = null;
+        }
+
+        /// <summary>
+        /// Builds the signal-pipeline probe for the metrics snapshot from whatever is
+        /// available: the concrete <see cref="SignalIngress"/> supplies the monotonic
+        /// worker counters, the decision-state probe supplies stage + WG classifier
+        /// verdict. Null only when NEITHER source exists (pure test fakes) — then the
+        /// snapshot simply omits the block, same degrade pattern as the IME health probe.
+        /// </summary>
+        private Func<SignalPipelineHealth?>? BuildSignalPipelineProbe()
+        {
+            var ingress = _observableIngress;
+            var stateProbe = _decisionStateProbe;
+            if (ingress == null && stateProbe == null) return null;
+
+            return () =>
+            {
+                var health = new SignalPipelineHealth();
+                if (ingress != null)
+                {
+                    health.LastAssignedSignalOrdinal = ingress.LastAssignedSignalOrdinal;
+                    health.ProcessedSignalCount = ingress.ProcessedSignalCount;
+                    health.PendingSignalCount = ingress.PendingSignalCount;
+                    health.ReentrantPostCount = ingress.ReentrantPostCount;
+                    health.QueueLengthPeak = ingress.QueueLengthPeak;
+                }
+                var state = stateProbe?.Invoke();
+                if (state != null)
+                {
+                    health.DecisionStage = state.Stage.ToString();
+                    health.LastAppliedSignalOrdinal = state.LastAppliedSignalOrdinal;
+                    // Only after the classifier produced at least one verdict — otherwise
+                    // every non-WG session would carry a meaningless Unknown/0 pair.
+                    var sealing = state.ClassifierOutcomes?.WhiteGloveSealing;
+                    if (sealing?.LastClassifierVerdictId != null)
+                    {
+                        health.WhiteGloveSealingLevel = sealing.Level.ToString();
+                        health.WhiteGloveSealingScore = sealing.Score;
+                    }
+                }
+                return health;
+            };
         }
 
         private void OnRealEvent()

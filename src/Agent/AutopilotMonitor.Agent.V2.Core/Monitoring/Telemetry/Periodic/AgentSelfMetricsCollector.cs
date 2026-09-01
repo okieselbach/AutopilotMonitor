@@ -34,6 +34,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
         private readonly NetworkMetrics _networkMetrics;
         private readonly ITelemetrySpool? _telemetrySpool;
         private readonly Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? _imeTrackerHealthProbe;
+        private readonly Func<Orchestration.SignalPipelineHealth?>? _signalPipelineProbe;
 
         // Previous sample for delta calculations
         private TimeSpan _prevCpuTime;
@@ -53,13 +54,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
             string agentVersion = "unknown",
             int intervalSeconds = 60,
             ITelemetrySpool? telemetrySpool = null,
-            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null)
+            Func<Monitoring.Enrollment.Ime.ImeTrackerHealth?>? imeTrackerHealthProbe = null,
+            Func<Orchestration.SignalPipelineHealth?>? signalPipelineProbe = null)
             : base(sessionId, tenantId, post, logger, intervalSeconds)
         {
             _networkMetrics = networkMetrics ?? throw new ArgumentNullException(nameof(networkMetrics));
             _agentVersion = string.IsNullOrWhiteSpace(agentVersion) ? "unknown" : agentVersion;
             _telemetrySpool = telemetrySpool;
             _imeTrackerHealthProbe = imeTrackerHealthProbe;
+            _signalPipelineProbe = signalPipelineProbe;
         }
 
         protected override void OnBeforeStart()
@@ -82,11 +85,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
 
         protected override void Collect()
         {
-            // Full path writes 29 keys: agent_version + process metrics (5: cpu, ws, private,
+            // Full path writes 38 keys: agent_version + process metrics (5: cpu, ws, private,
             // threads, handles) + spool stats (5) + network delta (9: requests, failures,
             // bytes_up/down, avg_latency, total_up/down/requests/latency) + IME tracker health
-            // (9). cap=29 → HashHelpers.GetPrime(29)=29 buckets → no resize on the last key.
-            var data = new Dictionary<string, object>(capacity: 29, StringComparer.Ordinal)
+            // (9) + signal pipeline (9: 5 counters, stage, applied ordinal, wg level+score).
+            // cap=38 → HashHelpers.GetPrime(38)=41 buckets → no resize on the last key.
+            var data = new Dictionary<string, object>(capacity: 38, StringComparer.Ordinal)
             {
                 { "agent_version", _agentVersion }
             };
@@ -210,6 +214,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                 catch (Exception ex)
                 {
                     Logger.Debug($"IME tracker health read failed: {ex.Message}");
+                }
+            }
+
+            // --- Signal/decision pipeline health ---
+            // Monotonic totals + a monotonic queue peak, deliberately NO momentary queue
+            // length: a snapshot samples the integral, so any two snapshots prove whether
+            // the ingress worker ran in between. Field motivation (2026-09-01 WG-seal soak):
+            // sessions whose engine never sealed were indistinguishable from a deliberate
+            // Weak classifier verdict without these fields. decision_stage answers the WG
+            // question directly; the wg_sealing_* pair separates "classifier said Weak"
+            // from "classifier never ran".
+            if (_signalPipelineProbe != null)
+            {
+                try
+                {
+                    var pipeline = _signalPipelineProbe();
+                    if (pipeline != null)
+                    {
+                        data["signal_last_ordinal"] = pipeline.LastAssignedSignalOrdinal;
+                        data["signal_processed_total"] = pipeline.ProcessedSignalCount;
+                        data["signal_pending_count"] = pipeline.PendingSignalCount;
+                        data["signal_reentrant_total"] = pipeline.ReentrantPostCount;
+                        data["signal_queue_peak"] = pipeline.QueueLengthPeak;
+                        if (pipeline.DecisionStage != null)
+                            data["decision_stage"] = pipeline.DecisionStage;
+                        if (pipeline.LastAppliedSignalOrdinal.HasValue)
+                            data["decision_last_applied_ordinal"] = pipeline.LastAppliedSignalOrdinal.Value;
+                        if (pipeline.WhiteGloveSealingLevel != null)
+                        {
+                            data["wg_sealing_level"] = pipeline.WhiteGloveSealingLevel;
+                            if (pipeline.WhiteGloveSealingScore.HasValue)
+                                data["wg_sealing_score"] = pipeline.WhiteGloveSealingScore.Value;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug($"Signal pipeline health read failed: {ex.Message}");
                 }
             }
 

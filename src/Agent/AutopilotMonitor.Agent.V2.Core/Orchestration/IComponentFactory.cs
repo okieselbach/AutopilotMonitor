@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.DecisionCore.Engine;
@@ -47,6 +48,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// and the host's phase/event triggers degrade off (startup + interval rules still run).
         /// </para>
         /// </summary>
+        /// <remarks>
+        /// <paramref name="decisionStateProbe"/> is a read-only probe into the reducer's current
+        /// immutable <see cref="AutopilotMonitor.DecisionCore.State.DecisionState"/> — it feeds the
+        /// signal-pipeline block of <c>agent_metrics_snapshot</c> (stage + WG classifier verdict).
+        /// Nullable; fakes pass null and the snapshot omits the state-derived fields.
+        /// </remarks>
         CollectorSurfaces CreateCollectorHosts(
             string sessionId,
             string tenantId,
@@ -55,6 +62,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             ISignalIngressSink ingress,
             IClock clock,
             Transport.Telemetry.ITelemetrySpool? telemetrySpool,
-            TimelineEventStream? timelineEvents = null);
+            TimelineEventStream? timelineEvents = null,
+            Func<AutopilotMonitor.DecisionCore.State.DecisionState?>? decisionStateProbe = null);
     }
 }

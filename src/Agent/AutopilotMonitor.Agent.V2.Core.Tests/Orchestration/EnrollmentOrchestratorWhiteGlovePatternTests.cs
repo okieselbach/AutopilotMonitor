@@ -28,7 +28,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 ISignalIngressSink ingress,
                 IClock clock,
                 AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.ITelemetrySpool? telemetrySpool,
-                TimelineEventStream? timelineEvents = null)
+                TimelineEventStream? timelineEvents = null,
+                Func<AutopilotMonitor.DecisionCore.State.DecisionState?>? decisionStateProbe = null)
             {
                 CapturedPatternIds = whiteGloveSealingPatternIds;
                 return new CollectorSurfaces(Array.Empty<ICollectorHost>());

@@ -204,7 +204,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             ISignalIngressSink ingress,
             IClock clock,
             Transport.Telemetry.ITelemetrySpool? telemetrySpool,
-            TimelineEventStream? timelineEvents = null)
+            TimelineEventStream? timelineEvents = null,
+            Func<AutopilotMonitor.DecisionCore.State.DecisionState?>? decisionStateProbe = null)
         {
             if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("SessionId required.", nameof(sessionId));
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentException("TenantId required.", nameof(tenantId));
@@ -599,7 +600,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     startupGate: _startupEventGate, // M3 — disk_space_low latch survives restarts
                     // IME tracker health rides the metrics snapshot (queue depth + skip counters);
                     // read-only probe, same shape as the registry observer's trackerStateProbe.
-                    imeTrackerHealthProbe: () => imeLogHostRef?.GetTrackerHealth()));
+                    imeTrackerHealthProbe: () => imeLogHostRef?.GetTrackerHealth(),
+                    // Stage + WG classifier verdict for the snapshot's signal-pipeline block
+                    // (2026-09-01 WG-seal soak: without them a frozen engine and a deliberate
+                    // Weak sealing verdict were telemetrically indistinguishable).
+                    decisionStateProbe: decisionStateProbe));
             }
 
             // V1 parity (CollectorCoordinator.StartOptionalCollectors:375-382) — wire the

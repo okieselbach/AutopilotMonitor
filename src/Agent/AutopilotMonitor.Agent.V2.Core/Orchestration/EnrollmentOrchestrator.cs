@@ -667,7 +667,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 var surfaces = _componentFactory.CreateCollectorHosts(
                     _sessionId, _tenantId, _logger, _whiteGloveSealingPatternIds,
                     ingress: _ingress, clock: _clock, telemetrySpool: _spool,
-                    timelineEvents: _timelineEvents);
+                    timelineEvents: _timelineEvents,
+                    // Immutable-state reference read; null-safe against a processor that is
+                    // torn down while a late metrics tick still fires.
+                    decisionStateProbe: () => _processor?.CurrentState);
                 CollectorSurfaces = surfaces;
                 _collectorHosts = surfaces.Hosts;
                 foreach (var host in _collectorHosts)

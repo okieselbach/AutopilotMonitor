@@ -65,6 +65,50 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             return SpinWait.SpinUntil(condition, timeoutMs);
         }
 
+        // ==================================== Pipeline-health counters (metrics snapshot)
+
+        // The agent_metrics_snapshot exports these as MONOTONIC totals so two snapshots can
+        // prove whether the worker ran in between (2026-09-01 WG-seal soak: a frozen engine
+        // and a deliberate Weak sealing verdict were otherwise indistinguishable).
+
+        [Fact]
+        public void ProcessedSignalCount_counts_fully_processed_signals()
+        {
+            using var rig = new Rig();
+            var ing = rig.Build();
+            Assert.Equal(0, ing.ProcessedSignalCount);
+            ing.Start();
+
+            for (int i = 0; i < 5; i++)
+                ing.Post(DecisionSignalKind.SessionStarted, At, "Collector", RawEvidence($"p-{i}"));
+
+            Assert.True(WaitFor(() => ing.ProcessedSignalCount == 5),
+                $"expected 5 processed, saw {ing.ProcessedSignalCount}");
+            Assert.Equal(0, ing.PendingSignalCount);
+            ing.Stop();
+            Assert.Equal(5, ing.ProcessedSignalCount); // stable after drain
+        }
+
+        [Fact]
+        public void QueueLengthPeak_is_monotonic_and_survives_drain()
+        {
+            using var rig = new Rig();
+            var ing = rig.Build();
+
+            // Post BEFORE Start: the worker is not consuming yet, so the channel depth
+            // deterministically reaches the number of queued items.
+            for (int i = 0; i < 4; i++)
+                ing.Post(DecisionSignalKind.SessionStarted, At, "Collector", RawEvidence($"q-{i}"));
+            Assert.True(ing.QueueLengthPeak >= 4, $"peak {ing.QueueLengthPeak} < 4");
+
+            ing.Start();
+            Assert.True(WaitFor(() => ing.ProcessedSignalCount == 4));
+            // Drained queue must NOT reset the peak — that is the whole point of exporting
+            // a peak instead of a momentary length (snapshot sampling cannot alias it away).
+            Assert.True(ing.QueueLengthPeak >= 4);
+            ing.Stop();
+        }
+
         // ============================================================ Lifecycle
 
         [Fact]

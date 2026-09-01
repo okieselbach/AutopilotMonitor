@@ -1,5 +1,9 @@
 # Log
 
+## 2026-09-01 (3)
+
+* **Update**: `agent/decision-engine.md` - agent_metrics_snapshot gains a signal-pipeline health block: monotonic SignalIngress totals (last ordinal, processed, pending, reentrant, queue peak) + decision_stage / decision_last_applied_ordinal / wg_sealing_level+score from the immutable DecisionState, wired via a read-only decisionStateProbe through IComponentFactory. Motivated by the WG-seal soak (project_wg_seal_postfix_soak_residual): a frozen engine and a deliberate Weak sealing verdict were previously indistinguishable in telemetry.
+
 ## 2026-09-01 (4)
 
 * **Update**: `drift-guards.md` — MCP tool vocabularies are generated, not retyped. The codegen now emits `wire-vocabularies.generated.ts` (VALUES: session statuses, event severities, ops categories/severities/types, annotation lanes/verdicts) alongside the MCP's wire types, byte-pinned by the MCP freshness suite and the `shared-manifests-in-sync` CI job; the tool schemas derive their `z.enum()` from it. Found by the switch: `search_sessions` had offered 5 of 8 session statuses (no `AwaitingUser`/`Incomplete`) and both event readers 4 of 6 severities (no `Debug`/`Trace`). `vocabulary-drift.guard.test.ts` ratchets the remaining inline enums against a reasoned baseline. New `OpsEventTypes` (Shared) gives the 77 ops event types a canonical home — `OpsEventService` write sites use the constants (a raw literal now fails the dual-register test), and `get_resource(name="ops_event_types")` serves the vocabulary to the model.

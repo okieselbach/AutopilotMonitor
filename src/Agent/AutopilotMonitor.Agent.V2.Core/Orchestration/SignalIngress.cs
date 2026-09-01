@@ -94,6 +94,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         // next channel item is taken. Only the worker enqueues and dequeues — no lock.
         private readonly Queue<IngressItem> _workerLocalQueue = new Queue<IngressItem>();
         private long _reentrantPostCount;
+        private long _queueLengthPeak;
         private long _nextSignalOrdinal;     // worker-thread-only after Start; seeded from SignalLog
         private int _started;                 // 0 = not started, 1 = running
         private int _stopRequested;           // 0 = live, 1 = Stop called
@@ -155,6 +156,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// worker-local follow-up queue instead of the bounded channel. Observability/tests.
         /// </summary>
         public long ReentrantPostCount => Interlocked.Read(ref _reentrantPostCount);
+
+        /// <summary>
+        /// Total signals the worker has fully processed (reduce + effects). Monotonic — the
+        /// agent_metrics_snapshot exports this so two snapshots prove whether the pipeline
+        /// worked in between (a frozen worker keeps posting-side counters growing while this
+        /// one stands still; a momentary queue-length sample could never show that).
+        /// </summary>
+        public long ProcessedSignalCount => Interlocked.Read(ref _processedCount);
+
+        /// <summary>
+        /// Highest channel queue length observed at any Post since Start. Monotonic
+        /// non-decreasing, so snapshot sampling cannot alias it away (same rationale as the
+        /// spool's PeakPendingItemCount). Worker-local follow-up items never count here.
+        /// </summary>
+        public long QueueLengthPeak => Interlocked.Read(ref _queueLengthPeak);
 
         /// <summary>
         /// Fires synchronously from <see cref="Post"/> after a signal has been accepted into
@@ -317,6 +333,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             if (added)
             {
+                UpdateQueueLengthPeak(_channel.Count);
                 RaiseSignalPosted(kind, payload);
                 return;
             }
@@ -324,6 +341,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // Slow path: bounded channel full → block, measure duration, notify observer throttled.
             var blockStartedUtc = _clock.UtcNow;
             int queueLenAtBlock = _channel.Count;
+            UpdateQueueLengthPeak(queueLenAtBlock);
             try
             {
                 _channel.Add(item);
@@ -343,6 +361,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             NotifyBackPressureThrottled(sourceOrigin, queueLenAtBlock, blockedFor);
             RaiseSignalPosted(kind, payload);
+        }
+
+        /// <summary>Lock-free monotonic max (net48 has no Interlocked max primitive).</summary>
+        private void UpdateQueueLengthPeak(int observedLength)
+        {
+            long observed = observedLength;
+            long current = Interlocked.Read(ref _queueLengthPeak);
+            while (observed > current)
+            {
+                var prior = Interlocked.CompareExchange(ref _queueLengthPeak, observed, current);
+                if (prior == current) return;
+                current = prior;
+            }
         }
 
         private void RaiseSignalPosted(DecisionSignalKind kind, IReadOnlyDictionary<string, string>? payload)

@@ -251,6 +251,21 @@ Wired by `EnrollmentOrchestrator.Start` (`src/Agent/AutopilotMonitor.Agent.V2.Co
   one-shot terminal-stage hook (raises the agent's `Terminated` event off-thread).
 - The `DeadlineScheduler`'s `Fired` event loops back in as synthetic `DeadlineFired`
   signals.
+- **Pipeline health in `agent_metrics_snapshot`** (2026-09-01, motivated by the WG-seal
+  soak in which a frozen engine and a deliberate Weak sealing verdict were telemetrically
+  indistinguishable): every snapshot carries monotonic totals from `SignalIngress`
+  (`signal_last_ordinal`, `signal_processed_total`, `signal_pending_count`,
+  `signal_reentrant_total`, `signal_queue_peak` — a monotonic peak, deliberately no
+  momentary queue length, so snapshot sampling cannot alias it) plus `decision_stage`,
+  `decision_last_applied_ordinal` and — once the sealing classifier has produced a
+  verdict — `wg_sealing_level`/`wg_sealing_score` from the immutable `DecisionState`.
+  Two snapshots therefore prove whether the worker ran in between: a frozen worker keeps
+  `signal_pending_count` growing while the processed/applied counters stand still. The
+  probe chain is read-only (`EnrollmentOrchestrator` → `IComponentFactory.
+  CreateCollectorHosts(decisionStateProbe)` → `PeriodicCollectorLifecycleHost` →
+  `AgentSelfMetricsCollector`); the snapshot event itself travels the collector/event
+  path, which is independent of the signal pipeline it measures — field-proven by the
+  freeze cases, whose perf/metrics events kept flowing while the engine stood still.
 - On restart, `RecoveryCoordinator` folds the persisted signal log through a transient
   `new DecisionEngine()` before the live pipeline starts — see
   [logs & persistence](logs-and-persistence.md).
