@@ -44,11 +44,16 @@ The stored `globalAdminMode` value is never overwritten — demo mode masks it a
 | Purple platform section in the sidebar | hidden | hidden |
 | Cross-tenant data scope, platform notifications | collapsed to the tenant | collapsed to the tenant |
 | Telegram provider, cert-device-binding toggle, retention escape hatch | hidden | hidden |
+| Decision Inspector button on the session detail page | hidden | hidden |
+| "Internal (Autopilot Monitor)" annotation lane (session card + `/annotations` list and filter) | hidden | hidden |
+| IME log pattern enable/disable switch, "Edit (Global)" button, edit form | already followed the view before this change | read-only, as for a tenant admin |
 | `/health-check` build + commit cards | hidden | hidden |
 | "Global Admin" / "Global Reader" badge in the user menu | shows "Admin" instead | shows "Admin" instead |
 | The Global-Admin toggle itself | still there | hidden |
 | `/admin/*` reached by a typed URL or bookmark | Access Denied card | silent replace to `/dashboard` |
 | Admin Mode (delete sessions) | unchanged | unchanged — a tenant admin has it too, so it belongs in an honest demo |
+
+The annotation lane is the one surface where the rule also covers the read-only **Global Reader**: `visibleLanes()` takes the view flag as an explicit second argument and combines it with the platform identity, so a Reader with the view switched off sees the same two lanes a tenant admin sees. The `/annotations` overview additionally filters the rendered ROWS to the visible lanes — the list is not lane-scoped by the request, so an internal row would otherwise still surface there.
 
 An already-configured Telegram channel stays visible and readable at both levels (`components/notifications/ChannelEditor.tsx`): it is the tenant's own channel, a tenant admin sees it too, and hiding its provider would make the next save destroy it.
 
@@ -62,4 +67,5 @@ Both levels are presentation. Every rule they mirror is enforced server-side and
 - `src/Web/autopilot-monitor-web/hooks/useAdminMode.ts` — the three modes, URL consumption, effective `globalAdminMode`
 - `src/Web/autopilot-monitor-web/hooks/useGlobalAdminUi.ts` — the visible-GA-extras hook
 - `src/Web/autopilot-monitor-web/components/ProtectedRoute.tsx` — platform-route bounce while presenting
+- `src/Web/autopilot-monitor-web/app/sessions/components/sessionAnnotationLogic.ts` — `visibleLanes(user, globalAdminView)`, covered by its `__tests__` sibling
 - [portal-navigation-prefetch.md](portal-navigation-prefetch.md) — the other portal-wide behaviour switch

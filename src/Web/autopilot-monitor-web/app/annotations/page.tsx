@@ -8,7 +8,7 @@ import { API_BASE_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAggregatedAdminScope } from "@/hooks";
+import { useAdminMode, useAggregatedAdminScope } from "@/hooks";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import {
@@ -65,7 +65,12 @@ export default function AnnotationsPage() {
   const scope = useAggregatedAdminScope({ defaultAggregated: true });
   const { isGlobalAdmin: crossTenant, routeGlobal, selectedTenantId, effectiveTenantId, scopeInitialized, tenants } = scope;
 
-  const lanes = visibleLanes(user);
+  // Effective Global-Admin view (demo mode forces it off): the platform-internal lane follows the
+  // view both in the filter dropdown and in the list, so presenting this page shows exactly the
+  // rows a tenant admin would see. The backend filters the lane for tenant callers regardless.
+  const { globalAdminMode } = useAdminMode();
+  const lanes = visibleLanes(user, globalAdminMode);
+  const visibleRows = rows.filter((r) => lanes.includes(r.lane?.toLowerCase() as AnnotationLane));
 
   const tenantLabel = (id: string | null | undefined) =>
     tenants.find((t) => t.tenantId === id)?.domainName ?? id ?? "—";
@@ -166,7 +171,7 @@ export default function AnnotationsPage() {
 
             {loadError ? (
               <p className="text-sm text-amber-700">{loadError}</p>
-            ) : rows.length === 0 && !loading ? (
+            ) : visibleRows.length === 0 && !loading ? (
               <p className="text-sm text-gray-400">
                 No annotations yet. Open a session and record a verdict in its{" "}
                 <span className="font-medium">Annotations</span> section — judged sessions
@@ -187,7 +192,7 @@ export default function AnnotationsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {rows.map((row) => (
+                    {visibleRows.map((row) => (
                       <tr key={`${row.tenantId ?? ""}_${row.sessionId}_${row.lane}`} className="hover:bg-gray-50">
                         {crossTenant && (
                           <td className="px-3 py-2 whitespace-nowrap text-gray-700">

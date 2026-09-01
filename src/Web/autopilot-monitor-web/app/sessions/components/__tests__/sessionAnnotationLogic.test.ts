@@ -16,20 +16,26 @@ const operator: AnnotationUser = { role: "Operator" };
 const viewer: AnnotationUser = { role: "Viewer" };
 
 describe("visibleLanes", () => {
-  it("shows all three lanes for global scope (GA and Global Reader)", () => {
-    expect(visibleLanes(ga)).toEqual(["operator", "tenantadmin", "globaladmin"]);
-    expect(visibleLanes(globalReader)).toEqual(["operator", "tenantadmin", "globaladmin"]);
+  it("shows all three lanes for global scope (GA and Global Reader) with the global view on", () => {
+    expect(visibleLanes(ga, true)).toEqual(["operator", "tenantadmin", "globaladmin"]);
+    expect(visibleLanes(globalReader, true)).toEqual(["operator", "tenantadmin", "globaladmin"]);
   });
 
-  it("hides the globaladmin lane from tenant members", () => {
+  it("hides the internal lane when the global view is off (demo mode forces this)", () => {
+    expect(visibleLanes(ga, false)).toEqual(["operator", "tenantadmin"]);
+    expect(visibleLanes(globalReader, false)).toEqual(["operator", "tenantadmin"]);
+  });
+
+  it("hides the globaladmin lane from tenant members regardless of the view flag", () => {
     for (const user of [tenantAdmin, operator, viewer]) {
-      expect(visibleLanes(user)).toEqual(["operator", "tenantadmin"]);
+      expect(visibleLanes(user, true)).toEqual(["operator", "tenantadmin"]);
+      expect(visibleLanes(user, false)).toEqual(["operator", "tenantadmin"]);
     }
   });
 
   it("treats a missing user as tenant scope", () => {
-    expect(visibleLanes(null)).toEqual(["operator", "tenantadmin"]);
-    expect(visibleLanes(undefined)).toEqual(["operator", "tenantadmin"]);
+    expect(visibleLanes(null, true)).toEqual(["operator", "tenantadmin"]);
+    expect(visibleLanes(undefined, true)).toEqual(["operator", "tenantadmin"]);
   });
 });
 

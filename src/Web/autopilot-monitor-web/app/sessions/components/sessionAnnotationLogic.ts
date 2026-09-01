@@ -81,10 +81,19 @@ export const LANE_LABELS: Record<AnnotationLane, string> = {
  * Lanes the caller may SEE. The backend already filters the globaladmin lane for
  * non-global callers — this only decides which (possibly empty) lane sections the
  * card renders at all.
+ *
+ * @param globalAdminView the Global-Admin view toggle (which demo mode forces off — see
+ * lib/demoMode.ts). The internal lane is labelled "never visible to the tenant" and sits on the
+ * session page shown in every live demo, so it follows the VIEW, not the identity alone: with the
+ * global view switched off a platform user sees the same two lanes a tenant admin sees. Not a
+ * permission check — the backend filters the lane for tenant callers regardless.
  */
-export function visibleLanes(user: AnnotationUser | null | undefined): AnnotationLane[] {
+export function visibleLanes(
+  user: AnnotationUser | null | undefined,
+  globalAdminView: boolean,
+): AnnotationLane[] {
   const hasGlobalScope = !!user?.isGlobalAdmin || !!user?.isGlobalReader;
-  return hasGlobalScope
+  return hasGlobalScope && globalAdminView
     ? ["operator", "tenantadmin", "globaladmin"]
     : ["operator", "tenantadmin"];
 }

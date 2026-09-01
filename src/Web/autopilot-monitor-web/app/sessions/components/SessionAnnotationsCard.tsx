@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { useAdminMode } from "@/hooks/useAdminMode";
 import {
   ANNOTATION_MAX_NOTE_LENGTH,
   ANNOTATION_VERDICTS,
@@ -67,7 +68,10 @@ export default function SessionAnnotationsCard({
   // (count + verdict pills) still shows at a glance whether a verdict exists.
   const [expanded, setExpanded] = useState(false);
 
-  const lanes = visibleLanes(user);
+  // Effective Global-Admin view (demo mode forces it off): the internal lane follows the view, so
+  // presenting the session page shows the same two lanes a tenant admin sees.
+  const { globalAdminMode } = useAdminMode();
+  const lanes = visibleLanes(user, globalAdminMode);
 
   useEffect(() => {
     if (!sessionId) return;
