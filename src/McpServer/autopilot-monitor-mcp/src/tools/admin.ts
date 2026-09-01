@@ -990,6 +990,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Optional — filter to one structured verdict.'),
         ruleId: z.string().optional()
           .describe('Optional — only annotations whose rule-id snapshot contains this rule (e.g. "ANALYZE-ESP-001").'),
+        query: z.string().trim().min(1).max(200).optional()
+          .describe('Optional — free-text search: case-insensitive substring over the note and the verdict ' +
+            '(e.g. "wifi switch" finds every session someone described that way). Not matched against lane, author or rule ids.'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound on the last-updated time.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
@@ -1001,11 +1004,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('list_session_annotations', args, async () => {
       try {
-        const { tenantId, lane, verdict, ruleId, dateFrom, dateTo, continuation } = args;
+        const { tenantId, lane, verdict, ruleId, query, dateFrom, dateTo, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const path = followNextLink(
           '/api/global/session-annotations',
-          { tenantId, lane, verdict, ruleId, dateFrom, dateTo, pageSize },
+          { tenantId, lane, verdict, ruleId, q: query, dateFrom, dateTo, pageSize },
           continuation,
           { pageSize },
         );

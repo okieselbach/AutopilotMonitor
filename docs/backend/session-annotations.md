@@ -98,13 +98,18 @@ in the tenant-visible audit log — same convention as GA session-report submiss
   "All tenants" aggregate (the portal twin of MCP's `list_session_annotations`) with per-tenant
   drill-down, a delegated ("MSP") admin gets the managed subset; cross-tenant scopes route to
   `GET global/session-annotations`, a tenant column appears, and deep links carry the row's
-  `tenantId`.
+  `tenantId`. A free-text search box (`?q=`, debounced) matches the note and the verdict
+  case-insensitively — the way a session that has fallen out of every time window is found
+  again: describe it once in a note ("wifi switch"), then search for that. Deliberately not the
+  lane, author or rule ids, which have their own filters.
 * **MCP read**: `get_session_summary` carries an `annotations` key (4th parallel leg, fail-soft
   null); `list_session_annotations` (`ga`-gated) is the evaluation stream with `tenantId / lane /
-  verdict / ruleId / dateFrom / dateTo` filters and nextLink pagination. The `ruleId` filter is
-  applied server-side but client-of-Azure (substring on the JSON column), so the backend
-  back-fills short pages by looping the Azure continuation (bounded rounds) — filtered-out rows
-  never consume page budget.
+  verdict / ruleId / query / dateFrom / dateTo` filters and nextLink pagination. The `ruleId`
+  filter (substring on the JSON column) and the `query` note search (`q` on the wire, capped at
+  200 characters) are applied server-side but client-of-Azure, so the backend back-fills short
+  pages by looping the Azure continuation (bounded rounds) — filtered-out rows never consume page
+  budget. Both are bound into the continuation fingerprint, so a cursor issued for one search
+  cannot be replayed against another.
 * **MCP write**: `annotate_session` (`strictGa`-gated, MUTATING) always PUTs the `globaladmin`
   lane — no lane argument by design. This is the frictionless labeling path after a session-debug.
 * **Session reports**: `SessionReportService.SubmitReportAsync` snapshots ALL lanes into

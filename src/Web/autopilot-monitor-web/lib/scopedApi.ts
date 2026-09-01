@@ -79,7 +79,7 @@ export const scopedApi = {
 
   annotationsList: (
     sel: TenantScopeSelection,
-    opts: { verdict?: string; lane?: string; pageSize?: number; continuation?: string },
+    opts: { verdict?: string; lane?: string; q?: string; pageSize?: number; continuation?: string },
   ) =>
     sel.routeGlobal
       ? api.annotations.globalList({ ...opts, tenantId: globalTenantParam(sel) })

@@ -123,6 +123,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             string? lane,
             string? verdict,
             string? ruleId,
+            string? query,
             DateTime? dateFrom,
             DateTime? dateTo,
             int pageSize,
@@ -133,10 +134,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             var items = new List<SessionAnnotation>();
             var token = continuation;
 
-            // ruleId cannot be pushed into OData (substring match on a JSON column), so it
-            // filters client-side. Back-fill whole Azure pages until pageSize matches
-            // accumulate or the scan is exhausted, so filtered-out rows never consume page
-            // budget (lesson: filter-after-pagination empties the list).
+            // ruleId (substring match on a JSON column) and the free-text note search cannot
+            // be pushed into OData, so they filter client-side. Back-fill whole Azure pages
+            // until pageSize matches accumulate or the scan is exhausted, so filtered-out
+            // rows never consume page budget (lesson: filter-after-pagination empties the list).
             for (var round = 0; round < MaxBackfillRoundTrips; round++)
             {
                 var (page, nextToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
@@ -147,6 +148,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     var annotation = MapAnnotation(entity);
                     if (ruleId != null &&
                         !annotation.RuleIds.Contains(ruleId, StringComparer.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    if (!MatchesQuery(annotation, query))
                     {
                         continue;
                     }
@@ -164,6 +169,21 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         internal static string BuildRowKey(string sessionId, string lane) => $"{sessionId}_{lane}";
+
+        /// <summary>
+        /// Free-text search: case-insensitive substring on the note and on the verdict —
+        /// the two fields a person writes or picks to describe a session ("wifi switch",
+        /// "analysis_wrong"). Deliberately not the lane, the author or the rule ids: those
+        /// have their own filters, and a hit on an author name would surprise a reader who
+        /// searched a note. An absent/blank query matches every row.
+        /// </summary>
+        internal static bool MatchesQuery(SessionAnnotation annotation, string? query)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return true;
+            var q = query.Trim();
+            return (annotation.Note?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (annotation.Verdict?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
 
         internal static string? BuildQueryFilter(
             string? tenantId, string? lane, string? verdict, DateTime? dateFrom, DateTime? dateTo,

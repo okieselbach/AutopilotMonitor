@@ -434,6 +434,8 @@ export const api = {
       tenantId?: string;
       lane?: string;
       verdict?: string;
+      /** Free-text search over note + verdict (case-insensitive substring, server-side). */
+      q?: string;
       pageSize?: number;
       continuation?: string;
     }) =>
@@ -441,6 +443,7 @@ export const api = {
         tenantId: opts?.tenantId,
         lane: opts?.lane,
         verdict: opts?.verdict,
+        q: opts?.q,
         pageSize: opts?.pageSize?.toString(),
         continuation: opts?.continuation,
       })}`,
@@ -450,6 +453,7 @@ export const api = {
       tenantId?: string;
       lane?: string;
       verdict?: string;
+      q?: string;
       pageSize?: number;
       continuation?: string;
     }) =>
@@ -457,6 +461,7 @@ export const api = {
         tenantId: opts?.tenantId,
         lane: opts?.lane,
         verdict: opts?.verdict,
+        q: opts?.q,
         pageSize: opts?.pageSize?.toString(),
         continuation: opts?.continuation,
       })}`,

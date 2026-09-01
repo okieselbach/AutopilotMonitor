@@ -24,8 +24,10 @@ import {
 
 /**
  * Annotations overview: every annotated session in one list, so a judged session can be
- * found again without remembering which one it was. Server-side filters (verdict, lane)
- * + nextLink pagination; rows deep-link into the session's annotation section. The
+ * found again without remembering which one it was. Server-side filters (verdict, lane,
+ * free-text note search) + nextLink pagination; rows deep-link into the session's annotation
+ * section. The search is how a demo session that has fallen out of every time window is
+ * found again: describe it once in a note ("wifi switch"), then search for that. The
  * backend excludes the platform-internal globaladmin lane for tenant callers.
  *
  * Cross-tenant: a GA/Reader gets the tenant switcher incl. the "All tenants" aggregate
@@ -59,6 +61,16 @@ export default function AnnotationsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [verdictFilter, setVerdictFilter] = useState("");
   const [laneFilter, setLaneFilter] = useState("");
+  // Free-text search over note + verdict, server-side. The input updates per keystroke;
+  // the SUBMITTED value follows after a short pause so typing never fires a request per
+  // key (the setState lives in the timer callback, not the effect body).
+  const [noteQuery, setNoteQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  useEffect(() => {
+    const trimmed = noteQuery.trim();
+    const timer = setTimeout(() => setSubmittedQuery(trimmed), 300);
+    return () => clearTimeout(timer);
+  }, [noteQuery]);
 
   // GA/Reader: "All tenants" aggregate by default (mirrors the MCP evaluation stream) with
   // per-tenant drill-down; delegated ("MSP"): managed tenants only, never aggregated.
@@ -111,6 +123,7 @@ export default function AnnotationsPage() {
       const filters = {
         verdict: verdictFilter || undefined,
         lane: laneFilter || undefined,
+        q: submittedQuery || undefined,
       };
       await fetchPage(
         scopedApi.annotationsList({ routeGlobal, selectedTenantId, effectiveTenantId }, filters),
@@ -118,7 +131,7 @@ export default function AnnotationsPage() {
       );
     };
     void loadFirstPage();
-  }, [fetchPage, verdictFilter, laneFilter, scopeInitialized, routeGlobal, selectedTenantId, effectiveTenantId]);
+  }, [fetchPage, verdictFilter, laneFilter, submittedQuery, scopeInitialized, routeGlobal, selectedTenantId, effectiveTenantId]);
 
   return (
     <ProtectedRoute>
@@ -167,16 +180,46 @@ export default function AnnotationsPage() {
                   <option key={lane} value={lane}>{LANE_LABELS[lane]}</option>
                 ))}
               </select>
+              <div className="relative flex-1 min-w-[220px] max-w-md">
+                <input
+                  type="search"
+                  value={noteQuery}
+                  onChange={(e) => setNoteQuery(e.target.value)}
+                  placeholder="Search notes (e.g. wifi switch)"
+                  maxLength={200}
+                  aria-label="Search annotation notes"
+                  className="w-full border border-gray-300 rounded-md px-3 py-1.5 pr-8 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                {noteQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setNoteQuery("")}
+                    className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
 
             {loadError ? (
               <p className="text-sm text-amber-700">{loadError}</p>
             ) : visibleRows.length === 0 && !loading ? (
-              <p className="text-sm text-gray-400">
-                No annotations yet. Open a session and record a verdict in its{" "}
-                <span className="font-medium">Annotations</span> section — judged sessions
-                show up here.
-              </p>
+              submittedQuery ? (
+                <p className="text-sm text-gray-400">
+                  No annotation mentions <span className="font-medium">&ldquo;{submittedQuery}&rdquo;</span>.
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400">
+                  No annotations yet. Open a session and record a verdict in its{" "}
+                  <span className="font-medium">Annotations</span> section — judged sessions
+                  show up here.
+                </p>
+              )
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">

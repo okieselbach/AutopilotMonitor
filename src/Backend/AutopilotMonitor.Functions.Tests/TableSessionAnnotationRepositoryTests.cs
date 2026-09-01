@@ -111,6 +111,58 @@ public class TableSessionAnnotationRepositoryTests
 
     // ── query filter builder ────────────────────────────────────────────────
 
+    // ── free-text note search (client-side, like ruleId) ─────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MatchesQuery_blank_query_matches_every_row(string? query)
+    {
+        var a = new SessionAnnotation { Note = null, Verdict = null };
+        Assert.True(TableSessionAnnotationRepository.MatchesQuery(a, query));
+    }
+
+    [Theory]
+    [InlineData("wifi")]
+    [InlineData("WIFI")]
+    [InlineData(" WiFi switch ")]
+    public void MatchesQuery_matches_note_substring_case_insensitively(string query)
+    {
+        var a = new SessionAnnotation { Note = "Nice demo: WiFi switch at minute 3, then LAN.", Verdict = null };
+        Assert.True(TableSessionAnnotationRepository.MatchesQuery(a, query));
+    }
+
+    [Fact]
+    public void MatchesQuery_matches_verdict_too()
+    {
+        var a = new SessionAnnotation { Note = null, Verdict = "analysis_wrong" };
+        Assert.True(TableSessionAnnotationRepository.MatchesQuery(a, "wrong"));
+    }
+
+    [Fact]
+    public void MatchesQuery_ignores_lane_author_and_rule_ids()
+    {
+        var a = new SessionAnnotation
+        {
+            Note = "plain note",
+            Verdict = null,
+            Lane = "tenantadmin",
+            AuthorDisplayName = "Leia Organa",
+            RuleIds = new List<string> { "ANALYZE-ESP-001" },
+        };
+        Assert.False(TableSessionAnnotationRepository.MatchesQuery(a, "tenantadmin"));
+        Assert.False(TableSessionAnnotationRepository.MatchesQuery(a, "Leia"));
+        Assert.False(TableSessionAnnotationRepository.MatchesQuery(a, "ESP-001"));
+    }
+
+    [Fact]
+    public void MatchesQuery_no_hit_returns_false()
+    {
+        var a = new SessionAnnotation { Note = "ethernet only", Verdict = "root_cause_confirmed" };
+        Assert.False(TableSessionAnnotationRepository.MatchesQuery(a, "wifi"));
+    }
+
     [Fact]
     public void BuildQueryFilter_no_filters_returns_null()
     {

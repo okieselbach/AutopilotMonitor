@@ -65,6 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     Lane = parsedRaw.Lane,
                     Verdict = parsedRaw.Verdict,
                     RuleId = parsedRaw.RuleId,
+                    Query = parsedRaw.Query,
                     DateFrom = parsedRaw.DateFrom,
                     DateTo = parsedRaw.DateTo,
                     PageSize = parsedRaw.PageSize,
@@ -89,7 +90,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 }
 
                 var (items, nextRawToken) = await _annotationRepo.QueryPageAsync(
-                    parsed.FilterTenantId, parsed.Lane, parsed.Verdict, parsed.RuleId,
+                    parsed.FilterTenantId, parsed.Lane, parsed.Verdict, parsed.RuleId, parsed.Query,
                     parsed.DateFrom, parsed.DateTo, parsed.PageSize, azureToken,
                     excludeGlobalAdminLane: !requestCtx.HasGlobalScope);
 

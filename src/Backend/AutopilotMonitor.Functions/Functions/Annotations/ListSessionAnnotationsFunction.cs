@@ -71,7 +71,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 // delegated caller on its managed ?tenantId= path. The platform-internal globaladmin
                 // lane stays global-scope-only, so it is excluded for everyone else.
                 var (items, nextRawToken) = await _annotationRepo.QueryPageAsync(
-                    parsed.FilterTenantId, parsed.Lane, parsed.Verdict, parsed.RuleId,
+                    parsed.FilterTenantId, parsed.Lane, parsed.Verdict, parsed.RuleId, parsed.Query,
                     parsed.DateFrom, parsed.DateTo, parsed.PageSize, azureToken,
                     excludeGlobalAdminLane: !requestCtx.HasGlobalScope);
 

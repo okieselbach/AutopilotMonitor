@@ -28,10 +28,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <summary>
         /// Global evaluation query (cross-tenant filtered table scan; annotation volume is
         /// human-entered and small). All filters optional. <paramref name="ruleId"/> is
-        /// matched client-side against <see cref="SessionAnnotation.RuleIds"/>, so this
-        /// method back-fills short pages by looping the Azure continuation until
-        /// <paramref name="pageSize"/> matches accumulate or the scan is exhausted
-        /// (bounded round-trips) — a filtered-out row never consumes page budget.
+        /// matched client-side against <see cref="SessionAnnotation.RuleIds"/> and
+        /// <paramref name="query"/> is a case-insensitive substring match on the note and
+        /// the verdict (Table Storage has no <c>contains</c>), so this method back-fills
+        /// short pages by looping the Azure continuation until <paramref name="pageSize"/>
+        /// matches accumulate or the scan is exhausted (bounded round-trips) — a
+        /// filtered-out row never consumes page budget.
         /// </summary>
         /// <returns>The page items plus the raw Azure continuation token for the next page (null when done).</returns>
         /// <param name="excludeGlobalAdminLane">
@@ -44,6 +46,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             string? lane,
             string? verdict,
             string? ruleId,
+            string? query,
             DateTime? dateFrom,
             DateTime? dateTo,
             int pageSize,

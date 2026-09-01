@@ -1,5 +1,10 @@
 # Log
 
+## 2026-09-01 (7)
+
+* **Update**: `backend/session-annotations.md` - the annotation lists gain a free-text note search: `?q=` on both `sessions/annotations/list` and `global/session-annotations` (MCP `list_session_annotations` `query`), a case-insensitive substring over note + verdict, applied in the same client-of-Azure back-fill loop as `ruleId` and bound into the continuation fingerprint. Portal: a debounced search box on the Annotations page. Motivation: demo sessions imported into the operator's own tenant fall out of every time window; a note ("wifi switch") plus this search is how they are found again.
+
+
 ## 2026-09-01 (8)
 
 * **Update**: `backend/raw-events-scan-budget.md` - the SessionsIndex-scan-per-session trap had two more live callers: `search_sessions_by_cve` (CveIndex page) and the deviceProperties path of `search_sessions` (DeviceSnapshot page), each up to 1000 full-table scans per cross-tenant page. Both now point-read Sessions with the tenant their index row carries (`BatchGetSessionsByKeyAsync`, `IndexRowKeys.ResolveTenantId`); the scan-based batch helper is deleted. MCP: every nextLink-paginated tool applies an explicit pageSize (and fields on the raw tools) to a continuation, pageSize schemas lost their `.default()` (`pageSizeForCall` sends the first-page default only on a first-page call), and the three auto-exhaust tools retry a timeout once with a halved page. The doc gains the audit of the remaining unbounded cross-tenant aggregations with their live p95 durations (5-15 s today, no cap, no cursor).

@@ -189,10 +189,10 @@ public class SessionAnnotationFunctionsTests
         annotationRepo
             .Setup(r => r.QueryPageAsync(
                 It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
-                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<int>(), It.IsAny<string?>(),
-                It.IsAny<bool>()))
-            .Callback<string?, string?, string?, string?, DateTime?, DateTime?, int, string?, bool>(
-                (_, _, _, _, _, _, _, _, exclude) => capturedExclude = exclude)
+                It.IsAny<string?>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<int>(),
+                It.IsAny<string?>(), It.IsAny<bool>()))
+            .Callback<string?, string?, string?, string?, string?, DateTime?, DateTime?, int, string?, bool>(
+                (_, _, _, _, _, _, _, _, _, exclude) => capturedExclude = exclude)
             .ReturnsAsync((new List<SessionAnnotation>(), (string?)null));
 
         var function = new ListSessionAnnotationsFunction(

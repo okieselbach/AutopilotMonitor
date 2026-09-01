@@ -35,6 +35,12 @@ describe("scopedApi routing", () => {
     expect(scopedApi.annotationsList(override, {})).toContain(`tenantId=${OTHER}`);
   });
 
+  it("annotationsList forwards the free-text search on both variants", () => {
+    expect(scopedApi.annotationsList(override, { q: "wifi switch" })).toContain("q=wifi+switch");
+    expect(scopedApi.annotationsList(tenantMode, { q: "wifi switch" })).toContain("q=wifi+switch");
+    expect(scopedApi.annotationsList(tenantMode, {})).not.toContain("q=");
+  });
+
   it("aggregated ('') sends the global variant WITHOUT a tenantId param", () => {
     for (const url of [
       scopedApi.appMetrics(aggregated, 30),

@@ -20,10 +20,15 @@ namespace AutopilotMonitor.Functions.Pagination
     {
         public const int DefaultPageSize = 200;
         public const int MaxPageSize = 1000;
+        /// <summary>
+        /// Cap on the free-text note search (<c>?q=</c>). Notes themselves are capped at 4096
+        /// characters; a search term longer than this is never a real query.
+        /// </summary>
+        public const int MaxQueryLength = 200;
 
         public static string Fingerprint(
             string callerTenantId, string? filterTenantId, string? lane, string? verdict,
-            string? ruleId, DateTime? dateFrom, DateTime? dateTo) =>
+            string? ruleId, string? query, DateTime? dateFrom, DateTime? dateTo) =>
             ContinuationToken.ComputeFingerprint(new[]
             {
                 new KeyValuePair<string, string?>("scope", "session-annotations"),
@@ -32,6 +37,7 @@ namespace AutopilotMonitor.Functions.Pagination
                 new KeyValuePair<string, string?>("lane", lane),
                 new KeyValuePair<string, string?>("verdict", verdict),
                 new KeyValuePair<string, string?>("ruleId", ruleId),
+                new KeyValuePair<string, string?>("q", query),
                 new KeyValuePair<string, string?>("dateFrom", dateFrom?.ToString("o", CultureInfo.InvariantCulture)),
                 new KeyValuePair<string, string?>("dateTo", dateTo?.ToString("o", CultureInfo.InvariantCulture)),
             });
@@ -42,6 +48,11 @@ namespace AutopilotMonitor.Functions.Pagination
             public string? Lane { get; init; }
             public string? Verdict { get; init; }
             public string? RuleId { get; init; }
+            /// <summary>
+            /// Free-text search over the note and the verdict (case-insensitive substring),
+            /// matched client-side like <see cref="RuleId"/>. Trimmed; null when absent.
+            /// </summary>
+            public string? Query { get; init; }
             public DateTime? DateFrom { get; init; }
             public DateTime? DateTo { get; init; }
             public int PageSize { get; init; } = DefaultPageSize;
@@ -75,12 +86,17 @@ namespace AutopilotMonitor.Functions.Pagination
             if (!TryParseDate(query?["dateTo"], out var dateTo))
                 return new Parsed { Error = "dateTo must be an ISO 8601 date" };
 
+            var search = NullIfEmpty(query?["q"]?.Trim());
+            if (search != null && search.Length > MaxQueryLength)
+                return new Parsed { Error = $"q must be at most {MaxQueryLength} characters" };
+
             return new Parsed
             {
                 FilterTenantId = NullIfEmpty(query?["tenantId"]),
                 Lane = lane,
                 Verdict = verdict,
                 RuleId = NullIfEmpty(query?["ruleId"]),
+                Query = search,
                 DateFrom = dateFrom,
                 DateTo = dateTo,
                 PageSize = pageSize,
@@ -96,7 +112,7 @@ namespace AutopilotMonitor.Functions.Pagination
         {
             var fp = Fingerprint(
                 callerTenantId, parsed.FilterTenantId, parsed.Lane, parsed.Verdict,
-                parsed.RuleId, parsed.DateFrom, parsed.DateTo);
+                parsed.RuleId, parsed.Query, parsed.DateFrom, parsed.DateTo);
             return ContinuationToken.TryDecode(parsed.Continuation!, callerTenantId, fp, out azureToken, out rejectReason);
         }
 
@@ -104,7 +120,7 @@ namespace AutopilotMonitor.Functions.Pagination
         {
             var fp = Fingerprint(
                 callerTenantId, parsed.FilterTenantId, parsed.Lane, parsed.Verdict,
-                parsed.RuleId, parsed.DateFrom, parsed.DateTo);
+                parsed.RuleId, parsed.Query, parsed.DateFrom, parsed.DateTo);
             return ContinuationToken.Encode(rawAzureToken, callerTenantId, fp);
         }
 
@@ -121,6 +137,7 @@ namespace AutopilotMonitor.Functions.Pagination
             AppendIfSet(sb, "lane", parsed.Lane);
             AppendIfSet(sb, "verdict", parsed.Verdict);
             AppendIfSet(sb, "ruleId", parsed.RuleId);
+            AppendIfSet(sb, "q", parsed.Query);
             AppendIfSet(sb, "dateFrom", parsed.DateFrom?.ToString("o", CultureInfo.InvariantCulture));
             AppendIfSet(sb, "dateTo", parsed.DateTo?.ToString("o", CultureInfo.InvariantCulture));
             return sb.ToString();
