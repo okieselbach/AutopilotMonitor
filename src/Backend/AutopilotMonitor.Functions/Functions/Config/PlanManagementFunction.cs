@@ -171,6 +171,23 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc),
                             config.DataRetentionDays);
                     }
+
+                    // The mirror image of the downgrade event: a GA granting or extending a trial
+                    // is the same conversion moment as the self-service start, and sales/support
+                    // channels bind to one event type, not two. Keyed off the recorded change so
+                    // an unrelated planTier-only edit stays silent; ending a trial (explicit null)
+                    // is a downgrade, already covered above.
+                    if (changes.ContainsKey("TrialExpiresUtc") && config.TrialExpiresUtc.HasValue)
+                    {
+                        await _opsEvents.RecordTenantTrialStartedAsync(
+                            requestCtx.TargetTenantId,
+                            config.DomainName,
+                            config.ContactEmail,
+                            config.TrialStartedUtc,
+                            config.TrialExpiresUtc,
+                            caller,
+                            selfService: false);
+                    }
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -334,6 +351,17 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         { "TrialStartedUtc", FormatUtc(config.TrialStartedUtc) },
                         { "TrialExpiresUtc", FormatUtc(config.TrialExpiresUtc) }
                     });
+
+                // The conversion moment. Fired after the write persisted (SaveConfigurationAsync
+                // is fail-loud), so an alert never announces a trial that was not stored.
+                await _opsEvents.RecordTenantTrialStartedAsync(
+                    requestCtx.TargetTenantId,
+                    config.DomainName,
+                    config.ContactEmail,
+                    config.TrialStartedUtc,
+                    config.TrialExpiresUtc,
+                    caller,
+                    selfService: true);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new StartTenantTrialResponse

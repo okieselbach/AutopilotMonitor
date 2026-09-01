@@ -577,6 +577,28 @@ namespace AutopilotMonitor.Functions.Services
         // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.
 
+        /// <summary>
+        /// A Pro trial was started — the conversion moment. Fired from BOTH plan write paths:
+        /// the tenant-admin self-service POST and a GA grant/extension via PATCH plan
+        /// (<paramref name="selfService"/> tells them apart). Info-tier, but the event a
+        /// sales/support channel is typically bound to, so the payload carries who to contact
+        /// rather than only the tenant GUID.
+        /// </summary>
+        public Task RecordTenantTrialStartedAsync(
+            string tenantId, string? domainName, string? contactEmail,
+            DateTime? trialStartedUtc, DateTime? trialExpiresUtc, string grantedBy, bool selfService)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var expiryNote = trialExpiresUtc is DateTime expiry
+                ? $"until {expiry:yyyy-MM-dd HH:mm}Z"
+                : "with no end date set";
+            var origin = selfService ? "self-service" : "granted by an operator";
+            return WriteAsync(OpsEventCategory.Tenant, "TenantTrialStarted", OpsEventSeverity.Info,
+                $"Pro trial started for tenant {tenantLabel} {expiryNote} ({origin}, by {grantedBy})",
+                tenantId, grantedBy,
+                new { domainName, contactEmail, trialStartedUtc, trialExpiresUtc, grantedBy, selfService });
+        }
+
         /// <summary>Heads-up: a Pro trial ends within the next few days. Info-tier visibility signal.</summary>
         public Task RecordTenantTrialExpiringAsync(string tenantId, string? domainName, DateTime trialExpiresUtc, int daysLeft)
         {
@@ -953,9 +975,11 @@ namespace AutopilotMonitor.Functions.Services
 
                 await _repository.SaveOpsEventAsync(entry);
 
-                // Fire-and-forget: dispatch alerts to enabled providers.
-                // TrySendAlerts has its own top-level try/catch so unobserved exceptions are safe.
-                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId);
+                // Fire-and-forget: dispatch alerts to the channels the rules target.
+                // DispatchAsync has its own top-level try/catch so unobserved exceptions are safe.
+                // The serialized details ride along: an outbound channel that only knows category,
+                // event and tenant GUID forces the reader back into the portal for every alert.
+                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId, entry.Details);
             }
             catch (Exception ex)
             {
