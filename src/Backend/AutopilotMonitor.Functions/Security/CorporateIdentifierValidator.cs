@@ -3,6 +3,7 @@ using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -51,7 +52,8 @@ namespace AutopilotMonitor.Functions.Security
             string? manufacturer,
             string? model,
             string? serialNumber,
-            string? sessionId = null)
+            string? sessionId = null,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(manufacturer) || string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(serialNumber))
             {
@@ -78,7 +80,7 @@ namespace AutopilotMonitor.Functions.Security
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                var result = await TryValidateViaGraphAsync(tenantId, normalizedManufacturer, normalizedModel, normalizedSerial, sessionId, cacheKey, attempt);
+                var result = await TryValidateViaGraphAsync(tenantId, normalizedManufacturer, normalizedModel, normalizedSerial, sessionId, cacheKey, attempt, ct);
 
                 if (result.IsValid || !result.IsTransient)
                 {
@@ -86,13 +88,15 @@ namespace AutopilotMonitor.Functions.Security
                 }
 
                 lastTransientResult = result;
-                if (attempt < maxAttempts)
-                {
-                    _logger.LogWarning(
-                        "Corporate identifier validation transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
-                        tenantId, normalizedSerial, attempt, maxAttempts);
-                    await Task.Delay(TimeSpan.FromSeconds(2));
-                }
+                // Budget spent (chain token cancelled): no second attempt on a request the
+                // agent has abandoned — the transient result becomes the 503 Retry-After.
+                if (attempt == maxAttempts || ct.IsCancellationRequested)
+                    break;
+
+                _logger.LogWarning(
+                    "Corporate identifier validation transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
+                    tenantId, normalizedSerial, attempt, maxAttempts);
+                await DelayBeforeRetryAsync(ct);
             }
 
             _logger.LogWarning(
@@ -102,13 +106,22 @@ namespace AutopilotMonitor.Functions.Security
             return lastTransientResult!;
         }
 
+        /// <summary>Retry pause that yields early when the chain budget runs out (never throws).</summary>
+        private static async Task DelayBeforeRetryAsync(CancellationToken ct)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+            catch (OperationCanceledException) { }
+        }
+
         private async Task<CorporateIdentifierValidationResult> TryValidateViaGraphAsync(
             string tenantId, string normalizedManufacturer, string normalizedModel, string normalizedSerial,
-            string? sessionId, string cacheKey, int attempt)
+            string? sessionId, string cacheKey, int attempt, CancellationToken chain)
         {
+            using var attemptCts = DeviceValidationBudget.CreateAttemptCts(chain);
+            var ct = attemptCts.Token;
             try
             {
-                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId);
+                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId, ct);
                 if (string.IsNullOrEmpty(tokenResult.AccessToken))
                 {
                     return new CorporateIdentifierValidationResult
@@ -142,7 +155,7 @@ namespace AutopilotMonitor.Functions.Security
                 var filter = Uri.EscapeDataString($"contains(importedDeviceIdentifier,'{NormalizeComponent(normalizedSerial)}')");
                 var filteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=100&$filter={filter}";
 
-                var scan = await ScanPagesForIdentifierAsync(graphClient, filteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 5);
+                var scan = await ScanPagesForIdentifierAsync(graphClient, filteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 5, ct);
 
                 if (scan.Outcome == ScanOutcome.FilterRejected)
                 {
@@ -153,7 +166,7 @@ namespace AutopilotMonitor.Functions.Security
                         "Corporate identifier validation: contains() filter rejected by Graph for tenant {TenantId}; falling back to unfiltered scan.",
                         tenantId);
                     var unfilteredUrl = $"{Constants.GraphBaseUrl}/beta/deviceManagement/importedDeviceIdentities?$top=1000";
-                    scan = await ScanPagesForIdentifierAsync(graphClient, unfilteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 60);
+                    scan = await ScanPagesForIdentifierAsync(graphClient, unfilteredUrl, normalizedIdentifier, tenantId, attempt, maxPages: 60, ct);
                 }
 
                 switch (scan.Outcome)
@@ -200,6 +213,19 @@ namespace AutopilotMonitor.Functions.Security
                         };
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Budget exhausted (per-attempt or chain) - transient, never cached.
+                _logger.LogWarning(
+                    "Corporate identifier validation budget exhausted for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}, chainCancelled={ChainCancelled})",
+                    tenantId, normalizedSerial, attempt, chain.IsCancellationRequested);
+                return new CorporateIdentifierValidationResult
+                {
+                    IsValid = false,
+                    IsTransient = true,
+                    ErrorMessage = "Corporate identifier validation timed out"
+                };
+            }
             catch (Exception ex)
             {
                 _logger.LogError(
@@ -235,12 +261,12 @@ namespace AutopilotMonitor.Functions.Security
         /// misconfiguration for Windows, not authorization.
         /// </summary>
         private async Task<ScanResult> ScanPagesForIdentifierAsync(
-            HttpClient graphClient, string url, string normalizedIdentifier, string tenantId, int attempt, int maxPages)
+            HttpClient graphClient, string url, string normalizedIdentifier, string tenantId, int attempt, int maxPages, CancellationToken ct)
         {
             for (var page = 0; page < maxPages && !string.IsNullOrEmpty(url); page++)
             {
-                var response = await graphClient.GetAsync(url);
-                var responseBody = await response.Content.ReadAsStringAsync();
+                var response = await graphClient.GetAsync(url, ct);
+                var responseBody = await response.Content.ReadAsStringAsync(ct);
 
                 if (!response.IsSuccessStatusCode)
                 {

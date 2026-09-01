@@ -411,9 +411,15 @@ namespace AutopilotMonitor.Functions.Security
             string? deviceValidationError = null;
             ValidatorType validatedBy = ValidatorType.Unknown;
 
+            // One time budget for the whole (sequential) validator chain — see
+            // DeviceValidationBudget: a stuck Graph call must not park the request past the
+            // agent's own client timeout. Budget exhaustion surfaces as a transient → 503 below.
+            using var validationBudget = DeviceValidationBudget.CreateChainCts();
+            var validationCt = validationBudget.Token;
+
             if (config.ValidateAutopilotDevice)
             {
-                var autopilotResult = await _autopilotDeviceValidator.ValidateAutopilotDeviceAsync(tenantId, serialNumber, sessionId);
+                var autopilotResult = await _autopilotDeviceValidator.ValidateAutopilotDeviceAsync(tenantId, serialNumber, sessionId, validationCt);
                 if (autopilotResult.IsValid)
                 {
                     deviceValidated = true;
@@ -429,7 +435,7 @@ namespace AutopilotMonitor.Functions.Security
 
             if (!deviceValidated && config.ValidateCorporateIdentifier)
             {
-                var corpResult = await _corporateIdentifierValidator.ValidateAsync(tenantId, manufacturer, model, serialNumber, sessionId);
+                var corpResult = await _corporateIdentifierValidator.ValidateAsync(tenantId, manufacturer, model, serialNumber, sessionId, validationCt);
                 if (corpResult.IsValid)
                 {
                     deviceValidated = true;
@@ -454,7 +460,7 @@ namespace AutopilotMonitor.Functions.Security
             // Autopilot lookup (30/5 min cache, transient → 503 below).
             if (!deviceValidated && config.ValidateDeviceAssociation && _deviceAssociationValidator != null)
             {
-                var associationResult = await _deviceAssociationValidator.LookupAsync(tenantId, serialNumber, sessionId);
+                var associationResult = await _deviceAssociationValidator.LookupAsync(tenantId, serialNumber, sessionId, validationCt);
                 if (associationResult.IsValid)
                 {
                     deviceValidated = true;
@@ -476,7 +482,7 @@ namespace AutopilotMonitor.Functions.Security
             if (!deviceValidated && config.ValidateCloudPcDevice && _cloudPcDeviceValidator != null)
             {
                 TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var intuneDeviceId);
-                var cloudPcResult = await _cloudPcDeviceValidator.ValidateCloudPcAsync(tenantId, intuneDeviceId, sessionId);
+                var cloudPcResult = await _cloudPcDeviceValidator.ValidateCloudPcAsync(tenantId, intuneDeviceId, sessionId, validationCt);
                 if (cloudPcResult.IsValid)
                 {
                     deviceValidated = true;

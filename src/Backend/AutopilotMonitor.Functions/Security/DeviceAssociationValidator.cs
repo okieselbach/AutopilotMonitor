@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -47,7 +48,8 @@ namespace AutopilotMonitor.Functions.Security
         public async Task<DeviceAssociationResult> LookupAsync(
             string tenantId,
             string? serialNumber,
-            string? sessionId = null)
+            string? sessionId = null,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(serialNumber))
             {
@@ -71,19 +73,21 @@ namespace AutopilotMonitor.Functions.Security
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                var result = await TryLookupViaGraphAsync(tenantId, normalizedSerial, sessionId, cacheKey, attempt);
+                var result = await TryLookupViaGraphAsync(tenantId, normalizedSerial, sessionId, cacheKey, attempt, ct);
 
                 if (result.IsValid || !result.IsTransient)
                     return result;
 
                 lastTransient = result;
-                if (attempt < maxAttempts)
-                {
-                    _logger.LogWarning(
-                        "Device association lookup transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
-                        tenantId, normalizedSerial, attempt, maxAttempts);
-                    await Task.Delay(TimeSpan.FromSeconds(2));
-                }
+                // Budget spent (chain token cancelled): no second attempt on a request the
+                // agent has abandoned — the transient result becomes the 503 Retry-After.
+                if (attempt == maxAttempts || ct.IsCancellationRequested)
+                    break;
+
+                _logger.LogWarning(
+                    "Device association lookup transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
+                    tenantId, normalizedSerial, attempt, maxAttempts);
+                await DelayBeforeRetryAsync(ct);
             }
 
             _logger.LogWarning(
@@ -93,12 +97,21 @@ namespace AutopilotMonitor.Functions.Security
             return lastTransient!;
         }
 
-        private async Task<DeviceAssociationResult> TryLookupViaGraphAsync(
-            string tenantId, string normalizedSerial, string? sessionId, string cacheKey, int attempt)
+        /// <summary>Retry pause that yields early when the chain budget runs out (never throws).</summary>
+        private static async Task DelayBeforeRetryAsync(CancellationToken ct)
         {
+            try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+            catch (OperationCanceledException) { }
+        }
+
+        private async Task<DeviceAssociationResult> TryLookupViaGraphAsync(
+            string tenantId, string normalizedSerial, string? sessionId, string cacheKey, int attempt, CancellationToken chain)
+        {
+            using var attemptCts = DeviceValidationBudget.CreateAttemptCts(chain);
+            var ct = attemptCts.Token;
             try
             {
-                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId);
+                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId, ct);
                 if (string.IsNullOrEmpty(tokenResult.AccessToken))
                 {
                     return new DeviceAssociationResult
@@ -122,8 +135,8 @@ namespace AutopilotMonitor.Functions.Security
                 var graphUrl = Constants.GraphBaseUrl + "/beta/deviceManagement/tenantAssociatedDevices"
                                + $"?$top=25&$filter={filter}&$orderby={orderby}";
 
-                var response = await graphClient.GetAsync(graphUrl);
-                var responseBody = await response.Content.ReadAsStringAsync();
+                var response = await graphClient.GetAsync(graphUrl, ct);
+                var responseBody = await response.Content.ReadAsStringAsync(ct);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -149,6 +162,20 @@ namespace AutopilotMonitor.Functions.Security
                         result.AssociationState ?? "<none>", result.DevicePreparationPolicyId ?? "<none>");
                 }
                 return CacheAndReturn(cacheKey, result, isPositive: result.IsValid);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Budget exhausted (per-attempt or chain) - transient, never cached.
+                _logger.LogWarning(
+                    "Device association lookup budget exhausted for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}, chainCancelled={ChainCancelled})",
+                    tenantId, normalizedSerial, attempt, chain.IsCancellationRequested);
+                return new DeviceAssociationResult
+                {
+                    IsValid = false,
+                    IsTransient = true,
+                    SerialNumber = normalizedSerial,
+                    ErrorMessage = "Device association lookup timed out"
+                };
             }
             catch (Exception ex)
             {

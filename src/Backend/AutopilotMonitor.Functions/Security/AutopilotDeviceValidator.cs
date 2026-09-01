@@ -2,6 +2,7 @@ using AutopilotMonitor.Shared;
 using System;
 using System.Linq;
 using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -39,7 +40,8 @@ namespace AutopilotMonitor.Functions.Security
         public async Task<AutopilotDeviceValidationResult> ValidateAutopilotDeviceAsync(
             string tenantId,
             string? serialNumber,
-            string? sessionId = null)
+            string? sessionId = null,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(serialNumber))
             {
@@ -64,7 +66,7 @@ namespace AutopilotMonitor.Functions.Security
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                var result = await TryValidateViaGraphAsync(tenantId, normalizedSerial, sessionId, cacheKey, attempt);
+                var result = await TryValidateViaGraphAsync(tenantId, normalizedSerial, sessionId, cacheKey, attempt, ct);
 
                 if (result.IsValid || !result.IsTransient)
                 {
@@ -74,13 +76,15 @@ namespace AutopilotMonitor.Functions.Security
 
                 // Transient failure — retry after short delay
                 lastTransientResult = result;
-                if (attempt < maxAttempts)
-                {
-                    _logger.LogWarning(
-                        "Autopilot device validation transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
-                        tenantId, normalizedSerial, attempt, maxAttempts);
-                    await Task.Delay(TimeSpan.FromSeconds(2));
-                }
+                // Budget spent (chain token cancelled): no second attempt on a request the
+                // agent has abandoned — the transient result becomes the 503 Retry-After.
+                if (attempt == maxAttempts || ct.IsCancellationRequested)
+                    break;
+
+                _logger.LogWarning(
+                    "Autopilot device validation transient failure for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}/{MaxAttempts}). Retrying...",
+                    tenantId, normalizedSerial, attempt, maxAttempts);
+                await DelayBeforeRetryAsync(ct);
             }
 
             // All retries exhausted — return transient failure (NOT cached, so next request retries)
@@ -96,12 +100,21 @@ namespace AutopilotMonitor.Functions.Security
         /// Returns IsTransient=true for failures that should be retried (Graph errors, token issues).
         /// Returns IsTransient=false for definitive results (device found or not found).
         /// </summary>
-        private async Task<AutopilotDeviceValidationResult> TryValidateViaGraphAsync(
-            string tenantId, string normalizedSerial, string? sessionId, string cacheKey, int attempt)
+        /// <summary>Retry pause that yields early when the chain budget runs out (never throws).</summary>
+        private static async Task DelayBeforeRetryAsync(CancellationToken ct)
         {
+            try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+            catch (OperationCanceledException) { }
+        }
+
+        private async Task<AutopilotDeviceValidationResult> TryValidateViaGraphAsync(
+            string tenantId, string normalizedSerial, string? sessionId, string cacheKey, int attempt, CancellationToken chain)
+        {
+            using var attemptCts = DeviceValidationBudget.CreateAttemptCts(chain);
+            var ct = attemptCts.Token;
             try
             {
-                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId);
+                var tokenResult = await _graphTokenService.GetAccessTokenAsync(tenantId, ct);
                 if (string.IsNullOrEmpty(tokenResult.AccessToken))
                 {
                     return new AutopilotDeviceValidationResult
@@ -122,8 +135,8 @@ namespace AutopilotMonitor.Functions.Security
                 var filter = Uri.EscapeDataString($"contains(serialNumber,'{escapedSerial}')");
                 var graphUrl = $"{Constants.GraphBaseUrl}/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?$top=100&$filter={filter}";
 
-                var response = await graphClient.GetAsync(graphUrl);
-                var responseBody = await response.Content.ReadAsStringAsync();
+                var response = await graphClient.GetAsync(graphUrl, ct);
+                var responseBody = await response.Content.ReadAsStringAsync(ct);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -187,6 +200,20 @@ namespace AutopilotMonitor.Functions.Security
                     result.AutopilotDeviceId ?? "<none>");
 
                 return CacheAndReturn(cacheKey, result, isPositive: true);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Budget exhausted (per-attempt or chain) - transient, never cached.
+                _logger.LogWarning(
+                    "Autopilot device validation budget exhausted for tenant {TenantId}, serial {SerialNumber} (attempt {Attempt}, chainCancelled={ChainCancelled})",
+                    tenantId, normalizedSerial, attempt, chain.IsCancellationRequested);
+                return new AutopilotDeviceValidationResult
+                {
+                    IsValid = false,
+                    IsTransient = true,
+                    SerialNumber = normalizedSerial,
+                    ErrorMessage = "Autopilot device validation timed out"
+                };
             }
             catch (Exception ex)
             {
