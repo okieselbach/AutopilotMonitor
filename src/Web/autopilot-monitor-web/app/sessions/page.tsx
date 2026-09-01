@@ -46,6 +46,7 @@ import DeviceDetailsCard from "./components/DeviceDetailsCard";
 import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
+import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
@@ -87,6 +88,9 @@ function SessionDetailContent() {
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
 
   const { adminMode, globalAdminMode } = useAdminMode();
+  // The Decision Inspector is operator-only diagnostics on a page shown in every demo, so the link
+  // follows the Global-Admin VIEW rather than the identity alone. The route itself stays gated.
+  const showInspectorLink = useGlobalAdminUi();
 
   // Global contexts
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
@@ -557,7 +561,7 @@ function SessionDetailContent() {
                 Report Session
               </button>
             )}
-            {user?.isGlobalAdmin && sessionId && (
+            {showInspectorLink && sessionId && (
               <a
                 href={inspectorUrl(sessionId)}
                 className="px-4 py-2 bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50 transition-colors flex items-center gap-2 text-sm"

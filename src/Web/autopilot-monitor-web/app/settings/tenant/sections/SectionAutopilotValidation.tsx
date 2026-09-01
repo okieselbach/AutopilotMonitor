@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
 import { legacyConfigured, switchAuthApp } from "@/lib/authApp";
 import { DOCS_URL } from "@/utils/config";
 import { useTenantConfig } from "../../TenantConfigContext";
@@ -25,7 +26,12 @@ export function SectionAutopilotValidation() {
     appHomingFunnelActive, homingFlipped,
   } = useTenantConfig();
 
-  const { user, getAccessToken } = useAuth();
+  const { getAccessToken } = useAuth();
+  // Cert-device binding stays Global-Admin-only: only the operator can turn the binding check
+  // on while its enrollment-race behaviour is still being measured. Follows the Global-Admin
+  // VIEW, so switching it off (or presenting in demo mode) yields the real tenant-admin section.
+  // Read before the early return below — hooks may not sit behind a conditional.
+  const showIntuneDeviceBindingToggle = useGlobalAdminUi();
 
   // Validation gates + the Entra admin-consent flow are tenant-admin territory —
   // Operators do not see this section at all.
@@ -36,10 +42,6 @@ export function SectionAutopilotValidation() {
       </div>
     );
   }
-  // Cert-device binding stays Global-Admin-only: only the operator can turn the binding check
-  // on while its enrollment-race behaviour is still being measured.
-  const showIntuneDeviceBindingToggle = user?.isGlobalAdmin === true;
-
   // Dual app-reg window: tenants homed on the previous app registration (homedAppClientId
   // null/absent) keep working unchanged — this is a purely informational nudge, part of the
   // incentive-driven re-consent campaign. Never a warning, never an action requirement.
