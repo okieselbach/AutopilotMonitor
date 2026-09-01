@@ -28,10 +28,11 @@ Keep the plan in `tasks/todo.md` as checkable items, confirm it before implement
 - Describe only what customers can actually use; operator-only infrastructure is not a feature.
 - Trust pages: durable phrasing over exact figures, and bump their "Last reviewed" date.
 
-## Technical Docs — OKF Bundle (`docs/`)
+## Technical Docs — OKF Bundle (`docs/`, private submodule)
 
-Contributor/AI-facing docs (customer docs live in the `autopilotmonitor-docs` repo). Start at `docs/index.md` before opening individual files.
+Contributor/AI-facing docs (customer docs live in the `autopilotmonitor-docs` repo). `docs/` is a **private** submodule (`okieselbach/Autopilot-Monitor-docs-internal`) — this repo is public, the docs are not. Start at `docs/index.md` before opening individual files.
 
-- New durable knowledge (architecture decisions, flows, non-obvious mechanisms) → an OKF concept doc with YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp`.
-- Register it in `docs/index.md`, note the change in `docs/log.md` (ISO date). `index.md` and `log.md` are reserved names.
+- Write a concept doc only for durable knowledge a later change could silently break: invariants, architecture decisions, non-obvious mechanisms — not for every feature. YAML frontmatter: `type` (mandatory), plus `title`, `description`, `resource`, `tags`, `timestamp`.
+- Register it in `docs/index.md`. There is no `log.md` — the commit message is the log. `index.md` is a reserved name.
+- Commit inside the submodule first, then bump the gitlink here (same rule as `.claude/commands`).
 - English, structural markdown (`# Schema`, `# Examples`, `# Citations`). Links between docs are RELATIVE — never `/`-prefixed, that breaks GitHub navigation.

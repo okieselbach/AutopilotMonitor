@@ -1,3 +1,6 @@
 [submodule ".claude/commands"]
 	path = .claude/commands
 	url = https://github.com/okieselbach/Autopilot-Monitor-dotclaude.git
+[submodule "docs"]
+	path = docs
+	url = https://github.com/okieselbach/Autopilot-Monitor-docs-internal.git
