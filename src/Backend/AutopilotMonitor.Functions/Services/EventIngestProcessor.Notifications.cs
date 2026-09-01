@@ -72,7 +72,7 @@ namespace AutopilotMonitor.Functions.Services
                         sessionUrl: sessionUrl);
                     NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                    _ = _webhookNotificationService.SendToChannelsAsync(targets, alert)
+                    _ = _channelDispatcher.SendToChannelsAsync(targets, alert)
                         .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                             "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
                 }
@@ -94,7 +94,7 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendToChannelsAsync(successChannels, alert)
+                _ = _channelDispatcher.SendToChannelsAsync(successChannels, alert)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
@@ -115,7 +115,7 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _webhookNotificationService.SendToChannelsAsync(failureChannels, alert)
+                _ = _channelDispatcher.SendToChannelsAsync(failureChannels, alert)
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
                         "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
             }

@@ -447,6 +447,9 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Notifications
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
 builder.Services.AddHttpClient<TelegramNotificationService>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().Notification);
+// Channel-level send API — routes each NotificationChannel to its transport (webhook renderer
+// vs. the platform Telegram bot). Transient: both transports are typed HttpClients.
+builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelDispatcher>();
 // Transactional email (welcome / farewell). Typed client like the other outbound notifiers;
 // the provider is an implementation detail of EmailService + the Email:* settings.
 builder.Services.AddSingleton<EmailTemplateService>();

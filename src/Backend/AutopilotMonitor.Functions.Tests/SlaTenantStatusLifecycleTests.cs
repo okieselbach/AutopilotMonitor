@@ -168,11 +168,8 @@ public class SlaTenantStatusLifecycleTests
             opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
 
             var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-            var alertDispatch = new OpsAlertDispatchService(
-                _adminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-                webhook,
-                NullLogger<OpsAlertDispatchService>.Instance);
+            var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+            var alertDispatch = TestNotifications.InertOpsAlertDispatch(_adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
             var telemetry = new TelemetryClient(new TelemetryConfiguration());
@@ -183,7 +180,7 @@ public class SlaTenantStatusLifecycleTests
                 _maintenanceRepo.Object,
                 _sessionRepo.Object,
                 _metricsRepo.Object,
-                webhook,
+                channelDispatcher,
                 NotificationService.Object,
                 StatusRepo,
                 _adminConfig.Object,
@@ -419,9 +416,8 @@ public class SlaTenantStatusLifecycleTests
             .ReturnsAsync(new RawPage<SessionSummary>(recentPage, null));
 
         var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-        var alertDispatch = new OpsAlertDispatchService(adminCfg.Object,
-            new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-            webhook, NullLogger<OpsAlertDispatchService>.Instance);
+        var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+        var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminCfg.Object);
         var opsRepo = new Mock<IOpsEventRepository>();
         opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
         var opsSvc = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
@@ -432,7 +428,7 @@ public class SlaTenantStatusLifecycleTests
         var svc = new SlaBreachEvaluationService(
             tenantConfigSvc, configRepoMock.Object, maintenanceRepo.Object, sessionRepo.Object,
             metricsRepo.Object,
-            webhook, notif.Object, statusRepo, adminCfg.Object, opsSvc,
+            channelDispatcher, notif.Object, statusRepo, adminCfg.Object, opsSvc,
             new TelemetryClient(new TelemetryConfiguration()),
             NullLogger<SlaBreachEvaluationService>.Instance);
 
@@ -850,14 +846,13 @@ public class SlaTenantStatusLifecycleTests
                 .Returns(Task.CompletedTask);
 
             var webhook = new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance);
-            var alertDispatch = new OpsAlertDispatchService(adminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-                webhook, NullLogger<OpsAlertDispatchService>.Instance);
+            var channelDispatcher = new NotificationChannelDispatcher(webhook, new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance));
+            var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
             Service = new SlaBreachEvaluationService(
                 tenantConfigService.Object, _configRepo.Object, _maintenanceRepo.Object, _sessionRepo.Object,
-                _metricsRepo.Object, webhook, notifService.Object, StatusRepo, adminConfig.Object, opsService,
+                _metricsRepo.Object, channelDispatcher, notifService.Object, StatusRepo, adminConfig.Object, opsService,
                 new TelemetryClient(new TelemetryConfiguration()), NullLogger<SlaBreachEvaluationService>.Instance);
 
             _sessionRepo.Setup(r => r.GetSessionsPageAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>()))

@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         /// <paramref name="signingSecret"/> (generic webhooks only) adds HMAC signature headers
         /// (see <see cref="WebhookSignatureCalculator"/>).
         /// </summary>
-        public async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
+        public virtual async Task SendNotificationAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
             IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
         {
             if (string.IsNullOrEmpty(webhookUrl) || providerType == WebhookProviderType.None)
@@ -74,34 +74,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         }
 
         /// <summary>
-        /// Sends a notification to every channel in <paramref name="channels"/> (callers pre-filter
-        /// by <see cref="NotificationChannel.Enabled"/> and the relevant NotifyOn* toggle).
-        /// Channels are dispatched sequentially and independently — a failing endpoint only logs
-        /// a warning (via <see cref="SendNotificationAsync"/>) and never blocks the remaining
-        /// channels or the caller's pipeline.
-        /// </summary>
-        public async Task SendToChannelsAsync(IEnumerable<NotificationChannel> channels, NotificationAlert alert)
-        {
-            foreach (var channel in channels)
-            {
-                if (channel == null || string.IsNullOrEmpty(channel.Url))
-                    continue;
-
-                await SendNotificationAsync(
-                    channel.Url,
-                    (WebhookProviderType)channel.ProviderType,
-                    alert,
-                    channel.GetCustomHeaders(),
-                    channel.GetSigningSecret());
-            }
-        }
-
-        /// <summary>
         /// Sends a notification and returns the result (for test endpoint). Not fire-and-forget.
         /// <paramref name="customHeaders"/> and <paramref name="signingSecret"/> (generic
         /// webhooks only) are applied exactly like in <see cref="SendNotificationAsync"/>.
         /// </summary>
-        public async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
+        public virtual async Task<WebhookTestResult> SendNotificationWithResultAsync(string webhookUrl, WebhookProviderType providerType, NotificationAlert alert,
             IReadOnlyDictionary<string, string>? customHeaders = null, string? signingSecret = null)
         {
             if (string.IsNullOrEmpty(webhookUrl))
@@ -181,6 +158,11 @@ namespace AutopilotMonitor.Functions.Services.Notifications
         }
     }
 
+    /// <summary>
+    /// Outcome of a single "send a test notification" attempt. Shared by every channel provider —
+    /// <see cref="NotificationChannelDispatcher"/> returns it for Telegram channels too, which is
+    /// why the type is not webhook-specific despite the name.
+    /// </summary>
     public class WebhookTestResult
     {
         public bool Success { get; set; }

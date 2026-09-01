@@ -51,13 +51,7 @@ public class TenantApprovalServiceTests
             .Returns(Task.CompletedTask);
         var adminConfig = new Mock<AdminConfigurationService>(
             configRepo, NullLogger<AdminConfigurationService>.Instance, cache);
-        var alertDispatch = new OpsAlertDispatchService(
-            adminConfig.Object,
-            new TelegramNotificationService(new HttpClient(), configRepo,
-                NullLogger<TelegramNotificationService>.Instance),
-            new WebhookNotificationService(new HttpClient(),
-                NullLogger<WebhookNotificationService>.Instance),
-            NullLogger<OpsAlertDispatchService>.Instance);
+        var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
         _sut = new TenantApprovalService(
             NullLogger<TenantApprovalService>.Instance,

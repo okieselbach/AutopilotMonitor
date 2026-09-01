@@ -37,7 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly IDistressReportRepository _repository;
         private readonly TelemetryClient _telemetryClient;
         private readonly HardwareRejectionThrottleService _hardwareThrottle;
-        private readonly WebhookNotificationService _webhookNotification;
+        private readonly NotificationChannelDispatcher _channelDispatcher;
         private readonly IHardwareRejectionNotificationTracker _hardwareBellTracker;
         private readonly TenantNotificationService _tenantNotificationService;
 
@@ -77,7 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             IDistressReportRepository repository,
             TelemetryClient telemetryClient,
             HardwareRejectionThrottleService hardwareThrottle,
-            WebhookNotificationService webhookNotification,
+            NotificationChannelDispatcher channelDispatcher,
             IHardwareRejectionNotificationTracker hardwareBellTracker,
             TenantNotificationService tenantNotificationService)
         {
@@ -87,7 +87,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _repository = repository;
             _telemetryClient = telemetryClient;
             _hardwareThrottle = hardwareThrottle;
-            _webhookNotification = webhookNotification;
+            _channelDispatcher = channelDispatcher;
             _hardwareBellTracker = hardwareBellTracker;
             _tenantNotificationService = tenantNotificationService;
         }
@@ -232,7 +232,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                             if (hwChannels.Count > 0)
                             {
                                 var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
-                                _ = _webhookNotification.SendToChannelsAsync(hwChannels, alert);
+                                _ = _channelDispatcher.SendToChannelsAsync(hwChannels, alert);
                             }
                         }
                     }

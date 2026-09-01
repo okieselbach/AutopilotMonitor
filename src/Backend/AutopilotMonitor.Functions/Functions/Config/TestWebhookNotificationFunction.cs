@@ -18,16 +18,16 @@ namespace AutopilotMonitor.Functions.Functions.Config
     {
         private readonly ILogger<TestWebhookNotificationFunction> _logger;
         private readonly TenantConfigurationService _configService;
-        private readonly WebhookNotificationService _webhookNotificationService;
+        private readonly NotificationChannelDispatcher _channelDispatcher;
 
         public TestWebhookNotificationFunction(
             ILogger<TestWebhookNotificationFunction> logger,
             TenantConfigurationService configService,
-            WebhookNotificationService webhookNotificationService)
+            NotificationChannelDispatcher channelDispatcher)
         {
             _logger = logger;
             _configService = configService;
-            _webhookNotificationService = webhookNotificationService;
+            _channelDispatcher = channelDispatcher;
         }
 
         [Function("TestWebhookNotification")]
@@ -76,14 +76,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         success = false,
                         message = channelId != null
                             ? "The selected channel was not found. Save your changes before testing."
-                            : "No webhook is configured. Please set a webhook URL and provider first."
+                            : "No notification channel is configured. Please add one first."
                     });
                     return noConfigResponse;
                 }
 
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
-                var result = await _webhookNotificationService.SendNotificationWithResultAsync(
-                    channel.Url, (WebhookProviderType)channel.ProviderType, testAlert, channel.GetCustomHeaders(), channel.GetSigningSecret());
+                var result = await _channelDispatcher.SendWithResultAsync(channel, testAlert);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new TestWebhookNotificationResponse

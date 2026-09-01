@@ -1,6 +1,7 @@
 using System.Linq;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Services.Notifications
 {
@@ -17,8 +18,12 @@ namespace AutopilotMonitor.Functions.Services.Notifications
     ///   "primaryUrl": "https://.../sessions/{id}",  // first openUrl action (session/dashboard link), omitted when none
     ///   "facts":    [ { "name": "Device", "value": "..." } ],
     ///   "sections": [ { "title": "...", "text": "..." } ],
-    ///   "actions":  [ { "type": "openUrl", "title": "...", "url": "..." } ]
+    ///   "actions":  [ { "type": "openUrl", "title": "...", "url": "..." } ],
+    ///   "data":     { ... }                    // structured event payload, omitted when absent
     /// }
+    ///
+    /// "data" is additive within schemaVersion 1.0: consumers that ignore unknown keys are
+    /// unaffected, and the same values remain readable in facts[].
     /// </summary>
     public class GenericJsonRenderer : INotificationRenderer
     {
@@ -47,12 +52,33 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                 facts = alert.Facts.Select(f => new { name = f.Name, value = f.Value }).ToArray(),
                 sections = alert.Sections.Select(s => new { title = s.Title, text = s.Text }).ToArray(),
                 actions = alert.Actions.Select(a => new { type = a.Type, title = a.Title, url = a.Url }).ToArray(),
+                data = ParseData(alert.DataJson),
             };
 
             return JsonConvert.SerializeObject(payload, new JsonSerializerSettings
             {
                 NullValueHandling = NullValueHandling.Ignore,
             });
+        }
+
+        /// <summary>
+        /// Embeds the structured payload as real JSON rather than a quoted string. Anything that
+        /// is not a JSON object is dropped: a malformed or non-object payload must not change the
+        /// shape of <c>data</c> that consumers parse against.
+        /// </summary>
+        private static JObject? ParseData(string? dataJson)
+        {
+            if (string.IsNullOrWhiteSpace(dataJson))
+                return null;
+
+            try
+            {
+                return JsonConvert.DeserializeObject(dataJson) as JObject;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
     }
 }

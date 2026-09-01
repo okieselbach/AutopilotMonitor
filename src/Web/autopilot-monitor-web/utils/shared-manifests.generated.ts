@@ -39,6 +39,7 @@ export const SHARED_MANIFEST = {
       "opsAlertTeamsWebhookUrl",
       "opsAlertSlackEnabled",
       "opsAlertSlackWebhookUrl",
+      "opsNotificationChannelsJson",
       "latestAgentV2Version",
       "latestAgentV2Sha256",
       "latestAgentV2ExeSha256",
@@ -196,7 +197,8 @@ export const SHARED_MANIFEST = {
     "TeamsWorkflowWebhook": 2,
     "Slack": 10,
     "GenericJson": 20,
-    "Discord": 30
+    "Discord": 30,
+    "Telegram": 40
   },
   "annotationLanes": [
     "operator",

@@ -43,11 +43,18 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>
         /// Provider type (int form of <see cref="WebhookProviderType"/>):
-        /// 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord.
+        /// 1=TeamsLegacyConnector, 2=TeamsWorkflowWebhook, 10=Slack, 20=GenericJson, 30=Discord,
+        /// 40=Telegram (Global-Admin only — see the enum member).
         /// </summary>
         public int ProviderType { get; set; }
 
-        /// <summary>Webhook destination URL (secret — redacted for read-only viewers).</summary>
+        /// <summary>
+        /// Destination (secret — redacted for read-only viewers). For every webhook provider this
+        /// is the endpoint URL; for <see cref="WebhookProviderType.Telegram"/> it is the CHAT ID
+        /// instead, because the endpoint (the bot) is platform-owned. Deliberately one field: the
+        /// redaction and restore-by-id machinery already covers it, so Telegram needs no new
+        /// secret plumbing.
+        /// </summary>
         public string? Url { get; set; }
 
         /// <summary>
@@ -155,5 +162,91 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// <summary>Serializes a channel list back to its JSON storage form (camelCase).</summary>
         public static string SerializeList(IEnumerable<NotificationChannel> channels)
             => JsonSerializer.Serialize(channels, JsonOptions);
+
+        /// <summary>
+        /// Redacts the secret fields (destination, custom headers, signing secret) of every channel
+        /// while keeping the list structure (ids, names, toggles) readable, so a read-only viewer
+        /// still sees WHICH channels exist. Non-empty but unparseable JSON falls back to
+        /// whole-string redaction — never leak a blob we could not inspect.
+        /// <para>
+        /// Shared by the tenant channel list (<c>TenantConfiguration</c>) and the platform ops
+        /// channel list (<c>AdminConfiguration</c>): both are served to read-only roles, and a
+        /// second copy of this logic is exactly how one of them would grow a leak.
+        /// </para>
+        /// </summary>
+        public static string RedactList(string? json)
+        {
+            if (string.IsNullOrEmpty(json))
+                return json ?? string.Empty;
+
+            var channels = ParseList(json);
+            if (channels.Count == 0)
+                return Constants.RedactedSecretPlaceholder;
+
+            foreach (var channel in channels)
+            {
+                channel.Url = RedactNullable(channel.Url);
+                channel.CustomHeadersJson = RedactNullable(channel.CustomHeadersJson);
+                channel.SigningSecret = RedactNullable(channel.SigningSecret);
+            }
+
+            return SerializeList(channels);
+
+            // Unlike the top-level config fields (non-nullable strings), channel secrets are
+            // string? — an unset field must stay null, not become "".
+            static string? RedactNullable(string? value)
+                => string.IsNullOrEmpty(value) ? value : Constants.RedactedSecretPlaceholder;
+        }
+
+        /// <summary>
+        /// Restores channel secrets that came back as the redaction sentinel, matching by
+        /// <see cref="Id"/> against <paramref name="existingJson"/>. Defense-in-depth for the
+        /// case where a redacted read-only view is round-tripped on a save: without this, the
+        /// literal "***REDACTED***" would be persisted as the destination.
+        /// <para>
+        /// Returns the candidate JSON unchanged when it carries no sentinel. A sentinel in place
+        /// of the WHOLE list (unparseable-blob redaction) means "keep what is stored". Sentinels
+        /// that cannot be matched to a stored channel are left in place — an unresolvable
+        /// placeholder destination simply fails validation, which is louder than silently
+        /// substituting somebody else's endpoint.
+        /// </para>
+        /// </summary>
+        public static string RestoreRedactedList(string? candidateJson, string? existingJson)
+        {
+            if (candidateJson == null)
+                return string.Empty;
+
+            if (candidateJson == Constants.RedactedSecretPlaceholder)
+                return existingJson ?? string.Empty;
+
+            if (candidateJson.Length == 0
+                || candidateJson.IndexOf(Constants.RedactedSecretPlaceholder, StringComparison.Ordinal) < 0)
+            {
+                return candidateJson;
+            }
+
+            var incoming = ParseList(candidateJson);
+            if (incoming.Count == 0)
+                return candidateJson;
+
+            var existingById = new Dictionary<string, NotificationChannel>(StringComparer.OrdinalIgnoreCase);
+            foreach (var stored in ParseList(existingJson))
+                existingById[stored.Id] = stored;
+
+            foreach (var channel in incoming)
+            {
+                if (!existingById.TryGetValue(channel.Id, out var stored))
+                    continue;
+
+                if (channel.Url == Constants.RedactedSecretPlaceholder)
+                    channel.Url = stored.Url;
+                if (channel.CustomHeadersJson == Constants.RedactedSecretPlaceholder)
+                    channel.CustomHeadersJson = stored.CustomHeadersJson;
+                if (channel.SigningSecret == Constants.RedactedSecretPlaceholder)
+                    channel.SigningSecret = stored.SigningSecret;
+            }
+
+            return SerializeList(incoming);
+        }
     }
 }

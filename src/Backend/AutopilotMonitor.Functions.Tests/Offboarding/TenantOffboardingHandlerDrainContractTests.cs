@@ -585,13 +585,7 @@ public class TenantOffboardingHandlerDrainContractTests
             var memCache = new MemoryCache(new MemoryCacheOptions());
             var adminConfig = new Mock<AdminConfigurationService>(
                 Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, memCache);
-            var alertDispatch = new OpsAlertDispatchService(
-                adminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(),
-                    NullLogger<TelegramNotificationService>.Instance),
-                new WebhookNotificationService(new HttpClient(),
-                    NullLogger<WebhookNotificationService>.Instance),
-                NullLogger<OpsAlertDispatchService>.Instance);
+            var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
             return new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
         }
 

@@ -48,13 +48,7 @@ public class TenantAutoApproveHandlerTests
         opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
             .Callback<OpsEventEntry>(e => { lock (_savedOpsEvents) _savedOpsEvents.Add(e); })
             .Returns(Task.CompletedTask);
-        var alertDispatch = new OpsAlertDispatchService(
-            _adminConfigMock.Object,
-            new TelegramNotificationService(new HttpClient(), configRepo,
-                NullLogger<TelegramNotificationService>.Instance),
-            new WebhookNotificationService(new HttpClient(),
-                NullLogger<WebhookNotificationService>.Instance),
-            NullLogger<OpsAlertDispatchService>.Instance);
+        var alertDispatch = TestNotifications.InertOpsAlertDispatch(_adminConfigMock.Object);
         var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
         _approvalMock = new Mock<TenantApprovalService>(
