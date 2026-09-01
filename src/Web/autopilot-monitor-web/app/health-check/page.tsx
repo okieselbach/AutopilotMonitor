@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useSignalR } from '@/contexts/SignalRContext';
 import { useTenant } from '@/contexts/TenantContext';
+import { useGlobalAdminUi } from '@/hooks/useGlobalAdminUi';
 import { useState, useEffect, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
@@ -12,6 +13,9 @@ import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse }
 
 export default function HealthCheckPage() {
   const { user, getAccessToken } = useAuth();
+  // Build stamps (version + commit hash, linking into the private repo) are operator-only detail.
+  // They follow the Global-Admin VIEW, so the page can be shown live without leaking internals.
+  const showBuildDetails = useGlobalAdminUi();
   const { addNotification } = useNotifications();
   const { connectionState, isConnected, joinedGroups, joinGroup } = useSignalR();
   const { tenantId } = useTenant();
@@ -93,14 +97,14 @@ export default function HealthCheckPage() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    if (!user?.isGlobalAdmin) return;
+    if (!showBuildDetails) return;
     let cancelled = false;
     fetch("/version.json", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!cancelled && d?.commit) setWebBuild(d); })
       .catch(() => { /* card simply stays hidden */ });
     return () => { cancelled = true; };
-  }, [user?.isGlobalAdmin]);
+  }, [showBuildDetails]);
 
   // Auto-run health checks on page load. The two probes are fired independently so the
   // fast backend checks render immediately while the MCP probe (possible cold start) catches up.
@@ -235,7 +239,7 @@ export default function HealthCheckPage() {
         )}
 
         {/* Backend Build (Global Admin only) */}
-        {user?.isGlobalAdmin && healthResult?.version && (
+        {showBuildDetails && healthResult?.version && (
           <div className="mb-6">
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backend Build</h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 border-indigo-500">
@@ -273,7 +277,7 @@ export default function HealthCheckPage() {
         )}
 
         {/* Portal Build (Global Admin only) */}
-        {user?.isGlobalAdmin && webBuild && (
+        {showBuildDetails && webBuild && (
           <div className="mb-6">
             <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Portal Build</h2>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 border-indigo-500">

@@ -1,5 +1,7 @@
 export { useAdminMode } from "./useAdminMode";
 
+export { useGlobalAdminUi } from "./useGlobalAdminUi";
+
 export { useTenantList } from "./useTenantList";
 export type { TenantInfo } from "./useTenantList";
 

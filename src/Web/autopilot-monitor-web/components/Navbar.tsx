@@ -31,7 +31,7 @@ export default function Navbar() {
   const [showHelp, setShowHelp] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
   const [overflowSubmenu, setOverflowSubmenu] = useState<'help' | 'settings' | null>(null);
-  const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode } = useAdminMode();
+  const { adminMode, setAdminMode, globalAdminMode, setGlobalAdminMode, demoMode } = useAdminMode();
   // Community-edition reminder under the wordmark; Pro (incl. trial) gets clean chrome.
   // null until the feature-flags fetch confirms → no label flash for Pro tenants.
   const editionInfo = useEditionInfo();
@@ -122,9 +122,21 @@ export default function Navbar() {
   };
 
   const isTenantAdmin = user?.isTenantAdmin ?? false;
+  // Whether to PRESENT the caller as a Global Admin. Follows the Global-Admin view toggle (which
+  // demo mode forces off), so switching it off shows the tenant-admin identity a live demo needs.
+  // Permission checks keep using user.isGlobalAdmin — this drives the badge only.
+  const showGlobalAdminIdentity = (user?.isGlobalAdmin ?? false) && globalAdminMode;
+  // Same rule for the read-only platform role — with the global view off it is just as much an
+  // internal as the Global Admin badge, and the toggle already reads "Global View" for them.
+  const showGlobalReaderIdentity =
+    (user?.isGlobalReader ?? false) && globalAdminMode && !showGlobalAdminIdentity;
   const isOperator = user?.role === 'Operator';
   const isViewer = user?.role === 'Viewer';
   const isAdminOrOperator = isTenantAdmin || isOperator;
+  // Everything the settings menu can hold. With no toggle applicable — an Operator/Viewer, or a
+  // Global Admin presenting in demo mode without an own tenant-admin role — the menu would open
+  // onto an empty panel, so the gear (and the mobile "Administration" block) stays hidden.
+  const showAdminToggles = isTenantAdmin || (hasGlobalScope && !demoMode);
   // Tenant notification dismiss is currently tenant-shared (clearing for one user clears for
   // all). Only Admins / Global Admins are permitted to dismiss; Operators and Viewers see the
   // bell as read-only. See TenantNotificationContext + EndpointAccessPolicyCatalog.
@@ -408,6 +420,7 @@ export default function Navbar() {
             </div>
 
             {/* Settings Menu (Gear) — hidden on <sm, moved to overflow */}
+            {showAdminToggles && (
             <div className="hidden sm:block relative" ref={settingsRef}>
               <button onClick={() => setShowSettings(!showSettings)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Settings">
                 <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -440,8 +453,10 @@ export default function Navbar() {
                       </>
                     )}
 
-                    {/* Global scope toggle — Global Admin or read-only Global Reader */}
-                    {hasGlobalScope && (
+                    {/* Global scope toggle — Global Admin or read-only Global Reader.
+                        Hidden while presenting (demo mode) so it cannot be hit by accident on
+                        stage and no operator control is on screen. */}
+                    {hasGlobalScope && !demoMode && (
                       <div className="mb-1">
                         <div className="flex items-center justify-between py-2 px-2.5 rounded-md bg-purple-50">
                           <div className="flex items-center gap-1.5">
@@ -462,6 +477,7 @@ export default function Navbar() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Help Menu (?) — hidden on <sm, moved to overflow */}
             <div className="hidden sm:block relative" ref={helpRef}>
@@ -641,6 +657,8 @@ export default function Navbar() {
                         </svg>
                         Settings
                       </button>
+                      {showAdminToggles && (
+                      <>
                       <div className="border-t border-gray-100 dark:border-gray-700 my-1"></div>
                       <div className="px-3 py-2">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Administration</p>
@@ -661,8 +679,9 @@ export default function Navbar() {
                           </div>
                         )}
 
-                        {/* Global scope toggle — Global Admin or read-only Global Reader */}
-                        {hasGlobalScope && (
+                        {/* Global scope toggle — Global Admin or read-only Global Reader.
+                            Hidden while presenting (demo mode), same as the desktop menu. */}
+                        {hasGlobalScope && !demoMode && (
                           <div className="flex items-center justify-between py-2 px-2.5 rounded-md bg-purple-50 dark:bg-purple-900/30 mb-1">
                             <div className="flex items-center gap-1.5">
                               <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -677,6 +696,8 @@ export default function Navbar() {
                           </div>
                         )}
                       </div>
+                      </>
+                      )}
                     </>
                   )}
 
@@ -746,12 +767,12 @@ export default function Navbar() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900">{user?.displayName || 'User'}</p>
                       <p className="text-xs text-gray-500 truncate">{user?.upn}</p>
-                      {user?.isGlobalAdmin && (
+                      {showGlobalAdminIdentity && (
                         <span className="inline-block mt-1.5 px-1.5 py-0.5 text-[10px] font-semibold text-purple-800 bg-purple-100 rounded-full">
                           Global Admin
                         </span>
                       )}
-                      {user?.isGlobalReader && !user?.isGlobalAdmin && (
+                      {showGlobalReaderIdentity && (
                         <span className="inline-block mt-1.5 px-1.5 py-0.5 text-[10px] font-semibold text-purple-800 bg-purple-50 rounded-full">
                           Global Reader
                         </span>
@@ -761,7 +782,7 @@ export default function Navbar() {
                           Operator
                         </span>
                       )}
-                      {isTenantAdmin && !user?.isGlobalAdmin && (
+                      {isTenantAdmin && !showGlobalAdminIdentity && (
                         <span className="inline-block mt-1.5 px-1.5 py-0.5 text-[10px] font-semibold text-green-800 bg-green-100 rounded-full">
                           Admin
                         </span>

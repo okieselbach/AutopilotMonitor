@@ -7,6 +7,7 @@ import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 import { isOnPublicHost } from "../lib/hostRouting";
 import { consumeLoginDeclined, legacyConfigured, switchAuthApp } from "../lib/authApp";
 import { activeAuthApp } from "../lib/msalConfig";
+import { useAdminMode } from "../hooks/useAdminMode";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -92,6 +93,19 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
     }
   }, [isAuthenticated, isLoading, router, login, loginFailed]);
 
+  // Demo ("presentation") mode: a platform route reached by a typed URL or a stale bookmark while
+  // presenting live. Bounce silently to the tenant dashboard instead of rendering the Access Denied
+  // card below — its text ("You need Global Admin permissions") would itself reveal that a platform
+  // area exists. Presentation only: the route opens again the moment demo mode is cleared, and the
+  // backend gates it either way. See lib/demoMode.ts.
+  const { demoMode } = useAdminMode();
+  const demoBlockedPlatformRoute = demoMode && (requireGlobalAdmin || requireGlobalScope);
+  useEffect(() => {
+    if (demoBlockedPlatformRoute && isAuthenticated) {
+      router.replace("/dashboard");
+    }
+  }, [demoBlockedPlatformRoute, isAuthenticated, router]);
+
   // Sign-in failed (e.g. an interrupted earlier redirect left MSAL in
   // interaction_in_progress) — stay on this origin and offer a manual retry.
   if (!isAuthenticated && !isLoading && loginFailed) {
@@ -139,6 +153,11 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
 
   // Show nothing if never authenticated (will redirect)
   if (!isAuthenticated && !wasAuthenticated) {
+    return null;
+  }
+
+  // Render nothing while the demo-mode bounce above navigates away.
+  if (demoBlockedPlatformRoute) {
     return null;
   }
 

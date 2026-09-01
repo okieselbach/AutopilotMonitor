@@ -82,6 +82,7 @@ https://docs.autopilotmonitor.com (separate repository).
 # Web Portal
 
 * [Portal Navigation Prefetch & the SWA Runtime Bottleneck](web/portal-navigation-prefetch.md) - Why every navigation Link sets `prefetch={false}`: the App Router's viewport prefetch fans out one RSC request per visible link and the Static Web Apps SSR runtime queues them server-side into a multi-minute tail. Records the follow-up measurement (the Standard plan changed nothing; the prefetch storm was an accidental keep-alive), where browser telemetry actually lives, and why this curl build cannot be trusted for HTTP versions.
+* [Demo Presentation Mode](web/demo-presentation-mode.md) - Two levels of hiding operator internals for live demos: the Global-Admin view toggle now also collapses the GA extras inside tenant pages (Telegram provider, cert-device binding, retention escape hatch, the `/health-check` build and commit cards), and a hidden demo mode armed by a self-consuming `?demo=1` additionally removes the toggle, the platform role badge and access to `/admin`. Presentation only - every rule stays enforced server-side.
 
 # Security & Identity
 
