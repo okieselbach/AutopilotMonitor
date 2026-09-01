@@ -1,4 +1,4 @@
-# <img src=".github/assets/logo.svg" height="28" alt="" /> AutopilotMonitor
+# <img src=".github/assets/logo.svg" height="28" alt="" /> Autopilot Monitor
 
 [![Status](https://img.shields.io/badge/status-live-brightgreen)](https://www.autopilotmonitor.com)
 [![License](https://img.shields.io/badge/license-MIT%20%2B%20AGPL--3.0-blue)](LICENSE)
