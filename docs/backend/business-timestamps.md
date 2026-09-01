@@ -81,7 +81,10 @@ the OData clause builders, and `GetUtcDateTime` (datetime columns materialize as
 * Audit legacy GUID rows have "unknown date" semantics: excluded from date-filtered
   views, shown with the (wrong but honest) 2026-07-18 fallback in unfiltered views.
 * Raw endpoints (`/api/raw/*`, `query_table`) intentionally keep showing the raw system
-  Timestamp — they are storage-state inspectors, not business views.
+  Timestamp — they are storage-state inspectors, not business views. Their date *filters*
+  and ordering (`/api/raw/events` `startedAfter`/`startedBefore`) do use the business time
+  (`RawEventTime.Resolve`: OccurredUtc → RowKey prefix → system Timestamp), pushed into the
+  partition query as an Events RowKey range — see `raw-events-scan-budget.md`.
 * Event timestamps for pre-cutover rows resolve to the RowKey's sanitized agent time
   (ms precision); `ReceivedAt` (server ingest time, rows since 2026-03-19) and
   `OriginalTimestamp` (pre-clamp agent time, clamped rows only) remain separate fields.

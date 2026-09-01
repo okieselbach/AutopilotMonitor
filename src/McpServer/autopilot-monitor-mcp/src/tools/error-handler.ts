@@ -1,4 +1,4 @@
-import { ApiError } from '../client.js';
+import { ApiError, isTimeoutError } from '../client.js';
 
 interface ToolErrorResult {
   [x: string]: unknown;
@@ -62,22 +62,23 @@ export function toolError(
       parts.push(`**Error in ${toolName}** (HTTP ${error.status}): ${truncated}`);
     }
   } else {
-    const name = error instanceof Error ? error.name : '';
     const message = error instanceof Error ? error.message : String(error);
-    // `AbortSignal.timeout()` rejects fetch with a DOMException whose NAME is
-    // 'TimeoutError' but whose MESSAGE is "The operation was aborted due to
-    // timeout" — so match on name first; the message checks are belt-and-braces
-    // for other abort/timeout shapes.
     if (message.includes('No authentication token')) {
       parts.push(`**Authentication error in ${toolName}**: ${message}`);
       parts.push('**Suggestion**: The MCP session may have expired. Re-authenticate.');
-    } else if (
-      name === 'TimeoutError' || name === 'AbortError' ||
-      message.includes('TimeoutError') || message.includes('AbortError') ||
-      message.includes('timed out') || message.includes('aborted due to timeout')
-    ) {
+    } else if (isTimeoutError(error)) {
       parts.push(`**Timeout in ${toolName}**: The backend did not respond in time.`);
-      parts.push('**Suggestion**: Try narrowing the query (smaller date range, fewer results, more specific filters).');
+      if (typeof args.continuation === 'string' && args.continuation.startsWith('/api/')) {
+        // A nextLink carries the page-1 pageSize; only an EXPLICIT pageSize on the follow-up
+        // call overrides it (the cursor stays valid). "Narrow the query" alone would re-send
+        // the identical request and fail identically.
+        parts.push(
+          '**Suggestion**: Re-send the SAME continuation together with an explicitly smaller pageSize ' +
+          '(it overrides the value embedded in the nextLink; the cursor stays valid), or narrow the date window.',
+        );
+      } else {
+        parts.push('**Suggestion**: Try narrowing the query (smaller date range, smaller pageSize, more specific filters).');
+      }
     } else {
       parts.push(`**Error in ${toolName}**: ${message}`);
     }

@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { apiFetch, buildQuery, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pickGlobalOrTenantPath, scanUntilMatch } from '../client.js';
+import { apiFetch, buildQuery, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
@@ -679,9 +679,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         fields: z.string().optional()
           .describe('Comma-separated subset of safe fields to return (e.g. "tenantId,domainName" for lean ID discovery). ' +
                     'tenantId is always included. Default: all safe fields. Applied server-side; unknown/secret keys are ignored.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(100)
-          .describe('Page size (1-1000, default 100) for the unfiltered listing. Ignored in filter mode (query/tenantId), ' +
-                    'which scans with a large internal page size. Tenants are sorted by tenantId; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 100 on the first page) for the unfiltered listing. Ignored in filter mode (query/tenantId), ' +
+                    'which scans with a large internal page size. Tenants are sorted by tenantId; follow nextLink to fetch more. ' +
+                    'On a follow-up call an explicit value overrides the pageSize embedded in the nextLink; omit it to keep that size.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (pageSize, fields) round-trip correctly. Ignored in filter mode.'),
       },
@@ -749,7 +750,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // { count, tenants, nextLink } envelope, with fields= projected server-side and echoed
         // in nextLink. extractTenantList re-applies the keep-list as defense-in-depth (harmless
         // pass-through once the backend has projected).
-        const path = followNextLink('/api/config/all', { pageSize, fields }, continuation);
+        const effectivePage = pageSizeForCall(pageSize, continuation, 100);
+        const path = followNextLink('/api/config/all', { pageSize: effectivePage, fields }, continuation, { pageSize: effectivePage, fields });
         const data = await apiFetch(path) as GetAllTenantConfigurationsResponse;
         let tenants = extractTenantList({ tenants: data?.tenants ?? [] });
         if (delegated) {
@@ -789,8 +791,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         performedBy: z.string().optional().describe('Exact-match filter on the actor UPN that performed the action (e.g. "alice@contoso.com").'),
         entityType: z.string().optional().describe('Exact-match filter on the affected entity type (e.g. "TenantConfiguration", "Device", "User").'),
         entityId: z.string().optional().describe('Exact-match filter on the affected entity id (e.g. a tenantId, deviceId, or report id).'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many entries per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many entries per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and field filters) round-trip correctly.'),
       },
@@ -798,13 +800,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_audit_logs', args, async () => {
       try {
-        const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize, continuation } = args;
+        const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs', tenantId);
         const path = followNextLink(
           basePath,
           { tenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, pageSize },
           continuation,
+          { pageSize },
         );
         const data = await apiFetch(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
@@ -847,8 +851,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Shorthand window: only events from the last N days (1 = last 24h). Ignored when dateFrom or dateTo is given.'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the window.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many events per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and filters) round-trip correctly.'),
       },
@@ -856,7 +860,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_ops_events', args, async () => {
       try {
-        const { category, eventType, severity, minSeverity, tenantId, days, dateFrom, dateTo, pageSize, continuation } = args;
+        const { category, eventType, severity, minSeverity, tenantId, days, dateFrom, dateTo, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         // "days" is client-side sugar for dateFrom: the backend contract is the ISO window, and
         // resolving here keeps the resolved bound on the wire so it round-trips through nextLink
         // (a backend-side "days" would re-resolve "now" on every page and blow the fingerprint).
@@ -869,6 +874,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           '/api/global/ops-events',
           { category, eventType, severity, minSeverity, tenantId, dateFrom: resolvedDateFrom, dateTo, pageSize },
           continuation,
+          { pageSize },
         );
         const data = await apiFetch(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
@@ -938,8 +944,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'all backend-echoed query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many reports per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many reports per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -947,11 +953,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('list_session_reports', args, async () => {
       try {
-        const { tenantId, pageSize, continuation } = args;
+        const { tenantId, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const path = followNextLink(
           '/api/global/session-reports',
           { tenantId, pageSize },
           continuation,
+          { pageSize },
         );
         const data = await apiFetch(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
@@ -984,8 +992,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Optional — only annotations whose rule-id snapshot contains this rule (e.g. "ANALYZE-ESP-001").'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound on the last-updated time.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many annotations per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many annotations per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so all filters round-trip correctly.'),
       },
@@ -993,11 +1001,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('list_session_annotations', args, async () => {
       try {
-        const { tenantId, lane, verdict, ruleId, dateFrom, dateTo, pageSize, continuation } = args;
+        const { tenantId, lane, verdict, ruleId, dateFrom, dateTo, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const path = followNextLink(
           '/api/global/session-annotations',
           { tenantId, lane, verdict, ruleId, dateFrom, dateTo, pageSize },
           continuation,
+          { pageSize },
         );
         const data = await apiFetch(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
@@ -1073,7 +1083,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" ' +
         'so all backend-echoed query params round-trip correctly. Note: pageSize is the index-scan cadence — a single ' +
         'indexed session can contribute multiple events, so total events per page may exceed pageSize. ' +
-        'For COUNTING / AGGREGATION pass a lean `fields=` projection (e.g. `fields=EventType,Severity,Timestamp`) — ' +
+        'The server bounds every page by a scan budget: a page that ends early carries "partial": true — nothing is ' +
+        'missing up to its nextLink, simply keep following it. If a call still times out, the tool retries once with ' +
+        'a halved pageSize on the same cursor and marks the page with "retriedWithPageSize". ' +
+        'startedAfter/startedBefore filter on the EVENT time (the sanitized agent timestamp — OccurredUtc, or the ' +
+        'RowKey prefix on older rows), not on the raw "Timestamp" column, which is the storage write time and is ' +
+        'reset by storage migrations. ' +
+        'For COUNTING / AGGREGATION pass a lean `fields=` projection (e.g. `fields=EventType,Severity,OccurredUtc`) — ' +
         'a pure pass-through over the real column names that drops the heavy `DataJson` payload (a single ' +
         'app_install_failed event can be tens of KB), so responses stay small; PartitionKey + RowKey are always ' +
         'kept. ' +
@@ -1087,9 +1103,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
         fields: z.string().optional()
-          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp, EventId, SessionId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omit for the full raw row.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Controls index-scan depth per call; follow nextLink for more.'),
+          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omit for the full raw row.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Index rows walked per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid) — omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1105,11 +1121,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           basePath,
           { tenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize },
           continuation,
+          { pageSize, fields },
         );
         // severity/source (and eventType/time on the single-session path) are post-filtered
         // in-memory, so a page can be empty while matches sit further ahead. Auto-exhaust
-        // forward so the model isn't misled by an empty-but-continuable page.
-        const data = await scanUntilMatch(path, basePath);
+        // forward so the model isn't misled by an empty-but-continuable page. The server
+        // bounds each page by its own scan budget; should a call still time out, retry once
+        // with a halved pageSize on the same cursor instead of failing identically twice.
+        const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {
         return toolError('query_raw_events', args, error);
@@ -1159,8 +1178,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
           .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
         fields: z.string().optional().describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Omit for the full raw row.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many sessions per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1170,7 +1189,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
-          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, pageSize, continuation } = args;
+          geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
         const path = followNextLink(
@@ -1179,6 +1199,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
             imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
             geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, pageSize },
           continuation,
+          { pageSize, fields },
         );
         const data = await apiFetch(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.sessions);
@@ -1237,8 +1258,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Comma-separated column names to keep (e.g. "PartitionKey,RowKey,Status"). Other columns are dropped ' +
                     'client-side after fetch. Useful for aggregation/counting on wide tables. Always includes PartitionKey ' +
                     'and RowKey for cursor stability.'),
-        pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
-          .describe('Page size (1-1000, default 200). Returns this many rows per call; follow nextLink to fetch more.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default 200 on the first page). Returns this many rows per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1246,12 +1267,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('query_table', args, async () => {
       try {
-        const { tableName, partitionKey, rowKeyPrefix, filter, fields, pageSize, continuation } = args;
+        const { tableName, partitionKey, rowKeyPrefix, filter, fields, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
         const basePath = `/api/global/raw/tables/${encodeURIComponent(tableName)}`;
         const path = followNextLink(
           basePath,
           { partitionKey, rowKeyPrefix, filter, pageSize },
           continuation,
+          { pageSize },
         );
         const data = await apiFetch(path) as QueryRawTableResponse;
 

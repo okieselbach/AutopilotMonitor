@@ -177,4 +177,23 @@ public class RawWireParityTests
             new { table, count = entities.Count, entities, nextLink },
             new QueryRawTableResponse { Table = table, Count = entities.Count, Entities = entities, NextLink = nextLink });
     }
+
+    [Fact]
+    public void QueryRawEvents_partial_flag_is_present_only_when_set()
+    {
+        var tenantId = (string?)null;
+        var events = SampleEventRows();
+        var nextLink = "/api/global/raw/events?pageSize=200&continuation=abc123";
+
+        // Budget-ended page: `partial` rides last, after nextLink (declaration order == wire order).
+        ApiResponseWireParityTests.AssertWireIdentical(
+            new { tenantId, count = events.Count, events, nextLink, partial = true },
+            new QueryRawEventsResponse { TenantId = tenantId, Count = events.Count, Events = events, NextLink = nextLink, Partial = true });
+
+        // A normally filled/drained page never carries the key (WhenWritingNull).
+        var json = JsonSerializer.Serialize(
+            new QueryRawEventsResponse { TenantId = tenantId, Count = events.Count, Events = events, NextLink = nextLink, Partial = null },
+            WireOptions);
+        Assert.DoesNotContain("partial", json);
+    }
 }

@@ -89,6 +89,16 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 return bad;
             }
 
+            // Date window: an unparsable value is an error, not a silently dropped filter —
+            // a caller that believes it narrowed the window must never get the whole table.
+            if (!QueryRawEventsPagination.TryParseUtc(startedAfter, out var afterUtc)
+                || !QueryRawEventsPagination.TryParseUtc(startedBefore, out var beforeUtc))
+            {
+                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                await bad.WriteAsJsonAsync(new { error = "startedAfter/startedBefore must be ISO 8601 datetimes" });
+                return bad;
+            }
+
             var callerTenantId = TenantHelper.GetTenantId(req);
 
             // Single-session path — paginated session-events walk so sessions
@@ -134,9 +144,9 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                     tenantId, sessionId, pagination.PageSize, singleAzureToken);
 
                 var filtered = ApplyClientFilters(
-                    sessionPage.Items.ToList(), eventType, severity, source, startedAfter, startedBefore);
+                    sessionPage.Items.ToList(), eventType, severity, source, afterUtc, beforeUtc);
                 filtered = filtered
-                    .OrderBy(RawTimestamp)
+                    .OrderBy(RawEventTime.Resolve)
                     .ThenBy(RawSequence)
                     .ToList();
                 // No error-code enrichment here by design: the raw endpoint returns the stored
@@ -170,8 +180,10 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 return bad;
             }
 
-            // Cross-session path — paginated EventTypeIndex walk replaces the
-            // legacy hard-coded limit:20 (recall-loss bug from the audit).
+            // Cross-session path — budgeted EventTypeIndex walk (see RawEventsScan): index rows
+            // in chunks, bounded-parallel per-session fetches with the date window pushed into
+            // the partition query, and a deadline between chunks. The cursor always sits after a
+            // fully processed chunk, so a page ended by the budget is resumable without loss.
             string? azureToken = null;
             if (pagination.Continuation != null)
             {
@@ -190,30 +202,31 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 }
             }
 
-            var sessionsPage = await _sessionRepo.SearchSessionsByEventPageAsync(
-                tenantId, eventType, source, severity, phase: null,
-                pageSize: pagination.PageSize, continuation: azureToken);
+            var writtenAfterHint = QueryRawEventsPagination.IndexWrittenAfterHint(afterUtc);
+            var scan = await RawEventsScan.RunAsync(
+                fetchIndexPage: (chunkSize, token) => _sessionRepo.GetEventTypeIndexPageAsync(
+                    tenantId, eventType, source, severity, writtenAfterHint, chunkSize, token),
+                fetchSessionEvents: async entry =>
+                {
+                    var rows = await _sessionRepo.GetSessionEventsRawByTypeAsync(
+                        entry.TenantId, entry.SessionId, eventType, maxResults: 200, afterUtc, beforeUtc);
+                    return rows.Where(e => MatchesSeverity(e, severity) && MatchesSource(e, source)).ToList();
+                },
+                startToken: azureToken,
+                options: new RawEventsScanOptions { PageSize = pagination.PageSize });
 
-            var events = new List<IReadOnlyDictionary<string, object?>>();
-            foreach (var session in sessionsPage.Items)
-            {
-                var sessionEvents = await _sessionRepo.GetSessionEventsRawByTypeAsync(
-                    session.TenantId, session.SessionId, eventType, maxResults: 200);
-                events.AddRange(sessionEvents.Where(e =>
-                    MatchesSeverity(e, severity) && MatchesSource(e, source)));
-            }
-
-            events = ApplyDateFilters(events, startedAfter, startedBefore)
-                .OrderBy(RawTimestamp).ThenBy(RawSequence).ToList();
+            // The RowKey range is millisecond-granular; keep the tick-exact window here.
+            var events = ApplyDateFilters(scan.Events, afterUtc, beforeUtc)
+                .OrderBy(RawEventTime.Resolve).ThenBy(RawSequence).ToList();
             // No enrichment — raw rows only (see single-session path).
 
             string? nextLink = null;
-            if (!string.IsNullOrEmpty(sessionsPage.NextRawToken))
+            if (!string.IsNullOrEmpty(scan.NextRawToken))
             {
                 var fp = QueryRawEventsPagination.Fingerprint(
                     scope, callerTenantId, filterTenantId,
                     sessionId: null, eventType, source, severity, startedAfter, startedBefore);
-                var wireToken = ContinuationToken.Encode(sessionsPage.NextRawToken!, callerTenantId, fp);
+                var wireToken = ContinuationToken.Encode(scan.NextRawToken!, callerTenantId, fp);
                 nextLink = QueryRawEventsPagination.BuildNextLink(
                     basePath, pagination.PageSize, wireToken, query);
             }
@@ -224,6 +237,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 Count = events.Count,
                 Events = RawEntityProjection.Project(events, fields),
                 NextLink = nextLink,
+                Partial = scan.Partial ? true : null,
             });
         }
 
@@ -231,10 +245,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         // These operate on the literal stored columns (PascalCase) instead of the typed
         // EnrollmentEvent. They preserve the exact match semantics of the former enriched path:
         // eventType exact, severity by enum NAME (Severity is stored as an Int32), source substring.
+        // The date window compares the row's BUSINESS time (OccurredUtc → RowKey → Timestamp),
+        // never the bare system Timestamp — that is a write time every storage migration resets.
 
         private static List<IReadOnlyDictionary<string, object?>> ApplyClientFilters(
             List<IReadOnlyDictionary<string, object?>> events, string? eventType, string? severity, string? source,
-            string? startedAfter, string? startedBefore)
+            DateTime? afterUtc, DateTime? beforeUtc)
         {
             if (!string.IsNullOrEmpty(eventType))
                 events = events.Where(e => string.Equals(RawString(e, "EventType"), eventType, StringComparison.Ordinal)).ToList();
@@ -242,16 +258,16 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 events = events.Where(e => MatchesSeverity(e, severity)).ToList();
             if (!string.IsNullOrEmpty(source))
                 events = events.Where(e => MatchesSource(e, source)).ToList();
-            return ApplyDateFilters(events, startedAfter, startedBefore);
+            return ApplyDateFilters(events, afterUtc, beforeUtc);
         }
 
         private static List<IReadOnlyDictionary<string, object?>> ApplyDateFilters(
-            List<IReadOnlyDictionary<string, object?>> events, string? startedAfter, string? startedBefore)
+            List<IReadOnlyDictionary<string, object?>> events, DateTime? afterUtc, DateTime? beforeUtc)
         {
-            if (!string.IsNullOrEmpty(startedAfter) && DateTime.TryParse(startedAfter, out var after))
-                events = events.Where(e => RawTimestamp(e) >= after).ToList();
-            if (!string.IsNullOrEmpty(startedBefore) && DateTime.TryParse(startedBefore, out var before))
-                events = events.Where(e => RawTimestamp(e) <= before).ToList();
+            if (afterUtc.HasValue)
+                events = events.Where(e => RawEventTime.Resolve(e) >= afterUtc.Value).ToList();
+            if (beforeUtc.HasValue)
+                events = events.Where(e => RawEventTime.Resolve(e) <= beforeUtc.Value).ToList();
             return events;
         }
 
@@ -265,22 +281,6 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
         private static string? RawString(IReadOnlyDictionary<string, object?> row, string key)
             => row.TryGetValue(key, out var v) ? v?.ToString() : null;
-
-        private static DateTime RawTimestamp(IReadOnlyDictionary<string, object?> row)
-        {
-            if (row.TryGetValue("Timestamp", out var v) && v != null)
-            {
-                switch (v)
-                {
-                    case DateTimeOffset dto: return dto.UtcDateTime;
-                    case DateTime dt: return dt;
-                    default:
-                        if (DateTime.TryParse(v.ToString(), out var parsed)) return parsed;
-                        break;
-                }
-            }
-            return DateTime.MinValue;
-        }
 
         private static long RawSequence(IReadOnlyDictionary<string, object?> row)
             => row.TryGetValue("Sequence", out var v) && v != null && long.TryParse(v.ToString(), out var n) ? n : 0L;

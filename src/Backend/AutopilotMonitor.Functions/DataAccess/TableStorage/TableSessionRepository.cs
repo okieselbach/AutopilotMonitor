@@ -219,8 +219,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<RawPage<IReadOnlyDictionary<string, object?>>> GetSessionEventsRawPageAsync(string tenantId, string sessionId, int pageSize, string? continuation)
             => _storage.GetSessionEventsRawPageAsync(tenantId, sessionId, pageSize, continuation);
 
-        public Task<List<IReadOnlyDictionary<string, object?>>> GetSessionEventsRawByTypeAsync(string tenantId, string sessionId, string eventType, int maxResults = 200)
-            => _storage.GetSessionEventsRawByTypeAsync(tenantId, sessionId, eventType, maxResults);
+        public Task<List<IReadOnlyDictionary<string, object?>>> GetSessionEventsRawByTypeAsync(string tenantId, string sessionId, string eventType, int maxResults = 200, DateTime? occurredAfterUtc = null, DateTime? occurredBeforeUtc = null)
+            => _storage.GetSessionEventsRawByTypeAsync(tenantId, sessionId, eventType, maxResults, occurredAfterUtc, occurredBeforeUtc);
+
+        public Task<RawPage<EventTypeIndexEntry>> GetEventTypeIndexPageAsync(
+            string? tenantId, string eventType, string? source, string? severity,
+            DateTime? writtenAfterUtc, int pageSize, string? continuation)
+            => _storage.GetEventTypeIndexPageAsync(tenantId, eventType, source, severity, writtenAfterUtc, pageSize, continuation);
 
         public Task<List<QuickSearchResult>> QuickSearchSessionsAsync(string? tenantId, string query, int limit = 10)
             => _storage.QuickSearchSessionsAsync(tenantId, query, limit);

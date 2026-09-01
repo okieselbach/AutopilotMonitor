@@ -285,7 +285,20 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// <c>Events</c> rows of one event type for a session, ordered by Sequence ascending.
         /// </summary>
         Task<List<IReadOnlyDictionary<string, object?>>> GetSessionEventsRawByTypeAsync(
-            string tenantId, string sessionId, string eventType, int maxResults = 200);
+            string tenantId, string sessionId, string eventType, int maxResults = 200,
+            DateTime? occurredAfterUtc = null, DateTime? occurredBeforeUtc = null);
+
+        /// <summary>
+        /// One page of the <c>EventTypeIndex</c> walk as (tenantId, sessionId) pairs — the
+        /// candidate sessions for a cross-session event query. Tenant-scoped
+        /// (<paramref name="tenantId"/> set) targets the partition; cross-tenant filters on
+        /// the EventType column. <paramref name="writtenAfterUtc"/> adds a server-side
+        /// <c>Timestamp ge</c> clause on the index row's write time — a cheap superset
+        /// pre-filter (the caller keeps the exact event-time filter).
+        /// </summary>
+        Task<RawPage<EventTypeIndexEntry>> GetEventTypeIndexPageAsync(
+            string? tenantId, string eventType, string? source, string? severity,
+            DateTime? writtenAfterUtc, int pageSize, string? continuation);
 
         // --- Search ---
         Task<List<QuickSearchResult>> QuickSearchSessionsAsync(string? tenantId, string query, int limit = 10);

@@ -34,6 +34,36 @@ namespace AutopilotMonitor.Functions.Pagination
         public const int DefaultPageSize = 200;
         public const int MaxPageSize = 1000;
 
+        /// <summary>
+        /// Slack between an event's sanitized time and the write time of its EventTypeIndex
+        /// row: ingest clamps agent times to at most <c>MaxFutureToleranceHours</c> ahead of
+        /// receipt, plus one hour for request-internal ordering. Used to turn
+        /// <c>startedAfter</c> into a server-side <c>Timestamp ge</c> pre-filter on the index
+        /// that can never exclude a session holding a matching event.
+        /// </summary>
+        public static readonly TimeSpan IndexWriteTimeSlack =
+            TimeSpan.FromHours(Services.EventTimestampValidator.MaxFutureToleranceHours + 1);
+
+        /// <summary>Lower bound on index-row write time implied by <paramref name="startedAfterUtc"/>; null when no lower bound was given.</summary>
+        public static DateTime? IndexWrittenAfterHint(DateTime? startedAfterUtc)
+            => startedAfterUtc.HasValue ? startedAfterUtc.Value - IndexWriteTimeSlack : null;
+
+        /// <summary>
+        /// Parses an ISO-8601 query value as a UTC instant. Returns false only for a non-empty
+        /// value that does not parse — an absent/empty value yields <c>null</c> and true.
+        /// A bare (offset-less) value is taken as UTC, never as server-local time.
+        /// </summary>
+        public static bool TryParseUtc(string? raw, out DateTime? utc)
+        {
+            utc = null;
+            if (string.IsNullOrWhiteSpace(raw)) return true;
+            if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+                return false;
+            utc = parsed;
+            return true;
+        }
+
         public static string Fingerprint(
             string scope,
             string callerTenantId,

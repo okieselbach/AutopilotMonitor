@@ -178,4 +178,36 @@ public class BusinessTimestampFilterClauseTests
         Assert.Contains(BusinessTimestamp.OpsDateFromClause(from), f);
         Assert.Contains(BusinessTimestamp.OpsDateToClause(to), f);
     }
+
+    // ===== Events boundaries (RowKey "{yyyyMMddHHmmssfff}_{seq:D10}", ascending) =====
+
+    private static string EventRk(DateTime ts) => $"{ts:yyyyMMddHHmmssfff}_{42:D10}";
+
+    [Fact]
+    public void Event_dateFrom_is_inclusive_at_the_millisecond_floor()
+    {
+        // T carries sub-millisecond ticks; the RowKey cannot express them, so the clause keeps
+        // the whole boundary millisecond (superset) and the caller's tick-exact filter decides.
+        var clause = BusinessTimestamp.EventDateFromClause(T);
+        Assert.True(Matches(clause, EventRk(T)));                          // same millisecond → included
+        Assert.True(Matches(clause, EventRk(T.AddMilliseconds(1))));       // newer → included
+        Assert.False(Matches(clause, EventRk(T.AddMilliseconds(-1))));     // 1 ms older → excluded
+    }
+
+    [Fact]
+    public void Event_dateTo_keeps_the_boundary_millisecond()
+    {
+        var clause = BusinessTimestamp.EventDateToClause(T);
+        Assert.True(Matches(clause, EventRk(T)));                          // same millisecond → included
+        Assert.True(Matches(clause, EventRk(T.AddMilliseconds(-1))));      // older → included
+        Assert.False(Matches(clause, EventRk(T.AddMilliseconds(1))));      // 1 ms newer → excluded
+    }
+
+    [Fact]
+    public void Event_clauses_format_local_kind_as_utc()
+    {
+        var local = DateTime.SpecifyKind(T, DateTimeKind.Utc).ToLocalTime();
+        Assert.Equal(BusinessTimestamp.EventDateFromClause(T), BusinessTimestamp.EventDateFromClause(local));
+        Assert.Equal(BusinessTimestamp.EventDateToClause(T), BusinessTimestamp.EventDateToClause(local));
+    }
 }

@@ -668,21 +668,24 @@ namespace AutopilotMonitor.Functions.Services
                 pageSize: pageSize,
                 continuation: continuation);
 
-            var sessionIds = new List<string>();
+            // DeviceSnapshot keys are (tenantId, sessionId) — the point-read key of the
+            // Sessions row, so no per-session tenant lookup is ever needed.
+            var keys = new List<(string TenantId, string SessionId)>();
             foreach (var entity in entities)
             {
                 var properties = ReconstructDeviceProperties(entity);
                 if (properties == null || properties.Count == 0) continue;
                 if (!MatchesAllDeviceFilters(properties, filter.DeviceProperties!)) continue;
-                sessionIds.Add(entity.RowKey);
+                if (!Guid.TryParse(entity.PartitionKey, out _) || !Guid.TryParse(entity.RowKey, out _)) continue;
+                keys.Add((entity.PartitionKey, entity.RowKey));
             }
 
-            if (sessionIds.Count == 0)
+            if (keys.Count == 0)
             {
                 return new RawPage<SessionSummary>(Array.Empty<SessionSummary>(), nextRawToken);
             }
 
-            var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
+            var sessions = await BatchGetSessionsByKeyAsync(keys);
             sessions = ApplyBasicFilters(sessions, filter);
             return new RawPage<SessionSummary>(sessions, nextRawToken);
         }
@@ -840,7 +843,7 @@ namespace AutopilotMonitor.Functions.Services
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.DeviceSnapshot);
             var oDataFilter = BuildDeviceSnapshotTenantFilter(tenantId);
 
-            var sessionIds = new List<string>();
+            var keys = new List<(string TenantId, string SessionId)>();
             await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: oDataFilter))
             {
                 // Reconstruct properties from Props_* columns
@@ -851,14 +854,16 @@ namespace AutopilotMonitor.Functions.Services
                 if (!MatchesAllDeviceFilters(properties, filter.DeviceProperties!))
                     continue;
 
-                sessionIds.Add(entity.RowKey); // RowKey = sessionId in DeviceSnapshot
-                if (sessionIds.Count >= filter.Limit * 3) break; // over-fetch to allow for missing sessions
+                // PartitionKey = tenantId, RowKey = sessionId in DeviceSnapshot
+                if (!Guid.TryParse(entity.PartitionKey, out _) || !Guid.TryParse(entity.RowKey, out _)) continue;
+                keys.Add((entity.PartitionKey, entity.RowKey));
+                if (keys.Count >= filter.Limit * 3) break; // over-fetch to allow for missing sessions
             }
 
-            if (sessionIds.Count == 0) return new List<SessionSummary>();
+            if (keys.Count == 0) return new List<SessionSummary>();
 
-            // Batch-get SessionSummaries from Sessions table
-            var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
+            // Batch-get SessionSummaries from Sessions table by point read
+            var sessions = await BatchGetSessionsByKeyAsync(keys);
 
             // Apply any additional basic filters
             sessions = ApplyBasicFilters(sessions, filter);
@@ -1106,70 +1111,36 @@ namespace AutopilotMonitor.Functions.Services
             }).ToList();
         }
 
-        private async Task<List<SessionSummary>> BatchGetSessionsAsync(string? tenantId, List<string> sessionIds)
-        {
-            var sessionsTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
-            var semaphore = new System.Threading.SemaphoreSlim(20, 20);
-
-            var tasks = sessionIds.Select(async sessionId =>
-            {
-                await semaphore.WaitAsync();
-                try
-                {
-                    // Try to determine the tenantId for this session
-                    var partitionKey = tenantId ?? string.Empty;
-                    if (string.IsNullOrEmpty(partitionKey))
-                    {
-                        // Cross-tenant: scan SessionsIndex for this sessionId
-                        var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
-                        await foreach (var idxEntity in indexTableClient.QueryAsync<TableEntity>(
-                            filter: $"SessionId eq '{sessionId}'",
-                            maxPerPage: 1))
-                        {
-                            return MapIndexEntityToSessionSummary(idxEntity);
-                        }
-                        return null;
-                    }
-
-                    var response = await sessionsTableClient.GetEntityAsync<TableEntity>(partitionKey, sessionId);
-                    return MapToSessionSummary(response.Value);
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    return null;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to get session {SessionId}", sessionId);
-                    return null;
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
-
-            var results = await Task.WhenAll(tasks);
-            return results.Where(s => s != null).Select(s => s!).ToList();
-        }
-
         /// <summary>
-        /// Paged EventTypeIndex walk that drives
-        /// <c>QueryRawEventsFunction</c>'s cross-session walk. Returns up to
-        /// <paramref name="pageSize"/> distinct sessions plus the underlying
-        /// Azure-Tables continuation; caller follows the wire <c>nextLink</c>
-        /// to drain the full recall set.
+        /// Paged EventTypeIndex walk that drives <c>/api/search/sessions-by-event</c>: one
+        /// index page, then the session summaries by POINT READ on the Sessions table using
+        /// the tenant the index row itself carries. (Formerly every cross-tenant sessionId was
+        /// resolved through a SessionsIndex full-table scan — up to 1000 scans per page.)
         /// </summary>
         public async Task<RawPage<SessionSummary>> SearchSessionsByEventPageAsync(
             string? tenantId, string eventType, string? source, string? severity, string? phase,
             int pageSize, string? continuation)
         {
+            var indexPage = await GetEventTypeIndexPageAsync(
+                tenantId, eventType, source, severity, writtenAfterUtc: null, pageSize, continuation);
+
+            if (indexPage.Items.Count == 0)
+                return new RawPage<SessionSummary>(Array.Empty<SessionSummary>(), indexPage.NextRawToken);
+
+            var sessions = await BatchGetSessionsByKeyAsync(indexPage.Items.Select(e => (e.TenantId, e.SessionId)).ToList());
+            return new RawPage<SessionSummary>(sessions, indexPage.NextRawToken);
+        }
+
+        /// <inheritdoc cref="ISessionRepository.GetEventTypeIndexPageAsync"/>
+        public async Task<RawPage<EventTypeIndexEntry>> GetEventTypeIndexPageAsync(
+            string? tenantId, string eventType, string? source, string? severity,
+            DateTime? writtenAfterUtc, int pageSize, string? continuation)
+        {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
+            if (string.IsNullOrEmpty(eventType)) throw new ArgumentException("eventType is required", nameof(eventType));
 
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.EventTypeIndex);
 
-            // Build OData filter (PartitionKey eq for tenant-scoped, EventType eq
-            // for cross-tenant) — no limit*2 over-fetch; pagination handles depth.
             int? minSeverity = null;
             if (!string.IsNullOrEmpty(severity) &&
                 Enum.TryParse<AutopilotMonitor.Shared.Models.EventSeverity>(severity, ignoreCase: true, out var parsedSeverity))
@@ -1185,18 +1156,26 @@ namespace AutopilotMonitor.Functions.Services
             // PK-suffix split via LastIndexOf('_') silently filtered out every
             // multi-underscore event type. Filtering on the EventType column
             // avoids that ambiguity entirely.
-            string? oDataFilter;
+            string oDataFilter;
             if (!string.IsNullOrEmpty(tenantId))
-            {
                 oDataFilter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}_{ODataSanitizer.EscapeValue(eventType)}'";
-                if (minSeverity.HasValue)
-                    oDataFilter += $" and MaxSeverity ge {minSeverity.Value}";
-            }
             else
-            {
                 oDataFilter = $"EventType eq '{ODataSanitizer.EscapeValue(eventType)}'";
-                if (minSeverity.HasValue)
-                    oDataFilter += $" and MaxSeverity ge {minSeverity.Value}";
+            if (minSeverity.HasValue)
+                oDataFilter += $" and MaxSeverity ge {minSeverity.Value}";
+
+            // Write-time pre-filter: the index row is (re)written by the same ingest call that
+            // stores the session's events of this type, so its system Timestamp is never older
+            // than the newest such event's receive time (minus request-internal ordering). A
+            // caller asking for events after T passes T minus the ingest future-clamp slack and
+            // skips every session whose last write predates the window — server-side, before
+            // any fan-out. Rows that pass are candidates only; the event-time filter stays exact.
+            if (writtenAfterUtc.HasValue)
+            {
+                var utc = writtenAfterUtc.Value.Kind == DateTimeKind.Local
+                    ? writtenAfterUtc.Value.ToUniversalTime()
+                    : DateTime.SpecifyKind(writtenAfterUtc.Value, DateTimeKind.Utc);
+                oDataFilter += $" and Timestamp ge datetime'{utc:o}'";
             }
 
             var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
@@ -1205,11 +1184,10 @@ namespace AutopilotMonitor.Functions.Services
                 pageSize: pageSize,
                 continuation: continuation);
 
-            var sessionIds = new List<string>();
+            var entries = new List<EventTypeIndexEntry>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entity in entities)
             {
-
                 if (!string.IsNullOrEmpty(source))
                 {
                     var sources = entity.GetString("Sources") ?? string.Empty;
@@ -1217,19 +1195,57 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 var sessionId = entity.GetString("SessionId");
-                if (!string.IsNullOrEmpty(sessionId) && seen.Add(sessionId))
-                {
-                    sessionIds.Add(sessionId);
-                }
+                if (string.IsNullOrEmpty(sessionId) || !Guid.TryParse(sessionId, out _)) continue;
+
+                // Column first, PartitionKey suffix for rows that predate the column. A row
+                // without a plausible tenant is skipped (would only throw in the point read).
+                var rowTenantId = IndexRowKeys.ResolveTenantId(entity.PartitionKey, eventType, entity.GetString("TenantId"));
+                if (string.IsNullOrEmpty(rowTenantId) || !Guid.TryParse(rowTenantId, out _)) continue;
+
+                if (!seen.Add(sessionId)) continue;
+                entries.Add(new EventTypeIndexEntry(rowTenantId!, sessionId));
             }
 
-            if (sessionIds.Count == 0)
+            return new RawPage<EventTypeIndexEntry>(entries, nextRawToken);
+        }
+
+        /// <summary>
+        /// Point-read batch on the Sessions table for callers that already know each
+        /// session's tenant — every session index row (EventTypeIndex, CveIndex,
+        /// DeviceSnapshot) carries it, so there is never a reason to scan SessionsIndex per
+        /// session. Bounded concurrency; a missing row (404) is dropped, any other per-row
+        /// failure is logged and dropped so one bad row cannot fail the page.
+        /// </summary>
+        private async Task<List<SessionSummary>> BatchGetSessionsByKeyAsync(IReadOnlyList<(string TenantId, string SessionId)> keys)
+        {
+            var sessionsTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+            using var semaphore = new System.Threading.SemaphoreSlim(20, 20);
+
+            var tasks = keys.Select(async key =>
             {
-                return new RawPage<SessionSummary>(Array.Empty<SessionSummary>(), nextRawToken);
-            }
+                await semaphore.WaitAsync();
+                try
+                {
+                    var response = await sessionsTableClient.GetEntityAsync<TableEntity>(key.TenantId, key.SessionId);
+                    return MapToSessionSummary(response.Value);
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to get session {SessionId}", key.SessionId);
+                    return null;
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
 
-            var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
-            return new RawPage<SessionSummary>(sessions, nextRawToken);
+            var results = await Task.WhenAll(tasks);
+            return results.Where(s => s != null).Select(s => s!).ToList();
         }
 
         /// <summary>
@@ -1249,7 +1265,8 @@ namespace AutopilotMonitor.Functions.Services
                 oDataFilter = $"PartitionKey ge '{safeCveId}' and PartitionKey lt '{safeCveId}~'";
             }
 
-            var sessionIds = new List<string>();
+            var keys = new List<(string TenantId, string SessionId)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: oDataFilter))
             {
                 if (minCvssScore.HasValue)
@@ -1264,16 +1281,18 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 var sessionId = entity.GetString("SessionId") ?? entity.RowKey;
-                if (!string.IsNullOrEmpty(sessionId) && !sessionIds.Contains(sessionId))
-                    sessionIds.Add(sessionId);
+                if (string.IsNullOrEmpty(sessionId) || !Guid.TryParse(sessionId, out _)) continue;
+                var rowTenantId = IndexRowKeys.ResolveTenantId(entity.PartitionKey, cveId, entity.GetString("TenantId"));
+                if (string.IsNullOrEmpty(rowTenantId) || !Guid.TryParse(rowTenantId, out _)) continue;
+                if (!seen.Add(sessionId)) continue;
+                keys.Add((rowTenantId!, sessionId));
 
-                if (sessionIds.Count >= limit * 2) break;
+                if (keys.Count >= limit * 2) break;
             }
 
-            if (sessionIds.Count == 0) return new List<SessionSummary>();
+            if (keys.Count == 0) return new List<SessionSummary>();
 
-            // Extract tenantId from PartitionKey for cross-tenant lookup if needed
-            var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
+            var sessions = await BatchGetSessionsByKeyAsync(keys);
             return sessions.Take(limit).ToList();
         }
 
@@ -1301,7 +1320,7 @@ namespace AutopilotMonitor.Functions.Services
                 pageSize: pageSize,
                 continuation: continuation);
 
-            var sessionIds = new List<string>();
+            var keys = new List<(string TenantId, string SessionId)>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entity in entities)
             {
@@ -1317,16 +1336,19 @@ namespace AutopilotMonitor.Functions.Services
                 }
 
                 var sessionId = entity.GetString("SessionId") ?? entity.RowKey;
-                if (!string.IsNullOrEmpty(sessionId) && seen.Add(sessionId))
-                {
-                    sessionIds.Add(sessionId);
-                }
+                if (string.IsNullOrEmpty(sessionId) || !Guid.TryParse(sessionId, out _)) continue;
+                // Tenant from the row itself (column, else the `{tenantId}_{cveId}` PartitionKey) —
+                // never from a SessionsIndex scan per session.
+                var rowTenantId = IndexRowKeys.ResolveTenantId(entity.PartitionKey, cveId, entity.GetString("TenantId"));
+                if (string.IsNullOrEmpty(rowTenantId) || !Guid.TryParse(rowTenantId, out _)) continue;
+                if (!seen.Add(sessionId)) continue;
+                keys.Add((rowTenantId!, sessionId));
             }
 
-            if (sessionIds.Count == 0)
+            if (keys.Count == 0)
                 return new RawPage<SessionSummary>(Array.Empty<SessionSummary>(), nextRawToken);
 
-            var sessions = await BatchGetSessionsAsync(tenantId, sessionIds);
+            var sessions = await BatchGetSessionsByKeyAsync(keys);
             return new RawPage<SessionSummary>(sessions, nextRawToken);
         }
 

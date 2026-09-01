@@ -22,6 +22,13 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<IReadOnlyDictionary<string, object?>> Events { get; set; } = default!;
         /// <summary>Absent on the last page.</summary>
         public string? NextLink { get; set; }
+        /// <summary>
+        /// True when the server ended this page early because its scan budget was spent
+        /// before <c>pageSize</c> index rows were walked. Nothing is lost: every event up to
+        /// the cursor is on this page and <see cref="NextLink"/> resumes exactly after the
+        /// last fully processed chunk. Absent on a page that filled or drained normally.
+        /// </summary>
+        public bool? Partial { get; set; }
     }
 
     // Declaration order == wire order.

@@ -2457,6 +2457,8 @@ export interface QueryRawEventsResponse {
   events: (Record<string, unknown>)[];
   /** Absent on the last page. */
   nextLink?: string;
+  /** True when the server ended this page early because its scan budget was spent before pageSize index rows were walked. Nothing is lost: every event up to the cursor is on this page and NextLink resumes exactly after the last fully processed chunk. Absent on a page that filled or drained normally. */
+  partial?: boolean;
 }
 
 /** Success body of GET /api/raw/sessions and /api/global/raw/sessions (QueryRawSessions / QueryRawSessionsGlobal): raw SessionsIndex rows, PascalCase-verbatim stored columns. */

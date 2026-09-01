@@ -2911,7 +2911,8 @@ namespace AutopilotMonitor.Functions.Services
         /// session, ordered by Sequence ascending.
         /// </summary>
         public async Task<List<IReadOnlyDictionary<string, object?>>> GetSessionEventsRawByTypeAsync(
-            string tenantId, string sessionId, string eventType, int maxResults = 200)
+            string tenantId, string sessionId, string eventType, int maxResults = 200,
+            DateTime? occurredAfterUtc = null, DateTime? occurredBeforeUtc = null)
         {
             SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
             SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
@@ -2923,6 +2924,13 @@ namespace AutopilotMonitor.Functions.Services
 
                 var partitionKey = $"{tenantId}_{sessionId}";
                 var filter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(partitionKey)}' and EventType eq '{ODataSanitizer.EscapeValue(eventType)}'";
+                // Date window pushed into the partition query as a RowKey range (the RowKey
+                // prefix is the sanitized agent time) — index-backed, and a session outside the
+                // window costs one empty round-trip instead of 200 rows of DataJson.
+                if (occurredAfterUtc.HasValue)
+                    filter += " and " + BusinessTimestamp.EventDateFromClause(occurredAfterUtc.Value);
+                if (occurredBeforeUtc.HasValue)
+                    filter += " and " + BusinessTimestamp.EventDateToClause(occurredBeforeUtc.Value);
 
                 var query = tableClient.QueryAsync<TableEntity>(
                     filter: filter,

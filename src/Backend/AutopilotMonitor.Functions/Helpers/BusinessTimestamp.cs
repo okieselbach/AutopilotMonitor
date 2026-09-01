@@ -136,5 +136,25 @@ namespace AutopilotMonitor.Functions.Helpers
         /// `gt` not `ge` — a row at exactly the cutoff is kept, matching `Timestamp lt` semantics.</summary>
         internal static string OpsRetentionClause(DateTime cutoffUtc)
             => $"RowKey gt '{Rev(cutoffUtc):D19}'";
+
+        // Events RowKey = "{ts:yyyyMMddHHmmssfff}_{seq:D10}" — ascending, millisecond precision.
+        // Both clauses are index-backed range scans inside the session partition and are
+        // SUPERSETS at millisecond granularity: a caller that needs tick-exact boundaries keeps
+        // its in-memory filter on the resolved business time (see RawEventTime).
+
+        /// <summary>Event rows whose sanitized agent time is ≥ <paramref name="fromUtc"/> (millisecond floor).</summary>
+        internal static string EventDateFromClause(DateTime fromUtc)
+            => $"RowKey ge '{FormatEventKeyTime(fromUtc)}'";
+
+        /// <summary>Event rows whose sanitized agent time is ≤ <paramref name="toUtc"/> (millisecond ceiling):
+        /// <c>RowKey lt '{to + 1 ms}'</c> keeps every row that shares the boundary millisecond.</summary>
+        internal static string EventDateToClause(DateTime toUtc)
+            => $"RowKey lt '{FormatEventKeyTime(toUtc.AddMilliseconds(1))}'";
+
+        private static string FormatEventKeyTime(DateTime utc)
+        {
+            var normalized = utc.Kind == DateTimeKind.Local ? utc.ToUniversalTime() : utc;
+            return normalized.ToString(EventRowKeyTimestampFormat, CultureInfo.InvariantCulture);
+        }
     }
 }

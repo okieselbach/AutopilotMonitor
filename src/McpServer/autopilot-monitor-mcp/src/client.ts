@@ -336,6 +336,7 @@ function followNextLink(
   basePath: string,
   extraParams: Record<string, string | number | boolean | undefined | null>,
   continuationOrNextLink?: string,
+  overrides?: QueryOverrides,
 ): string {
   if (continuationOrNextLink && continuationOrNextLink.startsWith('/api/')) {
     const queryStart = continuationOrNextLink.indexOf('?');
@@ -348,9 +349,74 @@ function followNextLink(
         'Pass the full nextLink string from the SAME tool\'s prior response, not a synthesized or third-party path.',
       );
     }
-    return continuationOrNextLink;
+    return withQueryOverrides(continuationOrNextLink, overrides);
   }
   return `${basePath}${buildQuery({ ...extraParams, continuation: continuationOrNextLink })}`;
+}
+
+/** Query params a caller may set on top of a server-emitted nextLink (null/undefined = leave as is). */
+export type QueryOverrides = Record<string, string | number | undefined | null>;
+
+/**
+ * Sets the given query params on a server-emitted nextLink and leaves everything else —
+ * the opaque continuation token, the echoed filters — as the backend emitted it.
+ *
+ * Why: a nextLink freezes the page-1 `pageSize`, and followNextLink sends it verbatim, so an
+ * explicit smaller pageSize on a follow-up call used to be silently ignored — the "narrow the
+ * query" advice after a timeout could not work. `pageSize` is not part of the continuation
+ * fingerprint (the Azure cursor is a row position), so changing it between pages is safe.
+ */
+export function withQueryOverrides(nextLink: string, overrides?: QueryOverrides): string {
+  if (!overrides) return nextLink;
+  const entries = Object.entries(overrides).filter(([, v]) => v != null && v !== '');
+  if (entries.length === 0) return nextLink;
+  const q = nextLink.indexOf('?');
+  const path = q === -1 ? nextLink : nextLink.slice(0, q);
+  const params = new URLSearchParams(q === -1 ? '' : nextLink.slice(q + 1));
+  for (const [k, v] of entries) params.set(k, String(v));
+  return `${path}?${params.toString()}`;
+}
+
+/**
+ * The page size a paginated call will actually run with: the explicit argument, else the
+ * value embedded in a server-emitted nextLink, else the backend default.
+ */
+export function effectivePageSize(pageSize: number | undefined, continuation: string | undefined, fallback = 200): number {
+  if (pageSize != null) return pageSize;
+  if (continuation && continuation.startsWith('/api/')) {
+    const q = continuation.indexOf('?');
+    const raw = q === -1 ? null : new URLSearchParams(continuation.slice(q + 1)).get('pageSize');
+    const n = raw == null ? NaN : Number(raw);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return fallback;
+}
+
+/**
+ * The pageSize a paginated tool sends: the explicit argument when given; otherwise the tool's
+ * first-page default — but ONLY on a first-page call. On a follow-up with a server nextLink an
+ * omitted pageSize must stay omitted so the size the nextLink carries survives (a schema
+ * `.default()` would silently force every follow-up page back to the default).
+ */
+export function pageSizeForCall(pageSize: number | undefined, continuation: string | undefined, firstPageDefault: number): number | undefined {
+  if (pageSize != null) return pageSize;
+  if (continuation && continuation.startsWith('/api/')) return undefined;
+  return firstPageDefault;
+}
+
+/**
+ * True for the rejection `fetch` produces under `AbortSignal.timeout()` (a DOMException whose
+ * NAME is 'TimeoutError' while the message only says "aborted due to timeout"), plus the
+ * other abort/timeout shapes seen in the wild.
+ */
+export function isTimeoutError(error: unknown): boolean {
+  const name = error instanceof Error ? error.name : '';
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    name === 'TimeoutError' || name === 'AbortError' ||
+    message.includes('TimeoutError') || message.includes('AbortError') ||
+    message.includes('timed out') || message.includes('aborted due to timeout')
+  );
 }
 
 export { apiFetch, buildQuery, followNextLink };
@@ -457,5 +523,45 @@ export async function scanUntilMatch(
     }
 
     path = followNextLink(basePath, {}, nextLink);
+  }
+}
+
+// ── Timeout fallback for budgeted scans ─────────────────────────────────
+
+/** Smallest pageSize the timeout fallback will retry with. */
+export const MIN_FALLBACK_PAGE_SIZE = 25;
+
+/**
+ * Runs a scan and, if the backend still does not answer within the client timeout, retries
+ * ONCE with a halved pageSize on the SAME path (first page or continuation alike).
+ *
+ * Why: the backend now ends a page on its own scan budget, so a timeout means one unit of
+ * work overshot — a smaller page ends sooner. `pageSize` is not part of the continuation
+ * fingerprint, so the cursor stays valid. Before this, the second attempt was byte-identical
+ * to the first and failed identically: two expensive failures and no data.
+ *
+ * The retry is marked on the envelope (`retriedWithPageSize` + `retryNote`) so the caller
+ * knows why the page is smaller than requested; its `nextLink` continues at the reduced
+ * size until the caller passes an explicit pageSize again.
+ */
+export async function scanWithTimeoutFallback(
+  firstPath: string,
+  basePath: string,
+  pageSize: number,
+  scan: (path: string) => Promise<Record<string, unknown>> = (p) => scanUntilMatch(p, basePath),
+): Promise<Record<string, unknown>> {
+  try {
+    return await scan(firstPath);
+  } catch (error: unknown) {
+    if (!isTimeoutError(error) || pageSize <= MIN_FALLBACK_PAGE_SIZE) throw error;
+    const reduced = Math.max(MIN_FALLBACK_PAGE_SIZE, Math.floor(pageSize / 2));
+    const page = await scan(withQueryOverrides(firstPath, { pageSize: reduced }));
+    return {
+      ...page,
+      retriedWithPageSize: reduced,
+      retryNote:
+        `The first attempt (pageSize=${pageSize}) timed out; this page was fetched with pageSize=${reduced} ` +
+        'on the same cursor. Follow nextLink as usual — pass an explicit pageSize to change it again.',
+    };
   }
 }

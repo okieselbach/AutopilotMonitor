@@ -11597,6 +11597,15 @@
           },
           "optional": true,
           "doc": "Absent on the last page."
+        },
+        {
+          "name": "partial",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "True when the server ended this page early because its scan budget was spent before pageSize index rows were walked. Nothing is lost: every event up to the cursor is on this page and NextLink resumes exactly after the last fully processed chunk. Absent on a page that filled or drained normally."
         }
       ]
     },
