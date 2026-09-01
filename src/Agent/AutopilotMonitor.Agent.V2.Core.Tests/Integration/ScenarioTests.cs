@@ -27,6 +27,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
     /// ESP-Terminal-Failure, Late-AADJ. DevPrep-v2 variants land with M5 (no M3 fixture yet).
     /// </para>
     /// </summary>
+    // Drives the real orchestrator (dedicated ingress thread + fsync-per-step persistence +
+    // ThreadPool-scheduled drain loop) and waits on wall-clock budgets (PostFixture 5 s per
+    // signal, WaitForStage / uploader 10 s). In isolation every scenario finishes in < 1 s;
+    // under the full parallel suite on a 4-core CI runner the same scenarios took 4-5 s
+    // locally and blew the budgets on slow GitHub runners (CI runs 33564658714 and
+    // 33565773888, 2026-09-01). Serialised via SerialThreading like EnrollmentOrchestratorTests
+    // and RecoveryPathTests so the budgets measure the pipeline, not the neighbours.
+    [Collection("SerialThreading")]
     public sealed class ScenarioTests
     {
         private const int DefaultTerminalTimeoutMs = 10_000;
