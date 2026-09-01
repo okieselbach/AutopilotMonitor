@@ -1,5 +1,5 @@
 /**
- * Freshness guard: src/generated/wire-types.generated.ts MUST be byte-identical to
+ * Freshness guard: the generated files under src/generated/ MUST be byte-identical to
  * a fresh run of the web codegen over shared-manifests.json (the C#-reflected wire
  * contract). The chain: SharedManifestParityTests pins JSON ↔ C#, the web suite pins
  * the web copy, this test pins the MCP copy — so a backend shape change that lands
@@ -44,5 +44,26 @@ describe('generated wire types freshness (MCP copy)', () => {
       'utf8',
     );
     expect(committed.replace(/\r\n/g, '\n')).toBe(buildMcpWireTypesSource(json));
+  });
+});
+
+describe('generated wire vocabularies freshness (MCP copy)', () => {
+  const webRoot = findWebRoot();
+  const itOrSkip = webRoot ? it : it.skip;
+
+  // The vocabularies are VALUES the tool schemas derive their z.enum() from. If this file goes
+  // stale, a tool advertises a vocabulary the backend no longer has (or omits one it gained) —
+  // and unlike a type mismatch, nothing else would notice.
+  itOrSkip('src/generated/wire-vocabularies.generated.ts matches a fresh run of the codegen', () => {
+    const require = createRequire(import.meta.url);
+    const { buildMcpVocabulariesSource } = require(
+      join(webRoot!, 'scripts', 'generate-shared-manifest-types.js'),
+    );
+    const json = readFileSync(join(webRoot!, 'utils', 'shared-manifests.json'), 'utf8');
+    const committed = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'generated', 'wire-vocabularies.generated.ts'),
+      'utf8',
+    );
+    expect(committed.replace(/\r\n/g, '\n')).toBe(buildMcpVocabulariesSource(json));
   });
 });

@@ -277,13 +277,7 @@ public class TenantOffboardingWorkerPoisonTests
             var memCache = new MemoryCache(new MemoryCacheOptions());
             var adminConfig = new Mock<AdminConfigurationService>(
                 Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, memCache);
-            return new OpsAlertDispatchService(
-                adminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(),
-                    NullLogger<TelegramNotificationService>.Instance),
-                new WebhookNotificationService(new HttpClient(),
-                    NullLogger<WebhookNotificationService>.Instance),
-                NullLogger<OpsAlertDispatchService>.Instance);
+            return TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
         }
     }
 

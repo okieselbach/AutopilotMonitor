@@ -31,44 +31,44 @@ namespace AutopilotMonitor.Functions.Services
         // ── Consent ────────────────────────────────────────────────────────────
 
         public Task RecordConsentFlowStartedAsync(string tenantId, string userId, string redirectUri)
-            => WriteAsync(OpsEventCategory.Consent, "ConsentFlowStarted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.ConsentFlowStarted, OpsEventSeverity.Info,
                 $"Admin consent flow started by {userId}",
                 tenantId, userId, new { redirectUri });
 
         public Task RecordConsentFlowSuccessAsync(string tenantId, string userId, string trigger)
-            => WriteAsync(OpsEventCategory.Consent, "ConsentFlowSuccess", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.ConsentFlowSuccess, OpsEventSeverity.Info,
                 $"Admin consent confirmed for {trigger} by {userId}",
                 tenantId, userId, new { trigger });
 
         public Task RecordConsentFlowFailedAsync(string tenantId, string userId, string error, string errorDescription)
-            => WriteAsync(OpsEventCategory.Consent, "ConsentFlowFailed", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.ConsentFlowFailed, OpsEventSeverity.Error,
                 $"Admin consent failed: {error}",
                 tenantId, userId, new { error, errorDescription });
 
         public Task RecordConsentRedirectUriMismatchAsync(string tenantId, string userId, string redirectUri, string redirectPath)
-            => WriteAsync(OpsEventCategory.Consent, "ConsentRedirectUriMismatch", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.ConsentRedirectUriMismatch, OpsEventSeverity.Critical,
                 $"Redirect URI path '{redirectPath}' not in registered paths — consent will fail with AADSTS50011",
                 tenantId, userId, new { redirectUri, redirectPath });
 
         public Task RecordAppHomingFlippedAsync(string tenantId, string userId, string oldApp, string newApp, string reason, bool forced)
-            => WriteAsync(OpsEventCategory.Consent, "AppHomingFlipped", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.AppHomingFlipped, OpsEventSeverity.Info,
                 $"App-reg homing flipped {oldApp} -> {newApp} by {userId} ({reason}{(forced ? ", FORCED" : "")})",
                 tenantId, userId, new { oldApp, newApp, reason, forced });
 
         public Task RecordAppHomingFlippedWithEntraRolesAsync(string tenantId, string userId, string oldApp, string newApp)
-            => WriteAsync(OpsEventCategory.Consent, "AppHomingFlippedWithEntraRoles", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Consent, OpsEventTypes.AppHomingFlippedWithEntraRoles, OpsEventSeverity.Warning,
                 $"App-reg homing flipped {oldApp} -> {newApp} for a tenant with Entra app roles — re-assign roles on the new enterprise app",
                 tenantId, userId, new { oldApp, newApp });
 
         // ── Maintenance ────────────────────────────────────────────────────────
 
         public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "MaintenanceCompleted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceCompleted, OpsEventSeverity.Info,
                 $"Maintenance completed in {durationMs}ms (triggered by {triggeredBy})",
                 null, triggeredBy, new { durationMs });
 
         public Task RecordMaintenanceFailedAsync(string error, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "MaintenanceFailed", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceFailed, OpsEventSeverity.Error,
                 $"Maintenance failed: {error}",
                 null, triggeredBy, new { error });
 
@@ -79,7 +79,7 @@ namespace AutopilotMonitor.Functions.Services
         /// operators are alerted before a future run is hard-aborted (which would emit no event at all).
         /// </summary>
         public Task RecordMaintenanceLongRunningAsync(int durationMs, int thresholdMinutes, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "MaintenanceLongRunning", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceLongRunning, OpsEventSeverity.Warning,
                 $"Maintenance took {durationMs}ms (> {thresholdMinutes}min soft threshold; host aborts at 60min) — triggered by {triggeredBy}",
                 null, triggeredBy, new { durationMs, thresholdMinutes });
 
@@ -90,17 +90,17 @@ namespace AutopilotMonitor.Functions.Services
         /// from full maintenance runs.
         /// </summary>
         public Task RecordSessionSweepCompletedAsync(int stalledMarked, int timedOut, int durationMs)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionSweepCompleted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionSweepCompleted, OpsEventSeverity.Info,
                 $"Hourly session sweep completed in {durationMs}ms — {stalledMarked} marked Stalled, {timedOut} terminalized",
                 null, "System.SessionSweep", new { stalledMarked, timedOut, durationMs });
 
         public Task RecordSessionSweepFailedAsync(string error)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionSweepFailed", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionSweepFailed, OpsEventSeverity.Error,
                 $"Hourly session sweep failed: {error}",
                 null, "System.SessionSweep", new { error });
 
         public Task RecordOpsEventCleanupAsync(int deletedCount, int retentionDays)
-            => WriteAsync(OpsEventCategory.Maintenance, "OpsEventCleanup", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OpsEventCleanup, OpsEventSeverity.Info,
                 $"Cleaned up {deletedCount} ops events older than {retentionDays} days",
                 null, "System.Maintenance", new { deletedCount, retentionDays });
 
@@ -125,7 +125,7 @@ namespace AutopilotMonitor.Functions.Services
                 .Select(o => new { tenantId = o.TenantId, sessionId = o.SessionId, eventCount = o.EventCount })
                 .ToList();
 
-            return WriteAsync(OpsEventCategory.Maintenance, "OrphanEventsCleaned", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.OrphanEventsCleaned, OpsEventSeverity.Warning,
                 $"Cleaned {totalEventsDeleted} orphaned events across {orphanSessions} sessions",
                 null, "System.Maintenance",
                 new
@@ -149,7 +149,7 @@ namespace AutopilotMonitor.Functions.Services
         /// UI banner treats "latest Started newer than latest Completed/Failed" as run-active.
         /// </summary>
         public Task RecordSessionDeletionMaintenanceStartedAsync(string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceStarted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceStarted, OpsEventSeverity.Info,
                 $"SessionDeletionMaintenance run started (triggered by {triggeredBy})",
                 null, "System.Maintenance", new { triggeredBy });
 
@@ -159,7 +159,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Paired with a Completed event whose details carry <c>abortedByBudget=true</c>.
         /// </summary>
         public Task RecordSessionDeletionMaintenanceBudgetExceededAsync(int budgetMinutes, int tenantsProcessed, int sessionsEnqueued)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceBudgetExceeded", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceBudgetExceeded, OpsEventSeverity.Warning,
                 $"SessionDeletionMaintenance stopped at the {budgetMinutes}min run budget — tenants={tenantsProcessed} enqueued={sessionsEnqueued}; remaining backlog resumes on the next run",
                 null, "System.Maintenance", new { budgetMinutes, tenantsProcessed, sessionsEnqueued });
 
@@ -168,31 +168,31 @@ namespace AutopilotMonitor.Functions.Services
         /// maintenance lease. Mirrors <c>RecordCriticalTableBackupSkippedLockedAsync</c>.
         /// </summary>
         public Task RecordSessionDeletionMaintenanceSkippedLockedAsync(string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceSkippedLocked", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceSkippedLocked, OpsEventSeverity.Info,
                 $"SessionDeletionMaintenance skipped — another run holds the maintenance lease (triggeredBy={triggeredBy})",
                 null, "System.Maintenance", new { reason = "lease held by another run", triggeredBy });
 
         /// <summary>Watchdog: maintenance run still in flight 30 minutes after start. Warning-level early signal.</summary>
         public Task RecordSessionDeletionMaintenanceLongRunningAsync(int elapsedMinutes, int tenantsProcessed, int sessionsEnqueued)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceLongRunning", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceLongRunning, OpsEventSeverity.Warning,
                 $"SessionDeletionMaintenance still running after {elapsedMinutes}min (tenants={tenantsProcessed}, enqueued={sessionsEnqueued})",
                 null, "System.Maintenance", new { elapsedMinutes, tenantsProcessed, sessionsEnqueued });
 
         /// <summary>Watchdog: maintenance run still in flight 60 minutes after start. Error-level escalation in case the operator missed the 30min warning.</summary>
         public Task RecordSessionDeletionMaintenanceLongRunningSevereAsync(int elapsedMinutes, int tenantsProcessed, int sessionsEnqueued)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceLongRunningSevere", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceLongRunningSevere, OpsEventSeverity.Error,
                 $"SessionDeletionMaintenance has been running for {elapsedMinutes}min — Azure Functions host will abort at 60min (tenants={tenantsProcessed}, enqueued={sessionsEnqueued})",
                 null, "System.Maintenance", new { elapsedMinutes, tenantsProcessed, sessionsEnqueued });
 
         /// <summary>Unhandled exception path. Re-thrown after this audit so the Azure Functions runtime records the failure.</summary>
         public Task RecordSessionDeletionMaintenanceFailedAsync(string exceptionType, string message, string stackPreview)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceFailed", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceFailed, OpsEventSeverity.Error,
                 $"SessionDeletionMaintenance failed: {exceptionType}: {message}",
                 null, "System.Maintenance", new { exceptionType, message, stackPreview });
 
         /// <summary>Stale Queued state detected (no worker pickup) — operator must inspect the manifest + progress blobs. No auto-clear.</summary>
         public Task RecordSessionDeletionStrandedQueuedAsync(string tenantId, string sessionId, DateTime queuedSince, string manifestId)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionStrandedQueued", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionStrandedQueued, OpsEventSeverity.Warning,
                 $"Session {sessionId} stuck in DeletionState=Queued since {queuedSince:o} (manifestId={manifestId})",
                 tenantId, "System.Maintenance", new { tenantId, sessionId, queuedSince = queuedSince.ToString("o"), manifestId });
 
@@ -233,7 +233,7 @@ namespace AutopilotMonitor.Functions.Services
             var cause = !string.IsNullOrEmpty(failureType)
                 ? $" — cause: {failureType}{(string.IsNullOrEmpty(failureMessage) ? "" : $" ({failureMessage})")}"
                 : string.Empty;
-            return WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionPoisoned", OpsEventSeverity.Error,
+            return WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionPoisoned, OpsEventSeverity.Error,
                 $"Session {sessionId} cascade poisoned after {dequeueCount} attempts (manifestId={manifestId}){cause}",
                 tenantId, "System.Maintenance",
                 new
@@ -254,7 +254,7 @@ namespace AutopilotMonitor.Functions.Services
             bool killSwitchActive, int tenantsProcessed, int sessionsEnqueued,
             int sessionsSkipped, int rateLimitedTenants, int blobsTtlGced, int preparingRowsCleared,
             int strandedQueuedDetected, int durationMs, bool abortedByKillSwitch, bool abortedByBudget)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceCompleted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceCompleted, OpsEventSeverity.Info,
                 $"SessionDeletionMaintenance completed in {durationMs}ms — tenants={tenantsProcessed} enqueued={sessionsEnqueued} skipped={sessionsSkipped} blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected} killSwitch={killSwitchActive} abortedByBudget={abortedByBudget}",
                 null, "System.Maintenance", new {
                     killSwitchActive, tenantsProcessed, sessionsEnqueued,
@@ -270,14 +270,14 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordSessionDeletionMaintenanceFanoutSkippedAsync(
             int blobsTtlGced, int preparingRowsCleared, int strandedQueuedDetected)
-            => WriteAsync(OpsEventCategory.Maintenance, "SessionDeletionMaintenanceFanoutSkipped", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.SessionDeletionMaintenanceFanoutSkipped, OpsEventSeverity.Info,
                 $"SessionDeletionMaintenance fanout skipped (kill-switch active) — GCs ran: blobsTtlGced={blobsTtlGced} preparingCleared={preparingRowsCleared} stranded={strandedQueuedDetected}",
                 null, "System.Maintenance", new { reason = "SessionDeletionKillSwitch", blobsTtlGced, preparingRowsCleared, strandedQueuedDetected });
 
         // ── Security ───────────────────────────────────────────────────────────
 
         public Task RecordDeviceBlockedAsync(string tenantId, string serialNumber, string reason, string blockedBy)
-            => WriteAsync(OpsEventCategory.Security, "DeviceBlocked", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.DeviceBlocked, OpsEventSeverity.Warning,
                 $"Device {serialNumber} blocked: {reason}",
                 tenantId, blockedBy, new { serialNumber, reason });
 
@@ -286,7 +286,7 @@ namespace AutopilotMonitor.Functions.Services
         // Automatic blocks now come only from the event-count path below.
 
         public Task RecordVersionBlockedAsync(string pattern, string blockedBy)
-            => WriteAsync(OpsEventCategory.Security, "VersionBlocked", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.VersionBlocked, OpsEventSeverity.Warning,
                 $"Agent version pattern '{pattern}' blocked",
                 null, blockedBy, new { pattern });
 
@@ -307,7 +307,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordSessionTenantConflictAsync(
             string requestedTenantId, string sessionId, string owningTenantId, string? certificateThumbprint, string? agentVersion, string endpoint)
-            => WriteAsync(OpsEventCategory.Security, "SessionTenantConflict", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SessionTenantConflict, OpsEventSeverity.Warning,
                 $"Registration refused on {endpoint}: session {sessionId} is owned by another tenant (409)",
                 requestedTenantId, "System.SessionTenantLookup",
                 new { sessionId, owningTenantId, certificateThumbprint, agentVersion, endpoint });
@@ -315,7 +315,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordSessionOwnerMismatchAsync(
             string tenantId, string sessionId, string outcome, string callerKind, string ownerKind,
             bool serialMatch, string? agentVersion, string endpoint)
-            => WriteAsync(OpsEventCategory.Security, "SessionOwnerMismatch", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SessionOwnerMismatch, OpsEventSeverity.Warning,
                 $"Session owner mismatch ({outcome}) on {endpoint}: {callerKind} caller vs {ownerKind}-owned session {sessionId} (serialMatch={serialMatch.ToString().ToLowerInvariant()}, shadow - allowed)",
                 tenantId, "System.SessionOwnerBinding",
                 new { sessionId, outcome, callerKind, ownerKind, serialMatch, agentVersion, endpoint, enforced = false });
@@ -331,7 +331,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordKillSignalDeliveredAsync(
             string tenantId, string? serialNumber, string? agentVersion, string? matchedPattern,
             string trigger, string channel)
-            => WriteAsync(OpsEventCategory.Security, "KillSignalDelivered", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.KillSignalDelivered, OpsEventSeverity.Warning,
                 trigger == "version"
                     ? $"Kill signal delivered via {channel} to agent {agentVersion ?? "?"} on device {serialNumber ?? "?"} (pattern: {matchedPattern})"
                     : $"Kill signal delivered via {channel} to device {serialNumber ?? "?"}",
@@ -339,19 +339,19 @@ namespace AutopilotMonitor.Functions.Services
                 new { serialNumber, agentVersion, matchedPattern, trigger, channel });
 
         public Task RecordEmbeddedCertExpiringSoonAsync(string role, string subject, string thumbprint, DateTime notAfterUtc, int daysUntilExpiry)
-            => WriteAsync(OpsEventCategory.Security, "EmbeddedCertExpiringSoon", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.EmbeddedCertExpiringSoon, OpsEventSeverity.Warning,
                 $"Newest embedded Intune {role.ToLowerInvariant()} '{subject}' expires in {daysUntilExpiry}d ({notAfterUtc:u}) - source a successor PEM and embed it before {notAfterUtc:yyyy-MM-dd}",
                 null, "System.Maintenance",
                 new { role, subject, thumbprint, notAfterUtc = notAfterUtc.ToString("u"), daysUntilExpiry });
 
         public Task RecordEmbeddedCertExpiringUrgentAsync(string role, string subject, string thumbprint, DateTime notAfterUtc, int daysUntilExpiry)
-            => WriteAsync(OpsEventCategory.Security, "EmbeddedCertExpiringUrgent", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.EmbeddedCertExpiringUrgent, OpsEventSeverity.Error,
                 $"URGENT: newest embedded Intune {role.ToLowerInvariant()} '{subject}' expires in {daysUntilExpiry}d ({notAfterUtc:u}) and no successor is in the bundle - agent mTLS will break without rotation",
                 null, "System.Maintenance",
                 new { role, subject, thumbprint, notAfterUtc = notAfterUtc.ToString("u"), daysUntilExpiry });
 
         public Task RecordEmbeddedCertExpiredAsync(string role, string subject, string thumbprint, DateTime notAfterUtc, int daysUntilExpiry)
-            => WriteAsync(OpsEventCategory.Security, "EmbeddedCertExpired", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.EmbeddedCertExpired, OpsEventSeverity.Critical,
                 daysUntilExpiry < 0
                     ? $"CRITICAL: newest embedded Intune {role.ToLowerInvariant()} '{subject}' EXPIRED {-daysUntilExpiry}d ago ({notAfterUtc:u}) and no successor is embedded - agent mTLS validation broken"
                     : $"CRITICAL: newest embedded Intune {role.ToLowerInvariant()} '{subject}' expires in {daysUntilExpiry}d ({notAfterUtc:u}) and no successor is embedded",
@@ -359,42 +359,42 @@ namespace AutopilotMonitor.Functions.Services
                 new { role, subject, thumbprint, notAfterUtc = notAfterUtc.ToString("u"), daysUntilExpiry });
 
         public Task RecordEmbeddedCertBundleEmptyAsync()
-            => WriteAsync(OpsEventCategory.Security, "EmbeddedCertBundleEmpty", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.EmbeddedCertBundleEmpty, OpsEventSeverity.Critical,
                 "No embedded Intune root certificates loaded - agent mTLS validator is failing closed for ALL clients",
                 null, "System.Maintenance", new { });
 
         public Task RecordSignalRConnectionsHighAsync(int observed, int limit, int percent, string resourceId)
-            => WriteAsync(OpsEventCategory.Security, "SignalRConnectionsHigh", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SignalRConnectionsHigh, OpsEventSeverity.Warning,
                 $"SignalR concurrent connections at {percent}% of plan limit ({observed}/{limit}) - watch for 429s; consider adding units before saturation",
                 null, "System.Monitoring",
                 new { metric = "ConnectionCount", aggregation = "Maximum", windowMinutes = 60, observed, limit, percent, resourceId });
 
         public Task RecordSignalRConnectionsCriticalAsync(int observed, int limit, int percent, string resourceId)
-            => WriteAsync(OpsEventCategory.Security, "SignalRConnectionsCritical", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SignalRConnectionsCritical, OpsEventSeverity.Error,
                 $"CRITICAL: SignalR concurrent connections at {percent}% of plan limit ({observed}/{limit}) - new client connections will be 429'd at 100%; add units now",
                 null, "System.Monitoring",
                 new { metric = "ConnectionCount", aggregation = "Maximum", windowMinutes = 60, observed, limit, percent, resourceId });
 
         public Task RecordSignalRMessagesHighAsync(long observed, long limit, int percent, string resourceId)
-            => WriteAsync(OpsEventCategory.Security, "SignalRMessagesHigh", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SignalRMessagesHigh, OpsEventSeverity.Warning,
                 $"SignalR daily message count at {percent}% of included plan quota ({observed}/{limit}) - resets at 00:00 UTC; overage is billed per extra million messages",
                 null, "System.Monitoring",
                 new { metric = "MessageCount", aggregation = "Total", windowDay = "UTC", observed, limit, percent, resourceId });
 
         public Task RecordSignalRMessagesCriticalAsync(long observed, long limit, int percent, string resourceId)
-            => WriteAsync(OpsEventCategory.Security, "SignalRMessagesCritical", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.SignalRMessagesCritical, OpsEventSeverity.Error,
                 $"CRITICAL: SignalR daily message count at {percent}% of included plan quota ({observed}/{limit}) - overage beyond 100% is billed per extra million messages; review traffic or add units",
                 null, "System.Monitoring",
                 new { metric = "MessageCount", aggregation = "Total", windowDay = "UTC", observed, limit, percent, resourceId });
 
         public Task RecordPoisonQueueBacklogHighAsync(string queueName, long count, int threshold)
-            => WriteAsync(OpsEventCategory.Security, "PoisonQueueBacklogHigh", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.PoisonQueueBacklogHigh, OpsEventSeverity.Warning,
                 $"Poison queue '{queueName}' backlog at {count} message(s) (threshold: {threshold}) — async worker handler failing repeatedly; inspect dead-letter contents",
                 null, "System.Maintenance",
                 new { queueName, count, threshold });
 
         public Task RecordPoisonQueueBacklogCriticalAsync(string queueName, long count, int threshold)
-            => WriteAsync(OpsEventCategory.Security, "PoisonQueueBacklogCritical", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.PoisonQueueBacklogCritical, OpsEventSeverity.Error,
                 $"CRITICAL: poison queue '{queueName}' backlog at {count} messages (threshold: {threshold}) — sustained handler failure, downstream work is silently dropping",
                 null, "System.Maintenance",
                 new { queueName, count, threshold });
@@ -403,28 +403,28 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>Backup run finished with all tables successfully captured. Info-level — visible in the timeline, not alertable by default.</summary>
         public Task RecordCriticalTableBackupCompletedAsync(string backupId, int tableCount, int durationMs, string container, string manifestBlobName, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupCompleted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CriticalTableBackupCompleted, OpsEventSeverity.Info,
                 $"Critical-table backup {backupId} completed: {tableCount} tables, {durationMs}ms (triggeredBy={triggeredBy})",
                 null, "System.Maintenance",
                 new { backupId, tableCount, durationMs, container, manifestBlobName, triggeredBy });
 
         /// <summary>Backup run wrote a manifest but at least one table Failed or Skipped. Warning-level — operator should inspect manifest perTableFailures.</summary>
         public Task RecordCriticalTableBackupPartialAsync(string backupId, int totalTables, int failedOrSkipped, int durationMs, string container, string manifestBlobName, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupPartial", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CriticalTableBackupPartial, OpsEventSeverity.Warning,
                 $"Critical-table backup {backupId} PARTIAL: {failedOrSkipped}/{totalTables} tables failed or skipped, manifest written ({durationMs}ms, triggeredBy={triggeredBy})",
                 null, "System.Maintenance",
                 new { backupId, totalTables, failedOrSkipped, durationMs, container, manifestBlobName, triggeredBy });
 
         /// <summary>Backup run never produced a valid manifest (fatal exception, storage outage). Error-level. Queue-path emits this AFTER 5x retry + poison-move; timer emits immediately.</summary>
         public Task RecordCriticalTableBackupFailedAsync(string? backupId, string errorMessage, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupFailed", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CriticalTableBackupFailed, OpsEventSeverity.Error,
                 $"Critical-table backup FAILED (backupId={backupId ?? "n/a"}, triggeredBy={triggeredBy}): {errorMessage}",
                 null, "System.Maintenance",
                 new { backupId, errorMessage, triggeredBy });
 
         /// <summary>Backup or restore was skipped because the maintenance lease was already held by another job. Info-level — not a failure.</summary>
         public Task RecordCriticalTableBackupSkippedLockedAsync(string reason, string triggeredBy)
-            => WriteAsync(OpsEventCategory.Maintenance, "CriticalTableBackupSkippedLocked", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.CriticalTableBackupSkippedLocked, OpsEventSeverity.Info,
                 $"Critical-table backup skipped — {reason} (triggeredBy={triggeredBy})",
                 null, "System.Maintenance",
                 new { reason, triggeredBy });
@@ -438,7 +438,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task RecordBackupRowRestoredAsync(
             string backupId, string tableName, string partitionKey, string rowKey, string actor, string outcome)
-            => WriteAsync(OpsEventCategory.Maintenance, "BackupRowRestored", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.BackupRowRestored, OpsEventSeverity.Warning,
                 $"Critical-table row restored: {tableName} (pk='{partitionKey}', rk='{rowKey}') from backup {backupId} by {actor} → {outcome}",
                 null, actor,
                 new
@@ -472,7 +472,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["historyRowKey"] = historyRowKey,
             };
 
-            return WriteAsync(OpsEventCategory.Tenant, "OffboardingFeedbackReceived", OpsEventSeverity.Info,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.OffboardingFeedbackReceived, OpsEventSeverity.Info,
                 $"Offboarding feedback received from {tenantLabel}",
                 tenantId, submittedBy, details);
         }
@@ -491,7 +491,7 @@ namespace AutopilotMonitor.Functions.Services
                 ["deletedCounts"] = deletedCounts,
             };
 
-            return WriteAsync(OpsEventCategory.Tenant, "TenantOffboarded", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantOffboarded, OpsEventSeverity.Warning,
                 $"Tenant {tenantLabel} offboarded — all data deleted",
                 tenantId, performedBy, details);
         }
@@ -510,7 +510,7 @@ namespace AutopilotMonitor.Functions.Services
                 ? tenantId
                 : $"{domainName} ({tenantId})";
 
-            return WriteAsync(OpsEventCategory.Tenant, "TenantOffboardingFailed", OpsEventSeverity.Error,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantOffboardingFailed, OpsEventSeverity.Error,
                 $"Tenant {tenantLabel} offboarding failed at phase '{failedPhase}': {errorMessage}",
                 tenantId, performedBy,
                 new { domainName, failedPhase, errorMessage, retryCount });
@@ -526,7 +526,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordTenantAutoApprovedAsync(string tenantId, string? domainName, string signupUpn)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantAutoApproved", OpsEventSeverity.Info,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantAutoApproved, OpsEventSeverity.Info,
                 $"Tenant {tenantLabel} was auto-activated after signup (signup by {signupUpn})",
                 tenantId, "System (auto-approve)", new { domainName, signupUpn });
         }
@@ -543,7 +543,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordWelcomeEmailSentAsync(string tenantId, string? domainName, string toEmail, string addressSource)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailSent", OpsEventSeverity.Info,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailSent, OpsEventSeverity.Info,
                 $"Welcome email sent to {toEmail} for tenant {tenantLabel} (address from {addressSource})",
                 tenantId, "System.Activation", new { domainName, toEmail, addressSource });
         }
@@ -556,7 +556,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordWelcomeEmailSkippedAsync(string tenantId, string? domainName, string reason)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailSkipped", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailSkipped, OpsEventSeverity.Warning,
                 $"No welcome email for tenant {tenantLabel} — {reason}",
                 tenantId, "System.Activation", new { domainName, reason });
         }
@@ -568,7 +568,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordWelcomeEmailFailedAsync(string tenantId, string? domainName, string toEmail, string reason)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "WelcomeEmailFailed", OpsEventSeverity.Error,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.WelcomeEmailFailed, OpsEventSeverity.Error,
                 $"Welcome email to {toEmail} failed for tenant {tenantLabel} — {reason}",
                 tenantId, "System.Activation", new { domainName, toEmail, reason });
         }
@@ -577,11 +577,33 @@ namespace AutopilotMonitor.Functions.Services
         // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.
 
+        /// <summary>
+        /// A Pro trial was started — the conversion moment. Fired from BOTH plan write paths:
+        /// the tenant-admin self-service POST and a GA grant/extension via PATCH plan
+        /// (<paramref name="selfService"/> tells them apart). Info-tier, but the event a
+        /// sales/support channel is typically bound to, so the payload carries who to contact
+        /// rather than only the tenant GUID.
+        /// </summary>
+        public Task RecordTenantTrialStartedAsync(
+            string tenantId, string? domainName, string? contactEmail,
+            DateTime? trialStartedUtc, DateTime? trialExpiresUtc, string grantedBy, bool selfService)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            var expiryNote = trialExpiresUtc is DateTime expiry
+                ? $"until {expiry:yyyy-MM-dd HH:mm}Z"
+                : "with no end date set";
+            var origin = selfService ? "self-service" : "granted by an operator";
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialStarted, OpsEventSeverity.Info,
+                $"Pro trial started for tenant {tenantLabel} {expiryNote} ({origin}, by {grantedBy})",
+                tenantId, grantedBy,
+                new { domainName, contactEmail, trialStartedUtc, trialExpiresUtc, grantedBy, selfService });
+        }
+
         /// <summary>Heads-up: a Pro trial ends within the next few days. Info-tier visibility signal.</summary>
         public Task RecordTenantTrialExpiringAsync(string tenantId, string? domainName, DateTime trialExpiresUtc, int daysLeft)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantTrialExpiring", OpsEventSeverity.Info,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialExpiring, OpsEventSeverity.Info,
                 $"Pro trial for tenant {tenantLabel} expires in {daysLeft} day(s) ({trialExpiresUtc:yyyy-MM-dd HH:mm}Z)",
                 tenantId, "System.TrialSweep", new { domainName, trialExpiresUtc, daysLeft });
         }
@@ -594,7 +616,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordTenantTrialExpiredAsync(string tenantId, string? domainName, DateTime trialExpiredUtc)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantTrialExpired", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialExpired, OpsEventSeverity.Warning,
                 $"Pro trial for tenant {tenantLabel} expired ({trialExpiredUtc:yyyy-MM-dd HH:mm}Z) — tenant is now Community",
                 tenantId, "System.TrialSweep", new { domainName, trialExpiredUtc });
         }
@@ -617,7 +639,7 @@ namespace AutopilotMonitor.Functions.Services
             var graceNote = retentionGraceEndsUtc is DateTime graceEnd
                 ? $"retention grace until {graceEnd:yyyy-MM-dd HH:mm}Z"
                 : "no retention grace applicable";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantPlanDowngraded", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantPlanDowngraded, OpsEventSeverity.Warning,
                 $"Tenant {tenantLabel} was downgraded Pro → Community by {caller} — {graceNote} (stored retention {storedRetentionDays}d)",
                 tenantId, caller, new { domainName, retentionGraceEndsUtc, storedRetentionDays });
         }
@@ -632,7 +654,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string? domainName, DateTime graceEndsUtc, int daysLeft, int storedRetentionDays)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantRetentionGraceExpiring", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantRetentionGraceExpiring, OpsEventSeverity.Warning,
                 $"Retention grace for downgraded tenant {tenantLabel} ends in {daysLeft} day(s) ({graceEndsUtc:yyyy-MM-dd HH:mm}Z) — " +
                 $"data older than the Community cap will then be deleted (stored retention {storedRetentionDays}d)",
                 tenantId, "System.TrialSweep", new { domainName, graceEndsUtc, daysLeft, storedRetentionDays });
@@ -647,7 +669,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string? domainName, DateTime graceEndedUtc, int storedRetentionDays)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
-            return WriteAsync(OpsEventCategory.Tenant, "TenantRetentionGraceEnded", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantRetentionGraceEnded, OpsEventSeverity.Warning,
                 $"Retention grace for downgraded tenant {tenantLabel} ended ({graceEndedUtc:yyyy-MM-dd HH:mm}Z) — " +
                 $"the Community retention cap is now enforced and older data will be deleted (stored retention {storedRetentionDays}d)",
                 tenantId, "System.TrialSweep", new { domainName, graceEndedUtc, storedRetentionDays });
@@ -666,7 +688,7 @@ namespace AutopilotMonitor.Functions.Services
             int windowFireCount, int windowSessionCount, double windowRatePct,
             int baselineFireCount, int baselineSessionCount, double baselineRatePct,
             double? lift, string? dimensionSummary)
-            => WriteAsync(OpsEventCategory.Tenant, "RuleFrequencyRegression", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.RuleFrequencyRegression, OpsEventSeverity.Warning,
                 $"Rule '{ruleTitle}' ({ruleId}) fired in {windowFireCount}/{windowSessionCount} sessions ({windowRatePct}%) over 7d " +
                 $"vs {baselineRatePct}% baseline ({baselineFireCount}/{baselineSessionCount} over 28d)" +
                 (lift.HasValue ? $" — lift {lift.Value}x" : " — new signal (no baseline fires)") +
@@ -696,7 +718,7 @@ namespace AutopilotMonitor.Functions.Services
             string tenantId, string appName, string currentVersion, string previousVersion,
             int currentMedianSeconds, int previousMedianSeconds,
             int currentMeasuredCount, int previousMeasuredCount, double lift)
-            => WriteAsync(OpsEventCategory.Tenant, "AppVersionDurationRegression", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.AppVersionDurationRegression, OpsEventSeverity.Warning,
                 $"App '{appName}' median install duration rose from {Math.Round(previousMedianSeconds / 60.0, 1)} to " +
                 $"{Math.Round(currentMedianSeconds / 60.0, 1)} min after version {currentVersion} " +
                 $"({currentMeasuredCount} measured installs vs {previousMeasuredCount} on {previousVersion}) — lift {lift}x",
@@ -727,7 +749,7 @@ namespace AutopilotMonitor.Functions.Services
             int windowHitCount, int windowSessionCount, double windowRatePct,
             int baselineHitCount, int baselineSessionCount, double baselineRatePct,
             double? lift, string? dimensionSummary)
-            => WriteAsync(OpsEventCategory.Maintenance, "VerdictCalibrationDrift", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.VerdictCalibrationDrift, OpsEventSeverity.Warning,
                 $"Verdict calibration [{kind}] {verdictPath}/{status}: {windowHitCount}/{windowSessionCount} ({windowRatePct}%) over 7d " +
                 $"vs {baselineRatePct}% baseline ({baselineHitCount}/{baselineSessionCount} over 28d)" +
                 (lift.HasValue ? $" — lift {lift.Value}x" : string.Empty) +
@@ -765,16 +787,16 @@ namespace AutopilotMonitor.Functions.Services
             var quickConfig = string.Equals(source, Functions.Config.UpdateTenantConfigurationFunction.CollectLogsSource, StringComparison.Ordinal);
             if (change.Enabled && quickConfig)
             {
-                return WriteAsync(OpsEventCategory.Tenant, "CollectLogsQuickConfigEnabled", OpsEventSeverity.Info,
+                return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.CollectLogsQuickConfigEnabled, OpsEventSeverity.Info,
                     $"Collect Logs: {changedBy} enabled diagnostics upload for tenant {tenantLabel} via the session quick-config dialog (destination {change.Destination ?? "?"}, mode {change.Mode})",
                     tenantId, changedBy, new { domainName, change.Destination, change.Mode, source });
             }
 
             return change.Enabled
-                ? WriteAsync(OpsEventCategory.Tenant, "DiagnosticsUploadEnabled", OpsEventSeverity.Info,
+                ? WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.DiagnosticsUploadEnabled, OpsEventSeverity.Info,
                     $"Diagnostics upload enabled for tenant {tenantLabel} (destination {change.Destination ?? "?"}, mode {change.Mode}) via {source} by {changedBy}",
                     tenantId, changedBy, new { domainName, change.Destination, change.Mode, source })
-                : WriteAsync(OpsEventCategory.Tenant, "DiagnosticsUploadDisabled", OpsEventSeverity.Info,
+                : WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.DiagnosticsUploadDisabled, OpsEventSeverity.Info,
                     $"Diagnostics upload disabled for tenant {tenantLabel} (mode {change.Mode}) via {source} by {changedBy}",
                     tenantId, changedBy, new { domainName, change.Destination, change.Mode, source });
         }
@@ -789,12 +811,12 @@ namespace AutopilotMonitor.Functions.Services
         /// Dual-register per memory feedback_ops_event_types_dual_register.
         /// </summary>
         public Task RecordSessionActionQueuedAsync(string tenantId, string sessionId, string actionType, string? reason, string queuedBy)
-            => WriteAsync(OpsEventCategory.Agent, "SessionActionQueued", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.SessionActionQueued, OpsEventSeverity.Info,
                 $"Server action '{actionType}' queued for session {sessionId} by {queuedBy}: {reason}",
                 tenantId, queuedBy, new { sessionId, actionType, reason });
 
         public Task RecordSessionTimeoutsAsync(string tenantId, int sessionCount, int timeoutHours)
-            => WriteAsync(OpsEventCategory.Agent, "SessionTimeouts", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.SessionTimeouts, OpsEventSeverity.Info,
                 $"{sessionCount} session(s) timed out after {timeoutHours}h",
                 tenantId, "System.Maintenance", new { sessionCount, timeoutHours });
 
@@ -808,7 +830,7 @@ namespace AutopilotMonitor.Functions.Services
         /// on the session is the durable record.
         /// </summary>
         public Task RecordAgentEmergencyBreakAsync(string tenantId, string sessionId, string? agentVersion, string message)
-            => WriteAsync(OpsEventCategory.Agent, "AgentEmergencyBreak", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, OpsEventSeverity.Warning,
                 $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
 
@@ -822,7 +844,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Telegram rule; the message carries both hashes verbatim.
         /// </summary>
         public Task RecordAgentBinaryIntegrityMismatchAsync(string tenantId, string? sessionId, string? agentVersion, string message)
-            => WriteAsync(OpsEventCategory.Agent, "AgentBinaryIntegrityMismatch", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentBinaryIntegrityMismatch, OpsEventSeverity.Warning,
                 $"Agent binary integrity mismatch on session {sessionId ?? "?"} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
 
@@ -838,12 +860,12 @@ namespace AutopilotMonitor.Functions.Services
         /// Dual-register per memory feedback_ops_event_types_dual_register.
         /// </summary>
         public Task RecordCmTraceTimeSkewRegressionAsync(string tenantId, string sessionId, string? agentVersion, string message, object details)
-            => WriteAsync(OpsEventCategory.Agent, "CmTraceTimeSkewRegression", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.CmTraceTimeSkewRegression, OpsEventSeverity.Warning,
                 $"CMTrace time-skew tripwire on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.Ingest", details);
 
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
-            => WriteAsync(OpsEventCategory.Agent, "ExcessiveSessionEvents", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.ExcessiveSessionEvents, OpsEventSeverity.Warning,
                 $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",
                 tenantId, "System.Maintenance", new { sessionId, eventCount, threshold });
 
@@ -857,13 +879,13 @@ namespace AutopilotMonitor.Functions.Services
         public Task RecordExcessiveSessionEventsAutoActionedAsync(
             string tenantId, string sessionId, string serialNumber, int eventCount, int threshold,
             string action, int durationHours)
-            => WriteAsync(OpsEventCategory.Security, "ExcessiveSessionEventsAutoActioned", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.ExcessiveSessionEventsAutoActioned, OpsEventSeverity.Critical,
                 $"Auto-{action.ToLowerInvariant()} device {serialNumber} for session {sessionId} ({eventCount} events ≥ {threshold}, {durationHours}h)",
                 tenantId, "System.Maintenance",
                 new { sessionId, serialNumber, eventCount, threshold, action, durationHours });
 
         public Task RecordNewImeVersionDetectedAsync(string version, string tenantId, string sessionId)
-            => WriteAsync(OpsEventCategory.Agent, "NewImeVersionDetected", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.NewImeVersionDetected, OpsEventSeverity.Warning,
                 $"New IME agent version detected: {version}",
                 tenantId, "System.Ingest", new { version, sessionId });
 
@@ -874,17 +896,17 @@ namespace AutopilotMonitor.Functions.Services
         /// Dual-registered in the web OPS_EVENT_TYPES list (OpsAlertRulesSection.tsx).
         /// </summary>
         public Task RecordImePatternDriftSuspectedAsync(string version, string patternId, string baselineVersion, double baselineRate, int sessions)
-            => WriteAsync(OpsEventCategory.Agent, "ImePatternDriftSuspected", OpsEventSeverity.Warning,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.ImePatternDriftSuspected, OpsEventSeverity.Warning,
                 $"IME pattern {patternId} never matched in {sessions} sessions on IME {version} (baseline {baselineVersion}: {baselineRate:P0} of sessions) — log wording may have changed",
                 null, "System.Ingest", new { version, patternId, baselineVersion, baselineRate, sessions });
 
         public Task RecordBlobStorageMissingAsync(string missingItem, int statusCode)
-            => WriteAsync(OpsEventCategory.Agent, "BlobStorageMissing", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.BlobStorageMissing, OpsEventSeverity.Critical,
                 $"Agent blob storage check failed: {missingItem} is missing or unreachable (HTTP {statusCode})",
                 null, "System.Maintenance", new { missingItem, statusCode });
 
         public Task RecordBlobStorageUnreachableAsync(string error)
-            => WriteAsync(OpsEventCategory.Agent, "BlobStorageUnreachable", OpsEventSeverity.Critical,
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.BlobStorageUnreachable, OpsEventSeverity.Critical,
                 $"Agent blob storage unreachable: {error}",
                 null, "System.Maintenance", new { error });
 
@@ -896,20 +918,20 @@ namespace AutopilotMonitor.Functions.Services
             // Duration breaches carry the P95 in minutes, every other type a percentage — same units the
             // customer-facing alert (NotificationAlertBuilder.BuildSlaBreachAlert) prints.
             var unit = breachType == Shared.Models.SlaBreachType.Duration ? " min" : "%";
-            return WriteAsync(OpsEventCategory.Sla, "SlaBreachNotification", OpsEventSeverity.Warning,
+            return WriteAsync(OpsEventCategory.Sla, OpsEventTypes.SlaBreachNotification, OpsEventSeverity.Warning,
                 $"SLA breach notification sent for tenant {tenantId}: {breachType} {currentRate:F1}{unit} (target {targetRate:F1}{unit})",
                 tenantId, "System.SlaEvaluation",
                 new { breachType, currentRate, targetRate, totalSessions, failedSessions });
         }
 
         public Task RecordSlaConsecutiveFailuresAsync(string tenantId, int count, string? lastDevice, string? lastReason)
-            => WriteAsync(OpsEventCategory.Sla, "SlaConsecutiveFailures", OpsEventSeverity.Error,
+            => WriteAsync(OpsEventCategory.Sla, OpsEventTypes.SlaConsecutiveFailures, OpsEventSeverity.Error,
                 $"Consecutive failure alert for tenant {tenantId}: {count} failures in a row",
                 tenantId, "System.SlaEvaluation",
                 new { count, lastDevice, lastReason });
 
         public Task RecordSlaEvaluationCompletedAsync(int tenantsEvaluated, int breachesDetected, int notificationsSent, int durationMs)
-            => WriteAsync(OpsEventCategory.Sla, "SlaEvaluationCompleted", OpsEventSeverity.Info,
+            => WriteAsync(OpsEventCategory.Sla, OpsEventTypes.SlaEvaluationCompleted, OpsEventSeverity.Info,
                 $"SLA evaluation: {tenantsEvaluated} tenants checked, {breachesDetected} breaches, {notificationsSent} notifications sent",
                 null, "System.SlaEvaluation",
                 new { tenantsEvaluated, breachesDetected, notificationsSent, durationMs });
@@ -926,7 +948,7 @@ namespace AutopilotMonitor.Functions.Services
             double? metricValue)
         {
             var suffix = string.IsNullOrWhiteSpace(description) ? string.Empty : $": {description}";
-            return WriteAsync(OpsEventCategory.Platform, "AzureMonitorAlert", severity,
+            return WriteAsync(OpsEventCategory.Platform, OpsEventTypes.AzureMonitorAlert, severity,
                 $"Azure Monitor alert '{alertRule}' {monitorCondition}{suffix}",
                 null, "System.AzureMonitor",
                 new { alertRule, monitorCondition, azureSeverity, monitoringService, targetResource, metricValue });
@@ -953,9 +975,11 @@ namespace AutopilotMonitor.Functions.Services
 
                 await _repository.SaveOpsEventAsync(entry);
 
-                // Fire-and-forget: dispatch alerts to enabled providers.
-                // TrySendAlerts has its own top-level try/catch so unobserved exceptions are safe.
-                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId);
+                // Fire-and-forget: dispatch alerts to the channels the rules target.
+                // DispatchAsync has its own top-level try/catch so unobserved exceptions are safe.
+                // The serialized details ride along: an outbound channel that only knows category,
+                // event and tenant GUID forces the reader back into the portal for every alert.
+                _ = _alertDispatch.DispatchAsync(category, eventType, severity, message, tenantId, entry.Details);
             }
             catch (Exception ex)
             {

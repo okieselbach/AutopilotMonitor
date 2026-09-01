@@ -36,5 +36,18 @@ namespace AutopilotMonitor.Shared.Models.Notifications
 
         /// <summary>Action buttons (e.g. "Open session" deep-link).</summary>
         public List<NotificationAction> Actions { get; set; } = new();
+
+        /// <summary>
+        /// Raw structured payload as a JSON object string (an ops event's Details), embedded
+        /// verbatim under <c>data</c> by the generic JSON renderer and ignored by every other
+        /// renderer — card formats have no place for arbitrary nesting, which is why the same
+        /// content is ALSO flattened into <see cref="Facts"/> for them.
+        /// <para>
+        /// Consumers that need machine-readable values (a sales webhook wanting the contact
+        /// address, not a rendered sentence) read this; it is the reason a channel does not have
+        /// to parse the summary text.
+        /// </para>
+        /// </summary>
+        public string? DataJson { get; set; }
     }
 }

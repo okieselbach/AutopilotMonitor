@@ -53,10 +53,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         public async Task<List<OpsEventEntry>> GetOpsEventsAsync(
-            string? category = null, DateTime? dateFrom = null, DateTime? dateTo = null)
+            string? category = null, DateTime? dateFrom = null, DateTime? dateTo = null,
+            OpsEventQueryFilters? filters = null)
         {
             var result = new List<OpsEventEntry>();
-            var filter = BuildFilter(category, dateFrom, dateTo);
+            var filter = BuildFilter(category, dateFrom, dateTo, filters);
             var query = string.IsNullOrEmpty(filter)
                 ? _table.QueryAsync<TableEntity>()
                 : _table.QueryAsync<TableEntity>(filter: filter);
@@ -71,7 +72,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         }
 
         public async Task<RawPage<OpsEventEntry>> GetOpsEventsPageAsync(
-            string? category, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation)
+            string? category, DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
+            OpsEventQueryFilters? filters = null)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
             try
@@ -80,7 +82,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // Azure-native (PK asc, RK asc) already yields newest-first. No re-sort.
                 if (!string.IsNullOrEmpty(category))
                 {
-                    var filter = BuildFilter(category, dateFrom, dateTo);
+                    var filter = BuildFilter(category, dateFrom, dateTo, filters);
                     var (entities, nextRawToken) = await AzureTablesPaginator.FetchPageAsync<TableEntity>(
                         client: _table,
                         filter: filter,
@@ -97,7 +99,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // the first page would come entirely from the alphabetically-first
                 // category — defeating "newest first globally". Mirrors the same
                 // pattern used for cross-tenant session queries.
-                return await FanOutAcrossCategoriesAsync(dateFrom, dateTo, pageSize, continuation);
+                return await FanOutAcrossCategoriesAsync(dateFrom, dateTo, pageSize, continuation, filters);
             }
             catch (Exception ex)
             {
@@ -106,21 +108,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        // Fixed list — keep in sync with OpsEventCategory. New categories are rare
-        // and require a deploy anyway, so a runtime probe of the table partitions
-        // would just trade certainty for cost.
-        internal static readonly string[] AllCategories = new[]
-        {
-            OpsEventCategory.Consent,
-            OpsEventCategory.Maintenance,
-            OpsEventCategory.Security,
-            OpsEventCategory.Tenant,
-            OpsEventCategory.Agent,
-            OpsEventCategory.Sla,
-        };
+        // Fixed list, owned by OpsEventCategory.All so it cannot drift from the vocabulary. It did
+        // once: Platform (Azure Monitor alerts) was written but never listed, so every PAGED
+        // cross-category read silently skipped it while the unpaged full-table path still showed
+        // it. New categories are rare and need a deploy anyway, so a runtime probe of the table
+        // partitions would just trade certainty for cost — the coverage test guards the list instead.
+        internal static readonly string[] AllCategories = OpsEventCategory.All;
 
         private async Task<RawPage<OpsEventEntry>> FanOutAcrossCategoriesAsync(
-            DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation)
+            DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation,
+            OpsEventQueryFilters? filters = null)
         {
             var continuations = PerPartitionFanOutMerge.DecodeMultiContinuation(continuation);
             // First-page request fans out across every category; subsequent
@@ -139,7 +136,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             var fetchTasks = activeCats.Select(async cat =>
             {
                 continuations.TryGetValue(cat, out var catContinuation);
-                var filter = BuildFilterWithRowKeyBound(cat, dateFrom, dateTo, catContinuation?.LastRowKey);
+                var filter = BuildFilterWithRowKeyBound(cat, dateFrom, dateTo, catContinuation?.LastRowKey, filters);
 
                 var fetched = new List<(string RowKey, OpsEventEntry Item)>();
                 await foreach (var e in _table.QueryAsync<TableEntity>(filter: filter, maxPerPage: pageSize))
@@ -162,7 +159,9 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return new RawPage<OpsEventEntry>(items, nextRawToken);
         }
 
-        private static string BuildFilterWithRowKeyBound(string category, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey)
+        internal static string BuildFilterWithRowKeyBound(
+            string category, DateTime? dateFrom, DateTime? dateTo, string? lastRowKey,
+            OpsEventQueryFilters? filters = null)
         {
             var clauses = new List<string>
             {
@@ -174,13 +173,45 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 clauses.Add(BusinessTimestamp.OpsDateFromClause(ToUtc(dateFrom.Value)));
             if (dateTo.HasValue)
                 clauses.Add(BusinessTimestamp.OpsDateToClause(ToUtc(dateTo.Value)));
+            AppendFieldFilters(clauses, filters);
             return string.Join(" and ", clauses);
+        }
+
+        /// <summary>
+        /// Appends the optional non-key field filters (eventType / severity / minSeverity) as
+        /// SERVER-SIDE clauses. Both filter builders funnel through here so the paged fan-out and
+        /// the single-category / unpaged paths can never honour a different filter surface — a
+        /// drift would make the same query return different rows depending on whether a category
+        /// was named. minSeverity expands to an OR-set instead of a range comparison because Table
+        /// Storage compares strings lexicographically ("Critical" &lt; "Error" &lt; "Info" &lt;
+        /// "Warning"), which has nothing to do with severity order.
+        /// </summary>
+        private static void AppendFieldFilters(List<string> clauses, OpsEventQueryFilters? filters)
+        {
+            if (filters == null || filters.IsEmpty) return;
+            if (!string.IsNullOrEmpty(filters.EventType))
+                clauses.Add($"EventType eq '{filters.EventType!.Replace("'", "''")}'");
+            if (!string.IsNullOrEmpty(filters.Severity))
+                clauses.Add($"Severity eq '{filters.Severity!.Replace("'", "''")}'");
+            if (!string.IsNullOrEmpty(filters.MinSeverity))
+            {
+                var allowed = OpsEventSeverity.AtOrAbove(filters.MinSeverity!);
+                // Info is the floor — every canonical severity qualifies, so the clause would be a
+                // no-op that only costs query length. An unknown value yields an empty set; the
+                // endpoint rejects those up front (400), so this stays defensive-only.
+                if (allowed.Count > 0 && allowed.Count < OpsEventSeverity.All.Length)
+                {
+                    var terms = allowed.Select(s => $"Severity eq '{s}'");
+                    clauses.Add($"({string.Join(" or ", terms)})");
+                }
+            }
         }
 
         // Date windows filter on the RowKey (reverse-tick, index-backed): the system
         // Timestamp is reset by storage migrations, and an OccurredUtc property filter
         // would exclude rows written before that column existed.
-        internal static string? BuildFilter(string? category, DateTime? dateFrom, DateTime? dateTo)
+        internal static string? BuildFilter(
+            string? category, DateTime? dateFrom, DateTime? dateTo, OpsEventQueryFilters? filters = null)
         {
             var clauses = new List<string>();
             if (!string.IsNullOrEmpty(category))
@@ -195,6 +226,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             {
                 clauses.Add(BusinessTimestamp.OpsDateToClause(ToUtc(dateTo.Value)));
             }
+            AppendFieldFilters(clauses, filters);
             return clauses.Count == 0 ? null : string.Join(" and ", clauses);
         }
 

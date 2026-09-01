@@ -7,6 +7,11 @@
 import { DIAG_ZIP_MAP } from './diag-zip-map.js';
 import { RULE_AUTHORING_GUIDE } from './rule-authoring-guide.js';
 import { GATHER_RULE_SCHEMA, ANALYZE_RULE_SCHEMA, RULE_GUARDRAILS } from './rule-authoring.generated.js';
+import {
+  OPS_EVENT_CATEGORIES,
+  OPS_EVENT_SEVERITIES,
+  OPS_EVENT_TYPES,
+} from './generated/wire-vocabularies.generated.js';
 
 // Single source of truth for the model-facing event-type catalog. MUST stay in
 // sync with C# `Constants.EventTypes` (Shared) — enforced by the vitest drift test
@@ -403,8 +408,22 @@ export function assertKnownDevicePropertyKeys(keys: string[]): void {
   );
 }
 
+/**
+ * The three ops vocabularies in one resource: what get_ops_events can filter by.
+ *
+ * GENERATED upstream (C# OpsEventCategory / OpsEventSeverity / OpsEventTypes → shared manifest
+ * → wire-vocabularies.generated.ts), so unlike the hand-maintained catalogs above this one
+ * cannot drift: a backend type that nobody re-typed here would still show up.
+ */
+export const OPS_EVENTS_CATALOG = {
+  categories: OPS_EVENT_CATEGORIES,
+  severities: OPS_EVENT_SEVERITIES,
+  eventTypes: OPS_EVENT_TYPES,
+} as const;
+
 export type ResourceName =
   | 'event_types'
+  | 'ops_event_types'
   | 'device_properties'
   | 'diag_zip_layout'
   | 'rule_authoring_guide'
@@ -415,6 +434,8 @@ export function getResourceContent(name: ResourceName): unknown {
   switch (name) {
     case 'event_types':
       return EVENT_TYPES_CATALOG;
+    case 'ops_event_types':
+      return OPS_EVENTS_CATALOG;
     case 'device_properties':
       return DEVICE_PROPERTIES_CATALOG;
     case 'diag_zip_layout':

@@ -22,6 +22,17 @@ import type {
   SoftwareInventoryResponse,
   VerdictCalibrationResponse,
 } from '../generated/wire-types.generated.js';
+// Vocabularies as VALUES, generated from the C# constants (see wire-vocabularies.generated.ts).
+// Tool enums derive from these — a hand-typed list is what let get_ops_events advertise a
+// category vocabulary the backend had outgrown.
+import {
+  ANNOTATION_LANES,
+  ANNOTATION_VERDICTS,
+  EVENT_SEVERITIES,
+  OPS_EVENT_CATEGORIES,
+  OPS_EVENT_SEVERITIES,
+  SESSION_STATUSES,
+} from '../generated/wire-vocabularies.generated.js';
 
 /**
  * Non-sensitive tenant fields safe to surface to the model. Keep-list (not
@@ -811,30 +822,52 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Get operational events for platform monitoring. Shows consent flow results, maintenance runs, security blocks, ' +
         'tenant offboards, agent timeouts, and blob storage health. Global Admin only. ' +
-        'Use category to narrow results (Consent, Maintenance, Security, Tenant, Agent, SLA). ' +
-        'Forensics: dateFrom / dateTo (ISO 8601 UTC) bound the search window exactly; without either, the backend defaults to the last 30 days. ' +
+        'FILTER FIRST — every filter below is applied by the STORAGE QUERY, so a narrow question costs a narrow response: ' +
+        'eventType for one exact type (e.g. "AgentEmergencyBreak"), severity / minSeverity for one level or a threshold, ' +
+        `category to narrow to ${OPS_EVENT_CATEGORIES.join(', ')}, days / dateFrom / dateTo for the window. ` +
+        'Do NOT pull a whole category and filter the events yourself — name the filter instead. ' +
+        'Window: days=1 is the last 24h (shorthand, ignored when dateFrom or dateTo is given); dateFrom / dateTo (ISO 8601 UTC) ' +
+        'bound it exactly; with none of the three, the backend defaults to the last 30 days. ' +
+        'eventType is an EXACT, case-sensitive match against the stored type; call get_resource(name="ops_event_types") ' +
+        'for the full vocabulary. An unknown type is not an error, it is an empty result. ' +
         'Pagination: when "nextLink" is present in the response, more events are available — call this tool again and pass the ' +
         'whole nextLink string (e.g. "/api/global/ops-events?pageSize=...&continuation=...&dateFrom=...&dateTo=...") as ' +
-        '"continuation". The tool follows it verbatim so the backend-defaulted date window round-trips correctly (otherwise ' +
-        'a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
+        '"continuation". The tool follows it verbatim so the backend-defaulted date window and the filters round-trip correctly ' +
+        '(otherwise a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
       inputSchema: {
-        category: z.string().optional().describe('Filter by category: Consent, Maintenance, Security, Tenant, Agent, SLA'),
+        category: z.enum(OPS_EVENT_CATEGORIES).optional().describe('Filter by category (OpsEvents partition key).'),
+        eventType: z.string().optional()
+          .describe('Exact event type, case-sensitive (e.g. "AgentEmergencyBreak", "MaintenanceFailed"). Applied server-side — prefer this over fetching a whole category.'),
+        severity: z.enum(OPS_EVENT_SEVERITIES).optional()
+          .describe('Exact severity. Use minSeverity instead when you want "this level and worse".'),
+        minSeverity: z.enum(OPS_EVENT_SEVERITIES).optional()
+          .describe('Threshold: this severity and everything above it (Info < Warning < Error < Critical) — the same ladder the ops alert rules use.'),
         tenantId: z.string().optional().describe('Optional — filter events to a single tenant. Omit for cross-tenant view.'),
+        days: z.coerce.number().int().min(1).max(90).optional()
+          .describe('Shorthand window: only events from the last N days (1 = last 24h). Ignored when dateFrom or dateTo is given.'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the window.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(200)
           .describe('Page size (1-1000, default 200). Returns this many events per call; follow nextLink to fetch more.'),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo) round-trip correctly.'),
+          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and filters) round-trip correctly.'),
       },
       annotations: READ_ONLY,
     },
     async (args) => withToolTelemetry('get_ops_events', args, async () => {
       try {
-        const { category, tenantId, dateFrom, dateTo, pageSize, continuation } = args;
+        const { category, eventType, severity, minSeverity, tenantId, days, dateFrom, dateTo, pageSize, continuation } = args;
+        // "days" is client-side sugar for dateFrom: the backend contract is the ISO window, and
+        // resolving here keeps the resolved bound on the wire so it round-trips through nextLink
+        // (a backend-side "days" would re-resolve "now" on every page and blow the fingerprint).
+        // An explicit bound always wins — silently overriding one the caller named would be worse
+        // than ignoring the shorthand.
+        const resolvedDateFrom = dateFrom ?? (days && !dateTo
+          ? new Date(Date.now() - days * 86_400_000).toISOString()
+          : undefined);
         const path = followNextLink(
           '/api/global/ops-events',
-          { category, tenantId, dateFrom, dateTo, pageSize },
+          { category, eventType, severity, minSeverity, tenantId, dateFrom: resolvedDateFrom, dateTo, pageSize },
           continuation,
         );
         const data = await apiFetch(path);
@@ -943,9 +976,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Pagination: when "nextLink" is present, pass the whole string back as "continuation"; stop when absent.',
       inputSchema: {
         tenantId: TenantGuidSchema.optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
-        lane: z.enum(['operator', 'tenantadmin', 'globaladmin']).optional()
+        lane: z.enum(ANNOTATION_LANES).optional()
           .describe('Optional — filter to one annotation lane.'),
-        verdict: z.enum(['root_cause_confirmed', 'analysis_wrong', 'different_problem', 'inconclusive']).optional()
+        verdict: z.enum(ANNOTATION_VERDICTS).optional()
           .describe('Optional — filter to one structured verdict.'),
         ruleId: z.string().optional()
           .describe('Optional — only annotations whose rule-id snapshot contains this rule (e.g. "ANALYZE-ESP-001").'),
@@ -991,7 +1024,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         sessionId: SessionIdSchema.describe('Session UUID to annotate.'),
         tenantId: TenantGuidSchema.optional()
           .describe('Optional — the session\'s tenant. If omitted, auto-resolved from the session.'),
-        verdict: z.enum(['root_cause_confirmed', 'analysis_wrong', 'different_problem', 'inconclusive']).nullable().optional()
+        verdict: z.enum(ANNOTATION_VERDICTS).nullable().optional()
           .describe('Structured verdict, or null. At least one of verdict/note must be non-null unless clearing.'),
         note: z.string().max(4096).nullable().optional()
           .describe('Free-text note (max 4096 chars), or null.'),
@@ -1049,7 +1082,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search, or to auto-resolve from a sessionId query (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         sessionId: SessionIdSchema.optional().describe('Filter to a specific session'),
         eventType: z.string().optional().describe('Event type filter (e.g. "app_install_failed", "error_detected")'),
-        severity: z.enum(['Info', 'Warning', 'Error', 'Critical']).optional(),
+        severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (substring match)'),
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
@@ -1103,7 +1136,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
-        status: z.enum(['InProgress', 'Pending', 'Stalled', 'Succeeded', 'Failed', 'AwaitingUser', 'Incomplete']).optional(),
+        status: z.enum(SESSION_STATUSES).optional(),
         startedAfter: z.string().optional().describe('ISO 8601 datetime'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime'),
         serialNumber: z.string().optional(),
@@ -1800,7 +1833,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         '  - "rule_guardrails": on-device collection allowlists a gather rule target must satisfy',
       inputSchema: {
         name: z
-          .enum(['event_types', 'device_properties', 'diag_zip_layout', 'rule_authoring_guide', 'rule_schemas', 'rule_guardrails'])
+          .enum(['event_types', 'ops_event_types', 'device_properties', 'diag_zip_layout', 'rule_authoring_guide', 'rule_schemas', 'rule_guardrails'])
           .describe('Resource name'),
       },
       annotations: READ_ONLY_OPEN,

@@ -12,17 +12,15 @@ export function SectionAlerts() {
     savingOpsAlerts,
     adminConfig,
     opsAlertRules,
-    opsAlertTelegramEnabled,
-    opsAlertTelegramChatId,
-    opsAlertTeamsEnabled,
-    opsAlertTeamsWebhookUrl,
-    opsAlertSlackEnabled,
-    opsAlertSlackWebhookUrl,
+    opsNotificationChannels,
     excessiveEventCountThreshold,
     excessiveEventAutoActionMode,
     excessiveEventAutoActionThreshold,
     excessiveEventAutoActionDurationHours,
     handleSaveOpsAlertConfig,
+    handleTestOpsChannel,
+    testingOpsChannelId,
+    testOpsChannelResult,
   } = useAdminConfig();
 
   useEffect(() => { ensureAdminConfigLoaded(); }, [ensureAdminConfigLoaded]);
@@ -35,17 +33,15 @@ export function SectionAlerts() {
         savingOpsAlerts={savingOpsAlerts}
         adminConfigExists={!!adminConfig}
         opsAlertRules={opsAlertRules}
-        opsAlertTelegramEnabled={opsAlertTelegramEnabled}
-        opsAlertTelegramChatId={opsAlertTelegramChatId}
-        opsAlertTeamsEnabled={opsAlertTeamsEnabled}
-        opsAlertTeamsWebhookUrl={opsAlertTeamsWebhookUrl}
-        opsAlertSlackEnabled={opsAlertSlackEnabled}
-        opsAlertSlackWebhookUrl={opsAlertSlackWebhookUrl}
+        opsNotificationChannels={opsNotificationChannels}
         excessiveEventCountThreshold={excessiveEventCountThreshold}
         excessiveEventAutoActionMode={excessiveEventAutoActionMode}
         excessiveEventAutoActionThreshold={excessiveEventAutoActionThreshold}
         excessiveEventAutoActionDurationHours={excessiveEventAutoActionDurationHours}
         onSave={handleSaveOpsAlertConfig}
+        onTestChannel={handleTestOpsChannel}
+        testingChannelId={testingOpsChannelId}
+        testChannelResult={testOpsChannelResult}
       />
     </>
   );

@@ -218,42 +218,89 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Sends an ops alert to the specified Telegram chat.
+        /// Sends an alert to the specified Telegram chat.
         /// Converts the NotificationAlert into a plain-text Telegram message with severity emoji.
         /// Best-effort — silently no-ops on failure.
+        /// <para>
+        /// Virtual: <see cref="Notifications.NotificationChannelDispatcher"/> routes Telegram
+        /// channels here, and its routing tests need a seam.
+        /// </para>
         /// </summary>
-        public async Task SendOpsAlertAsync(string chatId, NotificationAlert alert)
+        public virtual async Task SendOpsAlertAsync(string chatId, NotificationAlert alert)
         {
             try
             {
-                var webhookUrl = await GetWebhookUrlAsync();
-                if (string.IsNullOrWhiteSpace(webhookUrl) || string.IsNullOrWhiteSpace(chatId))
-                    return;
-
-                var icon = alert.Severity switch
-                {
-                    NotificationSeverity.Error => "\U0001f7e0",   // orange circle
-                    NotificationSeverity.Warning => "\U0001f7e1", // yellow circle
-                    NotificationSeverity.Info => "\u2139\ufe0f",  // info
-                    _ => "\U0001f534"                              // red circle (fallback / success)
-                };
-
-                var sb = new StringBuilder();
-                sb.AppendLine($"{icon} {alert.Title}");
-                sb.AppendLine(alert.Summary);
-
-                foreach (var fact in alert.Facts)
-                    sb.AppendLine($"{fact.Name}: {fact.Value}");
-
-                var payload = new { chat_id = chatId, text = sb.ToString().TrimEnd() };
-                var json = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                await PostWithRetryAsync(webhookUrl, content, $"OpsAlert:{alert.Title}");
+                await SendAlertWithResultAsync(chatId, alert);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to send Telegram ops alert: {Title}", alert.Title);
             }
+        }
+
+        /// <summary>
+        /// Same message as <see cref="SendOpsAlertAsync"/>, but REPORTS the outcome instead of
+        /// swallowing it — for the channel "send test" endpoints. Never throws.
+        /// </summary>
+        public virtual async Task<Notifications.WebhookTestResult> SendAlertWithResultAsync(string chatId, NotificationAlert alert)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(chatId))
+                    return new Notifications.WebhookTestResult { Success = false, Message = "No Telegram chat ID configured." };
+
+                var webhookUrl = await GetWebhookUrlAsync();
+                if (string.IsNullOrWhiteSpace(webhookUrl))
+                {
+                    return new Notifications.WebhookTestResult
+                    {
+                        Success = false,
+                        Message = "The platform Telegram bot is not configured — no message can be delivered."
+                    };
+                }
+
+                var payload = new { chat_id = chatId, text = RenderAlertText(alert) };
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var sent = await PostWithRetryAsync(webhookUrl!, content, $"Alert:{alert.Title}");
+
+                return sent
+                    ? new Notifications.WebhookTestResult { Success = true, Message = "Test notification sent successfully." }
+                    : new Notifications.WebhookTestResult
+                    {
+                        Success = false,
+                        Message = "Telegram rejected the message — check the chat ID and that the bot is a member of that chat."
+                    };
+            }
+            catch (Exception ex)
+            {
+                return new Notifications.WebhookTestResult { Success = false, Message = $"Connection error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Flattens an alert into the plain-text form Telegram accepts. Telegram has no card
+        /// format, so facts become "Name: Value" lines — that is also what carries an ops event's
+        /// structured payload into the message.
+        /// </summary>
+        internal static string RenderAlertText(NotificationAlert alert)
+        {
+            var icon = alert.Severity switch
+            {
+                NotificationSeverity.Error => "\U0001f7e0",   // orange circle
+                NotificationSeverity.Warning => "\U0001f7e1", // yellow circle
+                NotificationSeverity.Info => "\u2139\ufe0f",  // info
+                _ => "\U0001f534"                              // red circle (fallback / success)
+            };
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"{icon} {alert.Title}");
+            sb.AppendLine(alert.Summary);
+
+            foreach (var fact in alert.Facts)
+                sb.AppendLine($"{fact.Name}: {fact.Value}");
+
+            return sb.ToString().TrimEnd();
         }
 
         private async Task<string?> GetWebhookUrlAsync()

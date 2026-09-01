@@ -46,12 +46,7 @@ public class SessionOwnerBindingObserverTests
             var adminConfig = new Mock<AdminConfigurationService>(
                 Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance,
                 new MemoryCache(new MemoryCacheOptions())) { CallBase = false };
-            var alertDispatch = new OpsAlertDispatchService(
-                adminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(),
-                    NullLogger<TelegramNotificationService>.Instance),
-                new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance),
-                NullLogger<OpsAlertDispatchService>.Instance);
+            var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
             Sut = new SessionOwnerBindingObserver(

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using AutopilotMonitor.Functions.Functions.Rules;
 using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
 using Xunit;
@@ -74,6 +75,12 @@ public sealed class SharedManifestParityTests
             ["webhookProviderTypes"] = EnumMap<WebhookProviderType>(),
             ["annotationLanes"] = AnnotationLanes.All,
             ["annotationVerdicts"] = AnnotationVerdicts.All,
+            // Ops vocabularies. Declaration order kept for severities — it IS the ladder
+            // (Info < Warning < Error < Critical), and the MCP renders it in that order.
+            ["opsEventCategories"] = ConstStrings(typeof(OpsEventCategory)),
+            ["opsEventSeverities"] = ConstStrings(typeof(OpsEventSeverity)),
+            // Declaration order (grouped by category) — the MCP renders this catalog verbatim.
+            ["opsEventTypes"] = OpsEventTypes.All,
             ["tenantRoles"] = ConstStrings(typeof(Constants.TenantRoles)),
             ["globalRoles"] = ConstStrings(typeof(Constants.GlobalRoles)),
             ["delegatedRoles"] = ConstStrings(typeof(Constants.DelegatedRoles)),

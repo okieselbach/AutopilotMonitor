@@ -14,7 +14,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 {
     /// <summary>
     /// Cross-tenant READ endpoint for PLATFORM-OPERATIONAL events (Consent/Maintenance/Security/Tenant/Agent/
-    /// SLA). Supports optional category + dateFrom/dateTo filters and opt-in pagination. Authentication +
+    /// SLA). Supports optional category + eventType/severity/minSeverity + dateFrom/dateTo filters (all
+    /// server-side except the tenant drill) and opt-in pagination. Authentication +
     /// GlobalReadOrAdmin + TenantScoping.None enforced by PolicyEnforcementMiddleware — a Global Admin and the
     /// read-only Global Reader reach it, but a delegated ("MSP") admin does NOT: ops-events is the platform
     /// operator's view, not customer telemetry, so it stays GA/Reader-only (None ⇒ no scoped-route rescue for
@@ -56,19 +57,34 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     return bad;
                 }
 
+                // Optional exact-match field filters (eventType / severity / minSeverity). Unlike
+                // the tenantId drill below these are pushed into the STORAGE query, so an operator
+                // asking for one event type no longer pulls a whole category over the wire.
+                var fieldFilters = OpsEventFilterRequest.Parse(query);
+                if (fieldFilters.Error != null)
+                {
+                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await bad.WriteAsJsonAsync(new { success = false, message = fieldFilters.Error });
+                    return bad;
+                }
+                var filters = fieldFilters.Filters;
+
                 // OpsEvents are partitioned by category, not tenant — tenantId filter is applied
                 // post-fetch. Pages may report fewer items than pageSize when the filter is
                 // narrow (Azure scan returns pageSize raw rows; we filter and emit what passes).
+                // The field filters are appended AFTER the pre-existing discriminators so a token
+                // minted before they existed still fingerprints identically when none are named.
                 var extrasList = new List<KeyValuePair<string, string?>>();
                 if (!string.IsNullOrEmpty(category))
                     extrasList.Add(new KeyValuePair<string, string?>("category", category));
                 if (!string.IsNullOrEmpty(filterTenantId))
                     extrasList.Add(new KeyValuePair<string, string?>("tenantId", filterTenantId));
+                extrasList.AddRange(OpsEventFilterRequest.ToExtras(filters));
                 var extras = extrasList.Count > 0 ? extrasList.ToArray() : null;
 
                 if (parsed.PageSize == null)
                 {
-                    var events = await _repository.GetOpsEventsAsync(category, parsed.DateFrom, parsed.DateTo);
+                    var events = await _repository.GetOpsEventsAsync(category, parsed.DateFrom, parsed.DateTo, filters);
                     // Drill correctness: apply the optional ?tenantId= GA/Reader drill in-memory (OpsEvents PK
                     // = category, so the storage query can't). Not a tenant-isolation boundary — see class doc.
                     var filtered = FilterByTenant(events, filterTenantId).ToList();
@@ -100,7 +116,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
 
                 var page = await _repository.GetOpsEventsPageAsync(
-                    category, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken);
+                    category, parsed.DateFrom, parsed.DateTo, parsed.PageSize.Value, azureToken, filters);
 
                 // Drill correctness: same optional ?tenantId= GA/Reader drill on the paged path — see FilterByTenant.
                 var pageItems = FilterByTenant(page.Items, filterTenantId).ToList();

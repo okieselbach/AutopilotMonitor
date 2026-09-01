@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         private readonly CloudPcDeviceValidator _cloudPcDeviceValidator;
         private readonly IntuneDeviceBindingValidator _intuneDeviceBindingValidator;
         private readonly BootstrapSessionService _bootstrapSessionService;
-        private readonly WebhookNotificationService _webhookNotificationService;
+        private readonly NotificationChannelDispatcher _channelDispatcher;
         private readonly SessionDeletionGuard _deletionGuard;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly SessionOwnerBindingObserver _ownerBinding;
@@ -53,7 +53,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             CloudPcDeviceValidator cloudPcDeviceValidator,
             IntuneDeviceBindingValidator intuneDeviceBindingValidator,
             BootstrapSessionService bootstrapSessionService,
-            WebhookNotificationService webhookNotificationService,
+            NotificationChannelDispatcher channelDispatcher,
             SessionDeletionGuard deletionGuard,
             SessionOwnerBindingObserver ownerBinding,
             OpsEventService opsEvents)
@@ -70,7 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             _cloudPcDeviceValidator = cloudPcDeviceValidator;
             _intuneDeviceBindingValidator = intuneDeviceBindingValidator;
             _bootstrapSessionService = bootstrapSessionService;
-            _webhookNotificationService = webhookNotificationService;
+            _channelDispatcher = channelDispatcher;
             _deletionGuard = deletionGuard;
             _ownerBinding = ownerBinding;
             _opsEvents = opsEvents;
@@ -412,7 +412,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     isResume: isResume,
                     sessionUrl: sessionUrl);
 
-                await _webhookNotificationService.SendToChannelsAsync(startChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(startChannels, alert);
             }
             catch (Exception ex)
             {

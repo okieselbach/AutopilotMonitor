@@ -816,32 +816,10 @@ namespace AutopilotMonitor.Shared.Models
             static string Redact(string? value)
                 => string.IsNullOrEmpty(value) ? (value ?? string.Empty) : Constants.RedactedSecretPlaceholder;
 
-            // Channels: redact the secret fields (url, custom headers) per channel but keep the
-            // list structure (ids, names, toggles) visible so a reader still sees the channel
-            // setup. Non-empty but unparseable JSON falls back to whole-string redaction.
+            // Channels: redact the secret fields per channel but keep the list structure visible.
+            // Shared with the platform ops channel list — see NotificationChannel.RedactList.
             static string RedactChannels(string? json)
-            {
-                if (string.IsNullOrEmpty(json))
-                    return json ?? string.Empty;
-
-                var channels = Notifications.NotificationChannel.ParseList(json);
-                if (channels.Count == 0)
-                    return Constants.RedactedSecretPlaceholder;
-
-                foreach (var channel in channels)
-                {
-                    channel.Url = RedactNullable(channel.Url);
-                    channel.CustomHeadersJson = RedactNullable(channel.CustomHeadersJson);
-                    channel.SigningSecret = RedactNullable(channel.SigningSecret);
-                }
-
-                return Notifications.NotificationChannel.SerializeList(channels);
-
-                // Unlike the top-level fields (non-nullable strings), channel secrets are
-                // string? — an unset field must stay null, not become "".
-                static string? RedactNullable(string? value)
-                    => string.IsNullOrEmpty(value) ? value : Constants.RedactedSecretPlaceholder;
-            }
+                => Notifications.NotificationChannel.RedactList(json);
         }
 
         /// <summary>
@@ -867,35 +845,8 @@ namespace AutopilotMonitor.Shared.Models
         /// in place — an unresolvable placeholder URL simply fails SSRF validation at dispatch.
         /// </summary>
         private void RestoreRedactedChannelsFrom(TenantConfiguration existing)
-        {
-            if (NotificationChannelsJson == Constants.RedactedSecretPlaceholder)
-            {
-                NotificationChannelsJson = existing.NotificationChannelsJson;
-                return;
-            }
-
-            if (string.IsNullOrEmpty(NotificationChannelsJson)
-                || NotificationChannelsJson.IndexOf(Constants.RedactedSecretPlaceholder, StringComparison.Ordinal) < 0)
-                return;
-
-            var incoming = Notifications.NotificationChannel.ParseList(NotificationChannelsJson);
-            if (incoming.Count == 0)
-                return;
-
-            var existingById = Notifications.NotificationChannel.ParseList(existing.NotificationChannelsJson)
-                .ToDictionary(c => c.Id, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var channel in incoming)
-            {
-                if (!existingById.TryGetValue(channel.Id, out var match))
-                    continue;
-                if (channel.Url == Constants.RedactedSecretPlaceholder) channel.Url = match.Url;
-                if (channel.CustomHeadersJson == Constants.RedactedSecretPlaceholder) channel.CustomHeadersJson = match.CustomHeadersJson;
-                if (channel.SigningSecret == Constants.RedactedSecretPlaceholder) channel.SigningSecret = match.SigningSecret;
-            }
-
-            NotificationChannelsJson = Notifications.NotificationChannel.SerializeList(incoming);
-        }
+            => NotificationChannelsJson = Notifications.NotificationChannel.RestoreRedactedList(
+                NotificationChannelsJson, existing.NotificationChannelsJson);
 
         /// <summary>
         /// Returns the effective webhook URL and provider type, handling legacy TeamsWebhookUrl migration.

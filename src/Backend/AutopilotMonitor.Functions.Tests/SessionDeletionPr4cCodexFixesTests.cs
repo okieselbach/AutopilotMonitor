@@ -659,11 +659,7 @@ public class SessionDeletionPr4cCodexFixesTests
             // backed by a noop repository — F5 tests assert CAS ordering, not the OpsEvent itself.
             var opsRepoStub = new Mock<IOpsEventRepository>();
             opsRepoStub.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
-            var alertDispatchStub = new OpsAlertDispatchService(
-                AdminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-                new AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService(new HttpClient(), NullLogger<AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService>.Instance),
-                NullLogger<OpsAlertDispatchService>.Instance);
+            var alertDispatchStub = TestNotifications.InertOpsAlertDispatch(AdminConfig.Object);
             var opsServiceStub = new OpsEventService(opsRepoStub.Object, NullLogger<OpsEventService>.Instance, alertDispatchStub);
 
             // PR-B Codex F4 follow-up: worker now reads DeletionProgress on the poison path.

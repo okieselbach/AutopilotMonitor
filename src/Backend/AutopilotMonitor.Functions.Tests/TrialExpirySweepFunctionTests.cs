@@ -50,11 +50,7 @@ public class TrialExpirySweepFunctionTests
         { CallBase = false };
         adminConfig.Setup(a => a.GetConfigurationAsync()).ReturnsAsync(new AdminConfiguration { UpdatedBy = "test" });
 
-        var alertDispatch = new OpsAlertDispatchService(
-            adminConfig.Object,
-            new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-            new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance),
-            NullLogger<OpsAlertDispatchService>.Instance);
+        var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
         var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
         var sut = new TrialExpirySweepFunction(
@@ -248,11 +244,7 @@ public class TrialExpirySweepFunctionTests
             Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache)
         { CallBase = false };
         adminConfig.Setup(a => a.GetConfigurationAsync()).ReturnsAsync(new AdminConfiguration { UpdatedBy = "test" });
-        var alertDispatch = new OpsAlertDispatchService(
-            adminConfig.Object,
-            new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-            new WebhookNotificationService(new HttpClient(), NullLogger<WebhookNotificationService>.Instance),
-            NullLogger<OpsAlertDispatchService>.Instance);
+        var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
         var sut = new TrialExpirySweepFunction(
             configRepo.Object,

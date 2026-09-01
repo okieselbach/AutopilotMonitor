@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
@@ -173,6 +174,11 @@ namespace AutopilotMonitor.Functions.Helpers
             if (channelsError != null)
                 return $"Invalid notification channels: {channelsError}";
 
+            var telegramGateError = ValidateTelegramChannelGate(
+                candidate.NotificationChannelsJson, existing.NotificationChannelsJson, isGlobalAdmin);
+            if (telegramGateError != null)
+                return telegramGateError;
+
             var brandingUrlError = ValidateBrandingImageUrl(candidate.EnrollmentSummaryBrandingImageUrl);
             if (brandingUrlError != null)
                 return $"Invalid enrollment summary branding image URL: {brandingUrlError}";
@@ -302,9 +308,15 @@ namespace AutopilotMonitor.Functions.Helpers
                     || channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.None)
                     return $"channel \"{label}\" has an invalid provider type.";
 
-                var urlError = SsrfGuard.ValidateWebhookUrlFormat(channel.Url);
-                if (urlError != null)
-                    return $"channel \"{label}\": {urlError}";
+                // Telegram's destination is a chat ID, not a URL — the SSRF gate does not apply
+                // (there is no caller-supplied endpoint; the bot URL is platform-owned) and would
+                // reject every valid value. Format-check the chat ID instead.
+                var destinationError =
+                    channel.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram
+                        ? ValidateTelegramChatId(channel.Url)
+                        : SsrfGuard.ValidateWebhookUrlFormat(channel.Url);
+                if (destinationError != null)
+                    return $"channel \"{label}\": {destinationError}";
 
                 var headerError = ValidateWebhookCustomHeaders(channel.CustomHeadersJson);
                 if (headerError != null)
@@ -313,6 +325,85 @@ namespace AutopilotMonitor.Functions.Helpers
                 var secretError = ValidateWebhookSigningSecret(channel.SigningSecret);
                 if (secretError != null)
                     return $"channel \"{label}\" signing secret: {secretError}";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Validates a Telegram destination chat ID. Returns an error message, or null when valid.
+        /// Accepts a numeric id (negative for groups/channels, e.g. -1003785642894) or an @username.
+        /// Empty is rejected: unlike a webhook URL, a Telegram channel with no chat ID cannot be
+        /// saved as "configured but idle" — it would silently drop every message.
+        /// </summary>
+        internal static string? ValidateTelegramChatId(string? chatId)
+        {
+            if (string.IsNullOrWhiteSpace(chatId))
+                return "a Telegram chat ID is required.";
+
+            var trimmed = chatId!.Trim();
+
+            if (trimmed.StartsWith("@", StringComparison.Ordinal))
+            {
+                // Telegram public usernames: 5-32 chars, letters/digits/underscore, letter first.
+                var name = trimmed.Substring(1);
+                if (name.Length < 5 || name.Length > 32 || !char.IsLetter(name[0]))
+                    return "the @username must be 5-32 characters and start with a letter.";
+                foreach (var ch in name)
+                {
+                    if (!char.IsLetterOrDigit(ch) && ch != '_')
+                        return "the @username may only contain letters, digits and underscores.";
+                }
+                return null;
+            }
+
+            var digits = trimmed.StartsWith("-", StringComparison.Ordinal) ? trimmed.Substring(1) : trimmed;
+            if (digits.Length == 0 || digits.Length > 20)
+                return "must be a numeric chat ID (up to 20 digits) or an @username.";
+            foreach (var ch in digits)
+            {
+                if (!char.IsDigit(ch))
+                    return "must be a numeric chat ID (up to 20 digits) or an @username.";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Global-Admin gate for Telegram channels. A Telegram channel sends through the PLATFORM's
+        /// bot (the token lives in PreviewConfig, not in tenant config), so a tenant admin must not
+        /// be able to create or retarget one — hiding the provider in the UI is not a control.
+        /// <para>
+        /// Compares against the stored config so a non-GA caller can still save unrelated changes
+        /// while a GA-created Telegram channel is present: only ADDING one, or changing an existing
+        /// one's destination/enabled state, is refused. Same shape as the retention-cap check.
+        /// </para>
+        /// </summary>
+        internal static string? ValidateTelegramChannelGate(string? candidateJson, string? existingJson, bool isGlobalAdmin)
+        {
+            if (isGlobalAdmin)
+                return null;
+
+            var candidates = Shared.Models.Notifications.NotificationChannel.ParseList(candidateJson)
+                .Where(c => c.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram)
+                .ToList();
+
+            if (candidates.Count == 0)
+                return null;
+
+            var existingById = Shared.Models.Notifications.NotificationChannel.ParseList(existingJson)
+                .Where(c => c.ProviderType == (int)Shared.Models.Notifications.WebhookProviderType.Telegram)
+                .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var channel in candidates)
+            {
+                if (!existingById.TryGetValue(channel.Id, out var stored)
+                    || !string.Equals(stored.Url, channel.Url, StringComparison.Ordinal)
+                    || stored.Enabled != channel.Enabled)
+                {
+                    return "Telegram channels can only be configured by a Global Administrator.";
+                }
             }
 
             return null;

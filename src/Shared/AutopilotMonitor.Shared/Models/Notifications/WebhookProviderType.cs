@@ -29,5 +29,15 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// openUrl actions are rendered as markdown links inside the embed description.
         /// </summary>
         Discord = 30,
+
+        /// <summary>
+        /// Telegram chat (plain-text message via the platform bot). The odd one out: this is not
+        /// a webhook. The channel's <c>Url</c> carries the destination CHAT ID, and the bot token
+        /// belongs to the platform (PreviewConfig <c>WebhookUrl</c>), not to the tenant — a caller
+        /// configuring one sends through OUR bot. That is why Telegram channels are Global-Admin
+        /// only (enforced in TenantConfigValidation, not just hidden in the UI), and why they are
+        /// dispatched by TelegramNotificationService instead of a renderer.
+        /// </summary>
+        Telegram = 40,
     }
 }

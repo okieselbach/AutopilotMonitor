@@ -6,9 +6,24 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import type { AdminConfiguration, OpsAlertRule } from "@/types/adminConfig";
 import type { GetPreviewWhitelistResponse } from "@/utils/wire-types.generated";
+import type { NotificationChannel } from "@/app/settings/types";
 
 // Re-export so existing `import { AdminConfiguration } from "../AdminConfigContext"` consumers keep working
 export type { AdminConfiguration, OpsAlertRule };
+
+/**
+ * Everything the Alerts section saves in one write. An object rather than positional
+ * arguments: the section already carries a dozen fields, and one transposed pair there
+ * silently writes a webhook URL into the wrong provider slot.
+ */
+export interface OpsAlertSavePayload {
+  rules: OpsAlertRule[];
+  channels: NotificationChannel[];
+  excessiveEventCountThreshold: number;
+  excessiveEventAutoActionMode: "Off" | "Block" | "Kill";
+  excessiveEventAutoActionThreshold: number;
+  excessiveEventAutoActionDurationHours: number;
+}
 
 interface AdminConfigContextValue {
   // Admin config
@@ -81,16 +96,12 @@ interface AdminConfigContextValue {
   excessiveEventAutoActionThreshold: number;
   excessiveEventAutoActionDurationHours: number;
   savingOpsAlerts: boolean;
-  handleSaveOpsAlertConfig: (
-    rules: OpsAlertRule[],
-    telegramEnabled: boolean, telegramChatId: string,
-    teamsEnabled: boolean, teamsWebhookUrl: string,
-    slackEnabled: boolean, slackWebhookUrl: string,
-    excessiveEventCountThreshold: number,
-    excessiveEventAutoActionMode: "Off" | "Block" | "Kill",
-    excessiveEventAutoActionThreshold: number,
-    excessiveEventAutoActionDurationHours: number,
-  ) => Promise<void>;
+  handleSaveOpsAlertConfig: (payload: OpsAlertSavePayload) => Promise<void>;
+  opsNotificationChannels: NotificationChannel[];
+  setOpsNotificationChannels: React.Dispatch<React.SetStateAction<NotificationChannel[]>>;
+  handleTestOpsChannel: (channelId: string) => Promise<void>;
+  testingOpsChannelId: string | null;
+  testOpsChannelResult: { channelId: string; success: boolean; message: string } | null;
 
   // Lazy loaders — config/tenants are NOT fetched when the admin layout mounts.
   // Sections that consume adminConfig/tenants call these once on mount; pages that
@@ -169,6 +180,10 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
   // Ops Alert state
   const [opsAlertRules, setOpsAlertRules] = useState<OpsAlertRule[]>([]);
+  const [opsNotificationChannels, setOpsNotificationChannels] = useState<NotificationChannel[]>([]);
+  const [testingOpsChannelId, setTestingOpsChannelId] = useState<string | null>(null);
+  const [testOpsChannelResult, setTestOpsChannelResult] =
+    useState<{ channelId: string; success: boolean; message: string } | null>(null);
   const [opsAlertTelegramEnabled, setOpsAlertTelegramEnabled] = useState(false);
   const [opsAlertTelegramChatId, setOpsAlertTelegramChatId] = useState("");
   const [opsAlertTeamsEnabled, setOpsAlertTeamsEnabled] = useState(false);
@@ -241,6 +256,14 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
           setOpsAlertRules(data.opsAlertRulesJson ? JSON.parse(data.opsAlertRulesJson) : []);
         } catch {
           setOpsAlertRules([]);
+        }
+        // The GET projects the legacy provider slots into this list when it is still empty,
+        // so an unmigrated platform shows the channels that actually receive alerts today.
+        try {
+          setOpsNotificationChannels(
+            data.opsNotificationChannelsJson ? JSON.parse(data.opsNotificationChannelsJson) : []);
+        } catch {
+          setOpsNotificationChannels([]);
         }
         setOpsAlertTelegramEnabled(data.opsAlertTelegramEnabled ?? false);
         setOpsAlertTelegramChatId(data.opsAlertTelegramChatId ?? "");
@@ -417,6 +440,12 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } catch {
       setOpsAlertRules([]);
     }
+    try {
+      setOpsNotificationChannels(
+        adminConfig.opsNotificationChannelsJson ? JSON.parse(adminConfig.opsNotificationChannelsJson) : []);
+    } catch {
+      setOpsNotificationChannels([]);
+    }
     setOpsAlertTelegramEnabled(adminConfig.opsAlertTelegramEnabled ?? false);
     setOpsAlertTelegramChatId(adminConfig.opsAlertTelegramChatId ?? "");
     setOpsAlertTeamsEnabled(adminConfig.opsAlertTeamsEnabled ?? false);
@@ -469,16 +498,14 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   }, [isGlobalAdmin, adminConfig, getAccessToken]);
 
   // Save ops alert config (rules + providers)
-  const handleSaveOpsAlertConfig = useCallback(async (
-    rules: OpsAlertRule[],
-    telegramEnabled: boolean, telegramChatId: string,
-    teamsEnabled: boolean, teamsWebhookUrl: string,
-    slackEnabled: boolean, slackWebhookUrl: string,
-    newExcessiveThreshold: number,
-    newAutoActionMode: "Off" | "Block" | "Kill",
-    newAutoActionThreshold: number,
-    newAutoActionDurationHours: number,
-  ) => {
+  const handleSaveOpsAlertConfig = useCallback(async ({
+    rules,
+    channels,
+    excessiveEventCountThreshold: newExcessiveThreshold,
+    excessiveEventAutoActionMode: newAutoActionMode,
+    excessiveEventAutoActionThreshold: newAutoActionThreshold,
+    excessiveEventAutoActionDurationHours: newAutoActionDurationHours,
+  }: OpsAlertSavePayload) => {
     if (!adminConfig) return;
     if (!isGlobalAdmin) return; // platform settings are GA-only (also route-gated + backend-enforced)
     try {
@@ -486,15 +513,13 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       setError(null);
       setSuccessMessage(null);
 
+      // The legacy provider slots are deliberately NOT written here any more: channels are the
+      // destination list now, and the first save materializes the projected legacy channels.
+      // The stored slots stay untouched as the migration source until they are retired.
       const updatedConfig: AdminConfiguration = {
         ...adminConfig,
         opsAlertRulesJson: JSON.stringify(rules),
-        opsAlertTelegramEnabled: telegramEnabled,
-        opsAlertTelegramChatId: telegramChatId.trim(),
-        opsAlertTeamsEnabled: teamsEnabled,
-        opsAlertTeamsWebhookUrl: teamsWebhookUrl.trim(),
-        opsAlertSlackEnabled: slackEnabled,
-        opsAlertSlackWebhookUrl: slackWebhookUrl.trim(),
+        opsNotificationChannelsJson: channels.length > 0 ? JSON.stringify(channels) : "",
         excessiveEventCountThreshold: newExcessiveThreshold,
         excessiveEventAutoActionMode: newAutoActionMode,
         excessiveEventAutoActionThreshold: newAutoActionThreshold,
@@ -512,12 +537,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       const result = await response.json();
       setAdminConfig(result.config);
       setOpsAlertRules(rules);
-      setOpsAlertTelegramEnabled(telegramEnabled);
-      setOpsAlertTelegramChatId(telegramChatId.trim());
-      setOpsAlertTeamsEnabled(teamsEnabled);
-      setOpsAlertTeamsWebhookUrl(teamsWebhookUrl.trim());
-      setOpsAlertSlackEnabled(slackEnabled);
-      setOpsAlertSlackWebhookUrl(slackWebhookUrl.trim());
+      setOpsNotificationChannels(channels);
       setExcessiveEventCountThreshold(newExcessiveThreshold);
       setExcessiveEventAutoActionMode(newAutoActionMode);
       setExcessiveEventAutoActionThreshold(newAutoActionThreshold);
@@ -533,6 +553,45 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       setSavingOpsAlerts(false);
     }
   }, [isGlobalAdmin, adminConfig, getAccessToken]);
+
+  /**
+   * Sends a test notification to one SAVED ops channel. Deliberately server-side: only the
+   * backend holds the Telegram bot token and the webhook destinations, and only it applies the
+   * SSRF gate — the browser must never post to a configured endpoint directly.
+   */
+  const handleTestOpsChannel = useCallback(async (channelId: string) => {
+    if (!isGlobalAdmin) return;
+    try {
+      setTestingOpsChannelId(channelId);
+      setTestOpsChannelResult(null);
+
+      const response = await authenticatedFetch(api.globalConfig.testOpsChannel(), getAccessToken, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+      });
+
+      if (!response.ok) throw new Error(`Test failed: ${response.statusText}`);
+
+      const result = await response.json();
+      setTestOpsChannelResult({
+        channelId,
+        success: Boolean(result.success),
+        message: result.message ?? (result.success ? "Sent." : "Failed."),
+      });
+    } catch (err) {
+      if (err instanceof TokenExpiredError) {
+        console.error("Session expired while testing an ops channel");
+      }
+      setTestOpsChannelResult({
+        channelId,
+        success: false,
+        message: err instanceof Error ? err.message : "Test failed",
+      });
+    } finally {
+      setTestingOpsChannelId(null);
+    }
+  }, [isGlobalAdmin, getAccessToken]);
 
   return (
     <AdminConfigContext.Provider value={{
@@ -575,6 +634,8 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       error, setError, successMessage, setSuccessMessage,
       getAccessToken,
       handleSaveAdminConfig, handleResetAdminConfig, handleSaveDiagPaths, handleSaveOpsAlertConfig,
+      opsNotificationChannels, setOpsNotificationChannels,
+      handleTestOpsChannel, testingOpsChannelId, testOpsChannelResult,
     }}>
       {children}
     </AdminConfigContext.Provider>

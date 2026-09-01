@@ -99,6 +99,8 @@ export interface AdminConfiguration {
   opsAlertSlackEnabled: boolean;
   /** Slack Incoming Webhook URL for ops alerts. */
   opsAlertSlackWebhookUrl: string;
+  /** JSON array of platform notification channels (NotificationChannel), the destinations an OpsAlertRule can target by id. Supersedes the three fixed provider slots above: each channel carries its own provider, destination and name, so an operator can keep e.g. an "IT Engineer" push channel and a "Sales" webhook apart and bind each event type to only the channels that should see it. Null/empty = not migrated yet — then synthesizes the list from the legacy slots, so dispatch behavior is unchanged until an operator saves the section once. */
+  opsNotificationChannelsJson: string;
   /** Version string of the latest published V2 agent (e.g. "2.0.647"). */
   latestAgentV2Version: string;
   /** SHA-256 (lowercase hex) of the latest published V2 agent ZIP. */
@@ -3779,7 +3781,7 @@ export interface TestLogPatternResponse {
   result: LogPatternTestResult;
 }
 
-/** Response of POST config/{tenantId}/test-notification: the delivery verdict of the test webhook send (HTTP 200 for both verdicts — Success carries the outcome). */
+/** Response of POST config/{tenantId}/test-notification AND POST global/config/test-ops-channel: the delivery verdict of a test send (HTTP 200 for both verdicts — Success carries the outcome). One shape for both because the semantics are identical; the platform endpoint only differs in which channel list it resolves the id against. */
 export interface TestWebhookNotificationResponse {
   success: boolean;
   /** HTTP status returned by the webhook endpoint, or null when the send never got a response — the key is omitted when null. */

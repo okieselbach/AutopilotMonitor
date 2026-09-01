@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly ISessionRepository _sessionRepo;
         private readonly IMetricsRepository _metricsRepo;
-        private readonly WebhookNotificationService _webhookService;
+        private readonly NotificationChannelDispatcher _channelDispatcher;
         private readonly TenantNotificationService _tenantNotificationService;
         private readonly ISlaTenantStatusRepository _statusRepo;
         private readonly AdminConfigurationService _adminConfigService;
@@ -56,7 +56,7 @@ namespace AutopilotMonitor.Functions.Services
             IMaintenanceRepository maintenanceRepo,
             ISessionRepository sessionRepo,
             IMetricsRepository metricsRepo,
-            WebhookNotificationService webhookService,
+            NotificationChannelDispatcher channelDispatcher,
             TenantNotificationService tenantNotificationService,
             ISlaTenantStatusRepository statusRepo,
             AdminConfigurationService adminConfigService,
@@ -70,7 +70,7 @@ namespace AutopilotMonitor.Functions.Services
             _maintenanceRepo = maintenanceRepo;
             _sessionRepo = sessionRepo;
             _metricsRepo = metricsRepo;
-            _webhookService = webhookService;
+            _channelDispatcher = channelDispatcher;
             _tenantNotificationService = tenantNotificationService;
             _statusRepo = statusRepo;
             _adminConfigService = adminConfigService;
@@ -560,7 +560,7 @@ namespace AutopilotMonitor.Functions.Services
             var slaChannels = GetSlaChannels(config);
             if (slaChannels.Count > 0)
             {
-                await _webhookService.SendToChannelsAsync(slaChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -603,7 +603,7 @@ namespace AutopilotMonitor.Functions.Services
             var slaChannels = GetSlaChannels(config);
             if (slaChannels.Count > 0)
             {
-                await _webhookService.SendToChannelsAsync(slaChannels, alert);
+                await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
             }
 
             await _tenantNotificationService.CreateNotificationAsync(
@@ -691,7 +691,7 @@ namespace AutopilotMonitor.Functions.Services
                     var slaChannels = GetSlaChannels(config);
                     if (slaChannels.Count > 0)
                     {
-                        await _webhookService.SendToChannelsAsync(slaChannels, alert);
+                        await _channelDispatcher.SendToChannelsAsync(slaChannels, alert);
                     }
 
                     await _tenantNotificationService.CreateNotificationAsync(

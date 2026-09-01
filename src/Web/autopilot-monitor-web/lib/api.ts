@@ -193,6 +193,8 @@ export const api = {
   // ── Global Config (global admin) ──────────────────────────────────────────
   globalConfig: {
     get: () => `${API_BASE_URL}/api/global/config`,
+    /** Sends a test notification to one saved platform (ops) channel. */
+    testOpsChannel: () => `${API_BASE_URL}/api/global/config/test-ops-channel`,
     // NOTE: there is deliberately no per-tenant variant — /api/global/config/{tenantId} does
     // not exist in the backend. A tenant's member-readable flags (incl. unrestrictedMode)
     // come from config.featureFlags, which a GA may call cross-tenant (MemberRead bypass).

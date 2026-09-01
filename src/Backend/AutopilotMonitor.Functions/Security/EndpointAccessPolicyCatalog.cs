@@ -429,6 +429,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/config",             EndpointPolicy.GlobalReadOrAdmin),
         new("PUT",    "global/config",             EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/config",             EndpointPolicy.GlobalAdminOnly),
+        new("POST",   "global/config/test-ops-channel", EndpointPolicy.GlobalAdminOnly),
         new("GET",    "config/all",                EndpointPolicy.GlobalReadOrDelegatedSubset),
         // Transactional field-level config writes + snapshot list/revert (MCP + web Settings).
         // PATCH is TenantAdminOrGA (phase 2, the web's per-section save): RouteParam binds a

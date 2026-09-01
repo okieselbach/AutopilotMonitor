@@ -679,11 +679,7 @@ public class SessionDeletionWorkerTests
                     lock (OpsEventCalls) OpsEventCalls.Add(CapturedOpsEvent.From(e));
                     return Task.CompletedTask;
                 });
-            var alertDispatch = new OpsAlertDispatchService(
-                AdminConfig.Object,
-                new TelegramNotificationService(new HttpClient(), Mock.Of<IConfigRepository>(), NullLogger<TelegramNotificationService>.Instance),
-                new AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService(new HttpClient(), NullLogger<AutopilotMonitor.Functions.Services.Notifications.WebhookNotificationService>.Instance),
-                NullLogger<OpsAlertDispatchService>.Instance);
+            var alertDispatch = TestNotifications.InertOpsAlertDispatch(AdminConfig.Object);
             var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
             Sut = new SessionDeletionWorker(

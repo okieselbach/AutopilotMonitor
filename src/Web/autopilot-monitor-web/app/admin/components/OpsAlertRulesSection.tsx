@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { type OpsAlertRule } from "../AdminConfigContext";
+import { type OpsAlertRule, type OpsAlertSavePayload } from "../AdminConfigContext";
+import { ChannelEditor } from "@/components/notifications/ChannelEditor";
+import { MAX_NOTIFICATION_CHANNELS, type NotificationChannel } from "@/app/settings/types";
+import { toggleChannelBinding } from "./opsChannelRouting";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
 
 // All known ops event types grouped by category
@@ -133,6 +136,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "TenantOffboarded",
     "TenantOffboardingFailed",
     "OffboardingFeedbackReceived",
+    // TenantTrialStarted — the conversion moment, fired by PlanManagementFunction from BOTH
+    // plan write paths (self-service POST trial and a GA grant via PATCH plan). Info-tier;
+    // the payload carries domain, contact address and who granted it, so a sales/support
+    // channel bound to this rule needs nothing from the portal.
+    "TenantTrialStarted",
     "TenantTrialExpiring",
     "TenantTrialExpired",
     // F3 regression radar: an analyze rule's 7d hit rate rose ≥2× over its 28d baseline
@@ -245,26 +253,15 @@ interface OpsAlertRulesSectionProps {
   savingOpsAlerts: boolean;
   adminConfigExists: boolean;
   opsAlertRules: OpsAlertRule[];
-  opsAlertTelegramEnabled: boolean;
-  opsAlertTelegramChatId: string;
-  opsAlertTeamsEnabled: boolean;
-  opsAlertTeamsWebhookUrl: string;
-  opsAlertSlackEnabled: boolean;
-  opsAlertSlackWebhookUrl: string;
+  opsNotificationChannels: NotificationChannel[];
   excessiveEventCountThreshold: number;
   excessiveEventAutoActionMode: AutoActionMode;
   excessiveEventAutoActionThreshold: number;
   excessiveEventAutoActionDurationHours: number;
-  onSave: (
-    rules: OpsAlertRule[],
-    telegramEnabled: boolean, telegramChatId: string,
-    teamsEnabled: boolean, teamsWebhookUrl: string,
-    slackEnabled: boolean, slackWebhookUrl: string,
-    excessiveEventCountThreshold: number,
-    excessiveEventAutoActionMode: AutoActionMode,
-    excessiveEventAutoActionThreshold: number,
-    excessiveEventAutoActionDurationHours: number,
-  ) => Promise<void>;
+  onSave: (payload: OpsAlertSavePayload) => Promise<void>;
+  onTestChannel: (channelId: string) => Promise<void>;
+  testingChannelId: string | null;
+  testChannelResult: { channelId: string; success: boolean; message: string } | null;
 }
 
 export function OpsAlertRulesSection({
@@ -272,26 +269,19 @@ export function OpsAlertRulesSection({
   savingOpsAlerts,
   adminConfigExists,
   opsAlertRules,
-  opsAlertTelegramEnabled,
-  opsAlertTelegramChatId,
-  opsAlertTeamsEnabled,
-  opsAlertTeamsWebhookUrl,
-  opsAlertSlackEnabled,
-  opsAlertSlackWebhookUrl,
+  opsNotificationChannels,
   excessiveEventCountThreshold: excessiveEventCountThresholdProp,
   excessiveEventAutoActionMode: autoActionModeProp,
   excessiveEventAutoActionThreshold: autoActionThresholdProp,
   excessiveEventAutoActionDurationHours: autoActionDurationProp,
   onSave,
+  onTestChannel,
+  testingChannelId,
+  testChannelResult,
 }: OpsAlertRulesSectionProps) {
   // Local state for editing, seeded from props
   const [rules, setRules] = useState<OpsAlertRule[]>(() => buildFullRules(opsAlertRules));
-  const [telegramEnabled, setTelegramEnabled] = useState(opsAlertTelegramEnabled);
-  const [telegramChatId, setTelegramChatId] = useState(opsAlertTelegramChatId);
-  const [teamsEnabled, setTeamsEnabled] = useState(opsAlertTeamsEnabled);
-  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState(opsAlertTeamsWebhookUrl);
-  const [slackEnabled, setSlackEnabled] = useState(opsAlertSlackEnabled);
-  const [slackWebhookUrl, setSlackWebhookUrl] = useState(opsAlertSlackWebhookUrl);
+  const [channels, setChannels] = useState<NotificationChannel[]>(opsNotificationChannels);
   const [excessiveThreshold, setExcessiveThreshold] = useState(excessiveEventCountThresholdProp);
   const [autoActionMode, setAutoActionMode] = useState<AutoActionMode>(autoActionModeProp);
   const [autoActionThreshold, setAutoActionThreshold] = useState(autoActionThresholdProp);
@@ -300,17 +290,12 @@ export function OpsAlertRulesSection({
   // Re-seed the local draft whenever a synced prop changes (config load/save),
   // replicating the previous sync effect's dependency-array comparison via the
   // adjust-during-render pattern (react.dev "storing information from previous renders").
-  const syncedProps = [opsAlertRules, opsAlertTelegramEnabled, opsAlertTelegramChatId, opsAlertTeamsEnabled, opsAlertTeamsWebhookUrl, opsAlertSlackEnabled, opsAlertSlackWebhookUrl, excessiveEventCountThresholdProp, autoActionModeProp, autoActionThresholdProp, autoActionDurationProp];
+  const syncedProps = [opsAlertRules, opsNotificationChannels, excessiveEventCountThresholdProp, autoActionModeProp, autoActionThresholdProp, autoActionDurationProp];
   const [prevSyncedProps, setPrevSyncedProps] = useState(syncedProps);
   if (syncedProps.some((value, i) => !Object.is(value, prevSyncedProps[i]))) {
     setPrevSyncedProps(syncedProps);
     setRules(buildFullRules(opsAlertRules));
-    setTelegramEnabled(opsAlertTelegramEnabled);
-    setTelegramChatId(opsAlertTelegramChatId);
-    setTeamsEnabled(opsAlertTeamsEnabled);
-    setTeamsWebhookUrl(opsAlertTeamsWebhookUrl);
-    setSlackEnabled(opsAlertSlackEnabled);
-    setSlackWebhookUrl(opsAlertSlackWebhookUrl);
+    setChannels(opsNotificationChannels);
     setExcessiveThreshold(excessiveEventCountThresholdProp);
     setAutoActionMode(autoActionModeProp);
     setAutoActionThreshold(autoActionThresholdProp);
@@ -325,16 +310,42 @@ export function OpsAlertRulesSection({
     setRules(prev => prev.map(r => r.eventType === eventType ? { ...r, minSeverity } : r));
   };
 
+  const togglePayload = (eventType: string) => {
+    setRules(prev => prev.map(r => r.eventType === eventType ? { ...r, includePayload: !r.includePayload } : r));
+  };
+
+  const toggleRuleChannel = (eventType: string, channelId: string) => {
+    setRules(prev => prev.map(r => r.eventType === eventType
+      ? { ...r, notifyChannelIds: toggleChannelBinding(r, channelId, channels) }
+      : r));
+  };
+
   const handleSave = () => {
-    onSave(
-      rules, telegramEnabled, telegramChatId, teamsEnabled, teamsWebhookUrl, slackEnabled, slackWebhookUrl,
-      excessiveThreshold, autoActionMode, autoActionThreshold, autoActionDuration);
+    onSave({
+      rules,
+      channels,
+      excessiveEventCountThreshold: excessiveThreshold,
+      excessiveEventAutoActionMode: autoActionMode,
+      excessiveEventAutoActionThreshold: autoActionThreshold,
+      excessiveEventAutoActionDurationHours: autoActionDuration,
+    });
+  };
+
+  const addChannel = () => {
+    if (channels.length >= MAX_NOTIFICATION_CHANNELS) return;
+    setChannels([...channels, {
+      id: crypto.randomUUID(),
+      name: "",
+      providerType: 2,
+      url: "",
+      enabled: true,
+    }]);
   };
 
   const autoActionWarning = describeAutoActionWarning(autoActionMode, autoActionThreshold, excessiveThreshold);
 
   const enabledRulesCount = rules.filter(r => r.enabled).length;
-  const enabledProviders = [telegramEnabled, teamsEnabled, slackEnabled].filter(Boolean).length;
+  const enabledProviders = channels.filter(c => c.enabled).length;
 
   return (
     <div className="space-y-6">
@@ -396,6 +407,51 @@ export function OpsAlertRulesSection({
                               ))}
                             </select>
                           </div>
+                          {rule.enabled && channels.length > 0 && (
+                            <div className="ml-12 mt-1 mb-2 flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Notify:</span>
+                              {(rule.notifyChannelIds ?? []).length === 0 && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 italic mr-1">
+                                  all channels —
+                                </span>
+                              )}
+                              {channels.map((channel) => {
+                                const on = (rule.notifyChannelIds ?? []).includes(channel.id);
+                                return (
+                                  <button
+                                    key={channel.id}
+                                    type="button"
+                                    onClick={() => toggleRuleChannel(et, channel.id)}
+                                    title={channel.enabled ? undefined : "This channel is disabled and receives nothing."}
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                                      on
+                                        ? "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-700"
+                                        : "bg-white text-gray-500 border-gray-300 hover:border-amber-300 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600"
+                                    } ${channel.enabled ? "" : "opacity-50"}`}
+                                  >
+                                    {channel.name || "Unnamed channel"}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                type="button"
+                                onClick={() => togglePayload(et)}
+                                title={
+                                  rule.includePayload
+                                    ? "This rule sends the event's structured fields (e.g. tenant domain, contact address) to its channels."
+                                    : "Baseline only: category, event, severity and tenant id. Turn on to include the event's structured fields."
+                                }
+                                className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                                  rule.includePayload
+                                    ? "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200 dark:border-sky-700"
+                                    : "bg-white text-gray-500 border-gray-300 hover:border-sky-300 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600"
+                                }`}
+                              >
+                                <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${rule.includePayload ? "bg-sky-500" : "bg-gray-300"}`} />
+                                Payload
+                              </button>
+                            </div>
+                          )}
                           {et === "ExcessiveSessionEvents" && rule.enabled && (
                             <div className="ml-12 mt-1 mb-2 flex items-center gap-2">
                               <label className="text-xs text-amber-700 dark:text-amber-300 whitespace-nowrap">Threshold:</label>
@@ -468,7 +524,7 @@ export function OpsAlertRulesSection({
         </div>
       </div>
 
-      {/* Providers */}
+      {/* Channels */}
       <div className="bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-gray-800 dark:to-gray-800 border-2 border-sky-300 dark:border-sky-700 rounded-lg shadow-lg">
         <div className="p-6 border-b border-sky-200 dark:border-sky-700 bg-gradient-to-r from-sky-100 to-cyan-100 dark:from-sky-900/40 dark:to-cyan-900/40">
           <div className="flex items-center space-x-2">
@@ -476,104 +532,45 @@ export function OpsAlertRulesSection({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <div>
-              <h2 className="text-xl font-semibold text-sky-900 dark:text-sky-100">Alert Providers</h2>
-              <p className="text-sm text-sky-600 dark:text-sky-300 mt-1">Configure where alert notifications are delivered</p>
+              <h2 className="text-xl font-semibold text-sky-900 dark:text-sky-100">Alert Channels</h2>
+              <p className="text-sm text-sky-600 dark:text-sky-300 mt-1">
+                Named destinations for platform alerts. Each rule above chooses which of these it notifies.
+              </p>
             </div>
           </div>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Telegram */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={telegramEnabled}
-                  onChange={(e) => setTelegramEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-sky-500 dark:peer-checked:bg-sky-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-              </label>
-              <span className="font-medium text-sky-900 dark:text-sky-100">Telegram</span>
-            </div>
-            {telegramEnabled && (
-              <div className="ml-12">
-                <label className="block text-sm text-sky-800 dark:text-sky-200 mb-1">Chat ID</label>
-                <input
-                  type="text"
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                  placeholder="-1003785642894"
-                  className="block w-full max-w-md px-3 py-2 border border-sky-300 dark:border-sky-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-sm font-mono"
-                />
-                <p className="text-xs text-sky-600 dark:text-sky-400 mt-1">Telegram channel or group chat ID (negative number for groups)</p>
-              </div>
-            )}
-          </div>
+        <div className="p-6 space-y-4">
+          {channels.length === 0 && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No channels configured yet. Add one, then assign it to the rules that should reach it.
+            </p>
+          )}
 
-          <hr className="border-sky-200 dark:border-sky-700" />
+          {channels.map((channel) => (
+            <ChannelEditor
+              key={channel.id}
+              channel={channel}
+              onChange={(next) => setChannels(channels.map((c) => (c.id === next.id ? next : c)))}
+              onRemove={() => setChannels(channels.filter((c) => c.id !== channel.id))}
+              onTest={() => onTestChannel(channel.id)}
+              testing={testingChannelId === channel.id}
+              testResult={testChannelResult?.channelId === channel.id ? testChannelResult : null}
+              showTelegramProvider
+              showEventToggles={false}
+            />
+          ))}
 
-          {/* Teams */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={teamsEnabled}
-                  onChange={(e) => setTeamsEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-sky-500 dark:peer-checked:bg-sky-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-              </label>
-              <span className="font-medium text-sky-900 dark:text-sky-100">Microsoft Teams</span>
-              <span className="text-xs px-2 py-0.5 rounded bg-sky-200 dark:bg-sky-800 text-sky-700 dark:text-sky-300">Workflow Webhook</span>
-            </div>
-            {teamsEnabled && (
-              <div className="ml-12">
-                <label className="block text-sm text-sky-800 dark:text-sky-200 mb-1">Webhook URL</label>
-                <input
-                  type="url"
-                  value={teamsWebhookUrl}
-                  onChange={(e) => setTeamsWebhookUrl(e.target.value)}
-                  placeholder="https://prod-xx.westeurope.logic.azure.com/..."
-                  className="block w-full px-3 py-2 border border-sky-300 dark:border-sky-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-sm"
-                />
-                <p className="text-xs text-sky-600 dark:text-sky-400 mt-1">Teams Workflow webhook URL (Adaptive Card format)</p>
-              </div>
-            )}
-          </div>
-
-          <hr className="border-sky-200 dark:border-sky-700" />
-
-          {/* Slack */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={slackEnabled}
-                  onChange={(e) => setSlackEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-sky-500 dark:peer-checked:bg-sky-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-              </label>
-              <span className="font-medium text-sky-900 dark:text-sky-100">Slack</span>
-              <span className="text-xs px-2 py-0.5 rounded bg-sky-200 dark:bg-sky-800 text-sky-700 dark:text-sky-300">Incoming Webhook</span>
-            </div>
-            {slackEnabled && (
-              <div className="ml-12">
-                <label className="block text-sm text-sky-800 dark:text-sky-200 mb-1">Webhook URL</label>
-                <input
-                  type="url"
-                  value={slackWebhookUrl}
-                  onChange={(e) => setSlackWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/..."
-                  className="block w-full px-3 py-2 border border-sky-300 dark:border-sky-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 text-sm"
-                />
-                <p className="text-xs text-sky-600 dark:text-sky-400 mt-1">Slack Incoming Webhook URL</p>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={addChannel}
+            disabled={channels.length >= MAX_NOTIFICATION_CHANNELS}
+            className="inline-flex items-center text-sm font-medium text-sky-600 hover:text-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add channel{channels.length >= MAX_NOTIFICATION_CHANNELS ? ` (max ${MAX_NOTIFICATION_CHANNELS})` : ""}
+          </button>
         </div>
       </div>
 

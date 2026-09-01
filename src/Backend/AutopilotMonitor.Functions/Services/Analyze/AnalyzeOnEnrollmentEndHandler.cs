@@ -49,7 +49,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
         private readonly IMetricsRepository _metricsRepo;
         private readonly SignalRNotificationService _signalRNotification;
         private readonly TenantConfigurationService _configService;
-        private readonly Notifications.WebhookNotificationService _webhookNotification;
+        private readonly Notifications.NotificationChannelDispatcher _channelDispatcher;
         private readonly ILogger<AnalyzeOnEnrollmentEndHandler> _logger;
 
         public const string ReasonEnrollmentComplete     = "enrollment_complete";
@@ -65,7 +65,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             IMetricsRepository metricsRepo,
             SignalRNotificationService signalRNotification,
             TenantConfigurationService configService,
-            Notifications.WebhookNotificationService webhookNotification,
+            Notifications.NotificationChannelDispatcher channelDispatcher,
             ILogger<AnalyzeOnEnrollmentEndHandler> logger)
         {
             _ruleService = ruleService;
@@ -74,7 +74,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
             _metricsRepo = metricsRepo;
             _signalRNotification = signalRNotification;
             _configService = configService;
-            _webhookNotification = webhookNotification;
+            _channelDispatcher = channelDispatcher;
             _logger = logger;
         }
 
@@ -216,7 +216,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                     var alert = Notifications.NotificationAlertBuilder.BuildRuleFiredAlert(
                         result, session?.DeviceName, session?.SerialNumber, sessionUrl);
 
-                    await _webhookNotification.SendToChannelsAsync(targets, alert).ConfigureAwait(false);
+                    await _channelDispatcher.SendToChannelsAsync(targets, alert).ConfigureAwait(false);
 
                     _logger.LogInformation(
                         "{Prefix} Rule-notify: {RuleId} → {ChannelCount} channel(s)",
