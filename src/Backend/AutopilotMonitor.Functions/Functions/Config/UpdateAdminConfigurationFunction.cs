@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -83,6 +84,25 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 // Load existing config for diff before saving
                 var existingConfig = await _adminConfigService.GetConfigurationAsync();
+
+                // Ops channels: a GlobalReader is served a redacted copy (destinations replaced
+                // with the ***REDACTED*** sentinel). Only a GA can reach this endpoint, so this is
+                // defense-in-depth — but persisting the literal sentinel as a chat ID or webhook
+                // URL would silently break every alert, so restore per channel id first.
+                config.OpsNotificationChannelsJson = NotificationChannel.RestoreRedactedList(
+                    config.OpsNotificationChannelsJson, existingConfig.OpsNotificationChannelsJson);
+
+                // Same structural gate the tenant channel list passes (ids, provider types,
+                // SSRF-checked URLs / Telegram chat IDs, header and signing-secret shape). No GA
+                // gate on Telegram here: this endpoint is GlobalAdminOnly by policy.
+                var channelsError = TenantConfigValidation.ValidateNotificationChannels(config.OpsNotificationChannelsJson);
+                if (channelsError != null)
+                {
+                    var badChannels = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badChannels.WriteAsJsonAsync(new { success = false, message = $"Invalid ops notification channels: {channelsError}" });
+                    return badChannels;
+                }
+
                 var changes = ConfigDiffHelper.GetChanges(existingConfig, config);
 
                 // Save configuration

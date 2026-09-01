@@ -22,4 +22,17 @@ export interface OpsAlertRule {
   eventType: string;
   minSeverity: string;
   enabled: boolean;
+  /**
+   * Ids of the ops notification channels this rule notifies. Absent or empty means every
+   * enabled channel — the pre-routing broadcast behaviour every rule written before channels
+   * existed still carries, so an untouched rule keeps reaching the same destinations.
+   */
+  notifyChannelIds?: string[];
+  /**
+   * Send the event's structured payload to this rule's channels on top of the
+   * category/event/severity/tenant baseline. Off by default — most payloads are operational
+   * noise in a chat, and some carry data the baseline never does (tenant domain, contact
+   * address), so widening what leaves the platform stays a deliberate per-rule decision.
+   */
+  includePayload?: boolean;
 }

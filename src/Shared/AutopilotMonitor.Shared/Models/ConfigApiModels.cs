@@ -224,8 +224,10 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response of POST config/{tenantId}/test-notification: the delivery verdict of the
-    /// test webhook send (HTTP 200 for both verdicts — Success carries the outcome).
+    /// Response of POST config/{tenantId}/test-notification AND POST global/config/test-ops-channel:
+    /// the delivery verdict of a test send (HTTP 200 for both verdicts — Success carries the
+    /// outcome). One shape for both because the semantics are identical; the platform endpoint
+    /// only differs in which channel list it resolves the id against.
     /// </summary>
     // Declaration order == wire order.
     public class TestWebhookNotificationResponse : IApiResponse

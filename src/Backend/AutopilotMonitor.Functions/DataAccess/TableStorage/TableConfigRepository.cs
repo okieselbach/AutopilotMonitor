@@ -914,6 +914,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 { "OpsAlertTeamsWebhookUrl", config.OpsAlertTeamsWebhookUrl ?? string.Empty },
                 { "OpsAlertSlackEnabled", config.OpsAlertSlackEnabled },
                 { "OpsAlertSlackWebhookUrl", config.OpsAlertSlackWebhookUrl ?? string.Empty },
+                { "OpsNotificationChannelsJson", config.OpsNotificationChannelsJson ?? string.Empty },
                 // Per-line agent binary integrity (written by build scripts via Merge).
                 // V2 is the only wired line; future V3 = add field set here. Retired columns
                 // (V1-suffix and the even older unsuffixed "LatestAgent*") are never written,
@@ -985,6 +986,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 OpsAlertTeamsWebhookUrl = entity.GetString("OpsAlertTeamsWebhookUrl"),
                 OpsAlertSlackEnabled = entity.GetBoolean("OpsAlertSlackEnabled") ?? false,
                 OpsAlertSlackWebhookUrl = entity.GetString("OpsAlertSlackWebhookUrl"),
+                OpsNotificationChannelsJson = entity.GetString("OpsNotificationChannelsJson"),
                 // Per-line agent binary integrity. V2 is the only wired line (V1 retired).
                 AllowAgentDowngrade = entity.GetBoolean("AllowAgentDowngrade") ?? false,
                 LatestAgentV2Version = entity.GetString("LatestAgentV2Version") ?? string.Empty,
