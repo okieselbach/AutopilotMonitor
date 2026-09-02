@@ -1106,7 +1106,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
         fields: z.string().optional()
-          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omitted = every column EXCEPT DataJson (the multi-KB payload); list DataJson explicitly when you need it.'),
+          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omitted on an UNFILTERED read (no eventType/severity/source) = every column EXCEPT DataJson (the multi-KB payload), and the response says so (omittedFields); omitted on a FILTERED read = the full raw row including DataJson. List DataJson explicitly to force it either way.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Index rows walked per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid) — omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
@@ -1118,10 +1118,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields: explicitFields, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
-        // Lean by default: DataJson rides along only when listed. On a follow-up call an omitted
-        // fields keeps whatever projection the nextLink carries (same rule as pageSize).
-        const leanDefaultApplied = explicitFields === undefined && !continuation;
-        const fields = explicitFields ?? (continuation ? undefined : LEAN_RAW_EVENT_FIELDS);
+        // Default projection follows intent (see get_session_events): an UNFILTERED read (a
+        // session's whole raw stream, or a bare cross-tenant walk) leaves DataJson out; a read
+        // filtered by eventType/severity/source targets specific events and stays complete.
+        // Explicit fields win either way; on a follow-up call an omitted fields keeps whatever
+        // projection the nextLink carries (same rule as pageSize).
+        const targeted = Boolean(eventType || severity || source);
+        const leanDefaultApplied = explicitFields === undefined && !continuation && !targeted;
+        const fields = explicitFields ?? (leanDefaultApplied ? LEAN_RAW_EVENT_FIELDS : undefined);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);

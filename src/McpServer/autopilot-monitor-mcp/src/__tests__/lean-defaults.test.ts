@@ -78,6 +78,32 @@ describe('first-page defaults', () => {
     expect(String(body.omittedNote)).toContain('data.<key>');
   });
 
+  it('a FILTERED get_session_events read stays complete: no projection, no omission marker', async () => {
+    // Usage telemetry: filtered reads target specific events and want their payload about half the
+    // time (and the ime-decompile skill reads data.msiDownloadUrl after an eventType filter).
+    const handler = handlerFor('get_session_events');
+    const { urls } = stubFetchCapture();
+
+    const result = await runWithCaller(GA, () => handler({ sessionId: SESSION, eventType: 'ime_agent_version' }, extra));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).not.toContain('fields=');
+    expect(urls[0]).toContain('eventType=ime_agent_version');
+    expect(urls[0]).toContain(`pageSize=${DEFAULT_FIRST_PAGE_SIZE}`);
+    expect(resultJson(result)).not.toHaveProperty('omittedFields');
+  });
+
+  it('a FILTERED query_raw_events read stays complete: no projection, no omission marker', async () => {
+    const handler = handlerFor('query_raw_events');
+    const { urls } = stubFetchCapture();
+
+    const result = await runWithCaller(GA, () => handler({ sessionId: SESSION, source: 'RealmJoin' }, extra));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).not.toContain('fields=');
+    expect(resultJson(result)).not.toHaveProperty('omittedFields');
+  });
+
   it('get_session_events forwards an explicit projection verbatim (payload on request) without the omission marker', async () => {
     const handler = handlerFor('get_session_events');
     const { urls } = stubFetchCapture();

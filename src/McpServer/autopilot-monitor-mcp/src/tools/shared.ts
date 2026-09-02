@@ -22,21 +22,28 @@ export const LEAN_RAW_EVENT_FIELDS =
  * In-band marker merged into a lean-default first page: a caller reading the RESULT (not the
  * schema) learns what was left out and the exact argument that brings it back. The model
  * must never have to guess whether a payload exists — omission is announced, not silent.
+ *
+ * The lean default applies to UNFILTERED reads only (a timeline skim). Usage telemetry
+ * (30 days, 2026-09-02) shows callers project explicitly in >90 % of calls and, when they
+ * filter by eventType, keep the payload about half the time — so a filtered read stays
+ * complete and this marker never appears on it.
  */
 export const LEAN_EVENT_OMISSION = {
   omittedFields: ['data'],
   omittedNote:
-    'The per-event payload ("data", up to tens of KB per event) is omitted by default. ' +
+    'The per-event payload ("data", up to tens of KB per event) is omitted on an unfiltered timeline read. ' +
     `Re-run with fields="${LEAN_EVENT_FIELDS},data" for the whole payload, or add "data.<key>" entries ` +
-    '(e.g. "data.errorCode") for just those keys; a nextLink keeps whatever projection you chose.',
+    '(e.g. "data.errorCode") for just those keys; a read filtered by eventType/severity/source includes ' +
+    'the payload by default, and a nextLink keeps whatever projection you chose.',
 } as const;
 
 /** Raw-events counterpart of LEAN_EVENT_OMISSION. */
 export const LEAN_RAW_EVENT_OMISSION = {
   omittedFields: ['DataJson'],
   omittedNote:
-    'DataJson (the raw per-event payload string) is omitted by default. ' +
-    `Re-run with fields="${LEAN_RAW_EVENT_FIELDS},DataJson" to include it; a nextLink keeps whatever projection you chose.`,
+    'DataJson (the raw per-event payload string) is omitted on an unfiltered read. ' +
+    `Re-run with fields="${LEAN_RAW_EVENT_FIELDS},DataJson" to include it; a read filtered by ` +
+    'eventType/severity/source includes it by default, and a nextLink keeps whatever projection you chose.',
 } as const;
 
 /**

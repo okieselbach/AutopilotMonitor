@@ -423,7 +423,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
-          .describe('Comma-separated projection. Omitted = lean default "' + LEAN_EVENT_FIELDS + '" — the multi-KB "data" payload is NOT included. List "data" for the whole payload, or "data.<key>" entries (e.g. "data.errorCode,data.scriptType") for just those payload keys. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data, data.<key>.'),
+          .describe('Comma-separated projection. Omitted on an UNFILTERED read (no eventType/severity/source) = lean timeline default "' + LEAN_EVENT_FIELDS + '" — the multi-KB "data" payload is NOT included and the response says so (omittedFields). Omitted on a FILTERED read = full events including "data". List "data" for the whole payload, or "data.<key>" entries (e.g. "data.errorCode,data.scriptType") for just those payload keys. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data, data.<key>.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
           .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
@@ -435,10 +435,14 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       try {
         const { sessionId, tenantId: rawTenantId, continuation, eventType, severity, source, fields: explicitFields } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
-        // Lean by default: the payload rides along only when asked for. On a follow-up call an
+        // Default projection follows intent (30-day usage telemetry, 2026-09-02): an UNFILTERED read
+        // is a timeline skim — message-level, so the payload is left out; a read filtered by
+        // eventType/severity/source targets specific events and wants their payload about half the
+        // time, so it stays complete. Explicit fields win either way, and on a follow-up call an
         // omitted fields keeps whatever projection the nextLink carries (same rule as pageSize).
-        const leanDefaultApplied = explicitFields === undefined && !continuation;
-        const fields = explicitFields ?? (continuation ? undefined : LEAN_EVENT_FIELDS);
+        const targeted = Boolean(eventType || severity || source);
+        const leanDefaultApplied = explicitFields === undefined && !continuation && !targeted;
+        const fields = explicitFields ?? (leanDefaultApplied ? LEAN_EVENT_FIELDS : undefined);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
