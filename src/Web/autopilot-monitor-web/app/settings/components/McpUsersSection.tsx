@@ -33,8 +33,16 @@ const POLICY_LABELS: Record<McpPolicy, string> = {
 
 const POLICY_DESCRIPTIONS: Record<McpPolicy, string> = {
   Disabled: "MCP access is completely disabled. No one can connect.",
-  WhitelistOnly: "Only Global Admins and explicitly added MCP users can connect.",
-  AllMembers: "Any authenticated user can connect to the MCP server.",
+  WhitelistOnly: "Only Global Admins, delegated admins and explicitly added MCP users can connect.",
+  AllMembers:
+    "Every member of an onboarded tenant (Admin, Operator or Viewer) can connect. Signed-in users without a role cannot.",
+};
+
+// What the list below means under each policy that shows it.
+const LIST_PURPOSE: Record<Exclude<McpPolicy, "Disabled">, string> = {
+  WhitelistOnly: "Global Admins always have access, no separate entry needed.",
+  AllMembers:
+    "The list below holds per-user overrides: assign an individual usage plan, or disable an entry to block that account.",
 };
 
 export default function McpUsersSection() {
@@ -287,7 +295,7 @@ export default function McpUsersSection() {
           <h2 className="text-lg font-semibold text-gray-900">MCP User Management</h2>
         </div>
         <p className="mt-1 text-sm text-gray-600">
-          Control who can access the AI agent interface (Model Context Protocol).
+          Control who can access the AI agent interface (Model Context Protocol) and assign individual usage plans.
         </p>
       </div>
 
@@ -316,9 +324,7 @@ export default function McpUsersSection() {
             <div className="text-sm text-blue-800">
               <p className="font-medium">Access Policy</p>
               <p className="mt-1">{POLICY_DESCRIPTIONS[policy]}</p>
-              {policy === "WhitelistOnly" && (
-                <p className="mt-1">Global Admins always have access, no separate entry needed.</p>
-              )}
+              {policy !== "Disabled" && <p className="mt-1">{LIST_PURPOSE[policy]}</p>}
             </div>
             <select
               value={policy}
@@ -333,8 +339,8 @@ export default function McpUsersSection() {
           </div>
         </div>
 
-        {/* User list only visible when WhitelistOnly */}
-        {policy === "WhitelistOnly" && (
+        {/* User list: the whitelist (WhitelistOnly) or the per-user override list (AllMembers) */}
+        {policy !== "Disabled" && (
           <>
             {/* Add user form */}
             <div className="flex flex-wrap gap-2">
@@ -419,7 +425,11 @@ export default function McpUsersSection() {
             {/* User list */}
             {!loading && paginatedUsers.length === 0 && (
               <p className="text-sm text-gray-500 py-4 text-center">
-                {searchQuery ? "No users match your search." : "No MCP users added yet. Add a user above to grant MCP access."}
+                {searchQuery
+                  ? "No users match your search."
+                  : policy === "AllMembers"
+                    ? "No per-user overrides yet. Add a user above to assign an individual usage plan or block their MCP access."
+                    : "No MCP users added yet. Add a user above to grant MCP access."}
               </p>
             )}
 
@@ -514,15 +524,9 @@ export default function McpUsersSection() {
           </>
         )}
 
-        {/* Message for other policies */}
         {policy === "Disabled" && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-            MCP access is currently disabled. Change the policy in Global Config to enable it.
-          </div>
-        )}
-        {policy === "AllMembers" && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
-            All authenticated users can access the MCP server. No whitelist management needed.
+            MCP access is currently disabled. Change the policy above to enable it.
           </div>
         )}
       </div>

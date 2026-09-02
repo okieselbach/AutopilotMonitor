@@ -79,7 +79,8 @@ public class AdminIdentityBindingAuthorizationTests
         return new Harness
         {
             Middleware = new PolicyEnforcementMiddleware(
-                NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin, tenantAdmins, tenantConfig),
+                NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin,
+                new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig),
             Repo = repo,
         };
     }

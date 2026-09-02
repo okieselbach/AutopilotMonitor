@@ -259,6 +259,7 @@ builder.Services.AddSingleton<PreviewWhitelistService>();
 // Global Admin approve endpoint and the tenant auto-approve queue worker.
 builder.Services.AddSingleton<TenantApprovalService>();
 builder.Services.AddSingleton<TenantAdminsService>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Security.TenantMemberRoleResolver>();
 builder.Services.AddSingleton<HealthCheckService>();
 builder.Services.AddSingleton<BackendBuildInfo>();
 builder.Services.AddSingleton<GatherRuleService>();

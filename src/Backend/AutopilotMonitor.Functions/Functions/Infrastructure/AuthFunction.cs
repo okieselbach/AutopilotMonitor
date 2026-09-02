@@ -114,7 +114,9 @@ public class AuthFunction
         var delegatedScopeTask = _delegatedAdminService.GetScopeAsync(identity);
         var isApprovedTask = _previewWhitelistService.IsApprovedAsync(tenantId);
         var membershipTask = _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId, objectId);
+        // App roles ride along so the AllMembers path sees a claim-derived member the same way the policy
+        // middleware does (the table-vs-claim reconciliation happens inside the shared role resolver).
+        var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId, objectId, principal.GetAppRoles());
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,

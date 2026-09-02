@@ -82,7 +82,8 @@ public class AuthFunctionSideEffectTests
 
         var mcpUserMock = new Mock<McpUserService>(
             adminRepo, new StubAdminIdentityBindingService(bound: true), cache, Mock.Of<ILogger<McpUserService>>(),
-            globalAdminMock.Object, delegatedAdminMock.Object, adminConfigService.Object)
+            globalAdminMock.Object, delegatedAdminMock.Object, adminConfigService.Object,
+            new TenantMemberRoleResolver(_tenantAdminsMock.Object, _tenantConfigMock.Object))
         { CallBase = false };
 
         _metricsRepoMock = new Mock<IMetricsRepository>();

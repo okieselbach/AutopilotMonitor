@@ -27,6 +27,7 @@ public class McpUserServiceDelegatedTests
     private readonly Mock<DelegatedAdminService> _delegatedAdmin;
     private readonly Mock<AdminConfigurationService> _adminConfig;
     private readonly Mock<IAdminRepository> _adminRepo;
+    private readonly StubTenantMemberRoleResolver _memberRoles = new();
     private readonly McpUserService _sut;
 
     public McpUserServiceDelegatedTests()
@@ -53,7 +54,7 @@ public class McpUserServiceDelegatedTests
 
         _sut = new McpUserService(
             _adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            _globalAdmin.Object, _delegatedAdmin.Object, _adminConfig.Object);
+            _globalAdmin.Object, _delegatedAdmin.Object, _adminConfig.Object, _memberRoles);
     }
 
     private void SetPolicy(McpAccessPolicy policy) =>
@@ -187,8 +188,9 @@ public class McpUserServiceDelegatedTests
     public async Task AllMembers_WithoutMcpUserRow_IsAllowed()
     {
         // Control for the hoisted kill-switch: a MISSING row is the normal AllMembers case and must
-        // still be granted — only an explicit Disabled row denies.
+        // still be granted to a tenant member — only an explicit Disabled row denies.
         SetPolicy(McpAccessPolicy.AllMembers);
+        _memberRoles.Verdict = (_, _, _) => new MemberRoleInfo { Role = Constants.TenantRoles.Operator };
 
         var result = await _sut.IsAllowedAsync(DelegatedUpn, TenantA, Oid);
 

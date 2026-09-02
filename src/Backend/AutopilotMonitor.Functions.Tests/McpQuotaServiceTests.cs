@@ -82,7 +82,7 @@ public class McpQuotaServiceTests
         cache ??= new MemoryCache(new MemoryCacheOptions());
         var mcpUserService = new McpUserService(
             adminRepo.Object, new StubAdminIdentityBindingService(bound), cache, NullLogger<McpUserService>.Instance,
-            globalAdminService: null!, delegatedAdminService: null!, adminConfigService: null!);
+            globalAdminService: null!, delegatedAdminService: null!, adminConfigService: null!, memberRoleResolver: null!);
 
         var configRepo = new Mock<IConfigRepository>();
         configRepo.Setup(r => r.GetAdminConfigurationAsync())

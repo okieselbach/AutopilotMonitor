@@ -118,7 +118,8 @@ public class PolicyEnforcementMiddlewareTests
             configRepo.Object, NullLogger<TenantConfigurationService>.Instance, cache);
 
         var mw = new PolicyEnforcementMiddleware(
-            NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin, tenantAdmins, tenantConfig);
+            NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin,
+            new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig);
 
         return new Harness { Middleware = mw, Repo = repo, ConfigRepo = configRepo };
     }

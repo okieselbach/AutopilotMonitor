@@ -12,10 +12,14 @@ namespace AutopilotMonitor.Functions.Services;
 /// Service for managing MCP (Model Context Protocol) user access.
 /// Access is governed by AdminConfiguration.McpAccessPolicy:
 ///   - Disabled: no one can access MCP
-///   - WhitelistOnly: Global Admins + explicit McpUsers table entries
-///   - AllMembers: any authenticated user
+///   - WhitelistOnly: platform roles, delegated (MSP) admins and enabled McpUsers rows
+///   - AllMembers: the WhitelistOnly grants PLUS every effective member (Admin / Operator / Viewer — table
+///     row or Entra app-role claim) of the tenant the token was issued for. NOT "any authenticated token":
+///     an employee who merely signs in (e.g. for the Progress Portal) holds no role and is denied, exactly
+///     as they are on every tenant endpoint the MCP tools would call.
 /// An EXPLICITLY DISABLED McpUsers row is an operator kill-switch that denies access under every
-/// policy and every grant path (platform role, delegated auto-grant, AllMembers).
+/// policy and every grant path (platform role, delegated auto-grant, AllMembers). Under AllMembers the
+/// McpUsers table is therefore a per-user override list (individual usage plan, block), not a whitelist.
 /// <para>
 /// The McpUsers row is looked up by UPN but is honoured (grant, usage-plan override AND kill-switch) only
 /// for the identity the UPN is bound to in <see cref="AdminIdentityBindingService"/> — the caller's validated
@@ -33,6 +37,7 @@ public class McpUserService
     private readonly GlobalAdminService _globalAdminService;
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly AdminConfigurationService _adminConfigService;
+    private readonly TenantMemberRoleResolver _memberRoleResolver;
     // Per-process cache for the McpUsers whitelist lookup. On scaled-out Flex Consumption an add/remove
     // of an McpUsers row only invalidates the mutating instance, so other instances serve a stale
     // allow/deny until expiry. A short TTL caps that cross-instance window so an MCP-access grant/revoke
@@ -47,7 +52,8 @@ public class McpUserService
         ILogger<McpUserService> logger,
         GlobalAdminService globalAdminService,
         DelegatedAdminService delegatedAdminService,
-        AdminConfigurationService adminConfigService)
+        AdminConfigurationService adminConfigService,
+        TenantMemberRoleResolver memberRoleResolver)
     {
         _adminRepo = adminRepo;
         _bindings = bindings;
@@ -56,6 +62,7 @@ public class McpUserService
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
         _adminConfigService = adminConfigService;
+        _memberRoleResolver = memberRoleResolver;
     }
 
     /// <summary>
@@ -64,10 +71,13 @@ public class McpUserService
     /// together with the UPN they form the <see cref="AdminIdentity"/> the platform-role and delegated
     /// (MSP) grant paths AND the McpUsers whitelist resolve on — all three are keyed on the identity binding,
     /// never on the UPN alone, and the delegated path additionally requires a Pro home tenant. Null tid/oid
-    /// fails closed to no platform role, an empty delegated scope and no whitelist row; only the AllMembers
-    /// path (tenant-bound by the auth middleware itself) is unaffected.
+    /// fails closed to no platform role, an empty delegated scope and no whitelist row. The AllMembers path
+    /// resolves the caller's effective role in <paramref name="homeTenantId"/> (the tenant the token was
+    /// issued for) from the TenantAdmins table and, when that tenant opted in, the token's
+    /// <paramref name="appRoles"/> claim — a null tenant id is no member of anything.
     /// </summary>
-    public virtual async Task<McpAccessCheckResult> IsAllowedAsync(string? upn, string? homeTenantId, string? objectId)
+    public virtual async Task<McpAccessCheckResult> IsAllowedAsync(
+        string? upn, string? homeTenantId, string? objectId, IReadOnlyList<string>? appRoles = null)
     {
         if (string.IsNullOrWhiteSpace(upn))
             return McpAccessCheckResult.Denied("Missing UPN");
@@ -109,41 +119,49 @@ public class McpUserService
         if (!Enum.TryParse<McpAccessPolicy>(config.McpAccessPolicy, out var policy))
             policy = McpAccessPolicy.WhitelistOnly;
 
-        switch (policy)
-        {
-            case McpAccessPolicy.Disabled:
-                // Disabled blocks everyone — platform roles and delegated admins alike.
-                return McpAccessCheckResult.Denied("MCP access is disabled");
+        // Disabled blocks everyone — platform roles and delegated admins alike.
+        if (policy == McpAccessPolicy.Disabled)
+            return McpAccessCheckResult.Denied("MCP access is disabled");
 
-            case McpAccessPolicy.AllMembers:
-                return McpAccessCheckResult.Allowed(
-                    upn, "AllMembers", isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
+        // The explicit grants below hold under BOTH remaining policies; AllMembers only ADDS the tenant-role
+        // path at the end. Same order everywhere so the reported AccessGrant is policy-independent.
 
-            case McpAccessPolicy.WhitelistOnly:
-            default:
-                // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access
-                // (unless explicitly disabled via the kill-switch above).
-                if (globalRole != null)
-                    return McpAccessCheckResult.Allowed(
-                        upn, globalRole, isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
+        // Any platform role (GlobalAdmin or read-only GlobalReader) always has MCP access
+        // (unless explicitly disabled via the kill-switch above).
+        if (globalRole != null)
+            return McpAccessCheckResult.Allowed(
+                upn, globalRole, isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
 
-                // A delegated (MSP) admin with an active scope is granted MCP access automatically under
-                // WhitelistOnly — "delegated = scoped global", and they are already curated via the
-                // Delegated Admins UI, so a separate enabled McpUsers row would be redundant friction. Their
-                // reach is bounded client- and server-side to the managed tenant set; no platform/aggregate
-                // path. (An explicit Disabled row above still revokes this.)
-                if (!delegatedScope.IsEmpty)
-                    return McpAccessCheckResult.Allowed(
-                        upn, "DelegatedAdmin", isGlobalAdmin: false, globalRole: null,
-                        delegatedTenantIds: delegatedTenantIds, delegatedRole: delegatedRole);
+        // A delegated (MSP) admin with an active scope is granted MCP access automatically — "delegated =
+        // scoped global", and they are already curated via the Delegated Admins UI, so a separate enabled
+        // McpUsers row would be redundant friction. Their reach is bounded client- and server-side to the
+        // managed tenant set; no platform/aggregate path. (An explicit Disabled row above still revokes this.)
+        // Under AllMembers this also covers an MSP whose own home tenant is not an onboarded customer.
+        if (!delegatedScope.IsEmpty)
+            return McpAccessCheckResult.Allowed(
+                upn, "DelegatedAdmin", isGlobalAdmin: false, globalRole: null,
+                delegatedTenantIds: delegatedTenantIds, delegatedRole: delegatedRole);
 
-                return whitelistState == McpWhitelistState.Enabled
-                    ? McpAccessCheckResult.Allowed(upn, "McpUser", false, null, delegatedTenantIds, delegatedRole)
-                    // Surfaced to the end user by the MCP server's access guard. Keep it
-                    // self-explanatory so a denied colleague understands they simply need
-                    // to be whitelisted, rather than reading it as an auth failure.
-                    : McpAccessCheckResult.Denied("User not enabled for MCP usage (account is not on the MCP whitelist)");
-        }
+        // An enabled McpUsers row is an explicit per-account grant under both policies.
+        if (whitelistState == McpWhitelistState.Enabled)
+            return McpAccessCheckResult.Allowed(upn, "McpUser", false, null, delegatedTenantIds, delegatedRole);
+
+        if (policy != McpAccessPolicy.AllMembers)
+            // Surfaced to the end user by the MCP server's access guard. Keep it
+            // self-explanatory so a denied colleague understands they simply need
+            // to be whitelisted, rather than reading it as an auth failure.
+            return McpAccessCheckResult.Denied("User not enabled for MCP usage (account is not on the MCP whitelist)");
+
+        // AllMembers: "member" = an effective role (Admin / Operator / Viewer) in the tenant the token was
+        // issued for — the same resolver the policy middleware uses on every tenant endpoint. A token from
+        // an organization that never onboarded, or from an employee without a role (Progress Portal
+        // end-users), resolves to no role and is denied here instead of failing on every tool call.
+        var memberRole = string.IsNullOrWhiteSpace(homeTenantId)
+            ? null
+            : await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles);
+        return memberRole != null
+            ? McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole)
+            : McpAccessCheckResult.Denied("User not enabled for MCP usage (account has no role in its organization's tenant — ask a Tenant Admin to add you)");
     }
 
     /// <summary>

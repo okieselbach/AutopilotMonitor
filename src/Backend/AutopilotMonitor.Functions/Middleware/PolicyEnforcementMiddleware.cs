@@ -36,20 +36,20 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     private readonly ILogger<PolicyEnforcementMiddleware> _logger;
     private readonly GlobalAdminService _globalAdminService;
     private readonly DelegatedAdminService _delegatedAdminService;
-    private readonly TenantAdminsService _tenantAdminsService;
+    private readonly TenantMemberRoleResolver _memberRoleResolver;
     private readonly TenantConfigurationService _tenantConfigService;
 
     public PolicyEnforcementMiddleware(
         ILogger<PolicyEnforcementMiddleware> logger,
         GlobalAdminService globalAdminService,
         DelegatedAdminService delegatedAdminService,
-        TenantAdminsService tenantAdminsService,
+        TenantMemberRoleResolver memberRoleResolver,
         TenantConfigurationService tenantConfigService)
     {
         _logger = logger;
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
-        _tenantAdminsService = tenantAdminsService;
+        _memberRoleResolver = memberRoleResolver;
         _tenantConfigService = tenantConfigService;
     }
 
@@ -561,33 +561,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     }
 
     /// <summary>
-    /// Resolves the effective tenant member role: the TenantAdmins table entry if present,
-    /// otherwise — when the tenant has Entra app-roles enabled — the role derived from the token's
-    /// "roles" claim. Table always wins (manual override). The tenant-config lookup is only
-    /// performed when there is no table entry, so the common (table member) path stays cheap.
+    /// Effective tenant member role (table first, Entra app-role claim as the gated fallback) — see
+    /// <see cref="TenantMemberRoleResolver"/>, which the MCP access check shares so "member" means the same
+    /// thing on every path.
     /// </summary>
-    private async Task<MemberRoleInfo?> ResolveEffectiveRoleAsync(
+    private Task<MemberRoleInfo?> ResolveEffectiveRoleAsync(
         string tenantId, string upn, ClaimsPrincipal? principal)
-    {
-        var (state, tableRole) = await _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
-
-        // Table-first: an enabled row wins, a disabled row is an explicit deny. Both skip the
-        // claim path entirely — and avoid the tenant-config lookup. Only when no row exists do
-        // we consult the Entra app-role claim (gated by the per-tenant opt-in flag).
-        if (state != TableMemberState.NotPresent)
-            return EntraAppRoleResolver.Resolve(state, tableRole, appRoles: null, appRolesEnabled: false);
-
-        if (principal == null)
-            return null;
-
-        // Side-effect-free read: TryGetConfigurationAsync does NOT persist a default row for a missing
-        // tenant (GetConfigurationAsync would). Authorization role resolution must never create config as
-        // a side effect — otherwise an external delegated/MSP user whose own home tenant is not onboarded
-        // would get a phantom TenantConfiguration row written on their first cross-tenant read. A missing
-        // config simply means EntraAppRolesEnabled = false (the default), so the role result is unchanged.
-        var (config, _) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
-        return EntraAppRoleResolver.Resolve(state, tableRole, principal.GetAppRoles(), config.EntraAppRolesEnabled);
-    }
+        => _memberRoleResolver.ResolveAsync(tenantId, upn, principal?.GetAppRoles());
 
     /// <summary>
     /// Platform-wide cross-tenant READ: admits GlobalAdmin and the read-only GlobalReader. The

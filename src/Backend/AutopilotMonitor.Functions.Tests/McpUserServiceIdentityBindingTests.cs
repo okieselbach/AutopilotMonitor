@@ -28,6 +28,9 @@ public class McpUserServiceIdentityBindingTests
 
     private readonly Mock<IAdminRepository> _adminRepo = new();
     private readonly StubAdminIdentityBindingService _bindings;
+    // Home-tenant membership for the AllMembers path: this suite is about the identity binding, so every
+    // caller counts as a tenant member and only the binding decides (see McpUserServiceAllMembersTests).
+    private readonly StubTenantMemberRoleResolver _memberRoles = StubTenantMemberRoleResolver.Everyone();
     private readonly McpUserService _sut;
 
     public McpUserServiceIdentityBindingTests()
@@ -56,7 +59,7 @@ public class McpUserServiceIdentityBindingTests
 
         _sut = new McpUserService(
             _adminRepo.Object, _bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
     }
 
     private void SetRow(bool enabled, string? plan = "pro") =>
@@ -128,7 +131,7 @@ public class McpUserServiceIdentityBindingTests
         adminConfig.Setup(x => x.GetConfigurationAsync())
             .ReturnsAsync(new AdminConfiguration { McpAccessPolicy = McpAccessPolicy.WhitelistOnly.ToString() });
         var sut = new McpUserService(_adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>())).ReturnsAsync((McpUserEntry?)null);
 
         var result = await sut.IsAllowedAsync(Upn, HomeTenant, Oid);
@@ -168,7 +171,7 @@ public class McpUserServiceIdentityBindingTests
         adminConfig.Setup(x => x.GetConfigurationAsync())
             .ReturnsAsync(new AdminConfiguration { McpAccessPolicy = McpAccessPolicy.AllMembers.ToString() });
         var sut = new McpUserService(_adminRepo.Object, _bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
         SetRow(enabled: false);
 
         var bound = await sut.IsAllowedAsync(Upn, HomeTenant, Oid);

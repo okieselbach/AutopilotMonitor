@@ -200,7 +200,9 @@ public class McpUserFunction
 
         // JWT tid + oid complete the caller's identity: platform-role and delegated (MSP) grants resolve on
         // the identity binding (never the UPN alone); the delegated seat additionally requires a Pro home tenant.
-        var result = await _mcpUserService.IsAllowedAsync(upn, principal?.GetTenantId(), principal?.GetObjectId());
+        // The token's app roles feed the AllMembers member check (claim-derived Admin/Operator when the tenant opted in).
+        var result = await _mcpUserService.IsAllowedAsync(
+            upn, principal?.GetTenantId(), principal?.GetObjectId(), principal?.GetAppRoles());
 
         var response = req.CreateResponse(result.IsAllowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
         // Only surface platform-role flags when the caller actually has one (null ⇒ key omitted).
