@@ -11,6 +11,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
 import {
   runWithCaller,
+  wantsPrettyJson,
   DEFAULT_FIRST_PAGE_SIZE,
   DEFAULT_SCAN_BUDGET,
   DEFAULT_SCAN_ROW_BUDGET,
@@ -167,12 +168,30 @@ describe('first-page defaults', () => {
 });
 
 describe('result serialization', () => {
-  it('tool results are compact JSON (no indentation whitespace)', () => {
-    const payload = { sessions: [{ id: 1, tags: ['a', 'b'] }], nested: { deep: { x: null } } };
+  const payload = { sessions: [{ id: 1, tags: ['a', 'b'] }], nested: { deep: { x: null } } };
+
+  it('tool results are compact JSON (no indentation whitespace) by default', () => {
     const text = toolResultText(payload, 1000).content[0].text;
     expect(text).toBe(JSON.stringify(payload));
     expect(text).not.toContain('\n');
     expect(stringifyResult(payload)).toBe(text);
+  });
+
+  it('a caller that opted in via X-MCP-Pretty gets indented JSON for the same payload', () => {
+    const text = runWithCaller({ ...GA, prettyJson: true }, () => toolResultText(payload, 1000).content[0].text);
+    expect(text).toBe(JSON.stringify(payload, null, 2));
+    // The opt-in is scoped to that caller's async context — the next caller is compact again.
+    expect(runWithCaller(GA, () => stringifyResult(payload))).toBe(JSON.stringify(payload));
+  });
+
+  it('accepts "1" and "true" (any case) as the header opt-in and nothing else', () => {
+    expect(wantsPrettyJson('1')).toBe(true);
+    expect(wantsPrettyJson('true')).toBe(true);
+    expect(wantsPrettyJson(' TRUE ')).toBe(true);
+    expect(wantsPrettyJson(['1'])).toBe(true);
+    expect(wantsPrettyJson('0')).toBe(false);
+    expect(wantsPrettyJson('yes')).toBe(false);
+    expect(wantsPrettyJson(undefined)).toBe(false);
   });
 });
 

@@ -77,9 +77,29 @@ interface CallerContext {
    * in utils/homeTenantScope.ts).
    */
   upn?: string;
+  /**
+   * The caller asked for indented (pretty-printed) tool results via the `X-MCP-Pretty: 1` request
+   * header — a per-CLIENT preference for humans reading results in an interactive client. The
+   * platform default is compact JSON: measured with an OpenAI-family tokenizer, indentation costs
+   * 14-46 % more tokens (2-2.7 tokens per line for newline + indent + colon spacing), which the
+   * wire's gzip does not remove from a model's context.
+   */
+  prettyJson?: boolean;
 }
 
 const callerStore = new AsyncLocalStorage<CallerContext>();
+
+/** True for the accepted `X-MCP-Pretty` header values ("1" / "true", case-insensitive). */
+export function wantsPrettyJson(headerValue: string | string[] | undefined): boolean {
+  const raw = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const v = raw?.trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/** True when the current caller opted into pretty-printed results (see CallerContext.prettyJson). */
+export function isPrettyJsonRequested(): boolean {
+  return callerStore.getStore()?.prettyJson === true;
+}
 
 /**
  * Run a callback within an async context that carries the given caller info.

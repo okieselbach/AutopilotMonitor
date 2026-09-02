@@ -1,6 +1,7 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { PRETTY_JSON } from '../config.js';
+import { isPrettyJsonRequested } from '../client.js';
 
 /**
  * Projection sent by get_session_events when the caller omits `fields`: everything an event
@@ -196,11 +197,12 @@ export const MAX_RESULT_SIZE_CHARS = {
 /**
  * Serializes a tool result or resource body. Compact by default: the text lands verbatim in
  * a language model's context, which — unlike the gzipped wire — pays for every indentation
- * space (measured +18–55 % characters on the static catalogs). MCP_PRETTY_JSON=true restores
- * the indented form for humans reading results in a debugger.
+ * character (measured with an OpenAI-family tokenizer: +14–46 % tokens, 2–2.7 tokens per line).
+ * Indented output is available per client via the `X-MCP-Pretty: 1` request header (humans
+ * reading results in an interactive client) or globally via MCP_PRETTY_JSON=true.
  */
 export function stringifyResult(data: unknown): string {
-  return PRETTY_JSON ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+  return PRETTY_JSON || isPrettyJsonRequested() ? JSON.stringify(data, null, 2) : JSON.stringify(data);
 }
 
 /**

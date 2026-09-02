@@ -10,7 +10,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { extractTokenClaims, isTokenExpired } from './auth.js';
-import { runWithCaller } from './client.js';
+import { runWithCaller, wantsPrettyJson } from './client.js';
 import { API_BASE_URL, getPublicBaseUrl, parsePositiveInt } from './config.js';
 import type { CheckMcpAccessResponse } from './generated/wire-types.generated.js';
 
@@ -490,6 +490,9 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           // UPN domain labels the synthesized home-tenant entry in list_tenants for a delegated
           // caller (the home tenant is never in the backend-bounded config/all subset).
           upn,
+          // Per-client readability opt-in (see CallerContext.prettyJson): compact JSON stays the
+          // default for every AI agent; a human-facing client sends the header.
+          prettyJson: wantsPrettyJson(req.headers['x-mcp-pretty']),
         },
         () => next(),
       );

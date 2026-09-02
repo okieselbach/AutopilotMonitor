@@ -35,10 +35,12 @@ export const ENTRA_LOGIN_BASE_URL = 'https://login.microsoftonline.com';
 export const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
 
 /**
- * Pretty-print tool results (2-space indentation) instead of compact JSON. Off by default:
+ * Pretty-print EVERY tool result (2-space indentation) instead of compact JSON. Off by default:
  * the consumer of a tool result is a language model whose context window is not gzipped —
- * measured on the static catalogs, indentation added 18–55 % characters per response for
- * zero information. Set MCP_PRETTY_JSON=true for a human eyeballing results in a debugger.
+ * measured with an OpenAI-family tokenizer, indentation adds 14–46 % tokens per response for
+ * zero information. Prefer the per-client `X-MCP-Pretty: 1` request header (client.ts
+ * wantsPrettyJson) so only the humans who read results pay for them; this global switch is
+ * the debugger escape hatch.
  */
 export const PRETTY_JSON = process.env.MCP_PRETTY_JSON?.trim().toLowerCase() === 'true';
 
