@@ -22,6 +22,42 @@ interface DailyAggregate {
   endpoints: number;
 }
 
+// GetMyMcpUsageResponse.quota — the caller's own windows plus the organization-wide windows every
+// member shares. 0 = unlimited; -1 used = counters temporarily unavailable.
+interface QuotaState {
+  dailyLimit: number;
+  monthlyLimit: number;
+  dailyUsed: number;
+  monthlyUsed: number;
+  tenantPlan: string;
+  tenantDailyLimit: number;
+  tenantMonthlyLimit: number;
+  tenantDailyUsed: number;
+  tenantMonthlyUsed: number;
+}
+
+function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const unavailable = used < 0;
+  const unlimited = limit <= 0;
+  const pct = unavailable || unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
+  const tone = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-indigo-500";
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+        <span>{label}</span>
+        <span className="font-mono">
+          {unavailable ? "n/a" : used.toLocaleString()}
+          {" / "}
+          {unlimited ? "unlimited" : limit.toLocaleString()}
+        </span>
+      </div>
+      <div className="bg-gray-100 rounded-full h-2">
+        <div className={`${tone} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 type DateRange = "7d" | "30d" | "90d";
 
 function formatDate(yyyymmdd: string): string {
@@ -44,6 +80,8 @@ export function SectionMcpUsage() {
   const { getAccessToken } = useAuth();
   const [records, setRecords] = useState<UsageRecord[]>([]);
   const [usagePlan, setUsagePlan] = useState<string | null>(null);
+  const [effectivePlan, setEffectivePlan] = useState<string | null>(null);
+  const [quota, setQuota] = useState<QuotaState | null>(null);
   const [upn, setUpn] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +101,8 @@ export function SectionMcpUsage() {
       const data = await res.json();
       setRecords(data.records || []);
       setUsagePlan(data.usagePlan || null);
+      setEffectivePlan(data.effectivePlan || null);
+      setQuota(data.quota ?? null);
       setUpn(data.upn || "");
     } catch (err) {
       if (err instanceof TokenExpiredError) {
@@ -121,7 +161,7 @@ export function SectionMcpUsage() {
           )}
           {!usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-              Plan: inherited
+              Plan: {effectivePlan ? `${effectivePlan} (inherited)` : "inherited"}
             </span>
           )}
           {/* Date Range Selector */}
@@ -143,6 +183,32 @@ export function SectionMcpUsage() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Quota: the caller's own windows and the organization-wide windows shared by every member */}
+      {quota && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900">Your quota</h3>
+              <span className="text-xs text-gray-500">plan {effectivePlan ?? "—"}</span>
+            </div>
+            <QuotaBar label="Today" used={quota.dailyUsed} limit={quota.dailyLimit} />
+            <QuotaBar label="This month" used={quota.monthlyUsed} limit={quota.monthlyLimit} />
+          </div>
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
+              <span className="text-xs text-gray-500">tenant plan {quota.tenantPlan}</span>
+            </div>
+            <QuotaBar label="Today (all members)" used={quota.tenantDailyUsed} limit={quota.tenantDailyLimit} />
+            <QuotaBar label="This month (all members)" used={quota.tenantMonthlyUsed} limit={quota.tenantMonthlyLimit} />
+            <p className="text-xs text-gray-500">
+              Shared by every account in your tenant. A personal plan override widens only the account&apos;s own
+              windows, never these.
+            </p>
+          </div>
         </div>
       )}
 

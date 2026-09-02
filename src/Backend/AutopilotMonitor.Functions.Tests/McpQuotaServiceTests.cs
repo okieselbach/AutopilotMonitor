@@ -22,29 +22,41 @@ public class McpQuotaServiceTests
 
     // ── BuildDecision (pure window math) ─────────────────────────────────────────
 
+    private static McpPlanLimits Limits(
+        int daily = 100, int monthly = 3000, int tenantDaily = 300, int tenantMonthly = 9000, string plan = "community")
+        => new(plan, daily, monthly, plan, tenantDaily, tenantMonthly);
+
+    private static McpQuotaDecision Decide(
+        McpPlanLimits limits, long dailyUsed, long monthlyUsed, long tenantDailyUsed = 0, long tenantMonthlyUsed = 0)
+        => McpQuotaService.BuildDecision(limits, dailyUsed, monthlyUsed, tenantDailyUsed, tenantMonthlyUsed, Now);
+
     [Fact]
-    public void BuildDecision_UnderBothLimits_Allowed()
+    public void BuildDecision_UnderAllLimits_Allowed()
     {
-        var d = McpQuotaService.BuildDecision("community", 100, 3000, dailyUsed: 99, monthlyUsed: 500, Now);
+        var d = Decide(Limits(), dailyUsed: 99, monthlyUsed: 500, tenantDailyUsed: 299, tenantMonthlyUsed: 8999);
         Assert.True(d.Allowed);
         Assert.Null(d.Scope);
+        Assert.Null(d.Level);
     }
 
     [Fact]
     public void BuildDecision_DailyExceeded_BlocksWithMidnightReset()
     {
-        var d = McpQuotaService.BuildDecision("community", 100, 3000, dailyUsed: 100, monthlyUsed: 500, Now);
+        var d = Decide(Limits(), dailyUsed: 100, monthlyUsed: 500);
         Assert.False(d.Allowed);
         Assert.Equal("daily", d.Scope);
+        Assert.Equal("user", d.Level);
+        Assert.Equal(100, d.ExceededLimit);
         Assert.Equal(new DateTime(2026, 7, 8, 0, 0, 0, DateTimeKind.Utc), d.ResetUtc);
     }
 
     [Fact]
     public void BuildDecision_MonthlyExceeded_BlocksWithFirstOfNextMonthReset()
     {
-        var d = McpQuotaService.BuildDecision("community", 100, 3000, dailyUsed: 10, monthlyUsed: 3000, Now);
+        var d = Decide(Limits(), dailyUsed: 10, monthlyUsed: 3000);
         Assert.False(d.Allowed);
         Assert.Equal("monthly", d.Scope);
+        Assert.Equal("user", d.Level);
         Assert.Equal(new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc), d.ResetUtc);
     }
 
@@ -52,15 +64,57 @@ public class McpQuotaServiceTests
     public void BuildDecision_MonthlyTakesPrecedenceOverDaily()
     {
         // Both exceeded → report the longer (monthly) window so Retry-After is honest.
-        var d = McpQuotaService.BuildDecision("community", 100, 3000, dailyUsed: 100, monthlyUsed: 3000, Now);
+        var d = Decide(Limits(), dailyUsed: 100, monthlyUsed: 3000);
         Assert.Equal("monthly", d.Scope);
     }
 
     [Fact]
-    public void BuildDecision_ZeroLimit_MeansUnlimitedForThatScope()
+    public void BuildDecision_ZeroLimit_MeansUnlimitedForThatWindow()
     {
-        var d = McpQuotaService.BuildDecision("custom", 0, 0, dailyUsed: 999999, monthlyUsed: 999999, Now);
+        var d = Decide(Limits(0, 0, 0, 0, "custom"), dailyUsed: 999999, monthlyUsed: 999999, tenantDailyUsed: 999999, tenantMonthlyUsed: 999999);
         Assert.True(d.Allowed);
+    }
+
+    [Fact]
+    public void BuildDecision_TenantDailyExceeded_BlocksAMemberInsideTheirOwnPlan()
+    {
+        // The organization's window is exhausted by OTHER members — this caller has used 5 of 100.
+        var d = Decide(Limits(), dailyUsed: 5, monthlyUsed: 5, tenantDailyUsed: 300, tenantMonthlyUsed: 300);
+        Assert.False(d.Allowed);
+        Assert.Equal("daily", d.Scope);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal(300, d.ExceededLimit);
+        Assert.Equal(300, d.ExceededUsed);
+        Assert.Equal(new DateTime(2026, 7, 8, 0, 0, 0, DateTimeKind.Utc), d.ResetUtc);
+    }
+
+    [Fact]
+    public void BuildDecision_TenantMonthlyExceeded_ResetsOnTheFirst()
+    {
+        var d = Decide(Limits(), dailyUsed: 5, monthlyUsed: 50, tenantDailyUsed: 10, tenantMonthlyUsed: 9000);
+        Assert.False(d.Allowed);
+        Assert.Equal("monthly", d.Scope);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal(9000, d.ExceededLimit);
+        Assert.Equal(new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc), d.ResetUtc);
+    }
+
+    [Fact]
+    public void BuildDecision_UserMonthly_IsNamedBeforeTenantMonthly()
+    {
+        // Same reset either way; the caller's OWN exhausted budget is the more actionable message.
+        var d = Decide(Limits(), dailyUsed: 10, monthlyUsed: 3000, tenantDailyUsed: 10, tenantMonthlyUsed: 9000);
+        Assert.Equal("monthly", d.Scope);
+        Assert.Equal("user", d.Level);
+    }
+
+    [Fact]
+    public void BuildDecision_TenantMonthly_IsNamedBeforeUserDaily()
+    {
+        // Longest exceeded window first: a tenant-monthly block outranks the caller's daily block.
+        var d = Decide(Limits(), dailyUsed: 100, monthlyUsed: 500, tenantDailyUsed: 10, tenantMonthlyUsed: 9000);
+        Assert.Equal("monthly", d.Scope);
+        Assert.Equal("tenant", d.Level);
     }
 
     // ── CheckAsync (integration over mocked deps) ────────────────────────────────
@@ -105,12 +159,23 @@ public class McpQuotaServiceTests
     }
 
     private static Mock<IUserUsageRepository> UsageRepo(params (string Date, long Count)[] rows)
+        => UsageRepo(rows, tenantRows: Array.Empty<(string, long)>());
+
+    private static Mock<IUserUsageRepository> UsageRepo((string Date, long Count)[] rows, (string Date, long Count)[] tenantRows)
     {
         var repo = new Mock<IUserUsageRepository>();
         repo.Setup(r => r.GetUsageByUserAsync(Oid, It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(rows.Select(r => new UserUsageRecord
             {
                 UserId = Oid,
+                Date = r.Date,
+                RequestCount = r.Count
+            }).ToList());
+        repo.Setup(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(tenantRows.Select(r => new TenantUsageRecord
+            {
+                TenantId = TenantId,
+                UserId = "some-other-member",
                 Date = r.Date,
                 RequestCount = r.Count
             }).ToList());
@@ -299,5 +364,117 @@ public class McpQuotaServiceTests
         Assert.False(decision.Allowed);
         Assert.Equal("daily", decision.Scope);
         Assert.Equal(150, decision.DailyUsed);
+    }
+
+    // ── Tenant (organization-wide) quota ─────────────────────────────────────────
+
+    [Fact]
+    public async Task Check_TenantDailyExceeded_BlocksAMemberUnderTheirOwnLimit()
+    {
+        // Community catalog tenant window = 300/day; other members burned it, this caller made 5 requests.
+        var svc = Build(UsageRepo(new[] { ("20260707", 5L) }, tenantRows: new[] { ("20260707", 300L) }));
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal("daily", d.Scope);
+        Assert.Equal("community", d.TenantPlan);
+        Assert.Equal(300, d.TenantDailyLimit);
+        Assert.Equal(300, d.TenantDailyUsed);
+        Assert.Equal(5, d.DailyUsed);
+    }
+
+    [Fact]
+    public async Task Check_TenantMonthlySum_SpansAllMembersAndDaysOfTheMonth()
+    {
+        var svc = Build(UsageRepo(
+            new[] { ("20260707", 1L) },
+            tenantRows: new[] { ("20260701", 4000L), ("20260703", 4990L), ("20260707", 10L) }));
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal("monthly", d.Scope);
+        Assert.Equal(9000, d.TenantMonthlyUsed);
+        Assert.Equal(10, d.TenantDailyUsed);
+    }
+
+    [Fact]
+    public async Task Check_TenantLimits_FollowTheTenantPlan_NeverThePerUserOverride()
+    {
+        // The caller's override plan is huge; the tenant's edition plan (community) carries a tiny tenant
+        // window. The override lifts only the caller's OWN budget — the organization's window still bites.
+        var json = """[{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"tenantDailyRequestLimit":1000000,"tenantMonthlyRequestLimit":1000000,"description":""},{"name":"community","dailyRequestLimit":100,"monthlyRequestLimit":3000,"tenantDailyRequestLimit":10,"tenantMonthlyRequestLimit":100,"description":""}]""";
+        var svc = Build(UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 10L) }),
+            planDefinitionsJson: json, mcpUserPlanOverride: "power");
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("power", d.Plan);
+        Assert.Equal(10000, d.DailyLimit);
+        Assert.Equal("community", d.TenantPlan);
+        Assert.Equal(10, d.TenantDailyLimit);
+        Assert.Equal("tenant", d.Level);
+    }
+
+    [Fact]
+    public async Task Check_DefinitionWithoutTenantLimits_FallsBackToTheEditionCatalog()
+    {
+        // Pre-existing SectionUsagePlans rows carry no tenant fields → the edition's catalog tenant windows.
+        var json = """[{"name":"pro","dailyRequestLimit":5,"monthlyRequestLimit":50,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(d.Allowed);
+        Assert.Equal(5, d.DailyLimit);
+        Assert.Equal(3000, d.TenantDailyLimit);
+        Assert.Equal(60000, d.TenantMonthlyLimit);
+    }
+
+    [Fact]
+    public async Task Check_TenantWindowsLiftedToZero_SkipTheTenantRead()
+    {
+        var json = """[{"name":"community","dailyRequestLimit":100,"monthlyRequestLimit":3000,"tenantDailyRequestLimit":0,"tenantMonthlyRequestLimit":0,"description":""}]""";
+        var repo = UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 999999L) });
+        var svc = Build(repo, planDefinitionsJson: json);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(d.Allowed);
+        Assert.Equal(0, d.TenantDailyLimit);
+        repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Check_WithoutTenantId_SkipsTheTenantRead()
+    {
+        var repo = UsageRepo(("20260707", 1));
+        var svc = Build(repo);
+
+        var d = await svc.CheckAsync(Oid, Upn, tenantId: null);
+
+        Assert.True(d.Allowed);
+        repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Check_TenantLookupThrows_FailsOpen_AndDoesNotCache()
+    {
+        var repo = UsageRepo(("20260707", 1));
+        repo.Setup(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+        var svc = Build(repo);
+
+        var first = await svc.CheckAsync(Oid, Upn, TenantId);
+        var second = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(first.Allowed);
+        Assert.True(second.Allowed);
+        Assert.Equal(-1, first.TenantDailyUsed);
+        repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
     }
 }

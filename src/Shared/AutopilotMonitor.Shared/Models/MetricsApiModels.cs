@@ -91,7 +91,10 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<UserUsageRecord> Records { get; set; } = default!;
     }
 
-    /// <summary>Effective quota state nested in <see cref="GetMyMcpUsageResponse"/>.</summary>
+    /// <summary>
+    /// Effective quota state nested in <see cref="GetMyMcpUsageResponse"/>: the caller's own windows and
+    /// the organization-wide windows of their tenant (shared by every member; 0 = unlimited).
+    /// </summary>
     // Declaration order == wire order.
     public class McpUsageQuotaNode
     {
@@ -100,6 +103,11 @@ namespace AutopilotMonitor.Shared.Models
         public long DailyUsed { get; set; }
         public long MonthlyUsed { get; set; }
         public DateTime ResetUtc { get; set; }
+        public string TenantPlan { get; set; } = default!;
+        public int TenantDailyLimit { get; set; }
+        public int TenantMonthlyLimit { get; set; }
+        public long TenantDailyUsed { get; set; }
+        public long TenantMonthlyUsed { get; set; }
     }
 
     /// <summary>

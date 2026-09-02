@@ -11,11 +11,14 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 {
     /// <summary>
     /// Table Storage implementation of IUserUsageRepository.
-    /// PartitionKey: userId (oid claim), RowKey: {yyyyMMdd}_{normalizedEndpoint}
+    /// UserUsageLog — PartitionKey: userId (oid claim), RowKey: {yyyyMMdd}_{normalizedEndpoint}.
+    /// McpTenantUsage — PartitionKey: tenantId, RowKey: {yyyyMMdd}_{userId} (the organization-wide quota
+    /// counter; per user so concurrent members never contend on one row, read as one partition range).
     /// </summary>
     public class TableUserUsageRepository : IUserUsageRepository
     {
         private readonly TableClient _tableClient;
+        private readonly TableClient _tenantTableClient;
         private readonly ILogger<TableUserUsageRepository> _logger;
 
         public TableUserUsageRepository(
@@ -24,6 +27,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         {
             _logger = logger;
             _tableClient = storage.GetTableClient(Constants.TableNames.UserUsageLog);
+            _tenantTableClient = storage.GetTableClient(Constants.TableNames.McpTenantUsage);
         }
 
         public async Task IncrementUsageAsync(string userId, string userPrincipalName, string tenantId, string endpoint)
@@ -199,6 +203,117 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 }
             }
 
+            return deleted;
+        }
+
+        // ---- McpTenantUsage (organization-wide quota counters) ----
+
+        public async Task IncrementTenantUsageAsync(string tenantId, string userId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(userId))
+                return;
+
+            var date = DateTime.UtcNow.ToString("yyyyMMdd");
+            var rowKey = $"{date}_{userId}";
+
+            const int maxRetries = 3;
+            for (var attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    var result = await _tenantTableClient.GetEntityAsync<TableEntity>(tenantId, rowKey);
+                    var entity = result.Value;
+                    var count = entity.TryGetValue("RequestCount", out var c) ? Convert.ToInt64(c) : 0L;
+                    entity["RequestCount"] = count + 1;
+                    entity["LastRequestAt"] = DateTimeOffset.UtcNow;
+                    await _tenantTableClient.UpdateEntityAsync(entity, entity.ETag);
+                    return;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    var entity = new TableEntity(tenantId, rowKey)
+                    {
+                        ["Date"] = date,
+                        ["UserId"] = userId,
+                        ["RequestCount"] = 1L,
+                        ["LastRequestAt"] = DateTimeOffset.UtcNow,
+                    };
+                    try
+                    {
+                        await _tenantTableClient.AddEntityAsync(entity);
+                        return;
+                    }
+                    catch (RequestFailedException addEx) when (addEx.Status == 409)
+                    {
+                        continue;
+                    }
+                }
+                catch (RequestFailedException ex) when (ex.Status == 412)
+                {
+                    continue;
+                }
+            }
+
+            _logger.LogWarning("Failed to increment tenant usage after {MaxRetries} retries: tenant={TenantId}, user={UserId}",
+                maxRetries, LogSanitizer.Clean(tenantId), LogSanitizer.Clean(userId));
+        }
+
+        public async Task<List<TenantUsageRecord>> GetTenantUsageAsync(string tenantId, string? dateFrom = null, string? dateTo = null)
+        {
+            var records = new List<TenantUsageRecord>();
+            if (string.IsNullOrWhiteSpace(tenantId))
+                return records;
+
+            await foreach (var entity in _tenantTableClient.QueryAsync<TableEntity>(filter: BuildTenantCounterFilter(tenantId, dateFrom, dateTo)))
+            {
+                records.Add(new TenantUsageRecord
+                {
+                    TenantId = entity.PartitionKey,
+                    UserId = entity.GetString("UserId") ?? string.Empty,
+                    Date = entity.GetString("Date") ?? entity.RowKey.Split('_')[0],
+                    RequestCount = entity.TryGetValue("RequestCount", out var rc) ? Convert.ToInt64(rc) : 0L,
+                });
+            }
+            return records;
+        }
+
+        /// <summary>
+        /// Partition + RowKey range filter for McpTenantUsage: the RowKey starts with the yyyyMMdd day, so a
+        /// date window is a key range ("{to}~" sorts after every "{to}_{oid}"); no property scan.
+        /// </summary>
+        internal static string BuildTenantCounterFilter(string tenantId, string? dateFrom, string? dateTo)
+        {
+            var filter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(tenantId)}'";
+            if (!string.IsNullOrEmpty(dateFrom))
+                filter += $" and RowKey ge '{ODataSanitizer.EscapeValue(dateFrom.Replace("-", ""))}'";
+            if (!string.IsNullOrEmpty(dateTo))
+                filter += $" and RowKey lt '{ODataSanitizer.EscapeValue(dateTo.Replace("-", ""))}~'";
+            return filter;
+        }
+
+        public async Task<int> DeleteTenantRecordsOlderThanAsync(string dateCutoff)
+        {
+            var filter = $"RowKey lt '{ODataSanitizer.EscapeValue(dateCutoff)}'";
+            var toDelete = new List<(string partitionKey, string rowKey)>();
+            await foreach (var entity in _tenantTableClient.QueryAsync<TableEntity>(
+                filter: filter, select: new[] { "PartitionKey", "RowKey" }))
+            {
+                toDelete.Add((entity.PartitionKey, entity.RowKey));
+            }
+
+            int deleted = 0;
+            foreach (var (pk, rk) in toDelete)
+            {
+                try
+                {
+                    await _tenantTableClient.DeleteEntityAsync(pk, rk);
+                    deleted++;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // Already deleted, skip
+                }
+            }
             return deleted;
         }
 

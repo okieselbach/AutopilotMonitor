@@ -1117,6 +1117,10 @@ namespace AutopilotMonitor.Shared
             // User usage tracking (per-user, per-day, per-endpoint)
             public const string UserUsageLog = "UserUsageLog";
 
+            // MCP tenant usage counters for the organization-wide quota (PK = tenantId,
+            // RK = {yyyyMMdd}_{oid}): one partition read per quota check, no hot row.
+            public const string McpTenantUsage = "McpTenantUsage";
+
             // Operational events (vital infrastructure signals for Global Admin Ops dashboard)
             public const string OpsEvents = "OpsEvents";
 
@@ -1270,6 +1274,7 @@ namespace AutopilotMonitor.Shared
                 CveIndex,
                 DistressReports,
                 UserUsageLog,
+                McpTenantUsage,
                 OpsEvents,
                 ImeVersionHistory,
                 ImePatternStats,

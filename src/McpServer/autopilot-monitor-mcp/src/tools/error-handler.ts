@@ -35,6 +35,21 @@ export function toolError(
     if (error.parsed?.correlationId) parts.push(`**Correlation ID**: ${error.parsed.correlationId}`);
     if (error.parsed?.errorCode) parts.push(`**Error code**: ${error.parsed.errorCode}`);
     parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
+  } else if (error instanceof ApiError && error.status === 429 && error.parsed?.quotaExceeded === true) {
+    // Backend MCP quota (McpQuotaExceededResponse): the daily/monthly budget of the caller's own plan
+    // (level=user) or of the whole organization (level=tenant). Retrying is pointless until resetUtc —
+    // say so, and say WHOSE budget it is, so a member blocked by the tenant window does not go and
+    // create more accounts or ask for a bigger personal plan.
+    const p = error.parsed;
+    const whose = p.level === 'tenant' ? "your organization's" : 'your';
+    parts.push(`**Quota exceeded in ${toolName}**: ${p.message ?? `${whose} MCP ${p.scope ?? ''} request quota is exhausted.`}`);
+    if (p.limit != null && p.used != null) parts.push(`**Budget**: ${p.used} of ${p.limit} requests used (${p.scope ?? 'window'}, ${p.level ?? 'user'} level).`);
+    if (p.resetUtc) parts.push(`**Resets at**: ${p.resetUtc}`);
+    parts.push(
+      p.level === 'tenant'
+        ? '**Suggestion**: do not retry before the reset — the window is shared by every member of the tenant; a tenant admin can review consumption under Configuration → Reporting → MCP Usage.'
+        : '**Suggestion**: do not retry before the reset; narrow further queries, or ask an administrator about a larger usage plan.',
+    );
   } else if (error instanceof ApiError && error.parsed) {
     // Structured backend error (4xx) — extract rich details
     const p = error.parsed;

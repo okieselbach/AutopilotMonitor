@@ -10594,6 +10594,14 @@
           "doc": "Which window was exceeded (\"daily\"/\"monthly\") — always set on the blocked path."
         },
         {
+          "name": "level",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Whose budget was exceeded: \"user\" (the caller's own plan) or \"tenant\" (the organization-wide windows)."
+        },
+        {
           "name": "limit",
           "type": {
             "kind": "primitive",
@@ -10628,7 +10636,7 @@
     },
     "McpUsageQuotaNode": {
       "kind": "object",
-      "doc": "Effective quota state nested in GetMyMcpUsageResponse.",
+      "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited).",
       "fields": [
         {
           "name": "dailyLimit",
@@ -10663,6 +10671,41 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        },
+        {
+          "name": "tenantPlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantDailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantMonthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantDailyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantMonthlyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]
@@ -11164,7 +11207,7 @@
     },
     "PlanTierDefinition": {
       "kind": "object",
-      "doc": "Defines a usage plan tier with request limits. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson.",
+      "doc": "Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, and the organization-wide TENANT windows all members of a tenant on this plan share. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for that window.",
       "fields": [
         {
           "name": "name",
@@ -11193,6 +11236,24 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "tenantDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenant-wide daily limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited."
+        },
+        {
+          "name": "tenantMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenant-wide monthly limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited."
         }
       ]
     },

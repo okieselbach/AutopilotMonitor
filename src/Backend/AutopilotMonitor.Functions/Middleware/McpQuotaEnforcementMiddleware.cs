@@ -12,7 +12,8 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Middleware;
 
 /// <summary>
-/// Enforces the per-user MCP daily/monthly request quota. Runs after
+/// Enforces the MCP daily/monthly request quota — the caller's own budget AND the organization-wide
+/// budget of the token's tenant (both counted here, both must be free). Runs after
 /// <see cref="UserRateLimitMiddleware"/> (per-minute burst control) — this is the budget layer on
 /// top. Applies ONLY to HTTP requests marked <c>X-Client-Source: mcp</c> with an authenticated
 /// principal (oid); everything else passes through untouched. Global Admins are exempt from the
@@ -118,22 +119,38 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         var retryAfterSeconds = Math.Max(1, (int)(decision.ResetUtc - DateTime.UtcNow).TotalSeconds);
         _logger.LogWarning(
-            "[McpQuota] BLOCKED oid={Oid} plan={Plan} scope={Scope} daily={DailyUsed}/{DailyLimit} monthly={MonthlyUsed}/{MonthlyLimit}",
-            oid, decision.Plan, decision.Scope, decision.DailyUsed, decision.DailyLimit, decision.MonthlyUsed, decision.MonthlyLimit);
+            "[McpQuota] BLOCKED oid={Oid} tenant={TenantId} level={Level} scope={Scope} plan={Plan} daily={DailyUsed}/{DailyLimit} monthly={MonthlyUsed}/{MonthlyLimit} tenantDaily={TenantDailyUsed}/{TenantDailyLimit} tenantMonthly={TenantMonthlyUsed}/{TenantMonthlyLimit}",
+            oid, tenantId, decision.Level, decision.Scope, decision.Plan, decision.DailyUsed, decision.DailyLimit, decision.MonthlyUsed, decision.MonthlyLimit,
+            decision.TenantDailyUsed, decision.TenantDailyLimit, decision.TenantMonthlyUsed, decision.TenantMonthlyLimit);
 
         httpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
         httpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
         httpContext.Response.ContentType = "application/json";
-        await httpContext.Response.WriteAsJsonAsync(new McpQuotaExceededResponse
+        await httpContext.Response.WriteAsJsonAsync(BuildExceededResponse(decision));
+    }
+
+    /// <summary>
+    /// The 429 body for a blocked decision. The message names WHOSE budget is exhausted — a member hitting the
+    /// organization-wide window must not conclude their own plan is too small.
+    /// </summary>
+    internal static McpQuotaExceededResponse BuildExceededResponse(McpQuotaDecision decision)
+    {
+        var reset = $"Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z.";
+        var message = decision.Level == McpQuotaLevel.Tenant
+            ? $"MCP {decision.Scope} request quota of your organization exceeded (tenant plan '{decision.TenantPlan}', shared by all its members). {reset}"
+            : $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. {reset}";
+
+        return new McpQuotaExceededResponse
         {
             QuotaExceeded = true,
             Plan = decision.Plan,
             Scope = decision.Scope,
-            Limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-            Used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
+            Level = decision.Level ?? McpQuotaLevel.User,
+            Limit = decision.ExceededLimit,
+            Used = decision.ExceededUsed,
             ResetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            Message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
-        });
+            Message = message
+        };
     }
 
     /// <summary>
@@ -162,6 +179,19 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             {
                 logger.LogWarning(ex, "[McpQuota] Failed to record usage: user={UserId}, endpoint={Endpoint}", LogSanitizer.Clean(oid), LogSanitizer.Clean(normalizedEndpoint));
             }
+
+            // Organization-wide counter (the tenant quota's source). Separate try so a failure on one
+            // table never starves the other; GA usage lands here too (exempt from the check, not from the count).
+            if (tidValue.Length == 0)
+                return;
+            try
+            {
+                await repo.IncrementTenantUsageAsync(tidValue, oid);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[McpQuota] Failed to record tenant usage: tenant={TenantId}, user={UserId}", LogSanitizer.Clean(tidValue), LogSanitizer.Clean(oid));
+            }
         });
     }
 
@@ -171,10 +201,15 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
         httpContext.Response.Headers["X-MCP-Quota-Plan"] = decision.Plan;
         httpContext.Response.Headers["X-MCP-Quota-Daily-Limit"] = decision.DailyLimit.ToString();
         httpContext.Response.Headers["X-MCP-Quota-Monthly-Limit"] = decision.MonthlyLimit.ToString();
+        httpContext.Response.Headers["X-MCP-Quota-Tenant-Plan"] = decision.TenantPlan;
+        httpContext.Response.Headers["X-MCP-Quota-Tenant-Daily-Limit"] = decision.TenantDailyLimit.ToString();
+        httpContext.Response.Headers["X-MCP-Quota-Tenant-Monthly-Limit"] = decision.TenantMonthlyLimit.ToString();
         if (decision.DailyUsed >= 0)
         {
             httpContext.Response.Headers["X-MCP-Quota-Daily-Used"] = decision.DailyUsed.ToString();
             httpContext.Response.Headers["X-MCP-Quota-Monthly-Used"] = decision.MonthlyUsed.ToString();
+            httpContext.Response.Headers["X-MCP-Quota-Tenant-Daily-Used"] = decision.TenantDailyUsed.ToString();
+            httpContext.Response.Headers["X-MCP-Quota-Tenant-Monthly-Used"] = decision.TenantMonthlyUsed.ToString();
         }
     }
 }

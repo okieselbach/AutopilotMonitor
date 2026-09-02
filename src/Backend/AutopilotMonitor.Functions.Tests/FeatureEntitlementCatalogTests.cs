@@ -102,6 +102,8 @@ public class FeatureEntitlementCatalogTests
         Assert.Equal("community", e.McpUsagePlanName);
         Assert.Equal(100, e.McpDailyRequestLimit);
         Assert.Equal(3000, e.McpMonthlyRequestLimit);
+        Assert.Equal(300, e.McpTenantDailyRequestLimit);
+        Assert.Equal(9000, e.McpTenantMonthlyRequestLimit);
     }
 
     [Fact]
@@ -117,6 +119,8 @@ public class FeatureEntitlementCatalogTests
         Assert.Equal("pro", e.McpUsagePlanName);
         Assert.Equal(1000, e.McpDailyRequestLimit);
         Assert.Equal(20000, e.McpMonthlyRequestLimit);
+        Assert.Equal(3000, e.McpTenantDailyRequestLimit);
+        Assert.Equal(60000, e.McpTenantMonthlyRequestLimit);
     }
 
     [Fact]

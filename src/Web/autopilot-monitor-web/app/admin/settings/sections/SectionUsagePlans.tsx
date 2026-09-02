@@ -12,6 +12,10 @@ interface PlanTierDefinition {
   dailyRequestLimit: number;
   monthlyRequestLimit: number;
   description: string;
+  // Organization-wide windows shared by every member of a tenant on this plan. Absent = the edition's
+  // built-in tenant limit applies; 0 = unlimited. Per-user plan overrides never lift these.
+  tenantDailyRequestLimit?: number;
+  tenantMonthlyRequestLimit?: number;
 }
 
 const DEFAULT_TIER: PlanTierDefinition = {
@@ -20,6 +24,13 @@ const DEFAULT_TIER: PlanTierDefinition = {
   monthlyRequestLimit: 3000,
   description: "",
 };
+
+// Blank input = "not set" (undefined on the wire → catalog fallback); "0" stays 0 (= unlimited).
+function parseOptionalLimit(raw: string): number | undefined {
+  if (raw.trim() === "") return undefined;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? undefined : Math.max(0, n);
+}
 
 export function SectionUsagePlans() {
   const { getAccessToken } = useAuth();
@@ -107,7 +118,7 @@ export function SectionUsagePlans() {
     }
   }, [tiers, getAccessToken]);
 
-  const updateTier = (index: number, field: keyof PlanTierDefinition, value: string | number) => {
+  const updateTier = (index: number, field: keyof PlanTierDefinition, value: string | number | undefined) => {
     setTiers(prev => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -168,10 +179,15 @@ export function SectionUsagePlans() {
 
       {/* Tenant Default Info */}
       {tenants.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
+          <p>
             Users without a per-user plan override inherit their tenant&apos;s effective user rate limit
             ({tenants[0]?.customUserRateLimitRequestsPerMinute ?? userRateLimit} req/min).
+          </p>
+          <p>
+            The per-user limits cap each account; the tenant limits cap the whole organization (all members
+            together) and always follow the tenant&apos;s own plan, so a per-user override never widens them.
+            Leave a tenant limit blank for the built-in default, 0 for unlimited.
           </p>
         </div>
       )}
@@ -197,7 +213,7 @@ export function SectionUsagePlans() {
         {tiers.map((tier, index) => (
           <div key={index} className="bg-white rounded-lg shadow p-6">
             <div className="flex items-start justify-between mb-4">
-              <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 {/* Name */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Tier Name</label>
@@ -228,6 +244,30 @@ export function SectionUsagePlans() {
                     min={0}
                     value={tier.monthlyRequestLimit}
                     onChange={(e) => updateTier(index, "monthlyRequestLimit", parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                {/* Tenant Daily Limit */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Tenant Daily Limit</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={tier.tenantDailyRequestLimit ?? ""}
+                    onChange={(e) => updateTier(index, "tenantDailyRequestLimit", parseOptionalLimit(e.target.value))}
+                    placeholder="default"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                {/* Tenant Monthly Limit */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Tenant Monthly Limit</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={tier.tenantMonthlyRequestLimit ?? ""}
+                    onChange={(e) => updateTier(index, "tenantMonthlyRequestLimit", parseOptionalLimit(e.target.value))}
+                    placeholder="default"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>

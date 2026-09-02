@@ -57,4 +57,46 @@ describe('toolError', () => {
     expect(text).toContain('cid-9');
     expect(text).toContain('E500');
   });
+
+  it('renders the backend MCP quota 429 body instead of "undefined"', () => {
+    // McpQuotaExceededResponse carries no `error` key — before this branch the structured-4xx path
+    // printed "Error in …: undefined" and the model retried into the same wall.
+    const err = new ApiError(429, JSON.stringify({
+      quotaExceeded: true,
+      plan: 'community',
+      scope: 'daily',
+      level: 'user',
+      limit: 100,
+      used: 100,
+      resetUtc: '2026-09-03T00:00:00Z',
+      message: "MCP daily request quota exceeded for plan 'community'. Resets at 2026-09-03T00:00:00Z.",
+    }));
+    const res = toolError('search_sessions', {}, err);
+    const text = res.content[0].text;
+    expect(text).toContain('Quota exceeded in search_sessions');
+    expect(text).toContain("quota exceeded for plan 'community'");
+    expect(text).toContain('100 of 100 requests used');
+    expect(text).toContain('2026-09-03T00:00:00Z');
+    expect(text).toContain('larger usage plan');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('names the organization when the tenant-wide quota is exhausted', () => {
+    const err = new ApiError(429, JSON.stringify({
+      quotaExceeded: true,
+      plan: 'power',
+      scope: 'monthly',
+      level: 'tenant',
+      limit: 60000,
+      used: 60000,
+      resetUtc: '2026-10-01T00:00:00Z',
+      message: "MCP monthly request quota of your organization exceeded (tenant plan 'pro', shared by all its members). Resets at 2026-10-01T00:00:00Z.",
+    }));
+    const res = toolError('get_session', {}, err);
+    const text = res.content[0].text;
+    expect(text).toContain('of your organization exceeded');
+    expect(text).toContain('tenant level');
+    expect(text).toContain('shared by every member of the tenant');
+    expect(text).not.toContain('larger usage plan');
+  });
 });

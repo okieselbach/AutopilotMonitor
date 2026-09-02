@@ -82,7 +82,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                         MonthlyLimit = quota.MonthlyLimit,
                         DailyUsed = quota.DailyUsed,
                         MonthlyUsed = quota.MonthlyUsed,
-                        ResetUtc = quota.ResetUtc
+                        ResetUtc = quota.ResetUtc,
+                        TenantPlan = quota.TenantPlan,
+                        TenantDailyLimit = quota.TenantDailyLimit,
+                        TenantMonthlyLimit = quota.TenantMonthlyLimit,
+                        TenantDailyUsed = quota.TenantDailyUsed,
+                        TenantMonthlyUsed = quota.TenantMonthlyUsed
                     },
                     Records = records
                 });

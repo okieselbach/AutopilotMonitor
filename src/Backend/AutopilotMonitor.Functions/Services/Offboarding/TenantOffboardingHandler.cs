@@ -101,6 +101,8 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // Intune script display-name cache (PK=tenantId). Only had TTL eviction before;
             // tenant script names must not outlive the tenant.
             Constants.TableNames.ScriptNameCache,
+            // Organization-wide MCP quota counters (PK=tenantId, RK={yyyyMMdd}_{oid}); also 90d retention.
+            Constants.TableNames.McpTenantUsage,
         };
 
         // Variant D — RowKey-anchored wipes for tables whose ROW key is the tenant id.

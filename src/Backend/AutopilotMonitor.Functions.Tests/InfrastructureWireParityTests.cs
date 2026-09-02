@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -644,77 +645,50 @@ public class InfrastructureWireParityTests
     [Fact]
     public void McpQuotaExceededResponse_matches_the_daily_blocked_shape()
     {
-        var decision = new McpQuotaDecision
-        {
-            Allowed = false,
-            Plan = "community",
-            Scope = "daily",
-            DailyLimit = 200,
-            MonthlyLimit = 2000,
-            DailyUsed = 200,
-            MonthlyUsed = 940,
-            ResetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc),
-        };
+        // The caller's OWN daily window: level=user, limit/used from the user counters, plan named.
+        var decision = McpQuotaService.BuildDecision(
+            new McpPlanLimits("community", 200, 2000, "community", 600, 6000),
+            dailyUsed: 200, monthlyUsed: 940, tenantDailyUsed: 250, tenantMonthlyUsed: 1200,
+            new DateTime(2026, 8, 30, 15, 0, 0, DateTimeKind.Utc));
 
         AssertParity(
             new
             {
                 quotaExceeded = true,
-                plan = decision.Plan,
-                scope = decision.Scope,
-                limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-                used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
-                resetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
+                plan = "community",
+                scope = "daily",
+                level = "user",
+                limit = 200,
+                used = 200L,
+                resetUtc = "2026-08-31T00:00:00Z",
+                message = "MCP daily request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z."
             },
-            new McpQuotaExceededResponse
-            {
-                QuotaExceeded = true,
-                Plan = decision.Plan,
-                Scope = decision.Scope,
-                Limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-                Used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
-                ResetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                Message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
-            });
+            McpQuotaEnforcementMiddleware.BuildExceededResponse(decision));
     }
 
     [Fact]
-    public void McpQuotaExceededResponse_matches_the_monthly_blocked_shape()
+    public void McpQuotaExceededResponse_matches_the_tenant_monthly_blocked_shape()
     {
-        var decision = new McpQuotaDecision
-        {
-            Allowed = false,
-            Plan = "pro",
-            Scope = "monthly",
-            DailyLimit = 1000,
-            MonthlyLimit = 10000,
-            DailyUsed = 120,
-            MonthlyUsed = 10000,
-            ResetUtc = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
-        };
+        // The ORGANIZATION's monthly window while the caller is well inside their own plan: level=tenant,
+        // limit/used from the tenant counters, the message names the tenant plan (not the user's override).
+        var decision = McpQuotaService.BuildDecision(
+            new McpPlanLimits("power", 10000, 100000, "pro", 3000, 60000),
+            dailyUsed: 120, monthlyUsed: 5000, tenantDailyUsed: 900, tenantMonthlyUsed: 60000,
+            new DateTime(2026, 8, 30, 15, 0, 0, DateTimeKind.Utc));
 
         AssertParity(
             new
             {
                 quotaExceeded = true,
-                plan = decision.Plan,
-                scope = decision.Scope,
-                limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-                used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
-                resetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
+                plan = "power",
+                scope = "monthly",
+                level = "tenant",
+                limit = 60000,
+                used = 60000L,
+                resetUtc = "2026-09-01T00:00:00Z",
+                message = "MCP monthly request quota of your organization exceeded (tenant plan 'pro', shared by all its members). Resets at 2026-09-01T00:00:00Z."
             },
-            new McpQuotaExceededResponse
-            {
-                QuotaExceeded = true,
-                Plan = decision.Plan,
-                Scope = decision.Scope,
-                Limit = decision.Scope == "monthly" ? decision.MonthlyLimit : decision.DailyLimit,
-                Used = decision.Scope == "monthly" ? decision.MonthlyUsed : decision.DailyUsed,
-                ResetUtc = decision.ResetUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                Message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. Resets at {decision.ResetUtc:yyyy-MM-ddTHH:mm:ss}Z."
-            });
+            McpQuotaEnforcementMiddleware.BuildExceededResponse(decision));
     }
 
     [Fact]
@@ -730,6 +704,7 @@ public class InfrastructureWireParityTests
                 quotaExceeded = true,
                 plan = "community",
                 scope,
+                level = "user",
                 limit = 200,
                 used = 200L,
                 resetUtc = "2026-08-31T00:00:00Z",
@@ -740,6 +715,7 @@ public class InfrastructureWireParityTests
                 QuotaExceeded = true,
                 Plan = "community",
                 Scope = null,
+                Level = "user",
                 Limit = 200,
                 Used = 200,
                 ResetUtc = "2026-08-31T00:00:00Z",

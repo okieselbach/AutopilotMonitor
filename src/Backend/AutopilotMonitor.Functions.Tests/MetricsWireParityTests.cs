@@ -402,6 +402,11 @@ public class MetricsWireParityTests
         long dailyUsed = 42;
         long monthlyUsed = 950;
         var resetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        var tenantPlan = "community";
+        var tenantDailyLimit = 300;
+        var tenantMonthlyLimit = 9000;
+        long tenantDailyUsed = 120;
+        long tenantMonthlyUsed = 4100;
         var records = SampleUsageRecords(userId);
 
         AssertParity(
@@ -417,7 +422,12 @@ public class MetricsWireParityTests
                     monthlyLimit,
                     dailyUsed,
                     monthlyUsed,
-                    resetUtc
+                    resetUtc,
+                    tenantPlan,
+                    tenantDailyLimit,
+                    tenantMonthlyLimit,
+                    tenantDailyUsed,
+                    tenantMonthlyUsed
                 },
                 records
             },
@@ -433,7 +443,12 @@ public class MetricsWireParityTests
                     MonthlyLimit = monthlyLimit,
                     DailyUsed = dailyUsed,
                     MonthlyUsed = monthlyUsed,
-                    ResetUtc = resetUtc
+                    ResetUtc = resetUtc,
+                    TenantPlan = tenantPlan,
+                    TenantDailyLimit = tenantDailyLimit,
+                    TenantMonthlyLimit = tenantMonthlyLimit,
+                    TenantDailyUsed = tenantDailyUsed,
+                    TenantMonthlyUsed = tenantMonthlyUsed
                 },
                 Records = records
             });
@@ -461,7 +476,12 @@ public class MetricsWireParityTests
                     monthlyLimit = 1000,
                     dailyUsed = 0L,
                     monthlyUsed = 0L,
-                    resetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc)
+                    resetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc),
+                    tenantPlan = "free",
+                    tenantDailyLimit = 0,
+                    tenantMonthlyLimit = 0,
+                    tenantDailyUsed = 0L,
+                    tenantMonthlyUsed = 0L
                 },
                 records
             },
@@ -477,7 +497,12 @@ public class MetricsWireParityTests
                     MonthlyLimit = 1000,
                     DailyUsed = 0,
                     MonthlyUsed = 0,
-                    ResetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc)
+                    ResetUtc = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc),
+                    TenantPlan = "free",
+                    TenantDailyLimit = 0,
+                    TenantMonthlyLimit = 0,
+                    TenantDailyUsed = 0,
+                    TenantMonthlyUsed = 0
                 },
                 Records = records
             });

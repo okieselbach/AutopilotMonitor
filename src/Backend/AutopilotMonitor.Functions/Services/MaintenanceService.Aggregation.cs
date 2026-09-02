@@ -552,13 +552,13 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Deletes usage tracking records older than 90 days from UserUsageLog.
+        /// Deletes usage tracking records older than 90 days from UserUsageLog and McpTenantUsage.
         /// </summary>
         private async Task CleanupOldUsageDataAsync()
         {
+            var cutoffDate = DateTime.UtcNow.AddDays(-90).ToString("yyyyMMdd");
             try
             {
-                var cutoffDate = DateTime.UtcNow.AddDays(-90).ToString("yyyyMMdd");
                 var deleted = await _userUsageRepo.DeleteRecordsOlderThanAsync(cutoffDate);
 
                 if (deleted > 0)
@@ -567,6 +567,18 @@ namespace AutopilotMonitor.Functions.Services
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to cleanup old usage data");
+            }
+
+            try
+            {
+                var deleted = await _userUsageRepo.DeleteTenantRecordsOlderThanAsync(cutoffDate);
+
+                if (deleted > 0)
+                    _logger.LogInformation("Tenant MCP usage cleanup: deleted {Count} counters older than 90 days (cutoff: {Cutoff})", deleted, cutoffDate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup old tenant MCP usage counters");
             }
 
             // Rule stats retention: delete entries older than 90 days

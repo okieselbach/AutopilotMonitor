@@ -2226,6 +2226,8 @@ export interface McpQuotaExceededResponse {
   plan: string;
   /** Which window was exceeded ("daily"/"monthly") — always set on the blocked path. */
   scope?: string;
+  /** Whose budget was exceeded: "user" (the caller's own plan) or "tenant" (the organization-wide windows). */
+  level: string;
   /** Limit of the exceeded window. */
   limit: number;
   /** Used count of the exceeded window. */
@@ -2235,13 +2237,18 @@ export interface McpQuotaExceededResponse {
   message: string;
 }
 
-/** Effective quota state nested in GetMyMcpUsageResponse. */
+/** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). */
 export interface McpUsageQuotaNode {
   dailyLimit: number;
   monthlyLimit: number;
   dailyUsed: number;
   monthlyUsed: number;
   resetUtc: string;
+  tenantPlan: string;
+  tenantDailyLimit: number;
+  tenantMonthlyLimit: number;
+  tenantDailyUsed: number;
+  tenantMonthlyUsed: number;
 }
 
 export interface McpUserEntry {
@@ -2348,12 +2355,16 @@ export interface PerformanceMetrics {
   clampedSessionCount: number;
 }
 
-/** Defines a usage plan tier with request limits. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. */
+/** Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, and the organization-wide TENANT windows all members of a tenant on this plan share. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for that window. */
 export interface PlanTierDefinition {
   name: string;
   dailyRequestLimit: number;
   monthlyRequestLimit: number;
   description: string;
+  /** Tenant-wide daily limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited. */
+  tenantDailyRequestLimit?: number;
+  /** Tenant-wide monthly limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited. */
+  tenantMonthlyRequestLimit?: number;
 }
 
 /** Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions. */

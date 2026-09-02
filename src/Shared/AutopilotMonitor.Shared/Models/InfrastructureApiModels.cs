@@ -224,6 +224,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Which window was exceeded ("daily"/"monthly") — always set on the blocked path.</summary>
         public string? Scope { get; set; }
 
+        /// <summary>Whose budget was exceeded: "user" (the caller's own plan) or "tenant" (the organization-wide windows).</summary>
+        public string Level { get; set; } = default!;
+
         /// <summary>Limit of the exceeded window.</summary>
         public int Limit { get; set; }
 

@@ -72,6 +72,15 @@ namespace AutopilotMonitor.Functions.Security
 
         /// <summary>Fallback MCP monthly request limit when no SectionUsagePlans row matches the plan name.</summary>
         public int McpMonthlyRequestLimit { get; init; }
+
+        /// <summary>
+        /// Organization-wide MCP daily limit all members of a tenant on this edition share (per-user
+        /// overrides never lift it). Fallback when the plan's SectionUsagePlans row sets no tenant limit.
+        /// </summary>
+        public int McpTenantDailyRequestLimit { get; init; }
+
+        /// <summary>Organization-wide MCP monthly limit — see <see cref="McpTenantDailyRequestLimit"/>.</summary>
+        public int McpTenantMonthlyRequestLimit { get; init; }
     }
 
     /// <summary>
@@ -116,7 +125,9 @@ namespace AutopilotMonitor.Functions.Security
             UnrestrictedModeAvailable = false,
             McpUsagePlanName = CommunityTierName,
             McpDailyRequestLimit = 100,
-            McpMonthlyRequestLimit = 3000
+            McpMonthlyRequestLimit = 3000,
+            McpTenantDailyRequestLimit = 300,
+            McpTenantMonthlyRequestLimit = 9000
         };
 
         private static readonly EditionEntitlements Pro = new()
@@ -130,7 +141,9 @@ namespace AutopilotMonitor.Functions.Security
             UnrestrictedModeAvailable = true,
             McpUsagePlanName = ProTierName,
             McpDailyRequestLimit = 1000,
-            McpMonthlyRequestLimit = 20000
+            McpMonthlyRequestLimit = 20000,
+            McpTenantDailyRequestLimit = 3000,
+            McpTenantMonthlyRequestLimit = 60000
         };
 
         /// <summary>

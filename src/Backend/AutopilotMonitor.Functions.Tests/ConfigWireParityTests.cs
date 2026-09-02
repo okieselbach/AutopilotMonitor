@@ -541,6 +541,10 @@ public class ConfigWireParityTests
                 DailyRequestLimit = 1000,
                 MonthlyRequestLimit = 30000,
                 Description = "Paid tier",
+                // Organization-wide windows; the community tier above leaves them unset (catalog fallback,
+                // keys omitted on the wire).
+                TenantDailyRequestLimit = 3000,
+                TenantMonthlyRequestLimit = 60000,
             },
         };
 

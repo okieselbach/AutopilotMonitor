@@ -36,6 +36,27 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Returns the number of records deleted.
         /// </summary>
         Task<int> DeleteRecordsOlderThanAsync(string dateCutoff);
+
+        /// <summary>
+        /// Increments the tenant-wide MCP counter for (tenant, user, today) — the organization-wide
+        /// quota's counter, kept per user so the tenant partition has no hot row.
+        /// </summary>
+        Task IncrementTenantUsageAsync(string tenantId, string userId);
+
+        /// <summary>Tenant-wide MCP counters (one row per user and day) within an optional yyyyMMdd range.</summary>
+        Task<List<TenantUsageRecord>> GetTenantUsageAsync(string tenantId, string? dateFrom = null, string? dateTo = null);
+
+        /// <summary>Deletes tenant-wide MCP counters older than the specified date (yyyyMMdd). Returns the count deleted.</summary>
+        Task<int> DeleteTenantRecordsOlderThanAsync(string dateCutoff);
+    }
+
+    /// <summary>One tenant-wide MCP counter row: one tenant, one user, one day.</summary>
+    public class TenantUsageRecord
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string UserId { get; set; } = string.Empty;
+        public string Date { get; set; } = string.Empty;
+        public long RequestCount { get; set; }
     }
 
     /// <summary>
