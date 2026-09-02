@@ -87,7 +87,7 @@ describe('get_session_diagnostics tool', () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1); // fails before minting a ticket
   });
 
-  it('mints a ticket and returns an absolute downloadUrl + zipMap', async () => {
+  it('mints a ticket and returns an absolute downloadUrl + a pointer to the layout resource', async () => {
     apiFetchMock
       .mockResolvedValueOnce(sessionEnvelope('AgentDiagnostics-x.zip'))
       .mockResolvedValueOnce({
@@ -106,8 +106,9 @@ describe('get_session_diagnostics tool', () => {
     expect(payload.downloadUrl).toBe(`${API_BASE_URL}/api/diagnostics/download?t=ABC`);
     expect(payload.sizeBytes).toBe(12345);
     expect(payload.destination).toBe('CustomerSas');
-    expect(payload.zipMap).toBeDefined();
-    expect(payload.zipMap.files.length).toBeGreaterThan(0);
+    // The ~5k-character layout is a static resource, read once per conversation — not repeated per ticket.
+    expect(payload.zipMap).toBeUndefined();
+    expect(payload.zipLayoutResource).toContain('diag_zip_layout');
     expect(payload.instructions).toMatch(/no auth header/i);
   });
 

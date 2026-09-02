@@ -48,8 +48,6 @@ const ALLOWED_INLINE_ENUMS: Record<string, string> = {
   "'low', 'medium', 'high', 'critical'":
     'CVE overall-risk filter. Risk ranking lives inline in TableStorageService.AgentApi; ' +
     'no C# constants class.',
-  "'event_types', 'ops_event_types', 'device_properties', 'diag_zip_layout', 'rule_authoring_guide', 'rule_schemas', 'rule_guardrails'":
-    'get_resource names — the MCP resource catalog itself, pinned by ResourceName in resource-catalog.ts.',
 };
 
 /** Every inline z.enum([...]) literal across the tool sources, with its file. */

@@ -240,13 +240,23 @@ type PageFetcher = (path: string) => Promise<RawEventsPage>;
 const defaultPageFetcher: PageFetcher = async (path) => (await apiFetch(path)) as RawEventsPage;
 
 /**
+ * Candidate event types walked at the same time. One type's pages are a sequential nextLink
+ * chain, but the types are independent index scans on the backend, so a small fan-out cuts the
+ * wall-clock of a multi-type query by up to this factor while the backend load per call stays
+ * bounded (each walk is one budgeted scan at a time).
+ */
+export const TYPE_WALK_CONCURRENCY = 3;
+
+/**
  * Walks /api/raw/events once per candidate event type, following nextLink up to
- * the given budget. Returns the merged events (each tagged with `_sessionId`),
- * whether any walk was cut short (`truncated`), and whether at least one page
- * was fetched (`anySucceeded` — drives the legacy-fallback decision).
+ * the given budget. Returns the merged events (each tagged with `_sessionId`) in
+ * candidate order regardless of which walk finished first, whether any walk was
+ * cut short (`truncated`), and whether at least one page was fetched
+ * (`anySucceeded` — drives the legacy-fallback decision).
  *
- * A per-type page error preserves everything accumulated so far, flags
- * `truncated`, and moves to the next type — it must NOT collapse the whole
+ * Up to `concurrency` types are walked at once; within a type the pages stay
+ * sequential. A per-type page error preserves everything accumulated so far,
+ * flags `truncated`, and moves to the next type — it must NOT collapse the whole
  * search back to the narrow legacy path once real pages have been returned.
  */
 export async function fetchEventsViaIndex(
@@ -256,15 +266,17 @@ export async function fetchEventsViaIndex(
   budget: FetchBudget,
   fetchPage: PageFetcher = defaultPageFetcher,
   now: () => number = Date.now,
+  concurrency: number = TYPE_WALK_CONCURRENCY,
 ): Promise<{ events: EventEntry[]; truncated: boolean; anySucceeded: boolean }> {
-  const events: EventEntry[] = [];
+  const perType: EventEntry[][] = candidates.map(() => []);
   let truncated = false;
   let anySucceeded = false;
   const deadline = now() + budget.wallClockMs;
+  let nextCandidate = 0;
 
-  for (const eventType of candidates) {
-    if (now() > deadline) { truncated = true; break; }
-
+  const walkType = async (index: number): Promise<void> => {
+    const eventType = candidates[index];
+    const events = perType[index];
     // First page from params; subsequent pages follow the backend's nextLink
     // verbatim (followNextLink enforces path-equality against basePath).
     let path = followNextLink(basePath, { eventType, tenantId, pageSize: RAW_EVENTS_PAGE_SIZE }, undefined);
@@ -277,7 +289,7 @@ export async function fetchEventsViaIndex(
       } catch {
         // Preserve accumulated events, flag the gap, try the next type.
         truncated = true;
-        break;
+        return;
       }
       anySucceeded = true;
       for (const e of page.events ?? []) {
@@ -287,16 +299,30 @@ export async function fetchEventsViaIndex(
       pages++;
 
       const link = page.nextLink;
-      if (!link) break; // this event type fully drained — not a truncation
+      if (!link) return; // this event type fully drained — not a truncation
       if (pages >= budget.maxPagesPerType || now() > deadline) {
         truncated = true; // stopped early — a real recall gap
-        break;
+        return;
       }
       path = followNextLink(basePath, {}, link);
     }
-  }
+  };
 
-  return { events, truncated, anySucceeded };
+  // Each worker takes the next untouched candidate; the deadline is checked before every walk
+  // starts, so once it passes the remaining candidates are skipped and flagged as a recall gap.
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextCandidate++;
+      if (index >= candidates.length) return;
+      if (now() > deadline) { truncated = true; return; }
+      await walkType(index);
+    }
+  };
+
+  const workers = Math.max(1, Math.min(concurrency, candidates.length));
+  await Promise.all(Array.from({ length: workers }, worker));
+
+  return { events: perType.flat(), truncated, anySucceeded };
 }
 
 /**
@@ -1201,16 +1227,21 @@ export function registerSearchTools(
 
         results = results.slice(0, topK);
 
-        const formatted = results.map((r) => ({
-          id: r.id,
-          score: Math.round(r.score * 1000) / 1000,
-          type: r.metadata.type,
-          title: r.metadata.title ?? r.metadata.description ?? r.id,
-          content: r.text,
-          metadata: r.metadata,
-          // Surfaced by literal error-code match rather than (or in addition to) semantic similarity.
-          matchType: errorCodeHitIds.has(r.id) ? ('error-code' as const) : undefined,
-        }));
+        const formatted = results.map((r) => {
+          // `type` and `title` are lifted to the top level — the remaining metadata (severity,
+          // category, tags, action) is what a caller cannot get from the lifted fields or `content`.
+          const { type: _type, title: _title, ...metadata } = r.metadata;
+          return {
+            id: r.id,
+            score: Math.round(r.score * 1000) / 1000,
+            type: r.metadata.type,
+            title: r.metadata.title ?? r.metadata.description ?? r.id,
+            content: r.text,
+            metadata,
+            // Surfaced by literal error-code match rather than (or in addition to) semantic similarity.
+            matchType: errorCodeHitIds.has(r.id) ? ('error-code' as const) : undefined,
+          };
+        });
 
         if (formatted.length === 0) logSearchZeroHit('search_knowledge', query);
 

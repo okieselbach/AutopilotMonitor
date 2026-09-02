@@ -421,14 +421,21 @@ export const OPS_EVENTS_CATALOG = {
   eventTypes: OPS_EVENT_TYPES,
 } as const;
 
-export type ResourceName =
-  | 'event_types'
-  | 'ops_event_types'
-  | 'device_properties'
-  | 'diag_zip_layout'
-  | 'rule_authoring_guide'
-  | 'rule_schemas'
-  | 'rule_guardrails';
+/**
+ * The MCP resource catalog — single source for the get_resource `name` enum and the
+ * ResourceName type (an MCP-local vocabulary, not a backend one).
+ */
+export const RESOURCE_NAMES = [
+  'event_types',
+  'ops_event_types',
+  'device_properties',
+  'diag_zip_layout',
+  'rule_authoring_guide',
+  'rule_schemas',
+  'rule_guardrails',
+] as const;
+
+export type ResourceName = (typeof RESOURCE_NAMES)[number];
 
 export function getResourceContent(name: ResourceName): unknown {
   switch (name) {

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
+import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
@@ -1853,6 +1853,16 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   // Tool: get_resource — returns the same content as the MCP `resources` would,
   // but via a regular tool call. Workaround for clients (e.g. Claude Code's HTTP-MCP
   // bridge in stateless mode) that don't expose `resources/list` reliably.
+  /** Top-level keys of an object-shaped resource — the units a caller can read one at a time. */
+  const resourceSections = (content: unknown): string[] =>
+    content !== null && typeof content === 'object' && !Array.isArray(content) ? Object.keys(content as Record<string, unknown>) : [];
+  /** Derived from the live catalogs at registration so the description can never drift from the content. */
+  const describeResourceSections = (): string =>
+    RESOURCE_NAMES
+      .map((name) => ({ name, sections: resourceSections(getResourceContent(name)) }))
+      .filter((r) => r.sections.length > 0)
+      .map((r) => `${r.name} → ${r.sections.join(', ')}`)
+      .join('; ');
   server.registerTool(
     'get_resource',
     {
@@ -1866,18 +1876,36 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         '  - "diag_zip_layout": expected file layout of an agent diagnostics ZIP (what get_session_diagnostics returns you for local analysis)\n' +
         '  - "rule_authoring_guide": complete guide for authoring gather/analyze rules (read FIRST when asked to create a rule; then validate_rule / test_analyze_rule)\n' +
         '  - "rule_schemas": the JSON Schemas for gather and analyze rules (the exact contract)\n' +
-        '  - "rule_guardrails": on-device collection allowlists a gather rule target must satisfy',
+        '  - "rule_guardrails": on-device collection allowlists a gather rule target must satisfy\n' +
+        'The rule trio is large (tens of KB together). Pass "section" to read ONE top-level part — ' +
+        'e.g. section="analyzeRules" of rule_authoring_guide when authoring an analyze rule, or ' +
+        'section="gatherRuleSchema" of rule_schemas. Sections per resource: ' + describeResourceSections() + '.',
       inputSchema: {
         name: z
-          .enum(['event_types', 'ops_event_types', 'device_properties', 'diag_zip_layout', 'rule_authoring_guide', 'rule_schemas', 'rule_guardrails'])
+          .enum(RESOURCE_NAMES)
           .describe('Resource name'),
+        section: z.string().trim().min(1).max(64).optional()
+          .describe('Optional top-level key of the resource to return on its own (see the section list in the description). Omit for the whole resource.'),
       },
       annotations: READ_ONLY_OPEN,
     },
     async (args) => withToolTelemetry('get_resource', args, async () => {
       try {
         const data = getResourceContent(args.name);
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+        if (!args.section) return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+
+        const sections = resourceSections(data);
+        if (!sections.includes(args.section)) {
+          return toolError('get_resource', args, new Error(
+            sections.length === 0
+              ? `Resource "${args.name}" has no sections — call it without "section".`
+              : `Resource "${args.name}" has no section "${args.section}". Available sections: ${sections.join(', ')}.`,
+          ));
+        }
+        return toolResultText(
+          { resource: args.name, section: args.section, content: (data as Record<string, unknown>)[args.section] },
+          MAX_RESULT_SIZE_CHARS.small,
+        );
       } catch (error: unknown) {
         return toolError('get_resource', args, error);
       }

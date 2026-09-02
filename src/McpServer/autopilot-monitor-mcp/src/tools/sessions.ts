@@ -7,7 +7,6 @@ import { toolError } from './error-handler.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 import { API_BASE_URL } from '../config.js';
-import { DIAG_ZIP_MAP } from '../diag-zip-map.js';
 import type {
   DiagnosticsDownloadTicketResponse,
   EnrollmentEvent,
@@ -311,9 +310,11 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       title: 'Get Session Diagnostics (Agent Log ZIP)',
       description:
         'Returns a short-lived, ready-to-use download URL for the agent DIAGNOSTICS ZIP of a session ' +
-        '(agent logs, DecisionCore journal/signals, IME logs, final-status.json), plus a "zipMap" ' +
-        'describing the archive layout. This is the highest-value source for root-causing why an ' +
-        'enrollment went wrong: correlate the on-device agent log against the backend Events table.\n\n' +
+        '(agent logs, DecisionCore journal/signals, IME logs, final-status.json). The archive layout and ' +
+        'the file priority order are the static "diag_zip_layout" resource — read it ONCE via ' +
+        'get_resource(name="diag_zip_layout"); it is not repeated in this response. This is the ' +
+        'highest-value source for root-causing why an enrollment went wrong: correlate the on-device ' +
+        'agent log against the backend Events table.\n\n' +
         'CLIENT REQUIREMENT: this needs a client that can download files and run local file/shell tools ' +
         '(e.g. Claude Code or another agentic client). A pure chat client (Claude Desktop, claude.ai web) ' +
         'has no local filesystem and CANNOT unzip the binary archive — there this tool only yields a ' +
@@ -321,8 +322,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'HOW TO USE: download the ZIP from "downloadUrl" — NO auth header needed, it is a short-lived ' +
         'signed ticket (~10 min) — then unzip and analyze it LOCALLY. The backend never unzips or parses ' +
         'it; you process it on your side and enrich with get_session_events / query_raw_events / ' +
-        'search_knowledge. Read files in zipMap priority order; AppWorkload*.log can be hundreds of MB → ' +
-        'grep, never read whole.\n\n' +
+        'search_knowledge. Read files in the diag_zip_layout priority order; AppWorkload*.log can be ' +
+        'hundreds of MB → grep, never read whole.\n\n' +
         'If "available" is false there is no uploaded diagnostics package (upload mode may be Off or ' +
         'OnFailure on a successful session) — proceed with backend telemetry only. ' +
         'Tenant admins get their own tenant\'s diagnostics; ' +
@@ -384,11 +385,14 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           instructions:
             'Download the ZIP from downloadUrl with NO auth header (it carries a short-lived signed ' +
             'ticket). Unzip it locally and analyze on your side — the backend does not parse it. ' +
-            'Read files per zipMap.files priority; AppWorkload*.log can be huge → grep only. Then ' +
-            'correlate the agent log timeline against backend events (get_session_events / ' +
-            'query_raw_events) and look up rules/patterns via search_knowledge. The download URL ' +
-            'expires at expiresAt — re-call this tool for a fresh one if needed.',
-          zipMap: DIAG_ZIP_MAP,
+            'Read files in the priority order of the diag_zip_layout resource (zipLayoutResource); ' +
+            'AppWorkload*.log can be huge → grep only. Then correlate the agent log timeline against ' +
+            'backend events (get_session_events / query_raw_events) and look up rules/patterns via ' +
+            'search_knowledge. The download URL expires at expiresAt — re-call this tool for a fresh ' +
+            'one if needed.',
+          // The layout is static per deployment: one resource read per conversation instead of
+          // ~5k characters repeated on every ticket.
+          zipLayoutResource: 'get_resource(name="diag_zip_layout")',
         }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_session_diagnostics', args, error);

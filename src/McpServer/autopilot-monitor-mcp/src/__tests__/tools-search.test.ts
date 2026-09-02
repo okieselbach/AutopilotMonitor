@@ -815,3 +815,36 @@ describe('scanLexical (error-code fallback scan)', () => {
     expect(scanLexical(docs, [])).toEqual([]);
   });
 });
+
+describe('fetchEventsViaIndex concurrency', () => {
+  it('walks up to 3 candidate types at once and still returns events in candidate order', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    // The first candidate is the slowest so a completion-order merge would misorder the result.
+    const delays: Record<string, number> = { a: 30, b: 10, c: 5, d: 1 };
+    const fetcher = async (path: string): Promise<Page> => {
+      const type = new URL(`http://x${path}`).searchParams.get('eventType') ?? '';
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, delays[type] ?? 1));
+      inFlight--;
+      return { events: [{ sessionId: `s-${type}`, eventType: type }] };
+    };
+
+    const res = await fetchEventsViaIndex(['a', 'b', 'c', 'd'], BASE, undefined, { maxPagesPerType: 10, wallClockMs: 60_000 }, fetcher);
+
+    expect(peak).toBeGreaterThanOrEqual(2);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(res.truncated).toBe(false);
+    expect(res.events.map((e) => e._sessionId)).toEqual(['s-a', 's-b', 's-c', 's-d']);
+  });
+
+  it('a single type walk is unaffected by the fan-out (concurrency capped at the candidate count)', async () => {
+    let calls = 0;
+    const fetcher = async (): Promise<Page> => { calls++; return { events: [{ sessionId: 's1' }] }; };
+    const res = await fetchEventsViaIndex(['only'], BASE, undefined, { maxPagesPerType: 10, wallClockMs: 60_000 }, fetcher, Date.now, 3);
+    expect(calls).toBe(1);
+    expect(res.events).toHaveLength(1);
+  });
+});
+

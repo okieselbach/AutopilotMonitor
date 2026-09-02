@@ -81,7 +81,7 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
               'first — status, noise-filtered timeline, stats, rule analysis in one shot.\n' +
               `2. Call get_session_diagnostics(sessionId="${sessionId}"${tenantId ? `, tenantId="${tenantId}"` : ''}). ` +
               'If available=true, DOWNLOAD the ZIP from downloadUrl using your local tools (no auth header — ' +
-              'it is a short-lived signed ticket), unzip it locally, and read files per the returned zipMap: ' +
+              'it is a short-lived signed ticket), unzip it locally, and read files in the priority order of the diag_zip_layout resource (get_resource(name="diag_zip_layout")): ' +
               'start with AgentState/final-status.json and the agent log (grep [ERROR]/[WARN] first), then ' +
               'journal/signal logs. AppWorkload*.log can be hundreds of MB → grep only, never read whole. ' +
               'If available=false, note it and continue with backend data only.\n' +
