@@ -2,10 +2,7 @@
   "mcpServers": {
     "autopilot-monitor": {
       "type": "http",
-      "url": "https://mcp.autopilotmonitor.com/mcp",
-      "headers": {
-        "X-MCP-Pretty": "1"
-      }
+      "url": "https://mcp.autopilotmonitor.com/mcp"
     },
     "playwright": {
       "command": "cmd",
