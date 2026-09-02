@@ -28,16 +28,20 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
     /// </para>
     /// </summary>
     // Drives the real orchestrator (dedicated ingress thread + fsync-per-step persistence +
-    // ThreadPool-scheduled drain loop) and waits on wall-clock budgets (PostFixture 5 s per
-    // signal, WaitForStage / uploader 10 s). In isolation every scenario finishes in < 1 s;
-    // under the full parallel suite on a 4-core CI runner the same scenarios took 4-5 s
-    // locally and blew the budgets on slow GitHub runners (CI runs 33564658714 and
-    // 33565773888, 2026-09-01). Serialised via SerialThreading like EnrollmentOrchestratorTests
-    // and RecoveryPathTests so the budgets measure the pipeline, not the neighbours.
+    // ThreadPool-scheduled drain loop) and waits on wall-clock budgets
+    // (EnrollmentOrchestratorFixture.SettleTimeoutMs per signal / terminal stage / uploader).
+    // In isolation every scenario finishes in < 1 s; under the full parallel suite on a
+    // 4-core CI runner the same scenarios took 4-5 s locally and blew the old 5 s / 10 s
+    // budgets on slow GitHub runners (CI runs 33564658714 and 33565773888, 2026-09-01).
+    // Serialised via SerialThreading like EnrollmentOrchestratorTests and RecoveryPathTests
+    // so the budgets measure the pipeline, not the neighbours. Even serialised, the first
+    // scenarios after the parallel phase still hit the 5 s budget on a cold runner volume
+    // (run 33581374985, 2026-09-02: 12/13/06/05 = the first four in run order, the other
+    // nine passed) — the per-step fsync cost, not the neighbours; hence the 30 s guard.
     [Collection("SerialThreading")]
     public sealed class ScenarioTests
     {
-        private const int DefaultTerminalTimeoutMs = 10_000;
+        private const int DefaultTerminalTimeoutMs = EnrollmentOrchestratorFixture.SettleTimeoutMs;
 
         // ================================================================ 1) UserDriven-v1 Happy
 
@@ -287,7 +291,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                         .SelectMany(batch => batch)
                         .Any(i => i.Kind == TelemetryItemKind.Event
                                   && i.PayloadJson.Contains("enrollment_complete")),
-                    10000),
+                    DefaultTerminalTimeoutMs),
                 "Expected enrollment_complete event to reach the uploader after Stage=Completed.");
 
             f.Stop();

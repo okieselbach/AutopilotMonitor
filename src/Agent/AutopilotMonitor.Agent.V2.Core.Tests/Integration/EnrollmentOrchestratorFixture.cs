@@ -43,6 +43,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
         public const string SessionId = "session-anon-integration";
         public const string TenantId = "tenant-anon-integration";
 
+        /// <summary>
+        /// Wall-clock budget for "the pipeline made progress" waits (per posted signal, terminal
+        /// stage, uploader hand-off). It is a deadlock guard, not a performance assertion: every
+        /// applied step performs 5-6 <c>WriteThrough</c> + <c>Flush(true)</c> writes and 2-3
+        /// atomic renames synchronously on the ingress worker (signal log, journal, event
+        /// sequence, immediate-flush spool line, snapshot, upload cursor), and on a cold,
+        /// contended GitHub runner volume a single fsync can cost hundreds of milliseconds.
+        /// With the earlier 5 s / 10 s budgets the first scenarios after the parallel phase
+        /// timed out on slow runners (CI runs 33564658714, 33565773888, 33581374985) while the
+        /// same steps take &lt; 1 s locally. A real deadlock still fails, just 30 s later.
+        /// </summary>
+        public const int SettleTimeoutMs = 30_000;
+
         public TempDirectory Tmp { get; } = new TempDirectory();
         public VirtualClock Clock { get; }
         public AgentLogger Logger { get; }
@@ -131,7 +144,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                 if (!SpinWait.SpinUntil(
                     () => Orchestrator.CurrentState.StepIndex > stepIndexBefore
                           && ingress.ApproximateQueueLength == 0,
-                    5000))
+                    SettleTimeoutMs))
                 {
                     throw new TimeoutException(
                         $"Fixture replay stalled after {sig.Kind} (stepIndex before={stepIndexBefore}, " +
@@ -157,7 +170,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
             if (!SpinWait.SpinUntil(
                 () => ingress.ApproximateQueueLength == 0
                       && Orchestrator.CurrentState.LastAppliedSignalOrdinal >= signalLog.LastOrdinal,
-                5000))
+                SettleTimeoutMs))
             {
                 throw new TimeoutException(
                     $"Fixture replay did not settle (queueLen={ingress.ApproximateQueueLength}, " +
@@ -187,7 +200,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
                     if (!SpinWait.SpinUntil(
                         () => Orchestrator.CurrentState.StepIndex > stepIndexBefore
                               && ingress.ApproximateQueueLength == 0,
-                        5000))
+                        SettleTimeoutMs))
                     {
                         throw new TimeoutException(
                             $"FinalizingGrace auto-fire stalled (stepIndex before={stepIndexBefore}, " +
