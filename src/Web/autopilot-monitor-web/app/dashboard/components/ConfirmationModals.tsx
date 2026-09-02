@@ -1,17 +1,15 @@
 "use client";
 
-/** Names listed verbatim in a bulk confirm; the rest collapse into "and N more". */
-const MAX_LISTED_TARGETS = 10;
+import { useState } from "react";
+import { BULK_DELETE_CONFIRM_WORD, requiresTypedConfirmation } from "../hooks/bulkActions";
 
+/** Every target by name, scrollable — the admin must be able to see all of what goes away. */
 function TargetList({ names }: { names: string[] }) {
-  const listed = names.slice(0, MAX_LISTED_TARGETS);
-  const rest = names.length - listed.length;
   return (
     <ul className="mb-2 max-h-40 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
-      {listed.map((name, i) => (
+      {names.map((name, i) => (
         <li key={`${name}-${i}`} className="truncate font-medium">{name}</li>
       ))}
-      {rest > 0 && <li className="text-gray-500">and {rest} more</li>}
     </ul>
   );
 }
@@ -24,6 +22,11 @@ interface DeleteConfirmModalProps {
 
 export function DeleteConfirmModal({ targets, onConfirm, onCancel }: DeleteConfirmModalProps) {
   const single = targets.length === 1 ? targets[0] : null;
+  // Larger batches need the confirmation word typed; the modal unmounts on close, so the
+  // field starts empty every time it opens.
+  const typed = requiresTypedConfirmation(targets.length);
+  const [confirmText, setConfirmText] = useState("");
+  const armed = !typed || confirmText === BULK_DELETE_CONFIRM_WORD;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onCancel}>
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
@@ -58,6 +61,20 @@ export function DeleteConfirmModal({ targets, onConfirm, onCancel }: DeleteConfi
             <p className="text-sm text-gray-600">
               Do you want to continue?
             </p>
+            {typed && (
+              <label className="block mt-4 text-sm text-gray-700">
+                Type <span className="font-mono font-bold">{BULK_DELETE_CONFIRM_WORD}</span> to confirm
+                <input
+                  type="text"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </label>
+            )}
           </div>
 
           <div className="flex justify-end gap-3">
@@ -69,7 +86,8 @@ export function DeleteConfirmModal({ targets, onConfirm, onCancel }: DeleteConfi
             </button>
             <button
               onClick={onConfirm}
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+              disabled={!armed}
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {single ? "Delete" : `Delete ${targets.length}`}
             </button>

@@ -3,6 +3,10 @@ import {
   runWithConcurrency,
   summarizeDeleteActions,
   summarizeBlockOutcomes,
+  addSelections,
+  requiresTypedConfirmation,
+  BULK_MAX_TARGETS,
+  BULK_TYPED_CONFIRM_THRESHOLD,
 } from "@/app/dashboard/hooks/bulkActions";
 import type { DeleteResponseAction } from "@/app/dashboard/hooks/deleteSessionResponse";
 
@@ -98,5 +102,39 @@ describe("summarizeBlockOutcomes", () => {
     const s = summarizeBlockOutcomes([{ ok: false, message: "HTTP 403" }]);
     expect(s.type).toBe("error");
     expect(s.title).toBe("Block failed");
+  });
+});
+
+describe("addSelections (hard cap)", () => {
+  it("adds ids in order until the room is used up", () => {
+    const next = addSelections(new Set(["a"]), ["b", "c", "d"], 2);
+    expect([...next]).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not spend room on ids that are already selected", () => {
+    const next = addSelections(new Set(["a", "b"]), ["a", "b", "c", "d"], 1);
+    expect([...next]).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns an unchanged copy at zero (or negative) room", () => {
+    const prev = new Set(["a"]);
+    expect([...addSelections(prev, ["b"], 0)]).toEqual(["a"]);
+    expect([...addSelections(prev, ["b"], -3)]).toEqual(["a"]);
+    expect(addSelections(prev, ["b"], 0)).not.toBe(prev);
+  });
+
+  it("a full page always fits under the cap", () => {
+    const page = Array.from({ length: 100 }, (_, i) => `s${i}`);
+    expect(addSelections(new Set(), page, BULK_MAX_TARGETS).size).toBe(100);
+    expect(BULK_MAX_TARGETS).toBe(100);
+  });
+});
+
+describe("requiresTypedConfirmation", () => {
+  it("stays one click up to the threshold and needs the word above it", () => {
+    expect(requiresTypedConfirmation(1)).toBe(false);
+    expect(requiresTypedConfirmation(BULK_TYPED_CONFIRM_THRESHOLD)).toBe(false);
+    expect(requiresTypedConfirmation(BULK_TYPED_CONFIRM_THRESHOLD + 1)).toBe(true);
+    expect(requiresTypedConfirmation(BULK_MAX_TARGETS)).toBe(true);
   });
 });

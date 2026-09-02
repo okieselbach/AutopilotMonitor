@@ -13,6 +13,7 @@ import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { TenantFilterBar } from "./TenantFilterBar";
 import type { DeleteTarget } from "../hooks/useDeleteSession";
 import type { BlockTarget } from "../hooks/useBlockDevice";
+import { BULK_MAX_TARGETS, addSelections } from "../hooks/bulkActions";
 
 // Column definition for the session table
 interface ColumnDef {
@@ -333,12 +334,20 @@ export function SessionTable({
   const isSelectable = (s: Session) => !pendingDeletions.has(s.sessionId);
 
   // Effective selection = selected ∩ currently visible (filtered) ∩ not already queued for
-  // deletion. Derived at read time so rows that vanish (deleted, filtered out) or get queued
-  // drop out of the count without an effect.
+  // deletion, cut to BULK_MAX_TARGETS. Derived at read time so rows that vanish (deleted,
+  // filtered out) or get queued drop out of the count without an effect. The cut is the
+  // invariant every bulk action relies on; the handlers below only keep the UI honest.
   const selectedSessions = useMemo(() => {
     if (!selecting || selectedIds.size === 0) return [] as Session[];
-    return sortedSessions.filter((s) => selectedIds.has(s.sessionId) && !pendingDeletions.has(s.sessionId));
+    return sortedSessions
+      .filter((s) => selectedIds.has(s.sessionId) && !pendingDeletions.has(s.sessionId))
+      .slice(0, BULK_MAX_TARGETS);
   }, [selecting, selectedIds, sortedSessions, pendingDeletions]);
+
+  // Remaining capacity under the cap, measured against the effective selection so stale ids
+  // (rows deleted or filtered out since they were picked) never block new picks.
+  const selectionRoom = Math.max(0, BULK_MAX_TARGETS - selectedSessions.length);
+  const atSelectionCap = selecting && selectionRoom === 0;
 
   const exitSelectMode = () => {
     setSelectMode(false);
@@ -350,21 +359,21 @@ export function SessionTable({
     if (!isSelectable(session)) return;
     const anchor = lastToggledIdRef.current;
     setSelectedIds((prev) => {
-      const next = new Set(prev);
       if (shiftKey && anchor) {
         const ids = paginatedSessions.map((s) => s.sessionId);
         const a = ids.indexOf(anchor);
         const b = ids.indexOf(session.sessionId);
         if (a >= 0 && b >= 0) {
-          for (const s of paginatedSessions.slice(Math.min(a, b), Math.max(a, b) + 1)) {
-            if (isSelectable(s)) next.add(s.sessionId);
-          }
-          return next;
+          const range = paginatedSessions.slice(Math.min(a, b), Math.max(a, b) + 1).filter(isSelectable);
+          return addSelections(prev, range.map((s) => s.sessionId), selectionRoom);
         }
       }
-      if (next.has(session.sessionId)) next.delete(session.sessionId);
-      else next.add(session.sessionId);
-      return next;
+      if (prev.has(session.sessionId)) {
+        const next = new Set(prev);
+        next.delete(session.sessionId);
+        return next;
+      }
+      return addSelections(prev, [session.sessionId], selectionRoom);
     });
     lastToggledIdRef.current = session.sessionId;
   };
@@ -374,12 +383,12 @@ export function SessionTable({
   const allPageSelected = selectablePage.length > 0 && pageSelectedCount === selectablePage.length;
   const togglePage = () => {
     setSelectedIds((prev) => {
-      const next = new Set(prev);
-      for (const s of selectablePage) {
-        if (allPageSelected) next.delete(s.sessionId);
-        else next.add(s.sessionId);
+      if (allPageSelected) {
+        const next = new Set(prev);
+        for (const s of selectablePage) next.delete(s.sessionId);
+        return next;
       }
-      return next;
+      return addSelections(prev, selectablePage.map((s) => s.sessionId), selectionRoom);
     });
   };
 
@@ -802,9 +811,15 @@ export function SessionTable({
           >
             Clear
           </button>
-          <span className="hidden md:inline text-xs text-blue-700/70 ml-1">
-            Click rows to select · Shift+click for a range · Esc when done
-          </span>
+          {atSelectionCap ? (
+            <span className="text-xs font-medium text-blue-800 ml-1">
+              Limit of {BULK_MAX_TARGETS} sessions per bulk action reached
+            </span>
+          ) : (
+            <span className="hidden md:inline text-xs text-blue-700/70 ml-1">
+              Click rows to select · Shift+click for a range · Esc when done
+            </span>
+          )}
           <button
             onClick={exitSelectMode}
             className="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-white border border-blue-200 hover:bg-blue-100 transition-colors"
@@ -825,7 +840,7 @@ export function SessionTable({
                     checked={allPageSelected}
                     ref={(el) => { if (el) el.indeterminate = pageSelectedCount > 0 && !allPageSelected; }}
                     onChange={togglePage}
-                    disabled={selectablePage.length === 0}
+                    disabled={selectablePage.length === 0 || (atSelectionCap && !allPageSelected)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
                     title={allPageSelected ? "Deselect this page" : "Select this page"}
                     aria-label={allPageSelected ? "Deselect all sessions on this page" : "Select all sessions on this page"}
@@ -892,7 +907,8 @@ export function SessionTable({
             ) : (
               paginatedSessions.map((session) => {
                 const isSelected = selecting && selectedIds.has(session.sessionId);
-                const selectable = isSelectable(session);
+                // At the cap only deselecting is left; unselected rows read as inert.
+                const selectable = isSelectable(session) && (isSelected || !atSelectionCap);
                 return (
               <tr
                 key={session.sessionId}

@@ -14,6 +14,48 @@ import type { DeleteResponseAction } from "./deleteSessionResponse";
 export const BULK_CONCURRENCY = 3;
 
 /**
+ * Hard cap on how many sessions one bulk action may target. Matches the largest page size,
+ * so "select this page" always fits and a runaway multi-page selection cannot delete more
+ * than one page's worth in a single confirmation.
+ */
+export const BULK_MAX_TARGETS = 100;
+
+/**
+ * A bulk delete above this many targets asks the admin to type a confirmation word instead
+ * of just clicking the red button. Block is reversible (24-hour TTL) and stays one click.
+ */
+export const BULK_TYPED_CONFIRM_THRESHOLD = 10;
+
+/** Delete confirmation word for batches above {@link BULK_TYPED_CONFIRM_THRESHOLD}. */
+export const BULK_DELETE_CONFIRM_WORD = "DELETE";
+
+export function requiresTypedConfirmation(targetCount: number): boolean {
+  return targetCount > BULK_TYPED_CONFIRM_THRESHOLD;
+}
+
+/**
+ * Returns a copy of `selected` with `ids` added in order until `room` NEW ids were added.
+ * Ids already present never consume room, so re-selecting is idempotent. `room` is the
+ * caller's remaining capacity under {@link BULK_MAX_TARGETS}; at 0 the set is returned as a
+ * copy without additions.
+ */
+export function addSelections(
+  selected: ReadonlySet<string>,
+  ids: readonly string[],
+  room: number,
+): Set<string> {
+  const next = new Set(selected);
+  let left = Math.max(0, room);
+  for (const id of ids) {
+    if (left <= 0) break;
+    if (next.has(id)) continue;
+    next.add(id);
+    left--;
+  }
+  return next;
+}
+
+/**
  * Run `fn` over `items` with at most `limit` in flight. Results are returned in input
  * order. A rejected `fn` rejects the whole run; callers wrap per-item failures themselves
  * when they want partial results.
