@@ -194,5 +194,20 @@ namespace AutopilotMonitor.Shared.Models
         /// When this rule was last updated
         /// </summary>
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Deep-enough copy for cache hand-out: the scalar members are copied and every mutable
+        /// collection (Parameters, ActivePhases, Tags) is duplicated, so a caller that mutates
+        /// the copy (per-tenant Enabled overrides, toggle updates) can never leak into a shared
+        /// cached instance.
+        /// </summary>
+        public GatherRule Clone()
+        {
+            var copy = (GatherRule)MemberwiseClone();
+            copy.Parameters = Parameters != null ? new Dictionary<string, string>(Parameters) : new Dictionary<string, string>();
+            copy.ActivePhases = ActivePhases != null ? new List<string>(ActivePhases) : null;
+            copy.Tags = Tags != null ? (string[])Tags.Clone() : new string[0];
+            return copy;
+        }
     }
 }

@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { EVENT_TYPES_CATALOG, DEVICE_PROPERTIES_CATALOG, getResourceContent } from './resource-catalog.js';
 import { DIAG_ZIP_MAP } from './diag-zip-map.js';
+import { stringifyResult } from './tools/shared.js';
 
 /**
  * MCP-protocol resources. Note that some clients (e.g. Claude Code's HTTP-MCP
@@ -22,7 +23,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://event-types',
           mimeType: 'application/json',
-          text: JSON.stringify(EVENT_TYPES_CATALOG, null, 2),
+          text: stringifyResult(EVENT_TYPES_CATALOG),
         },
       ],
     })
@@ -44,7 +45,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://device-properties',
           mimeType: 'application/json',
-          text: JSON.stringify(DEVICE_PROPERTIES_CATALOG, null, 2),
+          text: stringifyResult(DEVICE_PROPERTIES_CATALOG),
         },
       ],
     })
@@ -66,7 +67,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://diag-zip-layout',
           mimeType: 'application/json',
-          text: JSON.stringify(DIAG_ZIP_MAP, null, 2),
+          text: stringifyResult(DIAG_ZIP_MAP),
         },
       ],
     })
@@ -89,7 +90,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://rule-authoring-guide',
           mimeType: 'application/json',
-          text: JSON.stringify(getResourceContent('rule_authoring_guide'), null, 2),
+          text: stringifyResult(getResourceContent('rule_authoring_guide')),
         },
       ],
     })
@@ -111,7 +112,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://rule-schemas',
           mimeType: 'application/json',
-          text: JSON.stringify(getResourceContent('rule_schemas'), null, 2),
+          text: stringifyResult(getResourceContent('rule_schemas')),
         },
       ],
     })
@@ -133,7 +134,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://ops-event-types',
           mimeType: 'application/json',
-          text: JSON.stringify(getResourceContent('ops_event_types'), null, 2),
+          text: stringifyResult(getResourceContent('ops_event_types')),
         },
       ],
     })
@@ -156,7 +157,7 @@ export function registerResources(server: McpServer): void {
         {
           uri: 'autopilot://rule-guardrails',
           mimeType: 'application/json',
-          text: JSON.stringify(getResourceContent('rule_guardrails'), null, 2),
+          text: stringifyResult(getResourceContent('rule_guardrails')),
         },
       ],
     })

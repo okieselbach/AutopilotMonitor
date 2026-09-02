@@ -2,6 +2,7 @@ using System.Text.Json;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Functions.Services.Vulnerability;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
@@ -12,6 +13,26 @@ namespace AutopilotMonitor.Functions.Services
 {
     public partial class TableStorageService
     {
+        // ===== RULE CATALOG READ CACHES =====
+        //
+        // GetAgentConfig reads the gather-rule catalog, the tenant's rule states and the IME
+        // pattern catalog on EVERY agent config fetch — five partition scans per call, the bulk
+        // of its 286 ms p50 in production (perf audit 2026-09-02). The global partitions are
+        // identical for every tenant and change only on admin edits / reseeds, so each partition
+        // is cached per instance for RuleCatalogCacheTtl and invalidated by EVERY write path in
+        // this file. All writers go through these methods (the repositories delegate here), so
+        // no caller can bypass the invalidation. Instances share no memory: an edit on instance
+        // A becomes visible on instance B after at most one TTL — the same staleness class as
+        // the 5-minute tenant-config cache.
+        //
+        // Hand-out is by clone: GatherRuleService applies per-tenant state overrides by MUTATING
+        // the rule objects it received, and toggle updates mutate the tenant copy. Neither may
+        // ever reach the shared snapshot, or tenant A's override would leak into tenant B.
+        internal static readonly TimeSpan RuleCatalogCacheTtl = TimeSpan.FromSeconds(60);
+        private readonly SingleFlightCache<List<GatherRule>> _gatherRuleCache = new();
+        private readonly SingleFlightCache<Dictionary<string, RuleState>> _ruleStateCache = new();
+        private readonly SingleFlightCache<List<ImeLogPattern>> _imeLogPatternCache = new();
+
         // ===== RULE RESULTS METHODS =====
 
         /// <summary>
@@ -228,10 +249,18 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, $"Failed to store gather rule {rule.RuleId}");
                 return false;
             }
+            finally
+            {
+                // Invalidate on success AND failure — a failed upsert may still have changed the row.
+                _gatherRuleCache.Invalidate(tenantId);
+            }
         }
 
         /// <summary>
-        /// Gets gather rules for a partition (tenant or "global")
+        /// Gets gather rules for a partition (tenant or "global"). Served from the per-instance
+        /// catalog cache (see the RULE CATALOG READ CACHES note); every returned object is a
+        /// clone the caller may mutate freely. Storage failures are logged and yield an empty
+        /// list, exactly as before — but are never cached.
         /// </summary>
         public async Task<List<GatherRule>> GetGatherRulesAsync(string partitionKey)
         {
@@ -240,22 +269,29 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.GatherRules);
-                var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{partitionKey}'");
-
-                var rules = new List<GatherRule>();
-                await foreach (var entity in query)
-                {
-                    rules.Add(MapToGatherRule(entity));
-                }
-
-                return rules;
+                var snapshot = await _gatherRuleCache.GetOrAddAsync(
+                    partitionKey, RuleCatalogCacheTtl, () => QueryGatherRulesAsync(partitionKey));
+                return snapshot.ConvertAll(r => r.Clone());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get gather rules for {partitionKey}");
                 return new List<GatherRule>();
             }
+        }
+
+        private async Task<List<GatherRule>> QueryGatherRulesAsync(string partitionKey)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.GatherRules);
+            var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{partitionKey}'");
+
+            var rules = new List<GatherRule>();
+            await foreach (var entity in query)
+            {
+                rules.Add(MapToGatherRule(entity));
+            }
+
+            return rules;
         }
 
         /// <summary>
@@ -273,6 +309,10 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Failed to delete gather rule {ruleId}");
                 return false;
+            }
+            finally
+            {
+                _gatherRuleCache.Invalidate(tenantId);
             }
         }
 
@@ -361,10 +401,17 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, $"Failed to store rule state {ruleId} for {tenantId}");
                 return false;
             }
+            finally
+            {
+                _ruleStateCache.Invalidate(tenantId);
+            }
         }
 
         /// <summary>
-        /// Gets all rule states for a tenant as a dictionary of ruleId → RuleState.
+        /// Gets all rule states for a tenant as a dictionary of ruleId → RuleState. Served from
+        /// the per-instance catalog cache (see the RULE CATALOG READ CACHES note); the returned
+        /// dictionary and its values are clones. Storage failures yield an empty dictionary,
+        /// exactly as before — but are never cached.
         /// </summary>
         public async Task<Dictionary<string, RuleState>> GetRuleStatesAsync(string tenantId)
         {
@@ -372,21 +419,11 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStates);
-                var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{tenantId}'");
-
-                var states = new Dictionary<string, RuleState>();
-                await foreach (var entity in query)
-                {
-                    states[entity.RowKey] = new RuleState
-                    {
-                        Enabled = entity.GetBoolean("Enabled") ?? true,
-                        MarkSessionAsFailed = entity.GetBoolean("MarkSessionAsFailed"),
-                        Notify = entity.GetBoolean("Notify"),
-                        NotifyChannelIdsJson = entity.GetString("NotifyChannelIdsJson")
-                    };
-                }
-
+                var snapshot = await _ruleStateCache.GetOrAddAsync(
+                    tenantId, RuleCatalogCacheTtl, () => QueryRuleStatesAsync(tenantId));
+                var states = new Dictionary<string, RuleState>(snapshot.Count);
+                foreach (var kv in snapshot)
+                    states[kv.Key] = kv.Value.Clone();
                 return states;
             }
             catch (Exception ex)
@@ -394,6 +431,26 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, $"Failed to get rule states for {tenantId}");
                 return new Dictionary<string, RuleState>();
             }
+        }
+
+        private async Task<Dictionary<string, RuleState>> QueryRuleStatesAsync(string tenantId)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStates);
+            var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{tenantId}'");
+
+            var states = new Dictionary<string, RuleState>();
+            await foreach (var entity in query)
+            {
+                states[entity.RowKey] = new RuleState
+                {
+                    Enabled = entity.GetBoolean("Enabled") ?? true,
+                    MarkSessionAsFailed = entity.GetBoolean("MarkSessionAsFailed"),
+                    Notify = entity.GetBoolean("Notify"),
+                    NotifyChannelIdsJson = entity.GetString("NotifyChannelIdsJson")
+                };
+            }
+
+            return states;
         }
 
         /// <summary>
@@ -419,6 +476,10 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Failed to delete rule state {ruleId} for {tenantId}");
                 return false;
+            }
+            finally
+            {
+                _ruleStateCache.Invalidate(tenantId);
             }
         }
 
@@ -502,6 +563,11 @@ namespace AutopilotMonitor.Functions.Services
                 // global catalog row, otherwise the rule falls out of the diff and any
                 // orphan state we couldn't enumerate lingers indefinitely.
                 return (0, -1);
+            }
+            finally
+            {
+                // Touches an unknown set of tenant partitions — drop every cached state snapshot.
+                _ruleStateCache.Clear();
             }
         }
 
@@ -729,10 +795,17 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogError(ex, $"Failed to store IME log pattern {pattern.PatternId}");
                 return false;
             }
+            finally
+            {
+                _imeLogPatternCache.Invalidate(tenantId);
+            }
         }
 
         /// <summary>
-        /// Gets IME log patterns for a partition (tenant or "global")
+        /// Gets IME log patterns for a partition (tenant or "global"). Served from the
+        /// per-instance catalog cache (see the RULE CATALOG READ CACHES note); every returned
+        /// object is a clone. Storage failures yield an empty list, exactly as before — but are
+        /// never cached.
         /// </summary>
         public async Task<List<ImeLogPattern>> GetImeLogPatternsAsync(string partitionKey)
         {
@@ -741,22 +814,29 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeLogPatterns);
-                var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{partitionKey}'");
-
-                var patterns = new List<ImeLogPattern>();
-                await foreach (var entity in query)
-                {
-                    patterns.Add(MapToImeLogPattern(entity));
-                }
-
-                return patterns;
+                var snapshot = await _imeLogPatternCache.GetOrAddAsync(
+                    partitionKey, RuleCatalogCacheTtl, () => QueryImeLogPatternsAsync(partitionKey));
+                return snapshot.ConvertAll(p => p.Clone());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get IME log patterns for {partitionKey}");
                 return new List<ImeLogPattern>();
             }
+        }
+
+        private async Task<List<ImeLogPattern>> QueryImeLogPatternsAsync(string partitionKey)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.ImeLogPatterns);
+            var query = tableClient.QueryAsync<TableEntity>(filter: $"PartitionKey eq '{partitionKey}'");
+
+            var patterns = new List<ImeLogPattern>();
+            await foreach (var entity in query)
+            {
+                patterns.Add(MapToImeLogPattern(entity));
+            }
+
+            return patterns;
         }
 
         /// <summary>
@@ -774,6 +854,10 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, $"Failed to delete IME log pattern {patternId}");
                 return false;
+            }
+            finally
+            {
+                _imeLogPatternCache.Invalidate(tenantId);
             }
         }
 

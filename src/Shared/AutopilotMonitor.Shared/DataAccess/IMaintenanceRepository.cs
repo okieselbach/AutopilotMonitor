@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
@@ -66,7 +67,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// otherwise ≥cap permanently stuck sessions at the RowKey head starve the tail forever.
         /// </summary>
         Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false);
-        Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
+        /// <summary>
+        /// Sessions whose StartedAt lies in [startDate, endDate), optionally scoped to one tenant.
+        /// Cross-tenant (tenantId null) fans out one partition query per onboarded tenant.
+        /// <paramref name="cancellationToken"/> stops the fan-out when the caller goes away.
+        /// </summary>
+        Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default);
         /// <summary>
         /// Column-projected variant of <see cref="GetSessionsByDateRangeAsync"/> for the usage-metrics
         /// compute: identical filter and result semantics, but only the columns that compute consumes
@@ -76,10 +82,11 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
         /// <summary>
         /// Column-projected variant of <see cref="GetSessionsByDateRangeAsync"/> for the
-        /// geographic-metrics aggregation (map view): Geo* fields + status/duration inputs only.
+        /// geographic-metrics aggregation (map view): Geo* fields + status/duration inputs only,
+        /// read as a RowKey key range per tenant partition of the SessionsIndex mirror.
         /// Fields outside the projection come back as defaults — callers must not read them.
         /// </summary>
-        Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null);
+        Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default);
         /// <summary>
         /// Column-projected cross-tenant variant of <see cref="GetSessionsByDateRangeAsync"/> that
         /// the maintenance tick drains ONCE and shares across its rolling sweeps (time attribution,

@@ -35,6 +35,14 @@ export const ENTRA_LOGIN_BASE_URL = 'https://login.microsoftonline.com';
 export const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
 
 /**
+ * Pretty-print tool results (2-space indentation) instead of compact JSON. Off by default:
+ * the consumer of a tool result is a language model whose context window is not gzipped —
+ * measured on the static catalogs, indentation added 18–55 % characters per response for
+ * zero information. Set MCP_PRETTY_JSON=true for a human eyeballing results in a debugger.
+ */
+export const PRETTY_JSON = process.env.MCP_PRETTY_JSON?.trim().toLowerCase() === 'true';
+
+/**
  * Parse a positive-integer environment variable, falling back to `fallback`
  * for missing, non-numeric, or non-positive values. A bare `parseInt` returns
  * NaN for garbage input, and `NaN` silently breaks every `>=` comparison it

@@ -7,10 +7,37 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services;
 
 /// <summary>
+/// Wall clock started by the FIRST statement of <c>Program.cs</c>, before the host builder
+/// exists. <see cref="StartupTelemetryService"/> reads it on ApplicationStarted.
+/// <para>
+/// Why not <c>Process.StartTime</c>: Flex Consumption keeps pre-started placeholder processes
+/// and specializes one when an instance is needed. Measured from process start, the "startup"
+/// metric then carries the placeholder's idle lifetime — production showed medians of
+/// ~5 minutes and maxima of ~90 minutes for a boot that actually takes seconds. The stopwatch
+/// starts when OUR code first runs, which is the part a code change can move.
+/// </para>
+/// </summary>
+public sealed class StartupClock
+{
+    private readonly Stopwatch _stopwatch;
+
+    public StartupClock(Stopwatch stopwatch)
+    {
+        _stopwatch = stopwatch ?? throw new ArgumentNullException(nameof(stopwatch));
+    }
+
+    /// <summary>Starts a clock now — call as the first statement of Main.</summary>
+    public static StartupClock StartNow() => new(Stopwatch.StartNew());
+
+    public TimeSpan Elapsed => _stopwatch.Elapsed;
+}
+
+/// <summary>
 /// Emits one App Insights metric per process start so startup duration is a trend, not an
-/// anecdote: <c>BackendStartupMs</c> = process start → host ApplicationStarted (includes
-/// runtime + DI + every hosted service), plus <c>BackendTableInitMs</c> for the table
-/// initialization slice (see TableStorageService.InitializeTablesAsync / schema sentinel).
+/// anecdote: <c>BackendStartupMs</c> = entry into Main (<see cref="StartupClock"/>) → host
+/// ApplicationStarted (includes host builder, DI and every hosted service; excludes the Flex
+/// placeholder lifetime), plus <c>BackendTableInitMs</c> for the table initialization slice
+/// (see TableStorageService.InitializeTablesAsync / schema sentinel).
 /// Metrics are not subject to adaptive sampling and reach App Insights regardless of the
 /// worker log level, unlike Information traces.
 /// Query: <c>customMetrics | where name == "BackendStartupMs" | project timestamp, value, customDimensions</c>.
@@ -24,6 +51,7 @@ public sealed class StartupTelemetryService : IHostedService
     private readonly TelemetryClient _telemetry;
     private readonly TableStorageService _tableStorage;
     private readonly BackendBuildInfo _buildInfo;
+    private readonly StartupClock _clock;
     private readonly ILogger<StartupTelemetryService> _logger;
 
     public StartupTelemetryService(
@@ -31,12 +59,14 @@ public sealed class StartupTelemetryService : IHostedService
         TelemetryClient telemetry,
         TableStorageService tableStorage,
         BackendBuildInfo buildInfo,
+        StartupClock clock,
         ILogger<StartupTelemetryService> logger)
     {
         _lifetime = lifetime;
         _telemetry = telemetry;
         _tableStorage = tableStorage;
         _buildInfo = buildInfo;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -54,7 +84,7 @@ public sealed class StartupTelemetryService : IHostedService
     {
         try
         {
-            var startupMs = (DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime()).TotalMilliseconds;
+            var startupMs = _clock.Elapsed.TotalMilliseconds;
             var init = _tableStorage.LastInitialization;
 
             var props = new Dictionary<string, string>

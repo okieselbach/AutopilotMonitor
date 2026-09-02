@@ -284,15 +284,13 @@ namespace AutopilotMonitor.Functions.Services
                 // VersionBlockFunction, UpdateAdminConfigurationFunction, … TenantConfiguration
                 // has no row for it because it's a virtual partition, so it'd be
                 // silently skipped without this explicit add.
-                var configTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TenantConfiguration);
                 var tenantIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     Constants.AuditGlobalTenantId,
                 };
-                await foreach (var entity in configTableClient.QueryAsync<TableEntity>(
-                    select: new[] { "PartitionKey" }, maxPerPage: 1000))
+                foreach (var tenantId in await GetTenantIdsCachedAsync())
                 {
-                    tenantIds.Add(entity.PartitionKey);
+                    tenantIds.Add(tenantId);
                 }
 
                 var activeTenantIds = tenantIds
@@ -545,8 +543,8 @@ namespace AutopilotMonitor.Functions.Services
         /// Gets all sessions within a date range, optionally filtered by tenant.
         /// Uses server-side filtering to avoid loading all sessions into memory.
         /// </summary>
-        public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
-            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, select: null);
+        public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default)
+            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, select: null, cancellationToken);
 
         /// <summary>
         /// Columns the usage-metrics compute (UsageMetricsService) actually consumes, plus the
@@ -588,12 +586,41 @@ namespace AutopilotMonitor.Functions.Services
         };
 
         /// <summary>
-        /// Column-projected date-range query for the geographic-metrics aggregation (map view).
-        /// The drilldown endpoints keep the full-row query — their response shape returns nearly
-        /// every session column.
+        /// Column-projected date-range read for the geographic-metrics aggregation (map view). The
+        /// aggregation needs only the SET of in-window sessions and every column it reads is mirrored
+        /// on SessionsIndex, whose RowKey encodes StartedAt — so the window is a key range per tenant
+        /// partition (<see cref="DrainSessionsIndexWindowAsync"/>) instead of a StartedAt property
+        /// filter over the whole Sessions table (7.8 s p50 cross-tenant in production before this).
+        /// The drilldown endpoints keep the full-row Sessions query — their response shape returns
+        /// nearly every session column, including primary-only ones.
         /// </summary>
-        public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null)
-            => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, GeoMetricsSessionProjection);
+        public async Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default)
+        {
+            if (!string.IsNullOrEmpty(tenantId))
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+
+            try
+            {
+                var tenantIds = !string.IsNullOrEmpty(tenantId)
+                    ? new List<string> { tenantId! }
+                    : (await GetTenantIdsCachedAsync()).ToList();
+
+                // Empty config table (fresh install): keep the legacy Sessions scan as the safety net.
+                if (tenantIds.Count == 0)
+                    return await QuerySessionsByDateRangeAsync(startDate, endDate, tenantId, GeoMetricsSessionProjection, cancellationToken);
+
+                return await DrainSessionsIndexWindowAsync(tenantIds, startDate, endDate, GeoMetricsSessionProjection, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get geo window sessions");
+                return new List<SessionSummary>();
+            }
+        }
 
         /// <summary>
         /// Columns the rolling maintenance sweeps consume from the SHARED window scan (one
@@ -625,7 +652,7 @@ namespace AutopilotMonitor.Functions.Services
         public Task<List<SessionSummary>> GetMaintenanceWindowSessionsAsync(DateTime startDate, DateTime endDate)
             => QuerySessionsByDateRangeAsync(startDate, endDate, tenantId: null, MaintenanceSweepSessionProjection);
 
-        private async Task<List<SessionSummary>> QuerySessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId, string[]? select)
+        private async Task<List<SessionSummary>> QuerySessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId, string[]? select, CancellationToken cancellationToken = default)
         {
             if (!string.IsNullOrEmpty(tenantId))
                 SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
@@ -633,28 +660,56 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Sessions);
+                var windowFilter = $"StartedAt ge datetime'{startDate:yyyy-MM-ddTHH:mm:ss}Z' and StartedAt lt datetime'{endDate:yyyy-MM-ddTHH:mm:ss}Z'";
 
-                var filter = !string.IsNullOrEmpty(tenantId)
-                    ? $"PartitionKey eq '{tenantId}' and StartedAt ge datetime'{startDate:yyyy-MM-ddTHH:mm:ss}Z' and StartedAt lt datetime'{endDate:yyyy-MM-ddTHH:mm:ss}Z'"
-                    : $"StartedAt ge datetime'{startDate:yyyy-MM-ddTHH:mm:ss}Z' and StartedAt lt datetime'{endDate:yyyy-MM-ddTHH:mm:ss}Z'";
-
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: select);
-
-                var sessions = new List<SessionSummary>();
-                await foreach (var entity in query)
+                List<SessionSummary> sessions;
+                if (!string.IsNullOrEmpty(tenantId))
                 {
-                    sessions.Add(MapToSessionSummary(entity));
+                    sessions = await QuerySessionsPartitionAsync(tableClient, tenantId!, windowFilter, select, cancellationToken);
+                }
+                else
+                {
+                    // Cross-tenant: StartedAt is a property, not a key, so the window cannot be a key
+                    // range on the Sessions table — but one partition query per tenant runs across
+                    // partition servers in parallel, whereas the former single cross-partition scan
+                    // walked the whole table serially. Empty config table (fresh install) keeps the
+                    // legacy scan as its safety net.
+                    var tenantIds = await GetTenantIdsCachedAsync();
+                    sessions = tenantIds.Count > 0
+                        ? await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency,
+                            (t, ct) => QuerySessionsPartitionAsync(tableClient, t, windowFilter, select, ct), cancellationToken)
+                        : await QuerySessionsPartitionAsync(tableClient, partitionKey: null, windowFilter, select, cancellationToken);
                 }
 
                 _logger.LogInformation($"Found {sessions.Count} sessions between {startDate:yyyy-MM-dd} and {endDate:yyyy-MM-dd}" +
                     (tenantId != null ? $" for tenant {tenantId}" : ""));
                 return sessions;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to get sessions by date range");
                 return new List<SessionSummary>();
             }
+        }
+
+        /// <summary>One Sessions query: the partition (null = whole table) intersected with the window filter.</summary>
+        private async Task<List<SessionSummary>> QuerySessionsPartitionAsync(
+            TableClient tableClient, string? partitionKey, string windowFilter, string[]? select, CancellationToken cancellationToken)
+        {
+            var filter = partitionKey != null
+                ? $"PartitionKey eq '{partitionKey}' and {windowFilter}"
+                : windowFilter;
+
+            var sessions = new List<SessionSummary>();
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter, select: select, cancellationToken: cancellationToken))
+            {
+                sessions.Add(MapToSessionSummary(entity));
+            }
+            return sessions;
         }
 
         /// <summary>
@@ -878,17 +933,9 @@ namespace AutopilotMonitor.Functions.Services
         {
             try
             {
-                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TenantConfiguration);
-                var query = tableClient.QueryAsync<TableEntity>(
-                    filter: "RowKey eq 'config'",
-                    select: new[] { "PartitionKey" });
-
-                var tenantIds = new HashSet<string>();
-                await foreach (var entity in query)
-                {
-                    tenantIds.Add(entity.PartitionKey);
-                }
-
+                // Uncached on purpose: maintenance/offboarding sweeps must see the live set. The HTTP
+                // fan-outs use the cached GetTenantIdsCachedAsync over the same query.
+                var tenantIds = await QueryTenantIdsAsync(CancellationToken.None);
                 _logger.LogInformation($"Found {tenantIds.Count} unique tenants");
                 return tenantIds.ToList();
             }

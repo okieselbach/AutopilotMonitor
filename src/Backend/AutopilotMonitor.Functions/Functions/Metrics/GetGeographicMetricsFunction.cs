@@ -26,7 +26,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
         [Function("GetGeographicMetrics")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "metrics/geographic")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "metrics/geographic")] HttpRequestData req,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -51,7 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var now = DateTime.UtcNow;
                 var cutoff = now.AddDays(-days);
                 var configTask = _configService.GetConfigurationAsync(tenantId);
-                var sessionsTask = _maintenanceRepo.GetGeoWindowSessionsAsync(cutoff, now.AddDays(1), tenantId);
+                var sessionsTask = _maintenanceRepo.GetGeoWindowSessionsAsync(cutoff, now.AddDays(1), tenantId, cancellationToken);
                 var summariesTask = _metricsRepo.GetGeoAppInstallSummariesAsync(cutoff, tenantId);
                 await Task.WhenAll(configTask, sessionsTask, summariesTask);
 

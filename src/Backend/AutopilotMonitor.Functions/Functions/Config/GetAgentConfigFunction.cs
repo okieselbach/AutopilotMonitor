@@ -264,11 +264,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 ModernDeploymentHarmlessEventIds = adminConfig.GetModernDeploymentHarmlessEventIds().ToArray()
             };
 
-            // Get active gather rules for this tenant (user-defined ad-hoc only)
-            var gatherRules = await _gatherRuleService.GetActiveRulesForTenantAsync(tenantId);
-
-            // Get active IME log patterns for this tenant (from Table Storage)
-            var imeLogPatterns = await _imeLogPatternService.GetActivePatternsForTenantAsync(tenantId);
+            // Active gather rules + active IME log patterns for this tenant. Independent reads,
+            // both served from per-instance catalog caches — fetch them concurrently.
+            var gatherRulesTask = _gatherRuleService.GetActiveRulesForTenantAsync(tenantId);
+            var imeLogPatternsTask = _imeLogPatternService.GetActivePatternsForTenantAsync(tenantId);
+            await Task.WhenAll(gatherRulesTask, imeLogPatternsTask);
+            var gatherRules = await gatherRulesTask;
+            var imeLogPatterns = await imeLogPatternsTask;
 
             // Merge global + tenant-specific diagnostics log paths (the built-in sections are
             // compiled into the agent — DiagnosticsBuiltInSections — and never travel here)

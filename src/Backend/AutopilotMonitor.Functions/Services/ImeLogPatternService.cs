@@ -13,7 +13,8 @@ namespace AutopilotMonitor.Functions.Services
     {
         private readonly IRuleRepository _ruleRepo;
         private readonly ILogger<ImeLogPatternService> _logger;
-        private bool _seeded = false;
+        private volatile bool _seeded = false;
+        private readonly SemaphoreSlim _seedGate = new(1, 1);
 
         public ImeLogPatternService(IRuleRepository ruleRepo, ILogger<ImeLogPatternService> logger)
         {
@@ -27,48 +28,33 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public async Task<List<ImeLogPattern>> GetActivePatternsForTenantAsync(string tenantId)
         {
-            await EnsureBuiltInPatternsSeededAsync();
-
-            var globalPatterns = await _ruleRepo.GetImeLogPatternsAsync("global");
-            var tenantPatterns = await _ruleRepo.GetImeLogPatternsAsync(tenantId);
-
-            var tenantOverrides = tenantPatterns.ToDictionary(p => p.PatternId, p => p);
-
-            var mergedPatterns = new List<ImeLogPattern>();
-
-            foreach (var globalPattern in globalPatterns)
-            {
-                if (tenantOverrides.TryGetValue(globalPattern.PatternId, out var tenantOverride))
-                {
-                    mergedPatterns.Add(tenantOverride);
-                    tenantOverrides.Remove(globalPattern.PatternId);
-                }
-                else
-                {
-                    mergedPatterns.Add(globalPattern);
-                }
-            }
-
-            foreach (var customPattern in tenantOverrides.Values)
-            {
-                mergedPatterns.Add(customPattern);
-            }
-
-            return mergedPatterns.Where(p => p.Enabled).ToList();
+            var merged = await LoadMergedPatternsAsync(tenantId);
+            return merged.Where(p => p.Enabled).ToList();
         }
 
         /// <summary>
         /// Gets all IME log patterns for a tenant (including disabled) for portal display.
         /// </summary>
-        public async Task<List<ImeLogPattern>> GetAllPatternsForTenantAsync(string tenantId)
+        public Task<List<ImeLogPattern>> GetAllPatternsForTenantAsync(string tenantId)
+            => LoadMergedPatternsAsync(tenantId);
+
+        /// <summary>
+        /// Global built-in patterns with the tenant's overrides applied (same PatternId wins),
+        /// followed by the tenant's custom patterns. The global and tenant partitions are read
+        /// concurrently; both come from the repository's per-instance catalog cache.
+        /// </summary>
+        private async Task<List<ImeLogPattern>> LoadMergedPatternsAsync(string tenantId)
         {
             await EnsureBuiltInPatternsSeededAsync();
 
-            var globalPatterns = await _ruleRepo.GetImeLogPatternsAsync("global");
-            var tenantPatterns = await _ruleRepo.GetImeLogPatternsAsync(tenantId);
-            var tenantOverrides = tenantPatterns.ToDictionary(p => p.PatternId, p => p);
+            var globalTask = _ruleRepo.GetImeLogPatternsAsync("global");
+            var tenantTask = _ruleRepo.GetImeLogPatternsAsync(tenantId);
+            await Task.WhenAll(globalTask, tenantTask);
 
-            var mergedPatterns = new List<ImeLogPattern>();
+            var globalPatterns = await globalTask;
+            var tenantOverrides = (await tenantTask).ToDictionary(p => p.PatternId, p => p);
+
+            var mergedPatterns = new List<ImeLogPattern>(globalPatterns.Count + tenantOverrides.Count);
 
             foreach (var globalPattern in globalPatterns)
             {
@@ -170,11 +156,27 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Seeds built-in IME log patterns if not already done.
         /// Also updates existing built-in patterns when the code definitions change.
+        /// Single-flight (see GatherRuleService.EnsureBuiltInRulesSeededAsync): only one of a fresh
+        /// instance's concurrent first callers runs the compare, the rest wait on the gate.
         /// </summary>
         private async Task EnsureBuiltInPatternsSeededAsync()
         {
             if (_seeded) return;
 
+            await _seedGate.WaitAsync();
+            try
+            {
+                if (_seeded) return;
+                await SeedBuiltInPatternsCoreAsync();
+            }
+            finally
+            {
+                _seedGate.Release();
+            }
+        }
+
+        private async Task SeedBuiltInPatternsCoreAsync()
+        {
             var existingPatterns = await _ruleRepo.GetImeLogPatternsAsync("global");
             var builtInPatterns = BuiltInImeLogPatterns.GetAll();
 

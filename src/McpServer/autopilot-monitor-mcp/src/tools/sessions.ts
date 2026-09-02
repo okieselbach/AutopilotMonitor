@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { ApiError, apiFetch, buildQuery, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
+import { ApiError, apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
@@ -117,7 +117,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'error, not a silent empty result. For deviceProperties / serial / geo / time filters the tool auto-scans ' +
         'forward past empty pages, so a returned "count": 0 with no "nextLink" means truly no matches, while ' +
         '"moreToScan": true means the per-call scan budget was hit (pass nextLink as "continuation" to keep scanning). ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=200 is tuned for interactive queries; ' +
+        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for interactive queries; ' +
         'raise it (up to 1000) for full sweeps. Pass the whole nextLink string as "continuation" so all backend-echoed ' +
         'query params round-trip correctly.',
       inputSchema: {
@@ -173,7 +173,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           'Booleans: use "True" or "False". Arrays: substring match in any element.'
         ),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -182,7 +182,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     async (args) => withToolTelemetry('search_sessions', args, async () => {
       try {
         const { deviceProperties, tenantId: rawTenantId, pageSize: explicitPageSize, continuation, ...rest } = args;
-        const pageSize = pageSizeForCall(explicitPageSize, continuation, 200);
+        const pageSize = pageSizeForCall(explicitPageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         // Delegated (MSP): require a managed tenantId (no aggregate); a page-2 call carries it inside the
         // continuation nextLink. No-op for GA/Reader/tenant users.
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
@@ -224,7 +224,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         (ga ? 'Omit tenantId for cross-tenant search (Global Admin). ' : '') +
         'Check the event_types catalog (call get_resource(name="event_types")) for valid eventType values. ' +
         'Use this to answer: which devices had a failed Teams install, which sessions had an error in DeviceSetup phase. ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical ' +
+        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
         'interactive queries; raise it (up to 1000) for full sweeps. For broad analysis, use pageSize=1000 and follow ' +
         'nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" so all backend-echoed query ' +
         'params round-trip correctly.',
@@ -232,7 +232,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         eventType: z.string().describe('Event type string — see event_types catalog (call get_resource(name="event_types")) for valid values (e.g. "app_install_failed", "enrollment_failed")'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -241,7 +241,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     async (args) => withToolTelemetry('search_sessions_by_event', args, async () => {
       try {
         const { eventType, tenantId: rawTenantId, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // eventType is the sole filter and is applied server-side (EventTypeIndex OData),
         // so an empty page never carries a nextLink — no auto-exhaust needed. But validate
@@ -423,9 +423,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
-          .describe('Comma-separated lean projection (e.g. "eventType,severity,timestamp,message"). Drops the heavy "data" payload unless "data" is listed. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data.'),
+          .describe('Comma-separated projection. Omitted = lean default "' + LEAN_EVENT_FIELDS + '" — the multi-KB "data" payload is NOT included. List "data" for the whole payload, or "data.<key>" entries (e.g. "data.errorCode,data.scriptType") for just those payload keys. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data, data.<key>.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so query params the backend echoes round-trip correctly.'),
       },
@@ -433,8 +433,12 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     },
     async (args) => withToolTelemetry('get_session_events', args, async () => {
       try {
-        const { sessionId, tenantId: rawTenantId, continuation, eventType, severity, source, fields } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const { sessionId, tenantId: rawTenantId, continuation, eventType, severity, source, fields: explicitFields } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
+        // Lean by default: the payload rides along only when asked for. On a follow-up call an
+        // omitted fields keeps whatever projection the nextLink carries (same rule as pageSize).
+        const leanDefaultApplied = explicitFields === undefined && !continuation;
+        const fields = explicitFields ?? (continuation ? undefined : LEAN_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
@@ -449,7 +453,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // Auto-exhaust forward so the model isn't misled by an empty-but-continuable page;
         // a timeout is retried once with a halved pageSize on the same cursor.
         const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.events);
+        // Announce the omission in-band so a reader of the result knows the payload exists and how to get it.
+        return toolResultText(leanDefaultApplied ? { ...data, ...LEAN_EVENT_OMISSION } : data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {
         return toolError('get_session_events', args, error);
       }
@@ -481,11 +486,14 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
+        // Unpaginated (the summary ranks the whole timeline) but projected: only the triage
+        // fields plus the payload keys the two guards read (SUMMARY_EVENT_FIELDS) travel.
+        const eventsQuery = buildQuery({ tenantId, fields: SUMMARY_EVENT_FIELDS } as Record<string, string | undefined>);
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
         const [sessionData, eventsData, analysisData, annotationsData] = await Promise.all([
           apiFetch(`/api/sessions/${sessionId}${q}`, fetchOpts) as Promise<GetSessionResponse>,
-          apiFetch(`/api/sessions/${sessionId}/events${q}`, fetchOpts) as Promise<GetSessionEventsResponse>,
+          apiFetch(`/api/sessions/${sessionId}/events${eventsQuery}`, fetchOpts) as Promise<GetSessionEventsResponse>,
           apiFetch(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null) as Promise<GetRuleResultsResponse | null>,
           // Human annotations (verdict + note per lane). Backend filters the platform-internal
           // globaladmin lane for non-global callers — pass-through, no re-shaping needed.
@@ -737,7 +745,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         "Use this to answer: which devices are affected by CVE-2024-XXXX, show all critical vulnerability sessions. " +
         "The per-session vulnerability report (get_session_summary / vulnerability_report event) lists each CVE with " +
         "cvssScore, cvssVector, isKev, epssScore (FIRST EPSS, 0-1), epssPercentile and priority (act/attend/track). " +
-        "This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical " +
+        "This endpoint is fully paginated — there is no truncation. The default pageSize=" + DEFAULT_FIRST_PAGE_SIZE + " is tuned for typical " +
         "interactive queries; raise it (up to 1000) for full exposure audits. For \"how many of my devices have CVE-X\" " +
         "use pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as " +
         "\"continuation\" so all backend-echoed query params (cveId, minCvssScore, overallRisk) round-trip correctly.",
@@ -749,7 +757,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         minCvssScore: z.coerce.number().min(0).max(10).optional().describe('Minimum CVSS score filter (e.g. 7.0 for high+critical)'),
         overallRisk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many affected sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many affected sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -758,7 +766,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     async (args) => withToolTelemetry('search_sessions_by_cve', args, async () => {
       try {
         const { cveId, tenantId: rawTenantId, minCvssScore, overallRisk, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         // Normalize to canonical upper-case form (schema accepts case-insensitive).
         const normalizedCve = cveId.toUpperCase();

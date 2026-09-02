@@ -75,5 +75,17 @@ namespace AutopilotMonitor.Shared.Models
         /// Built-in patterns cannot be deleted, only disabled.
         /// </summary>
         public bool IsBuiltIn { get; set; } = true;
+
+        /// <summary>
+        /// Copy for cache hand-out: scalars copied, the Parameters dictionary duplicated, so a
+        /// caller mutating the copy never touches a shared cached instance.
+        /// </summary>
+        public ImeLogPattern Clone()
+        {
+            var copy = (ImeLogPattern)MemberwiseClone();
+            // Preserve a null Parameters as null (the wire omits it) rather than promoting it to {}.
+            copy.Parameters = Parameters == null ? null! : new Dictionary<string, string>(Parameters);
+            return copy;
+        }
     }
 }

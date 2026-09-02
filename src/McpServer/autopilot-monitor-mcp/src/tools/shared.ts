@@ -1,5 +1,54 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import { PRETTY_JSON } from '../config.js';
+
+/**
+ * Projection sent by get_session_events when the caller omits `fields`: everything an event
+ * carries EXCEPT the `data` payload (a single app_install_failed event can be tens of KB).
+ * Callers that need the payload list `data` (whole) or `data.<key>` entries (a slice).
+ */
+export const LEAN_EVENT_FIELDS = 'eventType,severity,source,phase,phaseName,timestamp,message,sequence';
+
+/**
+ * Raw-events counterpart (query_raw_events): every stored column except DataJson. The raw
+ * projection is a keep-list over literal column names, so "all but one" has to be spelled out;
+ * a column added to the Events row later must be added here to appear by default.
+ */
+export const LEAN_RAW_EVENT_FIELDS =
+  'PartitionKey,RowKey,Timestamp,OccurredUtc,EventId,SessionId,TenantId,EventType,Severity,Source,Phase,Message,Sequence,' +
+  'ReceivedAt,SentAt,OriginalTimestamp,TimestampClamped,CausedByTransitionStepIndex,CausedBySignalOrdinal';
+
+/**
+ * In-band marker merged into a lean-default first page: a caller reading the RESULT (not the
+ * schema) learns what was left out and the exact argument that brings it back. The model
+ * must never have to guess whether a payload exists — omission is announced, not silent.
+ */
+export const LEAN_EVENT_OMISSION = {
+  omittedFields: ['data'],
+  omittedNote:
+    'The per-event payload ("data", up to tens of KB per event) is omitted by default. ' +
+    `Re-run with fields="${LEAN_EVENT_FIELDS},data" for the whole payload, or add "data.<key>" entries ` +
+    '(e.g. "data.errorCode") for just those keys; a nextLink keeps whatever projection you chose.',
+} as const;
+
+/** Raw-events counterpart of LEAN_EVENT_OMISSION. */
+export const LEAN_RAW_EVENT_OMISSION = {
+  omittedFields: ['DataJson'],
+  omittedNote:
+    'DataJson (the raw per-event payload string) is omitted by default. ' +
+    `Re-run with fields="${LEAN_RAW_EVENT_FIELDS},DataJson" to include it; a nextLink keeps whatever projection you chose.`,
+} as const;
+
+/**
+ * What get_session_summary reads per event, and nothing more: the triage fields plus the
+ * handful of payload keys its two guards inspect (isBenignHealthDetectionReport,
+ * isHistoricImeReplay), requested as `data.<key>` slices so the backend never ships the
+ * full payload for a summary that drops it anyway.
+ */
+export const SUMMARY_EVENT_FIELDS =
+  'eventType,severity,source,phase,timestamp,message,sequence,' +
+  'data.scriptType,data.script_type,data.scriptPart,data.script_part,data.result,' +
+  'data.rejectedSourceTimestamp,data.rejected_source_timestamp';
 
 /**
  * Zod validator for session IDs. Sessions are UUIDs and the value is
@@ -138,6 +187,16 @@ export const MAX_RESULT_SIZE_CHARS = {
 } as const;
 
 /**
+ * Serializes a tool result or resource body. Compact by default: the text lands verbatim in
+ * a language model's context, which — unlike the gzipped wire — pays for every indentation
+ * space (measured +18–55 % characters on the static catalogs). MCP_PRETTY_JSON=true restores
+ * the indented form for humans reading results in a debugger.
+ */
+export function stringifyResult(data: unknown): string {
+  return PRETTY_JSON ? JSON.stringify(data, null, 2) : JSON.stringify(data);
+}
+
+/**
  * Wraps a tool response payload with the Anthropic <c>maxResultSizeChars</c>
  * annotation and a single text content block. Use in preference to bare
  * <c>{ content: [...] }</c> so the cap travels with every call without
@@ -148,10 +207,7 @@ export function toolResultText(
   maxResultSizeChars: number,
 ): { content: Array<{ type: 'text'; text: string }>; _meta: Record<string, unknown> } {
   return {
-    // Pretty-printed: the output is frequently eyeballed during interactive MCP use, and
-    // the indentation whitespace gzips away to almost nothing on the wire (compression
-    // middleware), so readability is kept essentially for free.
-    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
+    content: [{ type: 'text' as const, text: stringifyResult(data) }],
     _meta: { 'anthropic/maxResultSizeChars': maxResultSizeChars },
   };
 }

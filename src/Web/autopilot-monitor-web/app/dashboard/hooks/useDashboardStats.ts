@@ -74,6 +74,14 @@ export interface UseDashboardStatsReturn {
 
 const DEFAULT_DAYS = 7;
 const SIGNALR_DEBOUNCE_MS = 3000;
+/**
+ * Debounce for the Global-Admin AGGREGATE scope (no tenant filter). In that scope every
+ * tenant's newSession/newevents passes isInScope, so the platform-wide ingest stream would
+ * otherwise drive a cross-tenant stats drain (one query per onboarded tenant) every 3 s per
+ * open tab. The cards are totals over days, not a live feed — 30 s staleness is invisible,
+ * and the backend additionally serves the aggregate from a 30 s single-flight cache.
+ */
+const SIGNALR_DEBOUNCE_AGGREGATE_MS = 30_000;
 
 /**
  * Server-side stats for the dashboard cards. Replaces the old "compute from
@@ -193,11 +201,12 @@ export function useDashboardStats({
 
   const scheduleDebouncedRefresh = useCallback(() => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    const isAggregateScope = globalAdminModeRef.current && !submittedFilterRef.current.trim();
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
       fetchStats();
-    }, SIGNALR_DEBOUNCE_MS);
-  }, [fetchStats]);
+    }, isAggregateScope ? SIGNALR_DEBOUNCE_AGGREGATE_MS : SIGNALR_DEBOUNCE_MS);
+  }, [fetchStats, globalAdminModeRef, submittedFilterRef]);
 
   // Refetch on scope change (tenant switch, GA toggle, filter Submit, days change).
   // Reset stats synchronously so any previous-scope numbers (e.g. cross-tenant

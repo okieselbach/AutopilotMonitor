@@ -2,6 +2,7 @@ using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -548,29 +549,84 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Cross-tenant + windowed + projected = the aggregate endpoints' shape → shared snapshot.
+                if (string.IsNullOrEmpty(tenantId) && sinceUtc.HasValue && select != null)
+                    return await GetCrossTenantAppSummarySnapshotAsync(sinceUtc.Value);
+
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
                 var filters = new List<string>();
                 if (!string.IsNullOrEmpty(tenantId))
                     filters.Add($"PartitionKey eq '{tenantId}'");
                 if (sinceUtc.HasValue)
-                    filters.Add($"StartedAt ge datetime'{sinceUtc.Value:yyyy-MM-ddTHH:mm:ss}Z'");
+                    filters.Add(AppSummaryWindowFilter(sinceUtc.Value));
                 var filter = filters.Count > 0 ? string.Join(" and ", filters) : null;
 
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: select);
-
-                var summaries = new List<AppInstallSummary>();
-                await foreach (var entity in query)
-                {
-                    summaries.Add(MapToAppInstallSummary(entity));
-                }
-
-                return summaries;
+                return await ScanAppInstallSummariesAsync(tableClient, filter, select, CancellationToken.None);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to query app install summaries (tenant={TenantId})", tenantId ?? "(all)");
                 return new List<AppInstallSummary>();
             }
+        }
+
+        private static string AppSummaryWindowFilter(DateTime sinceUtc)
+            => $"StartedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
+
+        private async Task<List<AppInstallSummary>> ScanAppInstallSummariesAsync(
+            TableClient tableClient, string? filter, string[]? select, CancellationToken cancellationToken)
+        {
+            var summaries = new List<AppInstallSummary>();
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter, select: select, cancellationToken: cancellationToken))
+            {
+                summaries.Add(MapToAppInstallSummary(entity));
+            }
+            return summaries;
+        }
+
+        // ===== CROSS-TENANT APP SUMMARY SNAPSHOT =====
+        //
+        // AppInstallSummaries is keyed (tenantId, "{sessionId}_{appName}") — the RowKey carries no
+        // time, so a window can only ever be a StartedAt PROPERTY filter. Cross-tenant that used to
+        // be ONE whole-table scan: 7-8 s p50 for every global App/Geo endpoint in production (perf
+        // audit 2026-09-02). Now it is one partition query per tenant (PK eq + StartedAt ge), fanned
+        // out with bounded concurrency — partition-server-parallel, finishing in the time of the
+        // largest tenant — over the UNION of every consumer's projection, cached per instance with
+        // single-flight for AppSummarySnapshotTtl: the Installs tab fires two of these endpoints at
+        // once and the app-detail page one per filter change, and they now share one scan.
+        //
+        // The window start is floored to the minute and used AS the filter, so every caller inside
+        // the same minute bucket reads a superset and applies its own exact in-memory cutoff (they
+        // all do — the OData filter is second-granular anyway). Single slot: a snapshot is hundreds
+        // of thousands of rows for a 30-day window, so at most one window's rows stay resident.
+        // Callers must not mutate the shared objects; each call receives its own List over them.
+        internal static readonly TimeSpan AppSummarySnapshotTtl = TimeSpan.FromSeconds(60);
+        private readonly SingleFlightCache<List<AppInstallSummary>> _appSummarySnapshotCache = new(maxEntries: 1);
+
+        private async Task<List<AppInstallSummary>> GetCrossTenantAppSummarySnapshotAsync(DateTime sinceUtc)
+        {
+            var bucketStart = new DateTime(sinceUtc.Ticks - sinceUtc.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc);
+            var snapshot = await _appSummarySnapshotCache.GetOrAddAsync(
+                bucketStart.ToString("yyyyMMddHHmm"), AppSummarySnapshotTtl, () => ScanCrossTenantAppSummariesAsync(bucketStart));
+            return new List<AppInstallSummary>(snapshot);
+        }
+
+        private async Task<List<AppInstallSummary>> ScanCrossTenantAppSummariesAsync(DateTime sinceUtc)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+            var windowFilter = AppSummaryWindowFilter(sinceUtc);
+            var select = CrossTenantAppScanProjection.Value;
+
+            var tenantIds = await GetTenantIdsCachedAsync();
+            if (tenantIds.Count == 0)
+            {
+                // Empty config table (fresh install): the legacy cross-partition scan is the safety net.
+                return await ScanAppInstallSummariesAsync(tableClient, windowFilter, select, CancellationToken.None);
+            }
+
+            return await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency,
+                (tenantId, ct) => ScanAppInstallSummariesAsync(tableClient, $"PartitionKey eq '{tenantId}' and {windowFilter}", select, ct),
+                CancellationToken.None);
         }
 
         /// <summary>
@@ -651,10 +707,16 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Cross-tenant: project the shared snapshot (its union projection carries both columns)
+                // instead of running a second whole-table scan for the same window.
+                if (string.IsNullOrEmpty(tenantId))
+                {
+                    var snapshot = await GetCrossTenantAppSummarySnapshotAsync(sinceUtc);
+                    return snapshot.ConvertAll(s => new SessionAppRef { SessionId = s.SessionId, AppName = s.AppName });
+                }
+
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
-                var filter = $"StartedAt ge datetime'{sinceUtc:yyyy-MM-ddTHH:mm:ss}Z'";
-                if (!string.IsNullOrEmpty(tenantId))
-                    filter = $"PartitionKey eq '{tenantId}' and " + filter;
+                var filter = $"PartitionKey eq '{tenantId}' and {AppSummaryWindowFilter(sinceUtc)}";
 
                 var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: AppInstallRefProjection);
 
@@ -690,6 +752,20 @@ namespace AutopilotMonitor.Functions.Services
             "DoBytesFromLanPeers", "DoBytesFromGroupPeers", "DoBytesFromInternetPeers",
             "DoBytesFromLinkLocalPeers", "DoBytesFromCacheServer"
         };
+
+        /// <summary>
+        /// Union of every projected consumer's column set (app-metrics, apps dashboard, geo, refs) —
+        /// the projection of the shared cross-tenant snapshot (see CROSS-TENANT APP SUMMARY
+        /// SNAPSHOT). Declared after its inputs (static initializers run in textual order) and Lazy
+        /// so a future reordering can never observe a half-initialized array.
+        /// </summary>
+        internal static readonly Lazy<string[]> CrossTenantAppScanProjection = new(() =>
+            AppMetricsProjection
+                .Concat(AppsDashboardProjection)
+                .Concat(GeoAppInstallProjection)
+                .Concat(AppInstallRefProjection)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray());
 
         /// <summary>
         /// Column-projected windowed AppInstallSummaries scan for the geographic endpoints. Returns

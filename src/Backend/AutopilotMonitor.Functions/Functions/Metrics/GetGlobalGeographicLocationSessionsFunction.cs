@@ -26,7 +26,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
         [Function("GetGlobalGeographicLocationSessions")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/geographic/sessions")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/geographic/sessions")] HttpRequestData req,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -66,7 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var now = DateTime.UtcNow;
                 var cutoff = now.AddDays(-days);
                 var tenantFilter = string.IsNullOrEmpty(filterTenantId) ? null : filterTenantId;
-                var sessionsTask = _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, now.AddDays(1), tenantFilter);
+                var sessionsTask = _maintenanceRepo.GetSessionsByDateRangeAsync(cutoff, now.AddDays(1), tenantFilter, cancellationToken);
                 var appSummariesTask = _metricsRepo.GetGeoAppInstallSummariesAsync(cutoff, tenantFilter);
                 await Task.WhenAll(sessionsTask, appSummariesTask);
 

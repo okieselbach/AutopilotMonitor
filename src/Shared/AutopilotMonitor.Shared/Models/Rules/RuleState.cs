@@ -31,5 +31,8 @@ namespace AutopilotMonitor.Shared.Models
         /// this rule fires. Null/empty = no targets → no notification even if Notify is true.
         /// </summary>
         public string? NotifyChannelIdsJson { get; set; }
+
+        /// <summary>Copy for cache hand-out — all members are scalars, so a memberwise copy is complete.</summary>
+        public RuleState Clone() => (RuleState)MemberwiseClone();
     }
 }

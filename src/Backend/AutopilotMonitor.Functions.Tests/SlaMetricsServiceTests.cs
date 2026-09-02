@@ -28,7 +28,7 @@ public class SlaMetricsServiceTests
 
         var maintenanceRepo = new Mock<IMaintenanceRepository>();
         maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(
-                It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId))
+                It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(sessions);
 
         var metricsRepo = new Mock<IMetricsRepository>();

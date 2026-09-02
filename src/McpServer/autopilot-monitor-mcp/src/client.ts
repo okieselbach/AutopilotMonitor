@@ -378,10 +378,19 @@ export function withQueryOverrides(nextLink: string, overrides?: QueryOverrides)
 }
 
 /**
- * The page size a paginated call will actually run with: the explicit argument, else the
- * value embedded in a server-emitted nextLink, else the backend default.
+ * First-page default for every paginated tool. 50, not the backend's 200: a tool page is read
+ * by a language model, and 200 rows of ~1.5 KB session summaries is ~300k characters (roughly
+ * 75k tokens) on every call that never asked for bulk. Sweeps that want bulk pass pageSize
+ * explicitly (up to 1000) and follow nextLink; the auto-exhaust budget (scanBudgetForPageSize)
+ * scales with the page size so post-filtered searches keep their row coverage.
  */
-export function effectivePageSize(pageSize: number | undefined, continuation: string | undefined, fallback = 200): number {
+export const DEFAULT_FIRST_PAGE_SIZE = 50;
+
+/**
+ * The page size a paginated call will actually run with: the explicit argument, else the
+ * value embedded in a server-emitted nextLink, else the tools' first-page default.
+ */
+export function effectivePageSize(pageSize: number | undefined, continuation: string | undefined, fallback = DEFAULT_FIRST_PAGE_SIZE): number {
   if (pageSize != null) return pageSize;
   if (continuation && continuation.startsWith('/api/')) {
     const q = continuation.indexOf('?');
@@ -437,6 +446,24 @@ export interface ScanBudget {
  * returning `moreToScan`, so the MCP container's cost stays bounded.
  */
 export const DEFAULT_SCAN_BUDGET: ScanBudget = { maxPages: 10, wallClockMs: 15_000 };
+
+/**
+ * Row coverage the auto-exhaust keeps regardless of page size: 2000 rows is what the former
+ * 10 pages × 200 rows scanned. With the smaller first-page default the page budget grows so a
+ * filter that matches nothing still scans the same span before reporting `moreToScan`; the
+ * wall-clock ceiling stays the hard bound, and MAX_SCAN_PAGES caps tiny pages.
+ */
+export const DEFAULT_SCAN_ROW_BUDGET = 2000;
+export const MAX_SCAN_PAGES = 40;
+
+/** The scan budget for a call running with `pageSize` rows per page. */
+export function scanBudgetForPageSize(pageSize: number): ScanBudget {
+  const pagesForRowBudget = Math.ceil(DEFAULT_SCAN_ROW_BUDGET / Math.max(1, pageSize));
+  return {
+    maxPages: Math.min(MAX_SCAN_PAGES, Math.max(DEFAULT_SCAN_BUDGET.maxPages, pagesForRowBudget)),
+    wallClockMs: DEFAULT_SCAN_BUDGET.wallClockMs,
+  };
+}
 
 /** Page fetcher seam — production hits the backend; tests inject a fake. */
 export type PageFetcher = (path: string) => Promise<Record<string, unknown>>;
@@ -548,7 +575,7 @@ export async function scanWithTimeoutFallback(
   firstPath: string,
   basePath: string,
   pageSize: number,
-  scan: (path: string) => Promise<Record<string, unknown>> = (p) => scanUntilMatch(p, basePath),
+  scan: (path: string) => Promise<Record<string, unknown>> = (p) => scanUntilMatch(p, basePath, scanBudgetForPageSize(pageSize)),
 ): Promise<Record<string, unknown>> {
   try {
     return await scan(firstPath);

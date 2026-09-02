@@ -209,7 +209,7 @@ public class SlaTenantStatusLifecycleTests
 
         public void SetTerminalSessions(string tenantId, List<SessionSummary> sessions)
         {
-            _maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId))
+            _maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(sessions);
         }
 
@@ -865,7 +865,7 @@ public class SlaTenantStatusLifecycleTests
             => _configRepo.Setup(r => r.GetAllTenantConfigurationsAsync()).ReturnsAsync(tenants.ToList());
 
         public void SetTerminalSessions(string tenantId, List<SessionSummary> sessions)
-            => _maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId)).ReturnsAsync(sessions);
+            => _maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId, It.IsAny<CancellationToken>())).ReturnsAsync(sessions);
 
         public void SetAppInstalls(string tenantId, List<AppInstallSummary> apps)
             => _metricsRepo.Setup(r => r.GetAppInstallSummariesByTenantAsync(tenantId, It.IsAny<DateTime?>())).ReturnsAsync(apps);

@@ -3,6 +3,7 @@ using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -1267,16 +1268,96 @@ namespace AutopilotMonitor.Functions.Services
             return AggregateSessionStats(sessions, days);
         }
 
+        // Cross-tenant stats are recomputed for every dashboard refresh, and in GA aggregate mode
+        // the dashboard refetches on ANY tenant's SignalR event — overlapping refreshes from several
+        // tabs are the norm. One instance computes a given (days, bound) at most once per
+        // SessionStatsCacheTtl; concurrent callers join the in-flight drain (single-flight).
+        internal static readonly TimeSpan SessionStatsCacheTtl = TimeSpan.FromSeconds(30);
+        private readonly SingleFlightCache<SessionStats> _sessionStatsCache = new();
+
         /// <summary>
-        /// Cross-tenant variant. Routes through the per-tenant index when
-        /// <paramref name="tenantIdFilter"/> is set (cheaper scan).
+        /// Cross-tenant variant. A single-tenant <paramref name="tenantIdFilter"/> routes through the
+        /// per-tenant projected drain (<see cref="GetSessionStatsAsync"/>); the aggregate drains the
+        /// window per tenant partition with the <see cref="SessionStatsProjection"/> — a RowKey
+        /// key-range read per partition, no cross-tenant merge-sort — and is cached per instance for
+        /// <see cref="SessionStatsCacheTtl"/>.
         /// </summary>
         public async Task<SessionStats> GetAllSessionStatsAsync(string? tenantIdFilter, int days, IReadOnlyCollection<string>? allowedTenantIds = null)
         {
             if (days < 1) throw new ArgumentOutOfRangeException(nameof(days));
 
-            var sessions = await GetAllSessionsAsync(tenantIdFilter, days, allowedTenantIds);
-            return AggregateSessionStats(sessions, days);
+            // Bounded (delegated) single-tenant drill outside the managed set → empty, never a scan.
+            if (DrillOutsideBound(allowedTenantIds, tenantIdFilter))
+                return AggregateSessionStats(new List<SessionSummary>(), days);
+
+            if (!string.IsNullOrEmpty(tenantIdFilter))
+                return await GetSessionStatsAsync(tenantIdFilter!, days);
+
+            var cacheKey = $"{days}|{DescribeTenantBound(allowedTenantIds)}";
+            return await _sessionStatsCache.GetOrAddAsync(cacheKey, SessionStatsCacheTtl,
+                () => ComputeAllSessionStatsAsync(days, allowedTenantIds));
+        }
+
+        private async Task<SessionStats> ComputeAllSessionStatsAsync(int days, IReadOnlyCollection<string>? allowedTenantIds)
+        {
+            var tenantIds = ApplyTenantBound(await GetTenantIdsCachedAsync(), allowedTenantIds);
+            if (tenantIds.Count == 0)
+            {
+                // A BOUNDED (delegated/MSP) caller with no resolvable tenant gets an empty tally — never
+                // the all-tenants scan. An UNBOUNDED caller on an empty config table (fresh install)
+                // keeps the legacy primary-table drain as its safety net.
+                var sessions = allowedTenantIds != null
+                    ? new List<SessionSummary>()
+                    : await GetAllSessionsAsync(tenantIdFilter: null, days, allowedTenantIds: null);
+                return AggregateSessionStats(sessions, days);
+            }
+
+            var rows = await DrainSessionsIndexWindowAsync(
+                tenantIds, startUtc: DateTime.UtcNow.AddDays(-days), endUtc: null, SessionStatsProjection, CancellationToken.None);
+            return AggregateSessionStats(rows, days);
+        }
+
+        /// <summary>Stable cache-key fragment for a delegated bound ("all" when unbounded).</summary>
+        private static string DescribeTenantBound(IReadOnlyCollection<string>? allowedTenantIds)
+            => allowedTenantIds == null
+                ? "all"
+                : string.Join(",", allowedTenantIds.Select(t => t.ToLowerInvariant()).OrderBy(t => t, StringComparer.Ordinal));
+
+        /// <summary>
+        /// Drains every SessionsIndex row of the given tenants whose StartedAt lies in
+        /// [<paramref name="startUtc"/>, <paramref name="endUtc"/>) — one RowKey-bounded key-range
+        /// read per tenant partition (inverted ticks: newer = smaller RowKey), fanned out with bounded
+        /// concurrency, column-projected. No cross-tenant ordering and no paging: this is the
+        /// aggregate primitive (stats, geo) where only the SET matters, so the merge-sort/cursor
+        /// machinery of the paged list — which re-queried every tenant for each 1000-row page — is
+        /// pure overhead here. Throws on storage failure; callers own the fallback semantics.
+        /// </summary>
+        internal async Task<List<SessionSummary>> DrainSessionsIndexWindowAsync(
+            IReadOnlyCollection<string> tenantIds, DateTime? startUtc, DateTime? endUtc,
+            string[]? select, CancellationToken cancellationToken)
+        {
+            var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
+            // StartedAt >= start  ⇔  RowKey <  InvertedTicks(start)   (same bound the paged list uses)
+            // StartedAt <  end    ⇔  RowKey >= InvertedTicks(end)
+            var upperExclusive = startUtc.HasValue ? RowKeyCodec.InvertedTicks(startUtc.Value) : null;
+            var lowerInclusive = endUtc.HasValue ? RowKeyCodec.InvertedTicks(endUtc.Value) : null;
+
+            return await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency, async (tenantId, ct) =>
+            {
+                var filter = $"PartitionKey eq '{tenantId}'";
+                if (lowerInclusive != null)
+                    filter += $" and RowKey ge '{lowerInclusive}'";
+                if (upperExclusive != null)
+                    filter += $" and RowKey lt '{upperExclusive}'";
+
+                var rows = new List<SessionSummary>();
+                await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(
+                    filter: filter, maxPerPage: 1000, select: select, cancellationToken: ct))
+                {
+                    rows.Add(MapIndexEntityToSessionSummary(entity));
+                }
+                return rows;
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -1403,24 +1484,12 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var indexTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.SessionsIndex);
 
-                // Step 1: Get tenant IDs from TenantConfiguration (1 row per tenant, not a session scan).
-                var configTableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TenantConfiguration);
-                var tenantIds = new List<string>();
-                await foreach (var entity in configTableClient.QueryAsync<TableEntity>(
-                    select: new[] { "PartitionKey" }, maxPerPage: 1000))
-                {
-                    tenantIds.Add(entity.PartitionKey);
-                }
-
+                // Step 1: Tenant IDs from the per-instance TenantConfiguration snapshot (one row per
+                // tenant; cached — this used to be re-scanned for every 1000-row page of a drain).
                 // Delegated ("MSP") bound: restrict the cross-tenant fan-out to the caller's managed subset.
                 // This is the SAME per-tenant loop the Global Admin aggregate uses — only the tenant set
-                // shrinks, so the merge/cursor/pagination below stay identical. Comparison is case-insensitive
-                // because AllowedTenantIds is lowercased while the config PartitionKey casing is not guaranteed.
-                if (allowedTenantIds != null)
-                {
-                    var allowed = new HashSet<string>(allowedTenantIds, StringComparer.OrdinalIgnoreCase);
-                    tenantIds = tenantIds.Where(t => allowed.Contains(t)).ToList();
-                }
+                // shrinks, so the merge/cursor/pagination below stay identical.
+                var tenantIds = ApplyTenantBound(await GetTenantIdsCachedAsync(), allowedTenantIds);
 
                 if (tenantIds.Count == 0 && string.IsNullOrEmpty(cursor))
                 {
@@ -1462,8 +1531,8 @@ namespace AutopilotMonitor.Functions.Services
                     ? ComputeCutoffRowKeyPrefix(days.Value)
                     : null;
 
-                // Parallel fan-out: query all tenants concurrently
-                var tasks = tenantIds.Select(async tenantId =>
+                // Parallel fan-out: one RowKey-bounded query per tenant, bounded concurrency.
+                var allSessions = await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency, async (tenantId, ct) =>
                 {
                     var filter = $"PartitionKey eq '{tenantId}'";
                     if (cursorRowKeyPrefix != null)
@@ -1473,16 +1542,13 @@ namespace AutopilotMonitor.Functions.Services
 
                     var tenantSessions = new List<SessionSummary>();
                     await foreach (var entity in indexTableClient.QueryAsync<TableEntity>(
-                        filter: filter, maxPerPage: Math.Min(fetchPerTenant, 1000), select: select))
+                        filter: filter, maxPerPage: Math.Min(fetchPerTenant, 1000), select: select, cancellationToken: ct))
                     {
                         tenantSessions.Add(MapIndexEntityToSessionSummary(entity));
                         if (tenantSessions.Count >= fetchPerTenant) break;
                     }
                     return tenantSessions;
-                });
-
-                var results = await Task.WhenAll(tasks);
-                var allSessions = results.SelectMany(s => s).ToList();
+                }, CancellationToken.None);
 
                 // Step 3: Merge-sort across tenants by StartedAt descending
                 allSessions = allSessions.OrderByDescending(s => s.StartedAt).ToList();

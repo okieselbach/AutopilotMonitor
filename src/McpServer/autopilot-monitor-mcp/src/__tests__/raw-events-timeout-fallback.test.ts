@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   withQueryOverrides,
+  DEFAULT_FIRST_PAGE_SIZE,
   effectivePageSize,
   isTimeoutError,
   scanWithTimeoutFallback,
@@ -68,12 +69,12 @@ describe('followNextLink with overrides', () => {
 });
 
 describe('effectivePageSize', () => {
-  it('prefers the explicit arg, then the nextLink value, then the backend default', () => {
+  it('prefers the explicit arg, then the nextLink value, then the first-page default', () => {
     expect(effectivePageSize(300, '/api/raw/events?pageSize=1000&continuation=t')).toBe(300);
     expect(effectivePageSize(undefined, '/api/raw/events?pageSize=1000&continuation=t')).toBe(1000);
-    expect(effectivePageSize(undefined, 'opaque-token')).toBe(200);
-    expect(effectivePageSize(undefined, undefined)).toBe(200);
-    expect(effectivePageSize(undefined, '/api/raw/events?pageSize=zero')).toBe(200);
+    expect(effectivePageSize(undefined, 'opaque-token')).toBe(DEFAULT_FIRST_PAGE_SIZE);
+    expect(effectivePageSize(undefined, undefined)).toBe(DEFAULT_FIRST_PAGE_SIZE);
+    expect(effectivePageSize(undefined, '/api/raw/events?pageSize=zero')).toBe(DEFAULT_FIRST_PAGE_SIZE);
   });
 });
 

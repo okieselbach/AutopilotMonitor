@@ -3,6 +3,7 @@ using Azure;
 using Azure.Data.Tables;
 using Azure.Identity;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -28,6 +29,55 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ILogger<TableStorageService> _logger;
         private bool _tablesInitialized = false;
         private readonly object _initLock = new object();
+
+        // ===== TENANT ID SNAPSHOT (cross-tenant fan-outs) =====
+        //
+        // Every cross-tenant read (session list/stats, app aggregates, geo window, audit logs)
+        // fans out per tenant partition. The tenant list comes from TenantConfiguration (one row
+        // per tenant) and used to be re-scanned for every 1000-row PAGE of the session-list
+        // drain. It changes only on onboarding/offboarding, so one snapshot per instance for
+        // TenantIdCacheTtl is shared by all fan-outs; a tenant onboarded meanwhile appears in
+        // cross-tenant views after at most one TTL (its own tenant-scoped views are unaffected,
+        // they never consult this list). Storage failures are never cached — the factory throws.
+        internal static readonly TimeSpan TenantIdCacheTtl = TimeSpan.FromSeconds(60);
+        private const string TenantIdCacheKey = "all";
+        private readonly SingleFlightCache<IReadOnlyList<string>> _tenantIdCache = new();
+
+        /// <summary>
+        /// Cached TenantConfiguration partition keys (see the TENANT ID SNAPSHOT note). Throws on
+        /// storage failure so callers keep their own fallback semantics (empty page vs. legacy scan).
+        /// </summary>
+        internal Task<IReadOnlyList<string>> GetTenantIdsCachedAsync()
+            => _tenantIdCache.GetOrAddAsync(TenantIdCacheKey, TenantIdCacheTtl, () => QueryTenantIdsAsync(CancellationToken.None));
+
+        private async Task<IReadOnlyList<string>> QueryTenantIdsAsync(CancellationToken cancellationToken)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.TenantConfiguration);
+            var query = tableClient.QueryAsync<TableEntity>(
+                filter: "RowKey eq 'config'",
+                select: new[] { "PartitionKey" },
+                cancellationToken: cancellationToken);
+
+            var tenantIds = new HashSet<string>(StringComparer.Ordinal);
+            await foreach (var entity in query)
+            {
+                tenantIds.Add(entity.PartitionKey);
+            }
+
+            return tenantIds.ToList();
+        }
+
+        /// <summary>
+        /// Applies the delegated ("MSP") bound to a tenant-id set. Null bound = unchanged. Comparison
+        /// is case-insensitive because AllowedTenantIds is lowercased while the config PartitionKey
+        /// casing is not guaranteed.
+        /// </summary>
+        private static List<string> ApplyTenantBound(IReadOnlyList<string> tenantIds, IReadOnlyCollection<string>? allowedTenantIds)
+        {
+            if (allowedTenantIds == null) return tenantIds.ToList();
+            var allowed = new HashSet<string>(allowedTenantIds, StringComparer.OrdinalIgnoreCase);
+            return tenantIds.Where(allowed.Contains).ToList();
+        }
 
         public TableStorageService(IConfiguration configuration, ILogger<TableStorageService> logger)
         {

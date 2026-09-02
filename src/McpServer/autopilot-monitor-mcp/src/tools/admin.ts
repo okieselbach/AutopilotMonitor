@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { apiFetch, buildQuery, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
+import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 import type {
@@ -792,7 +792,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         entityType: z.string().optional().describe('Exact-match filter on the affected entity type (e.g. "TenantConfiguration", "Device", "User").'),
         entityId: z.string().optional().describe('Exact-match filter on the affected entity id (e.g. a tenantId, deviceId, or report id).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many entries per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many entries per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and field filters) round-trip correctly.'),
       },
@@ -801,7 +801,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('get_audit_logs', args, async () => {
       try {
         const { tenantId: rawTenantId, dateFrom, dateTo, action, performedBy, entityType, entityId, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/audit/logs', '/api/audit/logs', tenantId);
         const path = followNextLink(
@@ -852,7 +852,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the window.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and filters) round-trip correctly.'),
       },
@@ -861,7 +861,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('get_ops_events', args, async () => {
       try {
         const { category, eventType, severity, minSeverity, tenantId, days, dateFrom, dateTo, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         // "days" is client-side sugar for dateFrom: the backend contract is the ISO window, and
         // resolving here keeps the resolved bound on the wire so it round-trips through nextLink
         // (a backend-side "days" would re-resolve "now" on every page and blow the fingerprint).
@@ -939,13 +939,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'List session reports submitted by tenant admins. Reports contain user comments, screenshots, and agent logs for troubleshooting. ' +
         'Global Admin only — returns reports across all tenants by default; pass tenantId to filter to one tenant. ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical ' +
+        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
         'interactive queries; raise it (up to 1000) for bulk pulls. Pass the whole nextLink string as "continuation" so ' +
         'all backend-echoed query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many reports per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many reports per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -954,7 +954,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('list_session_reports', args, async () => {
       try {
         const { tenantId, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const path = followNextLink(
           '/api/global/session-reports',
           { tenantId, pageSize },
@@ -996,7 +996,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound on the last-updated time.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many annotations per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many annotations per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so all filters round-trip correctly.'),
       },
@@ -1005,7 +1005,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('list_session_annotations', args, async () => {
       try {
         const { tenantId, lane, verdict, ruleId, query, dateFrom, dateTo, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const path = followNextLink(
           '/api/global/session-annotations',
           { tenantId, lane, verdict, ruleId, q: query, dateFrom, dateTo, pageSize },
@@ -1081,7 +1081,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'empty result. When you filter, the tool auto-scans forward past empty pages, so a returned "count": 0 with no ' +
         '"nextLink" means truly no matches, while "moreToScan": true means the per-call scan budget was hit (pass ' +
         'nextLink as "continuation" to keep scanning). ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=200 is tuned for typical ' +
+        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
         'interactive queries; raise it (up to 1000) for forensics-grade exact recall. For broad analysis, use ' +
         'pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" ' +
         'so all backend-echoed query params round-trip correctly. Note: pageSize is the index-scan cadence — a single ' +
@@ -1106,9 +1106,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
         fields: z.string().optional()
-          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omit for the full raw row.'),
+          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omitted = every column EXCEPT DataJson (the multi-KB payload); list DataJson explicitly when you need it.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Index rows walked per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid) — omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Index rows walked per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid) — omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1116,7 +1116,12 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('query_raw_events', args, async () => {
       try {
-        const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields, pageSize, continuation } = args;
+        const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields: explicitFields, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
+        // Lean by default: DataJson rides along only when listed. On a follow-up call an omitted
+        // fields keeps whatever projection the nextLink carries (same rule as pageSize).
+        const leanDefaultApplied = explicitFields === undefined && !continuation;
+        const fields = explicitFields ?? (continuation ? undefined : LEAN_RAW_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
@@ -1132,7 +1137,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // bounds each page by its own scan budget; should a call still time out, retry once
         // with a halved pageSize on the same cursor instead of failing identically twice.
         const data = await scanWithTimeoutFallback(path, basePath, effectivePageSize(pageSize, continuation));
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.events);
+        // Announce the omission in-band so a reader of the result knows DataJson exists and how to get it.
+        return toolResultText(leanDefaultApplied ? { ...data, ...LEAN_RAW_EVENT_OMISSION } : data, MAX_RESULT_SIZE_CHARS.events);
       } catch (error: unknown) {
         return toolError('query_raw_events', args, error);
       }
@@ -1154,7 +1160,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'For COUNTING / AGGREGATION pass a lean `fields=Status,AgentVersion,StartedAt` (or similar) — a pure pass-through ' +
         'over the real column names that avoids the response cap fat raw rows trip; PartitionKey + RowKey are always kept. ' +
         'For VERSION sweeps use `agentVersionPrefix=2.0.` instead of one call per build. ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=200; raise it (up to 1000) for bulk pulls. ' +
+        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + '; raise it (up to 1000) for bulk pulls. ' +
         'Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip correctly.',
       inputSchema: {
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
@@ -1182,7 +1188,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
         fields: z.string().optional().describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Omit for the full raw row.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1193,7 +1199,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { tenantId: rawTenantId, status, startedAfter, startedBefore, serialNumber, agentVersion, agentVersionPrefix,
           imeAgentVersion, imeAgentVersionPrefix, manufacturer, model, enrollmentType, deviceName, osBuild,
           geoCountry, isPreProvisioned, isHybridJoin, isSelfDeployingProfile, isCloudPc, connectionType, fields, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/sessions', '/api/raw/sessions', tenantId);
         const path = followNextLink(
@@ -1249,7 +1255,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'where no specialized tool exists. ' +
         'For COUNTING / AGGREGATION queries pass `fields=PartitionKey,RowKey,Status,AgentVersion` (or similar lean subset) ' +
         'to drop unneeded columns client-side — full TableEntity rows can be 1KB+ each and trip the response cap quickly. ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=200; raise it (up to 1000) for ' +
+        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + '; raise it (up to 1000) for ' +
         'full-table dumps. Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip ' +
         'correctly.',
       inputSchema: {
@@ -1262,7 +1268,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
                     'client-side after fetch. Useful for aggregation/counting on wide tables. Always includes PartitionKey ' +
                     'and RowKey for cursor stability.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 200 on the first page). Returns this many rows per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many rows per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
         continuation: z.string().optional()
           .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
       },
@@ -1271,7 +1277,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('query_table', args, async () => {
       try {
         const { tableName, partitionKey, rowKeyPrefix, filter, fields, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, 200);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
         const basePath = `/api/global/raw/tables/${encodeURIComponent(tableName)}`;
         const path = followNextLink(
           basePath,

@@ -92,4 +92,65 @@ public class EventFieldProjectionTests
     {
         Assert.Equal(expected, EventFieldProjection.WantsData(fields));
     }
+
+    [Fact]
+    public void Project_DataSubKeys_ReturnSliceOfPayload()
+    {
+        var e = SampleEvent();
+        e.Data!["scriptType"] = "remediation";
+        e.Data["result"] = "Failed";
+
+        var result = EventFieldProjection.Project(new[] { e }, "eventType,data.scriptType,data.RESULT,data.missing");
+        var dict = Assert.IsType<Dictionary<string, object?>>(Assert.Single(result));
+
+        Assert.Equal(new[] { "data", "eventType" }, dict.Keys.OrderBy(k => k));
+        var data = Assert.IsType<Dictionary<string, object>>(dict["data"]);
+        Assert.Equal(new[] { "result", "scriptType" }, data.Keys.OrderBy(k => k));
+        Assert.Equal("remediation", data["scriptType"]);
+        Assert.Equal("Failed", data["result"]);
+        Assert.False(data.ContainsKey("bigBlob"));
+    }
+
+    [Fact]
+    public void Project_DataSubKeys_NoMatchYieldsEmptyObject_NullPayloadStaysNull()
+    {
+        var noMatch = EventFieldProjection.Project(new[] { SampleEvent() }, "eventType,data.nope");
+        var noMatchData = Assert.IsType<Dictionary<string, object>>(
+            Assert.IsType<Dictionary<string, object?>>(Assert.Single(noMatch))["data"]);
+        Assert.Empty(noMatchData);
+
+        var nullPayload = SampleEvent();
+        nullPayload.Data = null!;
+        var projected = EventFieldProjection.Project(new[] { nullPayload }, "eventType,data.scriptType");
+        var dict = Assert.IsType<Dictionary<string, object?>>(Assert.Single(projected));
+        Assert.True(dict.ContainsKey("data"));
+        Assert.Null(dict["data"]);
+    }
+
+    [Fact]
+    public void Project_BareDataWinsOverSubKeys()
+    {
+        var result = EventFieldProjection.Project(new[] { SampleEvent() }, "data,data.errorCode");
+        var data = Assert.IsType<Dictionary<string, object>>(
+            Assert.IsType<Dictionary<string, object?>>(Assert.Single(result))["data"]);
+        Assert.True(data.ContainsKey("bigBlob"));
+    }
+
+    [Fact]
+    public void Project_OnlyDataSubKeys_IsNotTreatedAsUnknownFields()
+    {
+        // A projection consisting solely of data.<key> entries must not fall back to the default subset.
+        var result = EventFieldProjection.Project(new[] { SampleEvent() }, "data.errorCode");
+        var dict = Assert.IsType<Dictionary<string, object?>>(Assert.Single(result));
+        Assert.Equal(new[] { "data" }, dict.Keys);
+    }
+
+    [Theory]
+    [InlineData("eventType,data.scriptType", true)]
+    [InlineData("DATA.result", true)]
+    [InlineData("data.", false)]
+    public void WantsData_TrueForSubKeys(string fields, bool expected)
+    {
+        Assert.Equal(expected, EventFieldProjection.WantsData(fields));
+    }
 }

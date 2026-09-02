@@ -110,10 +110,10 @@ public class OffboardingSessionEnumeratorTests
         public Task<RawPage<AuditLogEntry>> GetAllAuditLogsPageAsync(DateTime? dateFrom, DateTime? dateTo, int pageSize, string? continuation, bool excludeDeletions = false, AuditLogQueryFilters? filters = null) => throw new NotImplementedException();
         public Task<int> DeleteAuditLogsOlderThanAsync(DateTime cutoffUtc) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSessionsOlderThanAsync(string tenantId, DateTime cutoffDate, int maxResults = int.MaxValue, bool excludeInFlightDeletions = false) => throw new NotImplementedException();
-        public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
+        public Task<List<SessionSummary>> GetSessionsByDateRangeAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetUsageWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetMaintenanceWindowSessionsAsync(DateTime startDate, DateTime endDate) => throw new NotImplementedException();
-        public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null) => throw new NotImplementedException();
+        public Task<List<SessionSummary>> GetGeoWindowSessionsAsync(DateTime startDate, DateTime endDate, string? tenantId = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetStalledSessionsAsync(string tenantId, DateTime cutoffTime) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetLegacyTimeoutFailedSessionsAsync(string tenantId, int maxResults) => throw new NotImplementedException();
         public Task<List<SessionSummary>> GetSelfDeployingSilentSessionsAsync(string tenantId, int maxResults) => throw new NotImplementedException();

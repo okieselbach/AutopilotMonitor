@@ -19,6 +19,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Web;
 
+// First statement on purpose: BackendStartupMs measures from here (see StartupClock).
+var startupClock = StartupClock.StartNow();
+
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
@@ -224,6 +227,7 @@ builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Offboardin
 // no AddHostedService call needed. DI for its dependencies comes from the singletons above.
 
 builder.Services.AddHostedService<TableInitializerService>(); // Initialize all tables at startup
+builder.Services.AddSingleton(startupClock);
 builder.Services.AddHostedService<StartupTelemetryService>();  // BackendStartupMs / BackendTableInitMs metrics on ApplicationStarted
 
 // Data Access Layer — repository interfaces backed by Table Storage.

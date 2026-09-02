@@ -36,6 +36,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 int days = 30;
                 if (!string.IsNullOrEmpty(daysParam) && int.TryParse(daysParam, out var parsedDays) && parsedDays > 0)
                     days = parsedDays;
+                // Clamped to [1, 365] like the tenant variant and the other metrics endpoints — an
+                // unbounded days= here was the one way to request an unlimited cross-tenant scan.
+                if (days < 1) days = 1;
+                if (days > 365) days = 365;
 
                 var tenantIdFilter = query["tenantId"];
 

@@ -16,7 +16,8 @@ namespace AutopilotMonitor.Functions.Services
     {
         private readonly IRuleRepository _ruleRepo;
         private readonly ILogger<GatherRuleService> _logger;
-        private bool _seeded = false;
+        private volatile bool _seeded = false;
+        private readonly SemaphoreSlim _seedGate = new(1, 1);
 
         // Cached set of currently-shipped built-in gather rule IDs from
         // <see cref="BuiltInGatherRules.GetAll"/>. Used by the runtime sunset filter in
@@ -68,15 +69,21 @@ namespace AutopilotMonitor.Functions.Services
         {
             await EnsureBuiltInRulesSeededAsync();
 
+            // The three reads are independent — run them concurrently. Each is served from the
+            // repository's per-instance catalog cache, so the common case is three cache hits.
+            var globalTask = _ruleRepo.GetGatherRulesAsync("global");   // built-in + community
+            var tenantTask = _ruleRepo.GetGatherRulesAsync(tenantId);   // tenant partition
+            var statesTask = _ruleRepo.GetRuleStatesAsync(tenantId);    // per-tenant overrides
+            await Task.WhenAll(globalTask, tenantTask, statesTask);
+
             // Global rules: built-in + community (single source of truth for definitions)
-            var globalRules = await _ruleRepo.GetGatherRulesAsync("global");
+            var globalRules = await globalTask;
 
             // Tenant rules: only custom rules (IsBuiltIn=false, IsCommunity=false)
-            var tenantRules = await _ruleRepo.GetGatherRulesAsync(tenantId);
-            var customRules = tenantRules.Where(r => !r.IsBuiltIn && !r.IsCommunity).ToList();
+            var customRules = (await tenantTask).Where(r => !r.IsBuiltIn && !r.IsCommunity).ToList();
 
             // Per-tenant enabled/disabled states for global rules
-            var ruleStates = await _ruleRepo.GetRuleStatesAsync(tenantId);
+            var ruleStates = await statesTask;
 
             var mergedRules = new List<GatherRule>();
 
@@ -351,11 +358,28 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Seeds built-in gather rules if not already done.
         /// Also updates existing built-in rules when the code definitions change (version or key fields).
+        /// Single-flight: a fresh instance's first concurrent config fetches must not each run the
+        /// full catalog compare (global read + per-rule writes) — one does, the others wait on the
+        /// gate and then see <c>_seeded</c>.
         /// </summary>
         private async Task EnsureBuiltInRulesSeededAsync()
         {
             if (_seeded) return;
 
+            await _seedGate.WaitAsync();
+            try
+            {
+                if (_seeded) return;
+                await SeedBuiltInRulesCoreAsync();
+            }
+            finally
+            {
+                _seedGate.Release();
+            }
+        }
+
+        private async Task SeedBuiltInRulesCoreAsync()
+        {
             var existingRules = await _ruleRepo.GetGatherRulesAsync("global");
             var builtInRules = BuiltInGatherRules.GetAll();
             var newCatalogIds = builtInRules.Select(r => r.RuleId).ToHashSet(StringComparer.Ordinal);
