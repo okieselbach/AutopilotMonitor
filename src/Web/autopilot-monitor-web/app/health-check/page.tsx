@@ -9,13 +9,63 @@ import { useState, useEffect, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { isUrlDetail, visibleHealthChecks, visibleHealthDetails } from '@/lib/healthCheckView';
 import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/utils/wire-types.generated';
+
+function formatDetailValue(value: unknown): string {
+  return Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * Key/value rows of a check card. URL values get their own line under the label (left-aligned,
+ * breaking anywhere) instead of fighting the label for width; short values stay right-aligned
+ * on the label's line. Azure resource IDs collapse to a "Set" pill with the path in the tooltip.
+ */
+function HealthDetails({ details }: { details: Record<string, unknown> | undefined }) {
+  if (!details || Object.keys(details).length === 0) return null;
+  return (
+    <div className="mt-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Details</h4>
+      <dl className="space-y-1">
+        {Object.entries(details).map(([key, value]) => {
+          if (isUrlDetail(value)) {
+            return (
+              <div key={key} className="text-xs">
+                <dt className="font-medium text-gray-600 dark:text-gray-400">{key}</dt>
+                <dd className="text-gray-900 dark:text-gray-100 font-mono break-all">{value}</dd>
+              </div>
+            );
+          }
+          const isResourceId = key === 'Resource' && typeof value === 'string' && value.startsWith('/subscriptions/');
+          return (
+            <div key={key} className="flex justify-between text-xs items-center gap-3">
+              <dt className="font-medium text-gray-600 dark:text-gray-400 shrink-0">{key}</dt>
+              <dd className="text-gray-900 dark:text-gray-100 font-mono text-right break-all">
+                {isResourceId ? (
+                  <span
+                    title={String(value)}
+                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400 cursor-help"
+                  >
+                    Set
+                  </span>
+                ) : formatDetailValue(value)}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
 
 export default function HealthCheckPage() {
   const { user, getAccessToken } = useAuth();
-  // Build stamps (version + commit hash, linking into the private repo) are operator-only detail.
-  // They follow the Global-Admin VIEW, so the page can be shown live without leaking internals.
-  const showBuildDetails = useGlobalAdminUi();
+  // Operator-only detail — build stamps (version + commit hash, linking into the private repo),
+  // the SignalR-quota and poison-queue cards, and the endpoint URLs in the check details — follows
+  // the Global-Admin VIEW, so the page can be shown live (demo mode) without leaking internals.
+  // The server applies the same rule by real identity; this only mirrors it for presentation.
+  const operatorView = useGlobalAdminUi();
+  const showBuildDetails = operatorView;
   const { addNotification } = useNotifications();
   const { connectionState, isConnected, joinedGroups, joinGroup } = useSignalR();
   const { tenantId } = useTenant();
@@ -397,7 +447,7 @@ export default function HealthCheckPage() {
           <div>
           <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backend Services</h2>
           <div className="grid gap-5 sm:grid-cols-2">
-            {healthResult.checks.map((check, index) => {
+            {visibleHealthChecks(healthResult.checks, operatorView).map((check, index) => {
               const colors = getStatusColor(check.status);
               return (
                 <div key={index} className={`bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 ${colors.accent}`}>
@@ -433,31 +483,7 @@ export default function HealthCheckPage() {
                       {check.message}
                     </p>
 
-                    {check.details && Object.keys(check.details).length > 0 && (
-                      <div className="mt-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Details</h4>
-                        <dl className="space-y-1">
-                          {Object.entries(check.details).map(([key, value]) => {
-                            const isResourceId = key === 'Resource' && typeof value === 'string' && value.startsWith('/subscriptions/');
-                            return (
-                              <div key={key} className="flex justify-between text-xs items-center gap-3">
-                                <dt className="font-medium text-gray-600 dark:text-gray-400 shrink-0">{key}</dt>
-                                <dd className="text-gray-900 dark:text-gray-100 font-mono text-right break-all">
-                                  {isResourceId ? (
-                                    <span
-                                      title={String(value)}
-                                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400 cursor-help"
-                                    >
-                                      Set
-                                    </span>
-                                  ) : Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                </dd>
-                              </div>
-                            );
-                          })}
-                        </dl>
-                      </div>
-                    )}
+                    <HealthDetails details={check.details} />
                   </div>
                 </div>
               );
@@ -509,21 +535,8 @@ export default function HealthCheckPage() {
                       {display.message}
                     </p>
 
-                    {display.details && Object.keys(display.details).length > 0 && (
-                      <div className="mt-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Details</h4>
-                        <dl className="space-y-1">
-                          {Object.entries(display.details).map(([key, value]) => (
-                            <div key={key} className="flex justify-between text-xs items-center gap-3">
-                              <dt className="font-medium text-gray-600 dark:text-gray-400 shrink-0">{key}</dt>
-                              <dd className="text-gray-900 dark:text-gray-100 font-mono text-right break-all">
-                                {Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
-                      </div>
-                    )}
+                    <HealthDetails details={visibleHealthDetails(display.details, operatorView)} />
+
                   </div>
                 </div>
               );

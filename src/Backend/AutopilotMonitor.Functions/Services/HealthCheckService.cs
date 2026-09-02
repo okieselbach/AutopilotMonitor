@@ -210,7 +210,9 @@ public class HealthCheckService
             if (issues.Count == 0)
             {
                 check.Status = "healthy";
-                check.Message = $"Agent package and bootstrap script available via download alias + legacy blob ({sw.ElapsedMilliseconds}ms)";
+                // Neutral wording for everyone: the legacy keepalive account is operator detail
+                // (Details, Global Admins only) and is not advertised to tenant admins.
+                check.Message = $"Agent package and bootstrap script available ({sw.ElapsedMilliseconds}ms)";
             }
             else if (aliasZipOk && aliasPs1Ok)
             {

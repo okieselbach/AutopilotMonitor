@@ -31,7 +31,10 @@ public class HealthCheckServiceAgentBinariesTests
 
         Assert.Equal("Agent Binaries", check.Name);
         Assert.Equal("healthy", check.Status);
-        Assert.Contains("download alias", check.Message);
+        // The healthy message names neither host: the legacy keepalive account is not
+        // advertised to tenant admins (it only appears in the Global-Admin-only Details).
+        Assert.DoesNotContain("legacy", check.Message, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("alias", check.Message, System.StringComparison.OrdinalIgnoreCase);
         Assert.Null(check.Details);
         // Both hosts must actually have been probed (ZIP + PS1 each).
         Assert.Equal(2, handler.Requests.FindAll(u => u.Contains(AliasHost)).Count);
