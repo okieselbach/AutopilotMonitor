@@ -380,6 +380,7 @@ public class TypedContractCompletionWireParityTests
                 trialExpiresUtc = (DateTime?)null,      // not on trial → key vanishes
                 trialAvailable = true,
                 contactEmailSet = false,
+                companyNameSet = false,
                 entitlements = new
                 {
                     retentionCapDays = 90,
@@ -403,6 +404,7 @@ public class TypedContractCompletionWireParityTests
                 TrialExpiresUtc = null,
                 TrialAvailable = true,
                 ContactEmailSet = false,
+                CompanyNameSet = false,
                 Entitlements = new TenantFeatureEntitlements
                 {
                     RetentionCapDays = 90,

@@ -582,10 +582,10 @@ namespace AutopilotMonitor.Functions.Services
         /// the tenant-admin self-service POST and a GA grant/extension via PATCH plan
         /// (<paramref name="selfService"/> tells them apart). Info-tier, but the event a
         /// sales/support channel is typically bound to, so the payload carries who to contact
-        /// rather than only the tenant GUID.
+        /// (address + company name) rather than only the tenant GUID.
         /// </summary>
         public Task RecordTenantTrialStartedAsync(
-            string tenantId, string? domainName, string? contactEmail,
+            string tenantId, string? domainName, string? contactEmail, string? companyName,
             DateTime? trialStartedUtc, DateTime? trialExpiresUtc, string grantedBy, bool selfService)
         {
             var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
@@ -596,7 +596,7 @@ namespace AutopilotMonitor.Functions.Services
             return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.TenantTrialStarted, OpsEventSeverity.Info,
                 $"Pro trial started for tenant {tenantLabel} {expiryNote} ({origin}, by {grantedBy})",
                 tenantId, grantedBy,
-                new { domainName, contactEmail, trialStartedUtc, trialExpiresUtc, grantedBy, selfService });
+                new { domainName, contactEmail, companyName, trialStartedUtc, trialExpiresUtc, grantedBy, selfService });
         }
 
         /// <summary>Heads-up: a Pro trial ends within the next few days. Info-tier visibility signal.</summary>

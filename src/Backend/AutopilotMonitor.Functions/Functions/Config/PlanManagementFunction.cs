@@ -183,6 +183,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             requestCtx.TargetTenantId,
                             config.DomainName,
                             config.ContactEmail,
+                            config.CompanyName,
                             config.TrialStartedUtc,
                             config.TrialExpiresUtc,
                             caller,
@@ -274,10 +275,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// <summary>
         /// Pure verdict for the self-service trial start; null = allowed. Order matters and is
         /// test-pinned: the terminal conditions (trial consumed, already Pro) win over the
-        /// contact-address prompt — asking for an address would be pointless there. The contact
-        /// requirement is enforced ONLY at this plan entry point, never as a runtime gate on Pro
-        /// features (existing Pro tenants get the dashboard banner instead of a lockout); GA
-        /// plan assignment (PATCH plan) deliberately has no such block — the admin UI warns.
+        /// contact-profile prompt — asking for an address would be pointless there. The contact
+        /// profile (address + company name) is enforced ONLY at this plan entry point, never as
+        /// a runtime gate on Pro features (existing Pro tenants get the dashboard banner instead
+        /// of a lockout); GA plan assignment (PATCH plan) deliberately has no such block — the
+        /// admin UI warns. One verdict names everything that is missing, so a caller never has
+        /// to fix the profile in two round trips.
         /// </summary>
         internal static (string Error, string Message)? EvaluateTrialStart(TenantConfiguration config, DateTime nowUtc)
         {
@@ -292,13 +295,26 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 return ("AlreadyPro", "This tenant is already on the Pro plan.");
             }
 
-            if (string.IsNullOrWhiteSpace(config.ContactEmail))
+            var missing = MissingContactProfileParts(config);
+            if (missing.Count > 0)
             {
-                return ("ContactEmailRequired",
-                    "Pro requires a tenant contact address so we can reach you about service or security matters. Set it under Settings → Tenant → Contact, then start the trial.");
+                return ("ContactProfileRequired",
+                    $"Pro requires a tenant contact profile so we can reach and identify you for service or security matters. Missing: {string.Join(" and ", missing)}. Set it under Settings → Tenant → Contact, then start the trial.");
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// The parts of the contact profile the Pro entry point requires and this config lacks,
+        /// in display order. Empty = complete.
+        /// </summary>
+        internal static IReadOnlyList<string> MissingContactProfileParts(TenantConfiguration config)
+        {
+            var missing = new List<string>(2);
+            if (string.IsNullOrWhiteSpace(config.ContactEmail)) missing.Add("contact address");
+            if (string.IsNullOrWhiteSpace(config.CompanyName)) missing.Add("company name");
+            return missing;
         }
 
         [Function("StartTenantTrial")]
@@ -358,6 +374,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     requestCtx.TargetTenantId,
                     config.DomainName,
                     config.ContactEmail,
+                    config.CompanyName,
                     config.TrialStartedUtc,
                     config.TrialExpiresUtc,
                     caller,

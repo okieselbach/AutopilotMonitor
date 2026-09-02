@@ -73,6 +73,7 @@ export interface TenantConfiguration {
   rebootOnComplete?: boolean;
   rebootDelaySeconds?: number;
   contactEmail?: string;
+  companyName?: string;
   enableGeoLocation?: boolean;
   enableTimezoneAutoSet?: boolean;
   enableDoGroupIdAutoSet?: boolean;

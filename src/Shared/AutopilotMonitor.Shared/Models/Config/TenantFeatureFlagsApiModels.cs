@@ -33,6 +33,8 @@ namespace AutopilotMonitor.Shared.Models
         public bool TrialAvailable { get; set; }
         /// <summary>Whether a contact address is stored (boolean only — the address stays admin-gated).</summary>
         public bool ContactEmailSet { get; set; }
+        /// <summary>Whether a company name is stored (boolean only — the value stays admin-gated).</summary>
+        public bool CompanyNameSet { get; set; }
         public TenantFeatureEntitlements Entitlements { get; set; } = default!;
     }
 

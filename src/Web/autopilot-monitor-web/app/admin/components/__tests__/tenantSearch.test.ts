@@ -10,6 +10,7 @@ const tenant: TenantSearchFields = {
   tenantId: "11111111-2222-3333-4444-555555555555",
   domainName: "contoso.onmicrosoft.com",
   contactEmail: "billing@contoso.com",
+  companyName: "Contoso Ltd.",
 };
 
 const matches = (query: string, notificationEmail?: string | null, t = tenant) =>
@@ -53,6 +54,12 @@ describe("tenant search", () => {
     // Addresses honour the same rule.
     expect(matches('"admin@contoso.de"', "admin@contoso.de")).toBe(true);
     expect(matches('"admin@"', "admin@contoso.de")).toBe(false);
+  });
+
+  it("matches the company name so support can find a tenant by what the customer calls itself", () => {
+    expect(matches("ltd")).toBe(true);
+    expect(matches('"contoso ltd."')).toBe(true);
+    expect(matches("ltd", null, { ...tenant, companyName: null })).toBe(false);
   });
 
   it("ignores empty and missing address fields instead of matching everything", () => {

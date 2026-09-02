@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "29 August 2026";
+const LAST_UPDATED = "2 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -78,13 +78,14 @@ export default function PrivacyPage() {
             <li>Audit records of administrative actions, including who performed them and when</li>
             <li>Content you choose to enter about a session — report comments and annotations (a verdict on the analysis plus notes) — stored with your tenant&apos;s data and attributed to the author</li>
             <li>Operational request telemetry used to run and support the service</li>
-            <li>A <strong>contact address</strong> for your tenant, if one is provided</li>
+            <li>A <strong>contact address</strong> and <strong>company name</strong> for your tenant, if provided</li>
           </ul>
           <p className="text-gray-700">
-            The contact address is used <strong>only to reach you about this service</strong> — a technical problem
-            affecting your tenant, a security matter, or a change that needs an administrator&apos;s attention. It is
-            never used for marketing and never shared. Your administrators set and change it under Settings → Tenant →
-            Contact, and clearing it removes it. Where an organization gave a notification address during sign-up
+            The contact address and company name are used <strong>only to reach and identify you about this service</strong> — a
+            technical problem affecting your tenant, a security matter, a support request, or a change that needs an
+            administrator&apos;s attention. They are never used for marketing and never shared. Both are optional on the
+            Community plan and required before a Pro trial. Your administrators set and change them under Settings →
+            Tenant → Contact, and clearing a field removes it. Where an organization gave a notification address during sign-up
             (tenant activation), that address is copied once as the initial contact and is yours to change from then on.
           </p>
 

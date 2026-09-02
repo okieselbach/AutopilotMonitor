@@ -64,7 +64,7 @@ export const SECTION_FIELD_MAP = {
     ],
   },
   contact: {
-    fields: ["contactEmail"],
+    fields: ["contactEmail", "companyName"],
   },
   agentSettings: {
     fields: [

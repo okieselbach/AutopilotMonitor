@@ -38,6 +38,9 @@ public class GetTenantFeatureFlagsPayloadTests
             // self-service migration banner).
             "appHomingFunnelActive",
             "bootstrapTokenEnabled",
+            // Non-sensitive by review: bool only ("is a company name set"), never the value
+            // itself (admin-gated full config only).
+            "companyNameSet",
             // Non-sensitive by review: bool only ("is a contact address set"), never the
             // address itself (admin-gated full config only).
             "contactEmailSet",
@@ -276,5 +279,28 @@ public class GetTenantFeatureFlagsPayloadTests
             new TenantConfiguration { ContactEmail = "secret-contact@contoso.com" }, Now));
 
         Assert.DoesNotContain("secret-contact", json);
+    }
+
+    // ── companyNameSet (second half of the Pro contact-profile gate) ──
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("Contoso Ltd.", true)]
+    public void Payload_CompanyNameSet_ReflectsWhetherANameIsStored(string? stored, bool expected)
+    {
+        var element = Serialize(new TenantConfiguration { CompanyName = stored });
+
+        Assert.Equal(expected, element.GetProperty("companyNameSet").GetBoolean());
+    }
+
+    [Fact]
+    public void Payload_CompanyNameSet_NeverLeaksTheName()
+    {
+        var json = TestWire.Serialize(GetTenantFeatureFlagsFunction.BuildPayload(
+            new TenantConfiguration { CompanyName = "Secret Holdings" }, Now));
+
+        Assert.DoesNotContain("Secret Holdings", json);
     }
 }

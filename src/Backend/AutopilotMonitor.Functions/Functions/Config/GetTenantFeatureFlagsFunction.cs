@@ -114,6 +114,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // "set a contact address" banner for Pro tenants. Boolean only — the address
                 // itself stays in the admin-gated full config response.
                 ContactEmailSet = !string.IsNullOrWhiteSpace(config.ContactEmail),
+                // Same contract for the second half of the contact profile: boolean only.
+                CompanyNameSet = !string.IsNullOrWhiteSpace(config.CompanyName),
                 Entitlements = new TenantFeatureEntitlements
                 {
                     RetentionCapDays = entitlements.RetentionCapDays,

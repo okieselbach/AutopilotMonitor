@@ -23,6 +23,10 @@ namespace AutopilotMonitor.Functions.Helpers
         // RFC 5321 caps a forward path at 254 characters.
         internal const int MaxContactEmailLength = 254;
 
+        // A display label for support, not a legal entity record — long enough for any real
+        // organization name, short enough that the field cannot become a free-text dumping ground.
+        internal const int MaxCompanyNameLength = 200;
+
         // RFC 1035: a host name is at most 253 characters, labels at most 63.
         internal const int MaxDomainNameLength = 253;
 
@@ -158,6 +162,10 @@ namespace AutopilotMonitor.Functions.Helpers
             if (contactEmailError != null)
                 return $"Invalid contact email: {contactEmailError}";
 
+            var companyNameError = ValidateCompanyName(candidate.CompanyName);
+            if (companyNameError != null)
+                return $"Invalid company name: {companyNameError}";
+
             var webhookUrlError = SsrfGuard.ValidateWebhookUrlFormat(candidate.WebhookUrl);
             if (webhookUrlError != null)
                 return $"Invalid Webhook URL: {webhookUrlError}";
@@ -257,6 +265,32 @@ namespace AutopilotMonitor.Functions.Helpers
                 || domain.EndsWith(".", StringComparison.Ordinal))
             {
                 return "the domain part must be a dotted host name.";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Validates the tenant's company name. Returns an error message, or null when valid/empty.
+        /// Empty is valid: the field is optional on Community and only required at the Pro entry
+        /// point (see <c>PlanManagementFunction.EvaluateTrialStart</c>). Rejects control
+        /// characters (the value is rendered in ops events, mails and the admin UI) and an
+        /// over-long value; everything else a human would type as an organization name is accepted.
+        /// </summary>
+        internal static string? ValidateCompanyName(string? companyName)
+        {
+            if (string.IsNullOrWhiteSpace(companyName))
+                return null;
+
+            var trimmed = companyName.Trim();
+
+            if (trimmed.Length > MaxCompanyNameLength)
+                return $"must be at most {MaxCompanyNameLength} characters.";
+
+            foreach (var ch in trimmed)
+            {
+                if (char.IsControl(ch))
+                    return "must not contain control characters.";
             }
 
             return null;

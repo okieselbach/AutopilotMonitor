@@ -66,6 +66,7 @@
       "updatedBy",
       "onboardedBy",
       "contactEmail",
+      "companyName",
       "onboardedAt",
       "homedAppClientId",
       "lastAuthClientId",
@@ -16274,6 +16275,15 @@
           "doc": "Address used to reach this tenant about the service itself — a technical problem, a security matter, or a change that needs an administrator's attention. Editable by the tenant's own admins under Settings → Tenant → Contact. Seeded once at onboarding from the tenant's notification address if one was given, and never re-synced afterwards: from that point the value belongs to the tenant, and a later edit must not be overwritten by the onboarding source. Purpose-limited by design — service communication only. It is never used for marketing and never disclosed. Null means we have no way to reach this tenant, which is why enforcement actions cannot promise prior warning."
         },
         {
+          "name": "companyName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Organization name behind this tenant, as the tenant's admins want it read by a support engineer — the counterpart of ContactEmail in the tenant's contact profile. Editable under Settings → Tenant → Contact. Optional on Community. Together with it is required at the self-service Pro entry point (trial start) so a paying tenant is reachable and identifiable for support; it is never a runtime gate on Pro features, and a GA plan assignment does not require it (the admin UI warns instead). Never derived from : the domain is a technical label, the company name is what the tenant tells us. Null means not provided."
+        },
+        {
           "name": "onboardedAt",
           "type": {
             "kind": "primitive",
@@ -17233,6 +17243,14 @@
             "name": "boolean"
           },
           "doc": "Whether a contact address is stored (boolean only — the address stays admin-gated)."
+        },
+        {
+          "name": "companyNameSet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether a company name is stored (boolean only — the value stays admin-gated)."
         },
         {
           "name": "entitlements",

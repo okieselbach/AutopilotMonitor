@@ -18,6 +18,8 @@ export interface EditionInfo {
    * admin-gated). Drives the Pro-requires-contact trial gate and dashboard banner.
    */
   contactEmailSet: boolean;
+  /** Whether a company name is stored (boolean only). Second half of the contact profile. */
+  companyNameSet: boolean;
   entitlements: {
     retentionCapDays: number;
     userRateLimitPerMinute: number | null;
@@ -35,6 +37,7 @@ export const COMMUNITY_DEFAULT: EditionInfo = {
   // Fail-SAFE true (unlike the fail-closed entitlements): while flags are loading, on
   // error, or against an older backend without the field, no nag banner may appear.
   contactEmailSet: true,
+  companyNameSet: true,
   entitlements: {
     retentionCapDays: 90,
     userRateLimitPerMinute: null,
@@ -63,6 +66,7 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
     trialAvailable: f.trialAvailable === true,
     // Only an explicit false means "missing" — absent field (older backend) must not nag.
     contactEmailSet: f.contactEmailSet !== false,
+    companyNameSet: f.companyNameSet !== false,
     entitlements: {
       retentionCapDays:
         typeof ent.retentionCapDays === "number" ? ent.retentionCapDays : COMMUNITY_DEFAULT.entitlements.retentionCapDays,
@@ -72,6 +76,20 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
       mcpUsagePlan: typeof ent.mcpUsagePlan === "string" ? ent.mcpUsagePlan : "community",
     },
   };
+}
+
+/**
+ * The parts of the tenant contact profile the Pro entry point requires and this tenant lacks,
+ * as display labels in the backend's order (mirrors PlanManagementFunction.MissingContactProfileParts).
+ * Only an EXPLICIT false counts — an absent flag (older backend, loading) is never "missing".
+ */
+export function missingContactProfileParts(
+  flags: { contactEmailSet?: boolean; companyNameSet?: boolean },
+): string[] {
+  const missing: string[] = [];
+  if (flags.contactEmailSet === false) missing.push("contact address");
+  if (flags.companyNameSet === false) missing.push("company name");
+  return missing;
 }
 
 /**

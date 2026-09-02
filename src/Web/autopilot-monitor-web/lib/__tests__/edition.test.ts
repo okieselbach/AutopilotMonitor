@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMUNITY_DEFAULT,
   editionLabel,
+  missingContactProfileParts,
   parseEditionInfo,
   trialDaysLeft,
 } from "../edition";
@@ -61,6 +62,23 @@ describe("parseEditionInfo", () => {
     expect(parseEditionInfo({ edition: "pro", contactEmailSet: "no" }).contactEmailSet).toBe(true);
     expect(parseEditionInfo({ edition: "pro", contactEmailSet: true }).contactEmailSet).toBe(true);
     expect(parseEditionInfo({ edition: "pro", contactEmailSet: false }).contactEmailSet).toBe(false);
+  });
+
+  it("companyNameSet: same fail-safe contract as contactEmailSet", () => {
+    expect(parseEditionInfo({ edition: "pro" }).companyNameSet).toBe(true);
+    expect(parseEditionInfo({ edition: "pro", companyNameSet: "no" }).companyNameSet).toBe(true);
+    expect(parseEditionInfo({ edition: "pro", companyNameSet: false }).companyNameSet).toBe(false);
+  });
+});
+
+describe("missingContactProfileParts", () => {
+  it("names only explicitly-false parts, in backend order", () => {
+    expect(missingContactProfileParts({})).toEqual([]);
+    expect(missingContactProfileParts({ contactEmailSet: true, companyNameSet: true })).toEqual([]);
+    expect(missingContactProfileParts({ contactEmailSet: false })).toEqual(["contact address"]);
+    expect(missingContactProfileParts({ companyNameSet: false })).toEqual(["company name"]);
+    expect(missingContactProfileParts({ contactEmailSet: false, companyNameSet: false }))
+      .toEqual(["contact address", "company name"]);
   });
 });
 

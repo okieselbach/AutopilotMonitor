@@ -185,6 +185,8 @@ interface TenantConfigContextValue {
   setRebootDelaySeconds: (v: number) => void;
   contactEmail: string;
   setContactEmail: (v: string) => void;
+  companyName: string;
+  setCompanyName: (v: string) => void;
   handleSaveContact: () => void;
   handleResetContact: () => void;
   enableGeoLocation: boolean;
@@ -412,6 +414,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [rebootOnComplete, setRebootOnComplete] = useState(false);
   const [rebootDelaySeconds, setRebootDelaySeconds] = useState(10);
   const [contactEmail, setContactEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [enableGeoLocation, setEnableGeoLocation] = useState(true);
   const [enableTimezoneAutoSet, setEnableTimezoneAutoSet] = useState(false);
   const [enableDoGroupIdAutoSet, setEnableDoGroupIdAutoSet] = useState(false);
@@ -549,6 +552,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         setRebootOnComplete(data.rebootOnComplete ?? false);
         setRebootDelaySeconds(data.rebootDelaySeconds ?? 10);
         setContactEmail(data.contactEmail ?? "");
+        setCompanyName(data.companyName ?? "");
         setEnableGeoLocation(data.enableGeoLocation ?? true);
         setEnableTimezoneAutoSet(data.enableTimezoneAutoSet ?? false);
         setEnableDoGroupIdAutoSet(data.enableDoGroupIdAutoSet ?? false);
@@ -744,6 +748,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         rebootOnComplete,
         rebootDelaySeconds,
         contactEmail: contactEmail.trim(),
+        companyName: companyName.trim(),
         enableGeoLocation,
         enableTimezoneAutoSet,
         enableDoGroupIdAutoSet,
@@ -851,7 +856,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
+    contactEmail, companyName, enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog, logLevel, showScriptOutput, showEnrollmentSummary,
     enrollmentSummaryTimeoutSeconds, enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,
     enableRealmJoinWatcher, keepAwakeDuringUserEsp,
     notificationChannels,
@@ -1235,7 +1240,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setKeepLogFile(config.keepLogFile ?? false);
     setRebootOnComplete(config.rebootOnComplete ?? false);
     setRebootDelaySeconds(config.rebootDelaySeconds ?? 10);
-    // contactEmail deliberately NOT reset here — it is owned by the Contact section
+    // contactEmail/companyName deliberately NOT reset here — they are owned by the Contact section
     // (resetting it from the Agent Settings card silently discarded unsaved Contact edits).
     setEnableGeoLocation(config.enableGeoLocation ?? true);
     setEnableTimezoneAutoSet(config.enableTimezoneAutoSet ?? false);
@@ -1290,6 +1295,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const handleResetContact = useCallback(() => {
     if (!config) return;
     setContactEmail(config.contactEmail ?? "");
+    setCompanyName(config.companyName ?? "");
   }, [config]);
 
   const handleSaveDiagnostics = useCallback(() => saveConfiguration("diagnostics"), [saveConfiguration]);
@@ -1689,6 +1695,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       rebootOnComplete, setRebootOnComplete,
       rebootDelaySeconds, setRebootDelaySeconds,
       contactEmail, setContactEmail,
+      companyName, setCompanyName,
       handleSaveContact, handleResetContact,
       enableGeoLocation, setEnableGeoLocation,
       enableTimezoneAutoSet, setEnableTimezoneAutoSet,
@@ -1782,7 +1789,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     handleSaveHardwareWhitelist, handleResetHardwareWhitelist,
     enablePerformanceCollector, performanceCollectorInterval, helloWaitTimeoutSeconds,
     selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
-    contactEmail, handleSaveContact, handleResetContact,
+    contactEmail, companyName, handleSaveContact, handleResetContact,
     enableGeoLocation, enableTimezoneAutoSet, enableDoGroupIdAutoSet, enableImeMatchLog, enableGatherRuleDebugLog,
     logLevel, showScriptOutput, showEnrollmentSummary, enrollmentSummaryTimeoutSeconds,
     enrollmentSummaryBrandingImageUrl, enrollmentSummaryLaunchRetrySeconds,

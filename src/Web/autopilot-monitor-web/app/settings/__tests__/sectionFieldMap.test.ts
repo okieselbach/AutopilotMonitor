@@ -31,7 +31,7 @@ const EXPECTED_OWNED_FIELDS = [
   "slaNotifyOnSuccessRateBreach", "slaSuccessRateNotifyThreshold", "slaNotifyOnDurationBreach",
   "slaNotifyOnAppInstallBreach", "slaNotifyOnConsecutiveFailures", "slaConsecutiveFailureThreshold",
   // contact
-  "contactEmail",
+  "contactEmail", "companyName",
   // agentSettings
   "enablePerformanceCollector", "performanceCollectorIntervalSeconds", "helloWaitTimeoutSeconds",
   "enableRealmJoinWatcher",

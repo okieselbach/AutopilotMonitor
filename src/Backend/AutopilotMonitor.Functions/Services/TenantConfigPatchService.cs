@@ -235,6 +235,7 @@ namespace AutopilotMonitor.Functions.Services
                 // Same normalization as the PUT: never store surrounding whitespace, and an
                 // all-whitespace submission clears the field.
                 clone.ContactEmail = string.IsNullOrWhiteSpace(clone.ContactEmail) ? null : clone.ContactEmail.Trim();
+                clone.CompanyName = string.IsNullOrWhiteSpace(clone.CompanyName) ? null : clone.CompanyName.Trim();
 
                 // The PUT silently flips UnrestrictedMode off when the GA gate is off. A silent
                 // flip would poison the exactly-these-fields verify below, so here the

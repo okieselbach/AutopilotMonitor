@@ -70,6 +70,7 @@ export const SHARED_MANIFEST = {
       "updatedBy",
       "onboardedBy",
       "contactEmail",
+      "companyName",
       "onboardedAt",
       "homedAppClientId",
       "lastAuthClientId",

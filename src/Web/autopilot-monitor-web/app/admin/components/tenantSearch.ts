@@ -15,6 +15,7 @@ export interface TenantSearchFields {
   tenantId: string;
   domainName: string;
   contactEmail?: string | null;
+  companyName?: string | null;
 }
 
 /** Parsed once per keystroke, then applied to every tenant. */
@@ -42,7 +43,7 @@ export function matchesTenantSearch(
   term: TenantSearchTerm,
   notificationEmail?: string | null,
 ): boolean {
-  const haystack = [tenant.tenantId, tenant.domainName, tenant.contactEmail, notificationEmail]
+  const haystack = [tenant.tenantId, tenant.domainName, tenant.contactEmail, tenant.companyName, notificationEmail]
     .filter((v): v is string => typeof v === "string" && v.length > 0)
     .map(v => v.toLowerCase());
 

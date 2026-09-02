@@ -48,7 +48,7 @@ public class TenantTrialStartedEventTests
         var (service, events) = NewService();
 
         await service.RecordTenantTrialStartedAsync(
-            "t1", "contoso.example", "admin@contoso.example", Now, Now.AddDays(30), Caller, selfService: true);
+            "t1", "contoso.example", "admin@contoso.example", "Contoso Ltd.", Now, Now.AddDays(30), Caller, selfService: true);
 
         var entry = Assert.Single(events);
         Assert.Equal(OpsEventCategory.Tenant, entry.Category);
@@ -62,6 +62,7 @@ public class TenantTrialStartedEventTests
         var root = details.RootElement;
         Assert.Equal("contoso.example", root.GetProperty("domainName").GetString());
         Assert.Equal("admin@contoso.example", root.GetProperty("contactEmail").GetString());
+        Assert.Equal("Contoso Ltd.", root.GetProperty("companyName").GetString());
         Assert.Equal(Caller, root.GetProperty("grantedBy").GetString());
         Assert.True(root.GetProperty("selfService").GetBoolean());
     }
@@ -72,7 +73,7 @@ public class TenantTrialStartedEventTests
         var (service, events) = NewService();
 
         await service.RecordTenantTrialStartedAsync(
-            "t1", "contoso.example", null, Now, Now.AddDays(90), Caller, selfService: false);
+            "t1", "contoso.example", null, null, Now, Now.AddDays(90), Caller, selfService: false);
 
         Assert.Contains("granted by an operator", events.Single().Message);
         using var details = JsonDocument.Parse(events.Single().Details!);
@@ -84,7 +85,7 @@ public class TenantTrialStartedEventTests
     {
         var (service, events) = NewService();
 
-        await service.RecordTenantTrialStartedAsync("t1", null, null, Now, Now.AddDays(30), Caller, selfService: true);
+        await service.RecordTenantTrialStartedAsync("t1", null, null, null, Now, Now.AddDays(30), Caller, selfService: true);
 
         Assert.Contains("t1", events.Single().Message);
     }

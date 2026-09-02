@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTenantConfig } from "../../TenantConfigContext";
-import { trialDaysLeft } from "@/lib/edition";
+import { missingContactProfileParts, trialDaysLeft } from "@/lib/edition";
 import { PlanCards } from "@/components/plans/PlanCards";
 import { SITE_URL } from "@/utils/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -35,6 +35,7 @@ export function SectionPlan() {
   const trialConsumed = !isPro && !editionInfo.trialAvailable;
   const canStartTrial =
     editionInfo.trialAvailable && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true);
+  const missingProfile = missingContactProfileParts(editionInfo);
 
   const communityBadge = !isPro ? (
     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-900 text-white dark:bg-slate-200 dark:text-slate-900">
@@ -77,16 +78,16 @@ export function SectionPlan() {
         >
           Start 30-day Pro trial — coming soon
         </button>
-      ) : canStartTrial && !editionInfo.contactEmailSet ? (
-        // Pro-requires-contact gate (backend enforces the same via 409
-        // ContactEmailRequired — this branch just makes the path obvious).
+      ) : canStartTrial && missingProfile.length > 0 ? (
+        // Pro-requires-contact-profile gate (backend enforces the same via 409
+        // ContactProfileRequired — this branch just makes the path obvious).
         <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-900 dark:bg-amber-950/30 dark:border-amber-700/50 dark:text-amber-200">
-          <span className="font-medium">Pro requires a contact address.</span>{" "}
-          Set one under{" "}
+          <span className="font-medium">Pro requires a contact address and company name.</span>{" "}
+          Missing: {missingProfile.join(" and ")}. Set it under{" "}
           <Link href="/settings/tenant/contact" className="font-medium text-purple-700 hover:underline dark:text-purple-300">
             Contact
           </Link>{" "}
-          so we can reach you about service or security matters — then start your trial here.
+          so we can reach and identify you for service or security matters — then start your trial here.
         </div>
       ) : canStartTrial && !confirming ? (
         <button

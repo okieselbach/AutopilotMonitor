@@ -20,6 +20,7 @@ interface TenantConfig {
   updatedBy?: string;
   onboardedAt?: string;
   contactEmail?: string | null;
+  companyName?: string | null;
 
   // Tenant status
   disabled?: boolean;
@@ -546,6 +547,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Disabled Until" value={config.disabledUntil} isDate />
                 <ConfigRow label="Onboarded At" value={config.onboardedAt} isDate />
                 <ConfigRow label="Contact Email" value={config.contactEmail} />
+                <ConfigRow label="Company" value={config.companyName} />
                 <ConfigRow
                   label="Plan Tier"
                   value={`${config.planTier || 'free'}${config.trialExpiresUtc && new Date(config.trialExpiresUtc).getTime() > nowMs ? ` (trial until ${formatDate(config.trialExpiresUtc)})` : ''}`}

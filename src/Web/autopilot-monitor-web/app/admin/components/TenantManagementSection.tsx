@@ -21,6 +21,8 @@ export interface TenantConfiguration {
   updatedBy: string;
   /** Tenant-maintained contact address for service matters. Read-only here. */
   contactEmail?: string | null;
+  /** Tenant-maintained company name (contact profile). Read-only here. */
+  companyName?: string | null;
   disabled: boolean;
   disabledReason?: string;
   disabledUntil?: string;
@@ -794,11 +796,12 @@ function TenantManagementSectionInner({
                         Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
                       </p>
                     )}
-                    {(editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise") && !editingTenant.contactEmail && (
+                    {(editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise") && (!editingTenant.contactEmail || !editingTenant.companyName) && (
                       <p className="text-xs text-amber-600 mt-1">
-                        ⚠ No contact address set — Pro tenants should be reachable for service and
-                        security matters. Self-service trials are blocked without one; GA assignment
-                        is not, and the tenant sees a dashboard reminder until an admin sets it
+                        ⚠ Contact profile incomplete ({[!editingTenant.contactEmail && "no contact address", !editingTenant.companyName && "no company name"].filter(Boolean).join(", ")}) —
+                        Pro tenants should be reachable and identifiable for service and security
+                        matters. Self-service trials are blocked until both are set; GA assignment is
+                        not, and the tenant sees a dashboard reminder until an admin completes it
                         (Settings → Tenant → Contact).
                       </p>
                     )}
@@ -958,10 +961,11 @@ function TenantManagementSectionInner({
                 <p className="text-xs text-indigo-600 mt-2">
                   The email is saved and sent in one step. Also sent automatically on approval if set.
                 </p>
-                {editingTenant.contactEmail && (
+                {(editingTenant.contactEmail || editingTenant.companyName) && (
                   <p className="text-xs text-indigo-700 mt-2 pt-2 border-t border-indigo-200">
                     <span className="font-medium">Tenant contact:</span>{" "}
-                    <span className="font-mono">{editingTenant.contactEmail}</span>
+                    {editingTenant.companyName && <span>{editingTenant.companyName}{editingTenant.contactEmail ? ", " : ""}</span>}
+                    {editingTenant.contactEmail && <span className="font-mono">{editingTenant.contactEmail}</span>}
                     <span className="text-indigo-500"> — maintained by the tenant, for service matters only</span>
                   </p>
                 )}

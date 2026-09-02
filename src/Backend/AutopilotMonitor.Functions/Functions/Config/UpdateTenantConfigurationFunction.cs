@@ -82,6 +82,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Normalize so the stored value never carries surrounding whitespace, and an
                 // all-whitespace submission clears the field instead of masquerading as a value.
                 config.ContactEmail = string.IsNullOrWhiteSpace(config.ContactEmail) ? null : config.ContactEmail.Trim();
+                config.CompanyName = string.IsNullOrWhiteSpace(config.CompanyName) ? null : config.CompanyName.Trim();
 
                 // Load the stored config up-front so we can (1) restore any redacted secret placeholders
                 // before validation/save and (2) protect GA-only fields below.

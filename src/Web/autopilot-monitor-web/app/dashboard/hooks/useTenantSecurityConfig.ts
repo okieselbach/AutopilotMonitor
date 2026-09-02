@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
 import type { NotificationType } from "@/contexts/NotificationContext";
+import { missingContactProfileParts } from "@/lib/edition";
 
 type AddNotification = (
   type: NotificationType,
@@ -18,6 +19,7 @@ interface TenantConfigurationSummary {
   validateAutopilotDevice: boolean;
   edition?: string;
   contactEmailSet?: boolean;
+  companyNameSet?: boolean;
 }
 
 interface User {
@@ -30,11 +32,13 @@ export interface TenantSecuritySummary {
   /** null while loading or on error; the red banner keys on `=== false`. */
   serialValidationEnabled: boolean | null;
   /**
-   * Pro tenant (incl. trial) with no stored contact address — drives the amber
-   * "set a contact address" banner. Requires an EXPLICIT contactEmailSet:false from
-   * the backend, so loading/error/older-backend states never nag.
+   * Pro tenant (incl. trial) with an incomplete contact profile (address and/or company
+   * name) — drives the amber "complete your contact details" banner. Requires an EXPLICIT
+   * false flag from the backend, so loading/error/older-backend states never nag.
    */
   proContactMissing: boolean;
+  /** Display labels of the missing parts ("contact address", "company name"); empty when complete. */
+  proContactMissingParts: string[];
 }
 
 /**
@@ -53,6 +57,7 @@ export function useTenantSecurityConfig(
   const [summary, setSummary] = useState<TenantSecuritySummary>({
     serialValidationEnabled: null,
     proContactMissing: false,
+    proContactMissingParts: [],
   });
 
   useEffect(() => {
@@ -70,22 +75,23 @@ export function useTenantSecurityConfig(
         const response = await dedupedAuthFetch(api.config.featureFlags(tenantId), getAccessToken);
 
         if (!response.ok) {
-          setSummary({ serialValidationEnabled: null, proContactMissing: false });
+          setSummary({ serialValidationEnabled: null, proContactMissing: false, proContactMissingParts: [] });
           return;
         }
 
         const data: TenantConfigurationSummary = await response.json();
+        const isPro = data.edition === "pro" || data.edition === "enterprise";
+        const missingParts = isPro ? missingContactProfileParts(data) : [];
         setSummary({
           serialValidationEnabled: !!data.validateAutopilotDevice,
-          proContactMissing:
-            (data.edition === "pro" || data.edition === "enterprise") &&
-            data.contactEmailSet === false,
+          proContactMissing: missingParts.length > 0,
+          proContactMissingParts: missingParts,
         });
       } catch (error) {
         if (error instanceof TokenExpiredError) {
           addNotification('error', 'Session Expired', error.message, 'session-expired-error');
         }
-        setSummary({ serialValidationEnabled: null, proContactMissing: false });
+        setSummary({ serialValidationEnabled: null, proContactMissing: false, proContactMissingParts: [] });
       }
     };
 

@@ -61,6 +61,23 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? ContactEmail { get; set; }
 
+        /// <summary>
+        /// Organization name behind this tenant, as the tenant's admins want it read by a
+        /// support engineer — the counterpart of <see cref="ContactEmail"/> in the tenant's
+        /// contact profile. Editable under Settings → Tenant → Contact.
+        /// <para>
+        /// Optional on Community. Together with <see cref="ContactEmail"/> it is required at
+        /// the self-service Pro entry point (trial start) so a paying tenant is reachable and
+        /// identifiable for support; it is never a runtime gate on Pro features, and a GA plan
+        /// assignment does not require it (the admin UI warns instead).
+        /// </para>
+        /// <para>
+        /// Never derived from <see cref="DomainName"/>: the domain is a technical label, the
+        /// company name is what the tenant tells us. Null means not provided.
+        /// </para>
+        /// </summary>
+        public string? CompanyName { get; set; }
+
         // ===== TENANT STATUS =====
 
         /// <summary>

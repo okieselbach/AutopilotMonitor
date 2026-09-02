@@ -242,7 +242,7 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const { serialValidationEnabled, proContactMissing } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
+  const { serialValidationEnabled, proContactMissing, proContactMissingParts } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
   const rawTenantList = useTenantList(crossTenant, getAccessToken);
   // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
   // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
@@ -386,16 +386,16 @@ function HomeContent() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                 </svg>
                 <p className="text-sm text-amber-800 dark:text-amber-300">
-                  <span className="font-semibold">Your Pro tenant has no contact address.</span>{" "}
-                  Set one so we can reach you about service or security matters — it is used for
-                  nothing else and never shared.
+                  <span className="font-semibold">Your Pro tenant has no {proContactMissingParts.join(" and no ")}.</span>{" "}
+                  Complete your contact details so we can reach and identify you for service or
+                  security matters — they are used for nothing else and never shared.
                 </p>
               </div>
               <Link
                 href="/settings/tenant/contact"
                 className="shrink-0 inline-flex items-center gap-2 bg-amber-600 text-white font-medium text-sm px-3 py-1.5 rounded-lg hover:bg-amber-700 transition-colors"
               >
-                Set contact address
+                Complete contact details
               </Link>
             </div>
           )}

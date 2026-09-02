@@ -203,6 +203,24 @@ public class TenantConfigPatchServiceTests
         Assert.Null(harness.Current!.ContactEmail);
     }
 
+    [Fact]
+    public async Task Patch_CompanyName_IsTrimmed_AndWhitespaceClears()
+    {
+        // Same normalization contract as ContactEmail (and the PUT): never store surrounding
+        // whitespace, and an all-whitespace submission clears instead of counting as "set".
+        var harness = new Harness(Stored());
+
+        var outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("companyName", "  Contoso Ltd.  ")), Ga, "mcp-patch", null);
+        Assert.True(outcome.Success);
+        Assert.Equal("Contoso Ltd.", harness.Current!.CompanyName);
+
+        outcome = await harness.Sut.ApplyFieldPatchAsync(
+            TenantId, Fields(("companyName", "   ")), Ga, "mcp-patch", null);
+        Assert.True(outcome.Success);
+        Assert.Null(harness.Current!.CompanyName);
+    }
+
     // ── Mid-offboarding freeze ──────────────────────────────────────────────
 
     [Fact]
