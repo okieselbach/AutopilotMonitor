@@ -12,6 +12,8 @@ import InstallsTab from "./components/InstallsTab";
 import InventoryTab from "./components/InventoryTab";
 import VulnerabilitiesTab from "./components/VulnerabilitiesTab";
 import type { TimeRange } from "./components/types";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 const TABS = [
   { id: "installs", label: "Installs" },
@@ -54,6 +56,7 @@ function SoftwareHub() {
                 value={timeRange}
                 onChange={(v) => setTimeRange(v as typeof timeRange)}
               />
+              <DocsLink path={DOCS_PATHS.softwareInventory} label="Docs" />
             </div>
           </div>
 

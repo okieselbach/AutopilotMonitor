@@ -21,6 +21,8 @@ import {
   type AnnotationLane,
   type AnnotationVerdict,
 } from "../sessions/components/sessionAnnotationLogic";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 /**
  * Annotations overview: every annotated session in one list, so a judged session can be
@@ -150,7 +152,10 @@ export default function AnnotationsPage() {
                   Every session your team has judged — open one to read or update the verdict.
                 </p>
               </div>
-              <TenantScopeSelector scope={scope} allowAggregated />
+              <div className="flex flex-wrap items-center gap-2">
+                <TenantScopeSelector scope={scope} allowAggregated />
+                <DocsLink path={DOCS_PATHS.annotations} label="Docs" />
+              </div>
             </div>
           </div>
         </header>

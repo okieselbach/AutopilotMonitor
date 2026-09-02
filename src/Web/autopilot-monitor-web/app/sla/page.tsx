@@ -59,6 +59,8 @@ interface SlaWeeklyTrend {
 // enum serialized as int; rendered via statusLabels below), unlike the string status
 // on SessionSummary.
 import type { SlaViolatorSession } from "@/utils/wire-types.generated";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface TopFailingApp {
   appName: string;
@@ -240,6 +242,7 @@ export default function SlaPage() {
                   </svg>
                   <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
+                <DocsLink path={DOCS_PATHS.slaCompliance} label="Docs" />
               </div>
             </div>
           </div>

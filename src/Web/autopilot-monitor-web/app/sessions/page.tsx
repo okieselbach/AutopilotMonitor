@@ -47,6 +47,8 @@ import { generateUiExport, generateCsvExport, generateSessionCsvExport, generate
 import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
@@ -573,6 +575,7 @@ function SessionDetailContent() {
                 Inspector
               </a>
             )}
+            <DocsLink path={DOCS_PATHS.sessionDetails} label="Docs" />
           </div>
         </div>
       </header>

@@ -15,6 +15,8 @@ import { EmptyState } from "@/components/rules/EmptyState";
 import { ImeLogPattern, PatternForm, EMPTY_FORM, ACTION_LABELS } from "./types";
 import ImePatternCard from "./components/ImePatternCard";
 import { trackEvent } from "@/lib/appInsights";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 export default function ImeLogPatternsPage() {
   const { tenantId } = useTenant();
@@ -208,11 +210,14 @@ export default function ImeLogPatternsPage() {
         {/* Header */}
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div>
-              <h1 className="text-2xl font-normal text-gray-900">IME Log Patterns</h1>
-              <p className="text-sm text-gray-600 mt-1">
-                Regex patterns used by the agent to parse Intune Management Extension logs during enrollment tracking.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
+              <div>
+                <h1 className="text-2xl font-normal text-gray-900">IME Log Patterns</h1>
+                <p className="text-sm text-gray-600 mt-1">
+                  Regex patterns used by the agent to parse Intune Management Extension logs during enrollment tracking.
+                </p>
+              </div>
+              <DocsLink path={DOCS_PATHS.imeLogPatterns} label="Docs" />
             </div>
           </div>
         </header>

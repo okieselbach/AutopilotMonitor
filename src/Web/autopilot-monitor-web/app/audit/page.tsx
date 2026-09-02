@@ -11,6 +11,8 @@ import { extractContinuation } from "@/lib/paginationLink";
 import { useAggregatedAdminScope } from "@/hooks";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 
 interface AuditLogEntry {
@@ -272,6 +274,7 @@ export default function AuditPage() {
                 </svg>
                 <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
+                <DocsLink path={DOCS_PATHS.auditLog} label="Docs" />
               </div>
             </div>
           </div>

@@ -19,6 +19,7 @@ import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { DocsLink } from "@/components/DocsLink";
 
 export default function GatherRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -382,14 +383,17 @@ export default function GatherRulesPage() {
         {/* Header */}
         <header className="bg-white shadow">
           <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-y-3">
               <div>
                 <div>
                   <h1 className="text-2xl font-normal text-gray-900">Gather Rules</h1>
                   <p className="text-sm text-gray-600 mt-1">Manage data collection rules for device enrollment</p>
                 </div>
               </div>
-              <TenantScopeSelector scope={scope} />
+              <div className="flex flex-wrap items-center gap-2">
+                <TenantScopeSelector scope={scope} />
+                <DocsLink path={DOCS_PATHS.gatherRules} label="Docs" />
+              </div>
             </div>
           </div>
         </header>

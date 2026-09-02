@@ -14,6 +14,8 @@ import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdmin
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { CalculatingCard } from "@/components/CalculatingCard";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
@@ -277,6 +279,7 @@ export default function GeographicPerformancePage() {
                   value={groupBy}
                   onChange={(v) => setGroupBy(v as GroupBy)}
                 />
+                <DocsLink path={DOCS_PATHS.geographicPerformance} label="Docs" />
               </div>
             </div>
           </div>

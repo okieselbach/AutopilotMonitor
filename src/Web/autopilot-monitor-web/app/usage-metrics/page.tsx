@@ -10,6 +10,8 @@ import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface SessionMetrics {
   total: number;
@@ -209,6 +211,7 @@ export default function UsageMetricsPage() {
                 </svg>
                 <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
               </button>
+              <DocsLink path={DOCS_PATHS.usageMetrics} label="Docs" />
             </div>
           </div>
         </div>

@@ -24,6 +24,8 @@ import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedCont
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { formatDuration } from "@/lib/formatting";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface AppMetric {
   appName: string;
@@ -265,6 +267,7 @@ export default function FleetHealthPage() {
                   value={timeRange}
                   onChange={(v) => setTimeRange(v as typeof timeRange)}
                 />
+                <DocsLink path={DOCS_PATHS.fleetHealth} label="Docs" />
               </div>
             </div>
           </div>

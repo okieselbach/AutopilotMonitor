@@ -30,6 +30,21 @@ export const DOCS_PATHS = {
   // Rules
   analyzeRules: "/rules/analyze-rules",
   gatherRules: "/rules/gather-rules",
+  imeLogPatterns: "/rules/ime-log-patterns",
+  // Portal pages (page-header "Docs" link)
+  sessionDetails: "/portal-guide/session-details-and-diagnosis",
+  guidedDiagnosis: "/portal-guide/session-details-and-diagnosis#guided-diagnosis",
+  annotations: "/portal-guide/session-details-and-diagnosis#annotations",
+  fleetHealth: "/portal-guide/fleet-health",
+  geographicPerformance: "/portal-guide/geographic-performance",
+  slaCompliance: "/portal-guide/sla-compliance",
+  softwareInventory: "/portal-guide/software-inventory-and-vulnerabilities",
+  usageMetrics: "/portal-guide/usage-metrics",
+  auditLog: "/portal-guide/audit-log-and-system-health#audit-log",
+  systemHealth: "/portal-guide/audit-log-and-system-health#system-health",
+  // Navbar help menu
+  platformChangelog: "/changelog/platform-changelog",
+  serviceAnnouncements: "/troubleshooting-and-support/service-announcements",
   // Dual app-registration window (sign-in banners, failed-sign-in screen)
   appRegistrationMigration: "/troubleshooting-and-support/app-registration-migration",
   appRegistrationMigrationAfter: "/troubleshooting-and-support/app-registration-migration#after-the-migration",

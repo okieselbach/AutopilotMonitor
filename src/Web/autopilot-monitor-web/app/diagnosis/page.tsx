@@ -17,6 +17,8 @@ import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { isGuid } from "@/utils/inputValidation";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 export default function DiagnosisPage() {
   // useSearchParams() in DiagnosisContent requires a Suspense boundary for static prerender.
@@ -363,6 +365,7 @@ function DiagnosisContent() {
                 >
                   Full Details
                 </button>
+                <DocsLink path={DOCS_PATHS.guidedDiagnosis} label="Docs" />
               </div>
             </div>
           </div>
