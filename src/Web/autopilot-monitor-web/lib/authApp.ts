@@ -1,15 +1,22 @@
 /**
  * App-registration selection for the dual app-reg parallel window (legacy gktatooine app ∥
- * new C4A8 app). Model: "default legacy, funnel primary, learn in the background" —
+ * new C4A8 app). Model: "default app for fresh browsers, learn the tenant's app, re-home once" —
  *
  *  - A browser that has signed in before carries `am_auth_app` in localStorage and always
  *    boots MSAL with that app. auth/me returns the tenant's `homedApp` after every login and
  *    AuthContext re-writes the flag, so an operator flipping a tenant to the new app makes
  *    every user's NEXT login use it automatically (admin consent exists by then → seamless).
- *  - No flag → NEXT_PUBLIC_ENTRA_DEFAULT_APP decides (start: "legacy" = today's behaviour for
- *    every existing customer; flipped to "primary" once the re-consent campaign is done).
+ *  - No flag → NEXT_PUBLIC_ENTRA_DEFAULT_APP decides which app a fresh browser signs in with
+ *    ("primary" once the new app is the default; "legacy" during the initial window).
+ *  - A redirect login that lands on the OTHER app than the tenant is homed on (fresh browser,
+ *    wrong default) is re-homed right away: AuthGate switches the browser to the homed app
+ *    and completes the sign-in silently via the Entra session (`requestRehome` →
+ *    `consumePendingRehome`, one-shot per tab, never after a cross-app fallback). Without
+ *    this the wrong app would carry the whole first session — e.g. without the tenant's
+ *    Entra app-role assignments, which live on the homed app's enterprise application.
  *  - The signup funnel (get-started CTA) hands over to portal with ?authapp=primary so brand-new
- *    tenants consent the NEW app as part of the expected signup flow.
+ *    tenants consent the NEW app as part of the expected signup flow; the www → portal handover
+ *    after a sign-in passes the learned app the same way (localStorage is per-origin).
  *  - ?authapp=legacy|primary doubles as a silent support lever (persists the flag).
  *
  * Everything here is deliberately msal-free (no import cycles) and SSR-safe.
@@ -23,6 +30,7 @@ const SELECTED_KEY = "am_auth_app";           // localStorage: app of the last s
 const ATTEMPT_KEY = "am_login_attempt";       // sessionStorage: app that started the in-flight redirect
 const FALLBACK_KEY = "am_login_fallback";     // sessionStorage: the one-shot 90094 auto-fallback ran
 const DECLINED_KEY = "am_login_declined";     // sessionStorage: user actively declined consent (65004)
+const REHOME_KEY = "am_rehome";               // sessionStorage: the one-shot post-login re-home ran
 
 export function legacyClientId(): string | undefined {
   return process.env.NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID || undefined;
@@ -192,16 +200,75 @@ export function classifyEntraAuthError(errorText: string): "admin-approval-requi
   return "other";
 }
 
+// ── Post-login re-homing ────────────────────────────────────────────────────
+
+/** Inputs of the re-home decision, captured by AuthContext's redirect handling. */
+export interface RehomeDecisionInput {
+  /** The app the tenant is homed on, as reported by auth/me. */
+  homedApp: AuthApp;
+  /** The app this page load signed in with. */
+  activeApp: AuthApp;
+  /** True only on the page load that completed a redirect sign-in (not on later refreshes). */
+  redirectLoginCompleted: boolean;
+  /**
+   * True when that sign-in only worked through the one-shot cross-app fallback — the OTHER
+   * app is then proven unusable in this tenant, and re-homing to it would ping-pong.
+   */
+  viaFallback: boolean;
+}
+
+/**
+ * Whether the browser should switch to the tenant's homed app right after a redirect sign-in
+ * that ran on the other app. Pure; the one-shot tab guard lives in {@link tryBeginRehome}.
+ */
+export function shouldRehome(input: RehomeDecisionInput): boolean {
+  if (!legacyConfigured()) return false;
+  if (!input.redirectLoginCompleted || input.viaFallback) return false;
+  return input.homedApp !== input.activeApp;
+}
+
+let pendingRehome: AuthApp | null = null;
+
+/** Records that the next post-login hop (AuthGate) should re-home the browser to `app`. */
+export function requestRehome(app: AuthApp): void {
+  pendingRehome = app;
+}
+
+/** Reads AND clears the pending re-home request (one-shot, consumed by AuthGate). */
+export function consumePendingRehome(): AuthApp | null {
+  const app = pendingRehome;
+  pendingRehome = null;
+  return app;
+}
+
+/**
+ * One-shot guard for the post-login re-home: true exactly once per browser tab. A tenant whose
+ * homed app cannot complete a sign-in for some other reason (a Conditional Access policy
+ * scoped to one app, say) thus costs at most one extra hop, never a loop.
+ */
+export function tryBeginRehome(): boolean {
+  try {
+    if (window.sessionStorage.getItem(REHOME_KEY)) return false;
+    window.sessionStorage.setItem(REHOME_KEY, "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Switch this browser to the given app and reboot the bundle so the module-level MSAL
  * instance is reconstructed for it. Purges MSAL state to avoid interaction_in_progress
- * leftovers from an interrupted flow on the other app.
+ * leftovers from an interrupted flow on the other app. With `navigateTo` the reboot lands on
+ * that in-app path instead of reloading the current one (the post-login re-home: the landing
+ * page would otherwise show the public site to a now signed-out browser).
  */
-export function switchAuthApp(app: AuthApp): void {
+export function switchAuthApp(app: AuthApp, navigateTo?: string): void {
   // Strategic trace point of the dual app-reg migration: an explicit app switch (support
-  // lever, post-flip "sign in with the new app" button). Best-effort — the reload below may
-  // outrun the batch, but AI's pagehide beacon usually carries it out.
-  trackEvent("auth_app_switched", { to: app });
+  // lever, post-flip "sign in with the new app" button) or the post-login re-home.
+  // Best-effort — the navigation below may outrun the batch, but AI's pagehide beacon
+  // usually carries it out.
+  trackEvent("auth_app_switched", { to: app, reason: navigateTo ? "rehome" : "manual" });
   setSelectedAuthApp(app);
   clearLoginAttemptApp();
   clearLoginFallback();
@@ -215,5 +282,9 @@ export function switchAuthApp(app: AuthApp): void {
   } catch {
     /* ignore */
   }
-  window.location.reload();
+  if (navigateTo) {
+    window.location.assign(navigateTo);
+  } else {
+    window.location.reload();
+  }
 }

@@ -30,6 +30,9 @@ export const DOCS_PATHS = {
   // Rules
   analyzeRules: "/rules/analyze-rules",
   gatherRules: "/rules/gather-rules",
+  // Dual app-registration window (sign-in banners, failed-sign-in screen)
+  appRegistrationMigration: "/troubleshooting-and-support/app-registration-migration",
+  appRegistrationMigrationAfter: "/troubleshooting-and-support/app-registration-migration#after-the-migration",
 } as const;
 
 /** Top-level URL segments GitBook publishes for docs.autopilotmonitor.com (SUMMARY.md groups + root pages). */

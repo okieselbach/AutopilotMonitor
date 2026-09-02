@@ -94,6 +94,18 @@ export function getPortalLoginUrl(path: string = DEFAULT_PORTAL_LANDING): string
   return `https://${PORTAL_HOST}${normalized}`;
 }
 
+/**
+ * The www → portal handover URL after a sign-in on www. Auth state (and the dual app-reg
+ * selection in localStorage) is per-origin, so the app registration this browser learned
+ * travels along as `?authapp=` — the portal then boots the tenant's app directly instead of
+ * its default and a re-home hop. `target` may carry its own query string.
+ */
+export function portalHandoverUrl(target: string, authApp: "primary" | "legacy" | null): string {
+  const url = new URL(target, `https://${PORTAL_HOST}`);
+  if (authApp) url.searchParams.set("authapp", authApp);
+  return url.toString();
+}
+
 export type HostBounce = "to-portal" | "to-www" | null;
 
 /**

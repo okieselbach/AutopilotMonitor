@@ -11,7 +11,7 @@ export function appHomingErrorMessage(reason: string | undefined, fallback: stri
     case "self-service-disabled":
       return "Self-service app switching is currently disabled by the operator.";
     case "probe-failed":
-      return "Admin consent for the new app registration was not found in this tenant. Grant consent first, or force the switch as Global Admin.";
+      return "The new app registration is not fully consented in this tenant (missing, or lacking a Graph permission the previous app holds). Grant admin consent first, or force the switch as Global Admin.";
     case "probe-transient":
       return "Could not verify consent for the new app registration right now (transient error). Please try again.";
     case "revert-is-ga-only":

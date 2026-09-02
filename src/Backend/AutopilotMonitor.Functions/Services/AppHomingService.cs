@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Security;
@@ -21,11 +22,16 @@ namespace AutopilotMonitor.Functions.Services
     }
 
     /// <summary>
-    /// Result of the primary-app consent probe: an app-only token acquisition under the PRIMARY
-    /// app's credentials. <c>Succeeded</c> proves an admin consented the primary app in that
-    /// tenant; <c>IsTransient</c> means "unknown" (network/AAD blip), never "not consented".
+    /// Result of the primary-app consent probe. <c>Succeeded</c> proves the PRIMARY app is
+    /// consented in that tenant AND carries every Graph application role the legacy app holds
+    /// there (see <see cref="AppHomingService.ProbePrimaryConsentAsync"/>); <c>MissingRoles</c>
+    /// lists the legacy roles the primary app lacks when that superset check failed.
+    /// <c>IsTransient</c> means "unknown" (network/AAD blip), never "not consented".
     /// </summary>
-    public sealed record AppHomingProbeResult(bool Succeeded, bool IsTransient);
+    public sealed record AppHomingProbeResult(
+        bool Succeeded,
+        bool IsTransient,
+        IReadOnlyCollection<string>? MissingRoles = null);
 
     public enum AppHomingDecisionKind { Allow, AllowNoOp, RequireProbe, Deny }
 
@@ -94,18 +100,64 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Proves (or refutes) admin consent for the PRIMARY app in this tenant by minting an
-        /// app-only token under the primary credentials, regardless of the tenant's homing.
-        /// Token acquirability — not the roles claim — is the flip criterion: the flip only moves
-        /// which app acts for the tenant; feature gates keep their own role-checked probes.
+        /// Proves (or refutes) that the PRIMARY app may take over this tenant, regardless of the
+        /// tenant's homing: an app-only token under the primary credentials must be acquirable
+        /// (the service principal exists ⇒ someone consented the app) AND its <c>roles</c> claim
+        /// must be a superset of the legacy app's — the flip must never cost the tenant a Graph
+        /// capability it has today. The superset rule (rather than "has the validation role")
+        /// keeps role-less tenants flipping freely while blocking the trap where a mere sign-in
+        /// consent (delegated <c>User.Read</c>, no application role) created the primary SP: with
+        /// the primary app as the default sign-in app that is a routine event, and flipping on it
+        /// would silently break device validation until an admin re-consents.
+        /// A transient failure on either token means "unknown" — never a refusal.
         /// </summary>
         public virtual async Task<AppHomingProbeResult> ProbePrimaryConsentAsync(string tenantId, CancellationToken ct = default)
         {
-            var result = await _graphTokenService.GetAccessTokenForAppAsync(tenantId, _appRegistry.Primary, ct);
-            return new AppHomingProbeResult(
-                Succeeded: !string.IsNullOrWhiteSpace(result.AccessToken),
-                IsTransient: result.IsTransient);
+            var primary = await _graphTokenService.GetAccessTokenForAppAsync(tenantId, _appRegistry.Primary, ct);
+            if (string.IsNullOrWhiteSpace(primary.AccessToken))
+            {
+                return new AppHomingProbeResult(Succeeded: false, IsTransient: primary.IsTransient);
+            }
+
+            var legacyApp = _appRegistry.Legacy;
+            if (legacyApp == null)
+            {
+                // Parallel window closed: nothing to compare against.
+                return new AppHomingProbeResult(Succeeded: true, IsTransient: false);
+            }
+
+            var legacy = await _graphTokenService.GetAccessTokenForAppAsync(tenantId, legacyApp, ct);
+            if (string.IsNullOrWhiteSpace(legacy.AccessToken) && legacy.IsTransient)
+            {
+                return new AppHomingProbeResult(Succeeded: false, IsTransient: true);
+            }
+
+            // A permanently unacquirable legacy token (SP gone) means there is nothing to lose.
+            var primaryRoles = ParseRoles(primary.AccessToken);
+            var legacyRoles = ParseRoles(legacy.AccessToken);
+            var missing = legacyRoles
+                .Where(role => !primaryRoles.Contains(role))
+                .OrderBy(role => role, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (missing.Count == 0)
+            {
+                return new AppHomingProbeResult(Succeeded: true, IsTransient: false);
+            }
+
+            _logger.LogWarning(
+                "Tenant {TenantId}: primary app is consented but lacks {MissingCount} legacy Graph role(s) — homing flip refused until re-consent: {MissingRoles}",
+                tenantId, missing.Count, string.Join(", ", missing));
+            return new AppHomingProbeResult(Succeeded: false, IsTransient: false, MissingRoles: missing);
         }
+
+        private static readonly IReadOnlySet<string> EmptyRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Roles claim of an app-only token; empty for a missing or unparsable token.</summary>
+        private static IReadOnlySet<string> ParseRoles(string? accessToken) =>
+            !string.IsNullOrWhiteSpace(accessToken)
+            && GraphFeatureDetector.TryParseToken(accessToken, out var roles, out _)
+                ? roles
+                : EmptyRoles;
 
         /// <summary>
         /// Consent-driven auto-flip: if the tenant is funnel-eligible and the primary app proves

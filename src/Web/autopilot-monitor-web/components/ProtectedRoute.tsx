@@ -7,6 +7,8 @@ import { savePostLoginReturnUrl } from "../lib/postLoginReturn";
 import { isOnPublicHost } from "../lib/hostRouting";
 import { consumeLoginDeclined, legacyConfigured, switchAuthApp } from "../lib/authApp";
 import { activeAuthApp } from "../lib/msalConfig";
+import { DOCS_PATHS } from "../lib/docsPaths";
+import { DOCS_URL } from "../utils/config";
 import { useAdminMode } from "../hooks/useAdminMode";
 
 interface ProtectedRouteProps {
@@ -132,6 +134,18 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
               >
                 Sign in with the previous Autopilot Monitor app
               </button>
+            </p>
+          )}
+          {legacyConfigured() && (
+            <p className="mt-2 text-xs text-gray-400">
+              <a
+                href={`${DOCS_URL}${DOCS_PATHS.appRegistrationMigration}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-600"
+              >
+                Why are there two Autopilot Monitor apps?
+              </a>
             </p>
           )}
         </div>

@@ -13,6 +13,7 @@ import { useNotifications } from "../../contexts/NotificationContext";
 import { StatsCard } from "./components/StatsCards";
 import { WelcomeMessage } from "./components/WelcomeMessage";
 import { ActivelyDevelopedBanner } from "./components/ActivelyDevelopedBanner";
+import { AppHomingBanner } from "./components/AppHomingBanner";
 import { SessionTable } from "./components/SessionTable";
 import { TenantFilterBar } from "./components/TenantFilterBar";
 import { DeleteConfirmModal, BlockConfirmModal } from "./components/ConfirmationModals";
@@ -242,7 +243,7 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const { serialValidationEnabled, proContactMissing, proContactMissingParts } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
+  const { serialValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
   const rawTenantList = useTenantList(crossTenant, getAccessToken);
   // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
   // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
@@ -347,6 +348,13 @@ function HomeContent() {
         <div className="px-4 sm:px-0">
           {/* Feedback & bug report banner (session-dismissable, telemetry-instrumented) */}
           <ActivelyDevelopedBanner />
+
+          {/* Dual app-reg migration nudge (blue, session-dismissable): the TENANT still runs on
+              the previous app registration. Admins only — they own the consent; delegated admins
+              are excluded (the link would target their own tenant, not the viewed one). */}
+          {appHomingFunnelActive && !isDelegated && (user?.isTenantAdmin || user?.isGlobalAdmin) && (
+            <AppHomingBanner />
+          )}
 
           {serialValidationEnabled === false && (
             <div className="mb-6 bg-red-600 border-2 border-red-700 rounded-xl p-5 shadow-lg">

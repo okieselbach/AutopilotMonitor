@@ -2,14 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   classifyEntraAuthError,
   consumeLoginDeclined,
+  consumePendingRehome,
   getBootAuthApp,
   getSelectedAuthApp,
   legacyConfigured,
   markLoginDeclined,
   otherApp,
+  requestRehome,
   setLoginAttemptApp,
   setSelectedAuthApp,
+  shouldRehome,
+  switchAuthApp,
   tryBeginLoginFallback,
+  tryBeginRehome,
 } from "../authApp";
 
 const LEGACY_ID = "1a400946-62c1-4ab4-aa37-f730ac89704d";
@@ -33,7 +38,7 @@ function stubWindow(search = ""): void {
   vi.stubGlobal("window", {
     localStorage: makeStorage(),
     sessionStorage: makeStorage(),
-    location: { search, reload: vi.fn() },
+    location: { search, reload: vi.fn(), assign: vi.fn() },
   });
 }
 
@@ -149,5 +154,71 @@ describe("safety-net primitives", () => {
   it("otherApp flips the selection", () => {
     expect(otherApp("legacy")).toBe("primary");
     expect(otherApp("primary")).toBe("legacy");
+  });
+});
+
+describe("post-login re-homing", () => {
+  const base = { homedApp: "legacy" as const, activeApp: "primary" as const, redirectLoginCompleted: true, viaFallback: false };
+
+  it("re-homes only when a redirect sign-in just completed on the other app", () => {
+    stubWindow();
+    vi.stubEnv("NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID", LEGACY_ID);
+    expect(shouldRehome(base)).toBe(true);
+    expect(shouldRehome({ ...base, homedApp: "primary" })).toBe(false);
+    // A later auth/me refresh in the same page life is not a sign-in.
+    expect(shouldRehome({ ...base, redirectLoginCompleted: false })).toBe(false);
+  });
+
+  it("never re-homes after a cross-app fallback — the homed app is proven unusable there", () => {
+    stubWindow();
+    vi.stubEnv("NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID", LEGACY_ID);
+    expect(shouldRehome({ ...base, viaFallback: true })).toBe(false);
+  });
+
+  it("is inert outside the parallel window", () => {
+    stubWindow();
+    expect(legacyConfigured()).toBe(false);
+    expect(shouldRehome(base)).toBe(false);
+  });
+
+  it("requestRehome / consumePendingRehome is a one-shot handoff", () => {
+    expect(consumePendingRehome()).toBeNull();
+    requestRehome("legacy");
+    expect(consumePendingRehome()).toBe("legacy");
+    expect(consumePendingRehome()).toBeNull();
+  });
+
+  it("tryBeginRehome is one-shot per tab", () => {
+    stubWindow();
+    expect(tryBeginRehome()).toBe(true);
+    expect(tryBeginRehome()).toBe(false);
+  });
+
+  it("switchAuthApp with a target navigates there instead of reloading, on the new app with MSAL state purged", () => {
+    stubWindow();
+    vi.stubEnv("NEXT_PUBLIC_ENTRA_LEGACY_CLIENT_ID", LEGACY_ID);
+    setSelectedAuthApp("primary");
+    setLoginAttemptApp("primary");
+    window.sessionStorage.setItem("msal.account.keys", "x");
+    window.sessionStorage.setItem("abc.login.request", "y");
+    window.sessionStorage.setItem("apm:postLoginReturnUrl", "/sessions?id=1");
+
+    switchAuthApp("legacy", "/sessions?id=1");
+
+    expect(window.localStorage.getItem("am_auth_app")).toBe("legacy");
+    expect(window.sessionStorage.getItem("am_login_attempt")).toBeNull();
+    expect(window.sessionStorage.getItem("msal.account.keys")).toBeNull();
+    expect(window.sessionStorage.getItem("abc.login.request")).toBeNull();
+    // The deep link survives the purge — only MSAL keys are doomed.
+    expect(window.sessionStorage.getItem("apm:postLoginReturnUrl")).toBe("/sessions?id=1");
+    expect(window.location.assign).toHaveBeenCalledWith("/sessions?id=1");
+    expect(window.location.reload).not.toHaveBeenCalled();
+  });
+
+  it("switchAuthApp without a target reloads in place (manual switch)", () => {
+    stubWindow();
+    switchAuthApp("primary");
+    expect(window.location.reload).toHaveBeenCalled();
+    expect(window.location.assign).not.toHaveBeenCalled();
   });
 });

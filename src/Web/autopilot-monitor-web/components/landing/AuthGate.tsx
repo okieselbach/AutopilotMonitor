@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { Route } from "next";
 import { trustedRoute } from "../../lib/routes";
-import { consumePostLoginReturnUrl } from "../../lib/postLoginReturn";
+import { consumePostLoginReturnUrl, savePostLoginReturnUrl } from "../../lib/postLoginReturn";
 import { hasOwnTenantOrPlatformRole, hasTenantReadScope } from "../../lib/tenantScope";
-import { PORTAL_HOST, shouldCrossOriginToPortal } from "../../lib/hostRouting";
+import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
+import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
+import { activeAuthApp } from "../../lib/msalConfig";
+import { trackEvent } from "../../lib/appInsights";
 
 /**
  * Invisible client component that handles auth redirect logic.
@@ -37,11 +40,22 @@ export function AuthGate() {
       } else {
         target = "/progress";
       }
+      // Dual app-reg window: the sign-in that just completed ran on the other app than the
+      // tenant is homed on (fresh browser, wrong default). Same-origin: re-home NOW — switch
+      // the browser to the homed app and land on the target, where ProtectedRoute completes
+      // the sign-in silently via the Entra session and returns here with the deep link intact.
+      // One hop per tab; the pending request is consumed either way.
+      const rehome = consumePendingRehome();
       // On the public host, hand over to the portal origin in ONE full-page
       // navigation instead of router.push + HostRoutingGuard bounce. Auth state
-      // is per-origin — the portal side runs its own (silent) MSAL sign-in.
+      // is per-origin — the portal side runs its own (silent) MSAL sign-in, on
+      // the app this browser just learned (passed along as ?authapp=).
       if (shouldCrossOriginToPortal()) {
-        window.location.href = `https://${PORTAL_HOST}${target}`;
+        window.location.href = portalHandoverUrl(target, legacyConfigured() ? getSelectedAuthApp() : null);
+      } else if (rehome && tryBeginRehome()) {
+        savePostLoginReturnUrl(target);
+        trackEvent("auth_app_rehomed", { from: activeAuthApp, to: rehome });
+        switchAuthApp(rehome, target);
       } else {
         router.replace(target);
       }

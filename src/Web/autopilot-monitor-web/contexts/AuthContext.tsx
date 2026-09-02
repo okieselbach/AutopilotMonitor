@@ -13,8 +13,10 @@ import {
   loginFallbackActive,
   markLoginDeclined,
   otherApp,
+  requestRehome,
   setLoginAttemptApp,
   setSelectedAuthApp,
+  shouldRehome,
   tryBeginLoginFallback,
 } from '@/lib/authApp';
 import { api } from '@/lib/api';
@@ -35,6 +37,11 @@ let msalReady = false;
 // Runs as a fire-and-forget side-effect — MUST NOT block msalInitPromise,
 // otherwise a cold backend would keep the UI on a white screen.
 let prefetchedAuthMePromise: Promise<AuthMeResponse | null> | null = null;
+
+// Post-login re-homing inputs (see lib/authApp.ts shouldRehome): set by the redirect handler
+// below for the page load that completed a redirect sign-in, consumed by the first auth/me.
+let redirectLoginCompleted = false;
+let redirectLoginViaFallback = false;
 
 /**
  * Safety net of the dual app-reg model, for the rare browser that lands on an app its tenant
@@ -87,7 +94,9 @@ const msalInitPromise = msalInstance
       // (the "learn" half of the model — future boots go straight to the right one).
       // A still-set fallback marker means THIS login only worked via the one-shot cross-app
       // retry — the strategic signal that one of the two apps is not consented in the tenant.
-      if (loginFallbackActive()) {
+      redirectLoginCompleted = true;
+      redirectLoginViaFallback = loginFallbackActive();
+      if (redirectLoginViaFallback) {
         trackEvent('auth_app_fallback_succeeded', { app: activeAuthApp });
       }
       setSelectedAuthApp(activeAuthApp);
@@ -201,9 +210,14 @@ interface AuthContextType {
 /**
  * Background learning of the dual app-reg model: auth/me returns which app registration the
  * tenant is homed on; storing it makes the NEXT login on this browser use that app directly.
- * No reload — the current session keeps its valid token (both audiences are accepted).
+ * No reload here — the current session keeps its valid token (both audiences are accepted).
  * This is also how an operator flip propagates: flip → next login of every user runs via the
  * new app, at which point the tenant's admin consent already exists.
+ *
+ * Exception: the page load that just completed a redirect sign-in on the OTHER app (fresh
+ * browser, wrong default). That browser is re-homed immediately — AuthGate, the post-login
+ * hop, switches it to the homed app and the sign-in completes silently — so the first session
+ * never runs on an app the tenant did not set up (Entra app roles, Conditional Access scope).
  */
 function learnHomedAppFromAuthMe(data: AuthMeResponse): void {
   const homedApp = data.homedApp;
@@ -214,6 +228,17 @@ function learnHomedAppFromAuthMe(data: AuthMeResponse): void {
       trackEvent('auth_app_homing_learned', { homedApp });
     }
     setSelectedAuthApp(homedApp);
+    if (shouldRehome({
+      homedApp,
+      activeApp: activeAuthApp,
+      redirectLoginCompleted,
+      viaFallback: redirectLoginViaFallback,
+    })) {
+      requestRehome(homedApp);
+    }
+    // The redirect-login page load is spent either way: a later refreshUserInfo must not
+    // re-request a re-home.
+    redirectLoginCompleted = false;
   }
 }
 

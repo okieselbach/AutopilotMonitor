@@ -3,6 +3,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
 import { legacyConfigured, switchAuthApp } from "@/lib/authApp";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DOCS_URL } from "@/utils/config";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
@@ -56,12 +57,22 @@ export function SectionAutopilotValidation() {
             Your tenant now runs on the <strong>new</strong> Autopilot Monitor app registration.
             Current sessions keep working; every next sign-in uses the new app automatically.
           </p>
-          <button
-            onClick={() => switchAuthApp("primary")}
-            className="mt-2 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-          >
-            Sign in with the new app now
-          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => switchAuthApp("primary")}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Sign in with the new app now
+            </button>
+            <a
+              href={`${DOCS_URL}${DOCS_PATHS.appRegistrationMigrationAfter}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium underline underline-offset-2 hover:text-green-900 dark:hover:text-green-100"
+            >
+              What to check after the switch
+            </a>
+          </div>
         </div>
       ) : appHomingFunnelActive ? (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-5 shadow-sm dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-700/60">
@@ -87,12 +98,12 @@ export function SectionAutopilotValidation() {
                 (<code className="text-xs bg-blue-100 dark:bg-blue-900/60 px-1 rounded">DeviceManagementServiceConfig.Read.All</code>).
               </p>
               <a
-                href={`${DOCS_URL}/getting-started/portal-setup`}
+                href={`${DOCS_URL}${DOCS_PATHS.appRegistrationMigration}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 mt-2.5 text-sm font-medium text-blue-700 hover:text-blue-900 underline dark:text-blue-300 dark:hover:text-blue-100"
               >
-                See the documentation for details on the required permissions
+                Read what changes and what to check before you migrate
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>

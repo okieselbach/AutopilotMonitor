@@ -10,13 +10,16 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="AppHomingService"/> — funnel eligibility, the consent-driven
-/// auto-flip, and the flip persist side-effect chain (save + cache invalidation + audit +
-/// ops events). The consent probe and the kill-switch flag are mocked at their virtual seams.
+/// Unit tests for <see cref="AppHomingService"/> — funnel eligibility, the consent probe's
+/// role-superset rule, the consent-driven auto-flip, and the flip persist side-effect chain
+/// (save + cache invalidation + audit + ops events). Token minting and the kill-switch flag
+/// are mocked at their virtual seams.
 /// </summary>
 public class AppHomingServiceTests
 {
@@ -24,6 +27,8 @@ public class AppHomingServiceTests
     private const string PrimaryId = "aaaaaaaa-0000-0000-0000-000000000001";
     private const string LegacyId = "bbbbbbbb-0000-0000-0000-000000000002";
     private const string Actor = "admin@contoso.com";
+    private const string ValidationRole = "DeviceManagementServiceConfig.Read.All";
+    private const string ScriptsRole = "DeviceManagementScripts.Read.All";
 
     private readonly Mock<AdminConfigurationService> _adminConfigMock;
     private readonly Mock<TenantConfigurationService> _tenantConfigMock;
@@ -93,14 +98,16 @@ public class AppHomingServiceTests
             opsService,
             new TelemetryClient(new TelemetryConfiguration { DisableTelemetry = true }));
 
-        // Defaults: flag on, legacy-homed config exists, probe succeeds. FlipAsync reads via
-        // the cache-bypassing GetConfigurationFreshAsync (read-modify-write on the whole entity).
+        // Defaults: flag on, legacy-homed config exists, both apps mint a role-less token (the
+        // superset rule passes trivially). FlipAsync reads via the cache-bypassing
+        // GetConfigurationFreshAsync (read-modify-write on the whole entity).
         _adminConfigMock.Setup(x => x.IsSelfServiceAppHomingEnabledAsync()).ReturnsAsync(true);
         var config = LegacyHomedConfig();
         _tenantConfigMock.Setup(x => x.GetConfigurationFreshAsync(TenantId)).ReturnsAsync(config);
         _tenantConfigMock.Setup(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()))
             .Returns(Task.CompletedTask);
-        SetupProbe(GraphTokenResult.Success("tok"));
+        SetupProbe(GraphTokenResult.Success(Jwt()));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt()));
     }
 
     private static TenantConfiguration LegacyHomedConfig()
@@ -110,11 +117,34 @@ public class AppHomingServiceTests
         return config;
     }
 
+    /// <summary>Unsigned app-only token carrying the given Graph application roles (the probe never validates signatures).</summary>
+    private static string Jwt(params string[] roles)
+    {
+        var jwt = new JwtSecurityToken(
+            issuer: "https://sts.windows.net/test",
+            audience: "https://graph.microsoft.com",
+            claims: roles.Select(r => new Claim("roles", r)),
+            notBefore: null,
+            expires: DateTime.UtcNow.AddHours(1));
+        return new JwtSecurityTokenHandler().WriteToken(jwt);
+    }
+
+    /// <summary>What the PRIMARY app's app-only token mint returns.</summary>
     private void SetupProbe(GraphTokenResult result) =>
         _graphTokenMock
             .Setup(x => x.GetAccessTokenForAppAsync(TenantId, It.Is<EntraAppCredentials>(c => !c.IsLegacy),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(result);
+
+    /// <summary>What the LEGACY app's app-only token mint returns (the superset baseline).</summary>
+    private void SetupLegacyToken(GraphTokenResult result) =>
+        _graphTokenMock
+            .Setup(x => x.GetAccessTokenForAppAsync(TenantId, It.Is<EntraAppCredentials>(c => c.IsLegacy),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+
+    private void VerifyNeverSaved() =>
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
 
     // ── IsFunnelEligibleAsync ───────────────────────────────────────────────
 
@@ -156,7 +186,103 @@ public class AppHomingServiceTests
         Assert.True(await _sut.IsFunnelEligibleAsync(config));
     }
 
+    // ── ProbePrimaryConsentAsync (role-superset rule) ───────────────────────
+
+    [Fact]
+    public async Task Probe_refuses_when_primary_lacks_a_role_the_legacy_app_holds()
+    {
+        // The trap of the primary-default sign-in: a delegated User.Read consent created the
+        // primary SP (token acquirable, no roles) while the legacy app carries the validation
+        // role — flipping would break device validation until re-consent.
+        SetupProbe(GraphTokenResult.Success(Jwt()));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        Assert.False(probe.IsTransient);
+        Assert.Equal(new[] { ValidationRole }, probe.MissingRoles);
+    }
+
+    [Fact]
+    public async Task Probe_succeeds_when_primary_roles_cover_the_legacy_roles()
+    {
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole, ScriptsRole)));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.True(probe.Succeeded);
+        Assert.Null(probe.MissingRoles);
+    }
+
+    [Fact]
+    public async Task Probe_compares_roles_case_insensitively()
+    {
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole.ToUpperInvariant())));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
+
+        Assert.True((await _sut.ProbePrimaryConsentAsync(TenantId)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Probe_succeeds_for_role_less_tenants()
+    {
+        // Neither app holds a Graph application role (validation never enabled): nothing to
+        // lose, the flip stays free so such tenants keep migrating on their own.
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.True(probe.Succeeded);
+    }
+
+    [Fact]
+    public async Task Probe_is_transient_when_the_legacy_token_is_transient()
+    {
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole)));
+        SetupLegacyToken(GraphTokenResult.TransientFailure());
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        Assert.True(probe.IsTransient);
+    }
+
+    [Fact]
+    public async Task Probe_succeeds_when_the_legacy_token_is_permanently_unacquirable()
+    {
+        // Legacy SP gone (admin deleted the previous app early): nothing left to lose.
+        SetupProbe(GraphTokenResult.Success(Jwt()));
+        SetupLegacyToken(GraphTokenResult.PermanentFailure());
+
+        Assert.True((await _sut.ProbePrimaryConsentAsync(TenantId)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Probe_never_mints_a_legacy_token_when_the_primary_token_fails()
+    {
+        SetupProbe(GraphTokenResult.PermanentFailure());
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        _graphTokenMock.Verify(x => x.GetAccessTokenForAppAsync(TenantId, It.Is<EntraAppCredentials>(c => c.IsLegacy),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ── TryAutoFlipToPrimaryAsync ───────────────────────────────────────────
+
+    [Fact]
+    public async Task AutoFlip_does_not_flip_when_primary_lacks_a_legacy_role()
+    {
+        SetupProbe(GraphTokenResult.Success(Jwt()));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
+
+        var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
+
+        Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome);
+        VerifyNeverSaved();
+        Assert.Empty(_savedOpsEvents);
+    }
 
     [Fact]
     public async Task AutoFlip_flips_on_probe_success_with_full_side_effect_chain()
