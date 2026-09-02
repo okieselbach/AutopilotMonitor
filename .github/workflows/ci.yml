@@ -41,16 +41,16 @@ jobs:
         run: dotnet build AutopilotMonitor.sln --configuration Release --no-restore
 
       - name: Backend tests
-        run: dotnet test src/Backend/AutopilotMonitor.Functions.Tests --configuration Release --no-build --verbosity quiet
+        run: dotnet test src/Backend/AutopilotMonitor.Functions.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
 
       - name: Agent V2 Core tests
-        run: dotnet test src/Agent/AutopilotMonitor.Agent.V2.Core.Tests --configuration Release --no-build --verbosity quiet
+        run: dotnet test src/Agent/AutopilotMonitor.Agent.V2.Core.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
 
       - name: Decision Core tests
-        run: dotnet test src/Agent/AutopilotMonitor.DecisionCore.Tests --configuration Release --no-build --verbosity quiet
+        run: dotnet test src/Agent/AutopilotMonitor.DecisionCore.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
 
       - name: Summary Dialog tests
-        run: dotnet test src/Agent/AutopilotMonitor.SummaryDialog.Tests --configuration Release --no-build --verbosity quiet
+        run: dotnet test src/Agent/AutopilotMonitor.SummaryDialog.Tests --configuration Release --no-build --verbosity quiet --logger "console;verbosity=minimal"
 
   web:
     name: Web (typecheck + tests)
