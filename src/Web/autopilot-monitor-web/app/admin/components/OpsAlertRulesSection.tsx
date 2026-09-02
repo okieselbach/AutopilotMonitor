@@ -6,6 +6,7 @@ import { ChannelEditor } from "@/components/notifications/ChannelEditor";
 import { MAX_NOTIFICATION_CHANNELS, type NotificationChannel } from "@/app/settings/types";
 import { toggleChannelBinding } from "./opsChannelRouting";
 import { AUTO_ACTION_MODES, describeAutoActionWarning, type AutoActionMode } from "./excessiveEventAutoAction";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 // All known ops event types grouped by category
 const OPS_EVENT_TYPES: Record<string, string[]> = {
@@ -351,19 +352,12 @@ export function OpsAlertRulesSection({
     <div className="space-y-6">
       {/* Alert Rules */}
       <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 border-2 border-amber-300 dark:border-amber-700 rounded-lg shadow-lg">
-        <div className="p-6 border-b border-amber-200 dark:border-amber-700 bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-900/40 dark:to-orange-900/40">
-          <div className="flex items-center space-x-2">
-            <svg className="w-6 h-6 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <div>
-              <h2 className="text-xl font-semibold text-amber-900 dark:text-amber-100">Alert Rules</h2>
-              <p className="text-sm text-amber-600 dark:text-amber-300 mt-1">
-                Select which ops events trigger alerts. {enabledRulesCount} rule(s) active, {enabledProviders} provider(s) enabled.
-              </p>
-            </div>
-          </div>
-        </div>
+        <SectionCardHeader
+          tone="adminAmber"
+          iconPath="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+          title="Alert Rules"
+          subtitle={`Select which ops events trigger alerts. ${enabledRulesCount} rule(s) active, ${enabledProviders} provider(s) enabled.`}
+        />
         <div className="p-6">
           {loadingConfig ? (
             <div className="text-center py-8">
@@ -526,19 +520,12 @@ export function OpsAlertRulesSection({
 
       {/* Channels */}
       <div className="bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-gray-800 dark:to-gray-800 border-2 border-sky-300 dark:border-sky-700 rounded-lg shadow-lg">
-        <div className="p-6 border-b border-sky-200 dark:border-sky-700 bg-gradient-to-r from-sky-100 to-cyan-100 dark:from-sky-900/40 dark:to-cyan-900/40">
-          <div className="flex items-center space-x-2">
-            <svg className="w-6 h-6 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <div>
-              <h2 className="text-xl font-semibold text-sky-900 dark:text-sky-100">Alert Channels</h2>
-              <p className="text-sm text-sky-600 dark:text-sky-300 mt-1">
-                Named destinations for platform alerts. Each rule above chooses which of these it notifies.
-              </p>
-            </div>
-          </div>
-        </div>
+        <SectionCardHeader
+          tone="adminSky"
+          iconPath="M13 10V3L4 14h7v7l9-11h-7z"
+          title="Alert Channels"
+          subtitle="Named destinations for platform alerts. Each rule above chooses which of these it notifies."
+        />
         <div className="p-6 space-y-4">
           {channels.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">

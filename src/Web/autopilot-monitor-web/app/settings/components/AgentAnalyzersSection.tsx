@@ -2,6 +2,8 @@
 
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface AgentAnalyzersSectionProps {
   enableLocalAdminAnalyzer: boolean;
@@ -73,17 +75,13 @@ export default function AgentAnalyzersSection({
 
   return (
     <div id="agent-analyzers" className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-rose-50 to-red-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Agent Analyzers</h2>
-            <p className="text-sm text-gray-500 mt-1">Security analyzers that run on enrolled devices to detect configuration anomalies.</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="rose"
+        iconPath="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+        title="Agent Analyzers"
+        subtitle="Security analyzers that run on enrolled devices to detect configuration anomalies."
+        docsPath={DOCS_PATHS.agentAnalyzers}
+      />
       <div className="p-6 space-y-6">
         <ReadOnlyFieldset readOnly={readOnly}>
         <div className="space-y-6">

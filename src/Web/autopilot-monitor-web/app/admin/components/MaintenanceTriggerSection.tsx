@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 interface MaintenanceTriggerSectionProps {
   getAccessToken: () => Promise<string | null>;
@@ -87,17 +88,12 @@ export function MaintenanceTriggerSection({
 
   return (
     <div className="bg-gradient-to-br from-purple-50 to-violet-50 dark:from-gray-800 dark:to-gray-800 border-2 border-purple-300 dark:border-purple-700 rounded-lg shadow-lg">
-      <div className="p-6 border-b border-purple-200 dark:border-purple-700 bg-gradient-to-r from-purple-100 to-violet-100 dark:from-purple-900/40 dark:to-violet-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-purple-900 dark:text-purple-100">Manual Maintenance Trigger</h2>
-            <p className="text-sm text-purple-600 dark:text-purple-300 mt-1">Execute platform-wide maintenance operations</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminPurple"
+        iconPath="M13 10V3L4 14h7v7l9-11h-7z"
+        title="Manual Maintenance Trigger"
+        subtitle="Execute platform-wide maintenance operations"
+      />
       <div className="p-6 space-y-4">
         <p className="text-sm text-purple-900 dark:text-gray-200">
           Runs all timer-triggered tasks plus additional backfill &amp; repair operations that only run on manual trigger.

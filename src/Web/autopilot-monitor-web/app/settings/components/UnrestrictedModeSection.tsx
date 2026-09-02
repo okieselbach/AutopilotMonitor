@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface UnrestrictedModeSectionProps {
   unrestrictedMode: boolean;
@@ -34,17 +36,13 @@ export default function UnrestrictedModeSection({
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <h2 className="text-lg font-semibold text-amber-900">Unrestricted Mode</h2>
-        </div>
-        <p className="text-sm text-amber-700 mt-1">
-          Disable agent guardrails for advanced data collection
-        </p>
-      </div>
+      <SectionCardHeader
+        tone="warning"
+        iconPath="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+        title="Unrestricted Mode"
+        subtitle="Disable agent guardrails for advanced data collection"
+        docsPath={DOCS_PATHS.unrestrictedMode}
+      />
 
       <div className="p-6 space-y-4">
         {/* Active warning banner */}

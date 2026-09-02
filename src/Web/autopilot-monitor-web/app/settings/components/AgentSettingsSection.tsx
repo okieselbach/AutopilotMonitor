@@ -2,6 +2,8 @@
 
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface AgentSettingsSectionProps {
   enablePerformanceCollector: boolean;
@@ -101,17 +103,13 @@ export default function AgentSettingsSection({
     <>
       {/* Agent Parameters */}
       <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-violet-50 to-purple-50">
-          <div className="flex items-center space-x-2">
-            <svg className="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Agent Parameters</h2>
-              <p className="text-sm text-gray-500 mt-1">Control agent behavior on enrolled devices. Changes take effect on the next agent config refresh.</p>
-            </div>
-          </div>
-        </div>
+        <SectionCardHeader
+          tone="violet"
+          iconPath="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+          title="Agent Parameters"
+          subtitle="Control agent behavior on enrolled devices. Changes take effect on the next agent config refresh."
+          docsPath={DOCS_PATHS.agentParameters}
+        />
         <div className="p-6 space-y-4">
           <ReadOnlyFieldset readOnly={readOnly}>
           <div className="space-y-4">
@@ -361,17 +359,13 @@ export default function AgentSettingsSection({
 
       {/* Agent Collectors */}
       <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-emerald-50 to-teal-50">
-          <div className="flex items-center space-x-2">
-            <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Agent Collectors</h2>
-              <p className="text-sm text-gray-500 mt-1">Enable optional data collectors on enrolled devices. These generate additional telemetry traffic.</p>
-            </div>
-          </div>
-        </div>
+        <SectionCardHeader
+          tone="emerald"
+          iconPath="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+          title="Agent Collectors"
+          subtitle="Enable optional data collectors on enrolled devices. These generate additional telemetry traffic."
+          docsPath={DOCS_PATHS.agentCollectors}
+        />
         <div className="p-6 space-y-5">
           <ReadOnlyFieldset readOnly={readOnly} notice={false}>
           <div className="space-y-5">

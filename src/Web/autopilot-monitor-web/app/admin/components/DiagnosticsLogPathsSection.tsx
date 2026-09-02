@@ -6,6 +6,7 @@ import { ValidationIndicator } from "@/components/ValidationIndicator";
 import { BuiltInSectionsList } from "@/components/diagnostics/BuiltInSectionsList";
 import { DiagnosticsPathRow } from "@/components/diagnostics/DiagnosticsPathRow";
 import type { DiagnosticsBuiltInSection, DiagnosticsLogPath } from "@/types/diagnostics";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 // Re-export so existing consumers importing from this component keep working
 export type { DiagnosticsLogPath };
@@ -52,19 +53,12 @@ export function DiagnosticsLogPathsSection({
 
   return (
     <div className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-gray-800 dark:to-gray-800 border-2 border-teal-300 dark:border-teal-700 rounded-lg shadow-lg">
-      <div className="p-6 border-b border-teal-200 dark:border-teal-700 bg-gradient-to-r from-teal-100 to-cyan-100 dark:from-teal-900/40 dark:to-cyan-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-teal-900 dark:text-teal-100">Diagnostics Log Paths</h2>
-            <p className="text-sm text-teal-600 dark:text-teal-300 mt-1">
-              What every diagnostics package collects: the built-in sections compiled into the agent, plus the global paths below sent to all tenants. Tenants may add their own paths in Settings.
-            </p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminTeal"
+        iconPath="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        title="Diagnostics Log Paths"
+        subtitle="What every diagnostics package collects: the built-in sections compiled into the agent, plus the global paths below sent to all tenants. Tenants may add their own paths in Settings."
+      />
       <div className="p-6 space-y-4">
         {/* Info box */}
         <div className="bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-700 rounded-lg p-3 flex items-start space-x-2">

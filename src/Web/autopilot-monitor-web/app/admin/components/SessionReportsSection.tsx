@@ -10,6 +10,7 @@ import { isGuid } from "@/utils/inputValidation";
 import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 const PAGE_SIZE = 20;
 
@@ -367,21 +368,12 @@ function SessionReportsSectionInner({
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 border-2 border-indigo-300 dark:border-indigo-700 rounded-lg shadow-lg">
       {/* Section Header */}
-      <div className="p-6 border-b border-indigo-200 dark:border-indigo-700 bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-          </svg>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-semibold text-indigo-900 dark:text-indigo-100">Session Reports</h2>
-            </div>
-            <p className="text-sm text-indigo-600 dark:text-indigo-300 mt-1">
-              Sessions reported by Tenant Admins for analysis
-            </p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminIndigoPurple"
+        iconPath="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+        title="Session Reports"
+        subtitle="Sessions reported by Tenant Admins for analysis"
+      />
 
       {/* Tenant filter + refresh */}
       <div className="px-6 pt-4 pb-2 flex items-center gap-2 flex-wrap">

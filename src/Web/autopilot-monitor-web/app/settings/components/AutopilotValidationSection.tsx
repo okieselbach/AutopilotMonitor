@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface AutopilotValidationSectionProps {
   validateAutopilotDevice: boolean;
@@ -120,26 +122,18 @@ export default function AutopilotValidationSection({
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">
-                Enrollment Device Validation
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Validate devices against Intune registrations before accepting agent data (mandatory for agent ingestion)
-              </p>
-            </div>
-          </div>
+      <SectionCardHeader
+        tone="amber"
+        iconPath="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+        title="Enrollment Device Validation"
+        subtitle="Validate devices against Intune registrations before accepting agent data (mandatory for agent ingestion)"
+        docsPath={DOCS_PATHS.enrollmentDeviceValidation}
+        trailing={
           <span className={`flex-shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${anyValidationEnabled ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
             {anyValidationEnabled ? "Enabled" : "Disabled"}
           </span>
-        </div>
-      </div>
+        }
+      />
       <div className="p-6 space-y-5">
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
           <p className="text-sm text-gray-700">

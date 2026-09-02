@@ -7,6 +7,7 @@ import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { SessionExportEvent, generateCsvExport, generateUiExport } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -66,17 +67,12 @@ export function SessionExportSection({
 
   return (
     <div className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-gray-800 dark:to-gray-800 border-2 border-teal-300 dark:border-teal-700 rounded-lg shadow-lg">
-      <div className="p-6 border-b border-teal-200 dark:border-teal-700 bg-gradient-to-r from-teal-100 to-cyan-100 dark:from-teal-900/40 dark:to-cyan-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-teal-900 dark:text-teal-100">Session Event Export</h2>
-            <p className="text-sm text-teal-600 dark:text-teal-300 mt-1">Fetch and export all events directly from storage — use to analyze timeline phase grouping and ordering</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminTeal"
+        iconPath="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+        title="Session Event Export"
+        subtitle="Fetch and export all events directly from storage — use to analyze timeline phase grouping and ordering"
+      />
       <div className="p-6">
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

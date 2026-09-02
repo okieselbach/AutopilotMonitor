@@ -7,6 +7,7 @@ import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
 interface DelegatedAssignment {
@@ -191,19 +192,12 @@ export function SectionDelegatedAdmins() {
   return (
     <div className="bg-white rounded-lg shadow">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-sky-50 to-indigo-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5 0 4.5-4 4.5-9S14.5 3 12 3 7.5 7 7.5 12s2 9 4.5 9zM3 12h18" />
-          </svg>
-          <h2 className="text-lg font-semibold text-gray-900">Delegated Admins (MSP Mode)</h2>
-        </div>
-        <p className="mt-1 text-sm text-gray-600">
-          Grant a person read access to a subset of tenants (a &ldquo;fleet&rdquo;), without making them a
-          full platform admin. They sign in to their own tenant and see only the tenants you grant here.
-        </p>
-      </div>
+      <SectionCardHeader
+        tone="skyIndigo"
+        iconPath="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5 0 4.5-4 4.5-9S14.5 3 12 3 7.5 7 7.5 12s2 9 4.5 9zM3 12h18"
+        title="Delegated Admins (MSP Mode)"
+        subtitle="Grant a person read access to a subset of tenants (a “fleet”), without making them a full platform admin. They sign in to their own tenant and see only the tenants you grant here."
+      />
 
       <div className="p-6 space-y-4">
         {/* Notifications */}

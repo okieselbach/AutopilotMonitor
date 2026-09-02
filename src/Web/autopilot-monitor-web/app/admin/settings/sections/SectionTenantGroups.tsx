@@ -7,6 +7,7 @@ import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 /** One UPN assigned to a group (camelCase JSON from the backend). */
 interface GroupAssignee {
@@ -245,19 +246,12 @@ export function SectionTenantGroups() {
   return (
     <div className="bg-white rounded-lg shadow">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-sky-50 to-indigo-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <h2 className="text-lg font-semibold text-gray-900">Tenant Groups (MSP Mode)</h2>
-        </div>
-        <p className="mt-1 text-sm text-gray-600">
-          Bundle tenants into a named group, then assign people to the group instead of to each tenant.
-          Add a tenant once and every assignee gets it; manage your managed-service team by who is assigned here.
-        </p>
-      </div>
+      <SectionCardHeader
+        tone="skyIndigo"
+        iconPath="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+        title="Tenant Groups (MSP Mode)"
+        subtitle="Bundle tenants into a named group, then assign people to the group instead of to each tenant. Add a tenant once and every assignee gets it; manage your managed-service team by who is assigned here."
+      />
 
       <div className="p-6 space-y-4">
         {/* Notifications */}

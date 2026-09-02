@@ -4,6 +4,8 @@ import { useState } from "react";
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { joinList, parseList } from "../lib/hardwareWhitelist";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface HardwareWhitelistSectionProps {
   manufacturerWhitelist: string;
@@ -136,22 +138,13 @@ export default function HardwareWhitelistSection({
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-blue-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">
-              Hardware Whitelist
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Control which device manufacturers and models the backend accepts
-              monitoring data from
-            </p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="indigo"
+        iconPath="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
+        title="Hardware Whitelist"
+        subtitle="Control which device manufacturers and models the backend accepts monitoring data from"
+        docsPath={DOCS_PATHS.hardwareWhitelist}
+      />
       <div className="p-6 space-y-5">
         <ReadOnlyFieldset readOnly={readOnly}>
         <div className="space-y-5">

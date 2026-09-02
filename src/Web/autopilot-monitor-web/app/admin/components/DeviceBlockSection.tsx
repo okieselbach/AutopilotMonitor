@@ -11,6 +11,7 @@ import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { firstBlockedSessionId, blockedSessionCount } from "./blockedDeviceHelpers";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 interface ResolvedDevice {
   sessionId: string;
@@ -309,17 +310,12 @@ function DeviceBlockSectionInner({
 
   return (
     <div className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-gray-800 dark:to-gray-800 border-2 border-red-300 dark:border-red-700 rounded-lg shadow-lg">
-      <div className="p-6 border-b border-red-200 dark:border-red-700 bg-gradient-to-r from-red-100 to-orange-100 dark:from-red-900/40 dark:to-orange-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-red-900 dark:text-red-100">Device Block Management</h2>
-            <p className="text-sm text-red-600 dark:text-red-300 mt-1">Temporarily block a rogue device from sending data. The agent will stop uploading when it receives the block signal.</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminRed"
+        iconPath="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+        title="Device Block Management"
+        subtitle="Temporarily block a rogue device from sending data. The agent will stop uploading when it receives the block signal."
+      />
       <div className="p-6 space-y-6">
         {/* Block / Kill a device form */}
         <div>

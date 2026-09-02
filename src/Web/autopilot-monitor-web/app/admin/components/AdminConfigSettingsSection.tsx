@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdminConfiguration } from "@/types/adminConfig";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 interface AdminConfigSettingsSectionProps {
   loadingConfig: boolean;
@@ -87,17 +88,12 @@ export function AdminConfigSettingsSection({
 }: AdminConfigSettingsSectionProps) {
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-gray-800 dark:to-gray-800 border-2 border-indigo-300 dark:border-indigo-700 rounded-lg shadow-lg">
-      <div className="p-6 border-b border-indigo-200 dark:border-indigo-700 bg-gradient-to-r from-indigo-100 to-blue-100 dark:from-indigo-900/40 dark:to-blue-900/40">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-indigo-900 dark:text-indigo-100">Global Settings</h2>
-            <p className="text-sm text-indigo-600 dark:text-indigo-300 mt-1">Configure global settings for all tenants</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="adminIndigo"
+        iconPath="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+        title="Global Settings"
+        subtitle="Configure global settings for all tenants"
+      />
       <div className="p-6">
         {loadingConfig ? (
           <div className="text-center py-8">

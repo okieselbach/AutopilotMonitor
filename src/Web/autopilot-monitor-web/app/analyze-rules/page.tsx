@@ -31,7 +31,8 @@ function validateEvaluateOnForm(form: RuleForm): string | null {
 import AnalyzeRuleFormFields from "./components/AnalyzeRuleFormFields";
 import AnalyzeRuleCard, { RuleTrendPoint, RuleRegressionInfo } from "./components/AnalyzeRuleCard";
 import TemplateConfigModal from "./components/TemplateConfigModal";
-import { DOCS_URL } from "@/utils/config";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 export default function AnalyzeRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -768,16 +769,13 @@ export default function AnalyzeRulesPage() {
               {/* Create Custom Rule Form */}
               {showCreateForm && (
                 <div className="bg-white rounded-lg shadow">
-                  <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                        <div>
-                          <h2 className="text-xl font-semibold text-gray-900">Create Custom Analyze Rule</h2>
-                          <p className="text-sm text-gray-500 mt-1">Define conditions and confidence scoring for issue detection — <a href={`${DOCS_URL}/rules/analyze-rules`} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:text-green-800 underline">see documentation</a></p>
-                        </div>
-                      </div>
-                      {/* JSON Mode Toggle */}
+                  <SectionCardHeader
+                    tone="indigoPurple"
+                    iconPath="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                    title="Create Custom Analyze Rule"
+                    subtitle="Define conditions and confidence scoring for issue detection"
+                    docsPath={DOCS_PATHS.analyzeRules}
+                    trailing={
                       <JsonModeToggleButtons
                         jsonMode={jsonModeCreate}
                         onToggleMode={(mode) => {
@@ -786,8 +784,8 @@ export default function AnalyzeRulesPage() {
                           setJsonError(null);
                         }}
                       />
-                    </div>
-                  </div>
+                    }
+                  />
                   <div className="p-6">
                     <FormJsonToggle
                       jsonMode={jsonModeCreate}

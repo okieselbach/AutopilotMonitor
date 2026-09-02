@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { DocsLink } from "@/components/DocsLink";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface UsageRecord {
   userId: string;
@@ -177,6 +179,7 @@ export function SectionMcpUsage() {
           >
             {loading ? "Loading..." : "Refresh"}
           </button>
+          <DocsLink path={DOCS_PATHS.mcpUsage} />
         </div>
       </div>
 

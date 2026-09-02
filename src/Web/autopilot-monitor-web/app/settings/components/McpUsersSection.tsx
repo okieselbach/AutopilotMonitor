@@ -7,6 +7,8 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { api } from "@/lib/api";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 interface McpUser {
   upn: string;
@@ -286,18 +288,13 @@ export default function McpUsersSection() {
   return (
     <div className="bg-white rounded-lg shadow">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <h2 className="text-lg font-semibold text-gray-900">MCP User Management</h2>
-        </div>
-        <p className="mt-1 text-sm text-gray-600">
-          Control who can access the AI agent interface (Model Context Protocol) and assign individual usage plans.
-        </p>
-      </div>
+      <SectionCardHeader
+        tone="purple"
+        iconPath="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+        title="MCP User Management"
+        subtitle="Control who can access the AI agent interface (Model Context Protocol) and assign individual usage plans."
+        docsPath={DOCS_PATHS.mcpUsers}
+      />
 
       <div className="p-6 space-y-4">
         {/* Notifications */}

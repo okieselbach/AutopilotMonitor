@@ -6,6 +6,8 @@ import { useTenantConfig } from "../../TenantConfigContext";
 import { trialDaysLeft } from "@/lib/edition";
 import { PlanCards } from "@/components/plans/PlanCards";
 import { SITE_URL } from "@/utils/config";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 /**
  * Self-service Pro trial switch. The Pro feature set is not finalized yet, so the
@@ -135,17 +137,13 @@ export function SectionPlan() {
 
   return (
     <div className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Plan</h2>
-            <p className="text-sm text-gray-500 mt-1">Your current plan and what Pro adds</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="purple"
+        iconPath="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+        title="Plan"
+        subtitle="Your current plan and what Pro adds"
+        docsPath={DOCS_PATHS.plan}
+      />
 
       <div className="p-6">
         <PlanCards

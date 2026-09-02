@@ -10,6 +10,8 @@ import { ContextPill, DiagnosticsPathRow } from "@/components/diagnostics/Diagno
 import SaveResetBar from "./SaveResetBar";
 import ReadOnlyFieldset from "./ReadOnlyFieldset";
 import { parseSasExpiry } from "./diagnosticsSasExpiry";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 // Re-export for callers that still import from the section. Implementation lives
 // in `diagnosticsSasExpiry.ts` so vitest can test it without pulling in JSX.
@@ -89,17 +91,13 @@ export default function DiagnosticsSection({
 
   return (
     <div id="diagnostics" className="bg-white rounded-lg shadow">
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50">
-        <div className="flex items-center space-x-2">
-          <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-          </svg>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Diagnostics Package</h2>
-            <p className="text-sm text-gray-500 mt-1">Upload diagnostic files as a ZIP package to your Azure Blob Storage after enrollment.</p>
-          </div>
-        </div>
-      </div>
+      <SectionCardHeader
+        tone="amber"
+        iconPath="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+        title="Diagnostics Package"
+        subtitle="Upload diagnostic files as a ZIP package to your Azure Blob Storage after enrollment."
+        docsPath={DOCS_PATHS.diagnosticsPackage}
+      />
       <div className="p-6 space-y-4">
         <ReadOnlyFieldset readOnly={readOnly}>
         <div className="space-y-4">

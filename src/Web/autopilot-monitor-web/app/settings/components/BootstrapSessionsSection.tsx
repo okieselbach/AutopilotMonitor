@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { BOOTSTRAP_GO_URL } from "@/utils/config";
+import { SectionCardHeader } from "@/components/SectionCardHeader";
+import { DOCS_PATHS } from "@/lib/docsPaths";
 
 // Display-only: the authoritative URL comes from the backend's bootstrapUrl
 // (Constants.BootstrapGoBaseUrl); this host renders the sessions list rows.
@@ -131,34 +133,13 @@ export default function BootstrapSessionsSection({
   return (
     <div className="bg-white rounded-lg shadow">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-cyan-50 to-teal-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-cyan-100 rounded-lg">
-              <svg
-                className="w-6 h-6 text-cyan-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">
-                OOBE Bootstrap
-              </h3>
-              <p className="text-sm text-gray-500">
-                Generate time-limited URLs to install the agent before Intune
-                enrollment
-              </p>
-            </div>
-          </div>
+      <SectionCardHeader
+        tone="cyan"
+        iconPath="M13 10V3L4 14h7v7l9-11h-7z"
+        title="OOBE Bootstrap"
+        subtitle="Generate time-limited URLs to install the agent before Intune enrollment"
+        docsPath={DOCS_PATHS.bootstrapSessions}
+        trailing={
           <button
             onClick={onRefresh}
             disabled={loading}
@@ -179,8 +160,8 @@ export default function BootstrapSessionsSection({
               />
             </svg>
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="p-6 space-y-4">
         {/* Info banner */}
