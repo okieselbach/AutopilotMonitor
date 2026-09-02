@@ -25,34 +25,22 @@ interface DailyAggregate {
 }
 
 // GetMyMcpUsageResponse.quota — the caller's own windows plus the organization-wide windows every
-// member shares. 0 = unlimited; -1 used = counters temporarily unavailable. The tenant fields are
-// optional on the client: a backend that predates the organization-wide quota omits them, and the
-// page must keep working through that deploy window (web ships before or after the backend).
+// member shares. 0 = unlimited; -1 used = counters temporarily unavailable.
 interface QuotaState {
   dailyLimit: number;
   monthlyLimit: number;
   dailyUsed: number;
   monthlyUsed: number;
-  tenantPlan?: string;
-  tenantDailyLimit?: number;
-  tenantMonthlyLimit?: number;
-  tenantDailyUsed?: number;
-  tenantMonthlyUsed?: number;
+  tenantPlan: string;
+  tenantDailyLimit: number;
+  tenantMonthlyLimit: number;
+  tenantDailyUsed: number;
+  tenantMonthlyUsed: number;
 }
 
-function hasTenantQuota(q: QuotaState): q is QuotaState & Required<Pick<QuotaState, "tenantDailyLimit" | "tenantMonthlyLimit" | "tenantDailyUsed" | "tenantMonthlyUsed">> {
-  return (
-    typeof q.tenantDailyLimit === "number" &&
-    typeof q.tenantMonthlyLimit === "number" &&
-    typeof q.tenantDailyUsed === "number" &&
-    typeof q.tenantMonthlyUsed === "number"
-  );
-}
-
-function QuotaBar({ label, used, limit }: { label: string; used: number | undefined; limit: number | undefined }) {
-  // Missing numbers (older backend, partial payload) render as unavailable instead of throwing.
-  const unavailable = typeof used !== "number" || used < 0;
-  const unlimited = typeof limit !== "number" || limit <= 0;
+function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const unavailable = used < 0;
+  const unlimited = limit <= 0;
   const pct = unavailable || unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const tone = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-indigo-500";
   return (
@@ -62,7 +50,7 @@ function QuotaBar({ label, used, limit }: { label: string; used: number | undefi
         <span className="font-mono">
           {unavailable ? "n/a" : used.toLocaleString()}
           {" / "}
-          {typeof limit !== "number" ? "n/a" : unlimited ? "unlimited" : limit.toLocaleString()}
+          {unlimited ? "unlimited" : limit.toLocaleString()}
         </span>
       </div>
       <div className="bg-gray-100 rounded-full h-2">
@@ -212,20 +200,18 @@ export function SectionMcpUsage() {
             <QuotaBar label="Today" used={quota.dailyUsed} limit={quota.dailyLimit} />
             <QuotaBar label="This month" used={quota.monthlyUsed} limit={quota.monthlyLimit} />
           </div>
-          {hasTenantQuota(quota) && (
-            <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
-                {quota.tenantPlan && <span className="text-xs text-gray-500">tenant plan {quota.tenantPlan}</span>}
-              </div>
-              <QuotaBar label="Today (all members)" used={quota.tenantDailyUsed} limit={quota.tenantDailyLimit} />
-              <QuotaBar label="This month (all members)" used={quota.tenantMonthlyUsed} limit={quota.tenantMonthlyLimit} />
-              <p className="text-xs text-gray-500">
-                Shared by every account in your tenant. A personal plan override widens only the account&apos;s own
-                windows, never these.
-              </p>
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
+              <span className="text-xs text-gray-500">tenant plan {quota.tenantPlan}</span>
             </div>
-          )}
+            <QuotaBar label="Today (all members)" used={quota.tenantDailyUsed} limit={quota.tenantDailyLimit} />
+            <QuotaBar label="This month (all members)" used={quota.tenantMonthlyUsed} limit={quota.tenantMonthlyLimit} />
+            <p className="text-xs text-gray-500">
+              Shared by every account in your tenant. A personal plan override widens only the account&apos;s own
+              windows, never these.
+            </p>
+          </div>
         </div>
       )}
 
