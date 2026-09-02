@@ -38,7 +38,10 @@ describe("SectionCardHeader", () => {
     expect(html).toContain(`href="${DOCS_URL}/integrations/notifications"`);
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain("Read the docs");
+    expect(html).toContain('aria-label="Read the docs (opens in a new tab)"');
+    // Short label on narrow screens, full label from `sm` upwards.
+    expect(html).toContain('<span class="sm:hidden">Docs</span>');
+    expect(html).toContain('<span class="hidden sm:inline">Read the docs</span>');
   });
 
   it("renders trailing content before the docs link", () => {
@@ -71,5 +74,8 @@ describe("DocsLink", () => {
     const html = renderToStaticMarkup(createElement(DocsLink, { path: "/plans", label: "See plans" }));
     expect(html).toContain(`href="${DOCS_URL}/plans"`);
     expect(html).toContain('aria-label="See plans (opens in a new tab)"');
+    // A custom label without a shortLabel renders once, without breakpoint spans.
+    expect(html).toContain(">See plans<svg");
+    expect(html).not.toContain("sm:hidden");
   });
 });

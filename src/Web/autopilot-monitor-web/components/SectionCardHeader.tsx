@@ -151,7 +151,7 @@ export interface SectionCardHeaderProps {
   iconPath: string;
   title: string;
   subtitle?: ReactNode;
-  /** Docs path below the published docs root; renders a "Read the docs" link on the right. */
+  /** Docs path below the published docs root; renders a "Read the docs" link on the right ("Docs" on narrow screens). */
   docsPath?: string;
   /** Badge, button, or toggle group rendered on the right, before the docs link. */
   trailing?: ReactNode;
