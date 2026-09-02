@@ -19,7 +19,7 @@ const OUTPUT_FILE = path.join(WEB_ROOT, "utils/page-lastmod.generated.ts");
 // live on docs.autopilotmonitor.com (GitBook) and are not part of this site.
 const PAGE_MAP = {
   "/": ["app/page.tsx"],
-  "/about": ["app/about/page.tsx"],
+  "/about": ["app/about/page.tsx", "app/about/faq.ts"],
   "/get-started": ["app/get-started/page.tsx"],
   "/plans": ["app/plans/page.tsx", "components/plans/planData.ts"],
   "/buy": ["app/buy/page.tsx"],

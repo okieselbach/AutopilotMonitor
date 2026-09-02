@@ -17,7 +17,7 @@ import AppInsightsInit from "../components/AppInsightsInit";
 import ChunkReloadRecovery from "../components/ChunkReloadRecovery";
 import { HostRoutingGuard } from "../components/HostRoutingGuard";
 import { LegacyPathRedirect } from "../components/LegacyPathRedirect";
-import { SITE_URL } from "@/utils/config";
+import { DOCS_URL, SITE_URL } from "@/utils/config";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -86,28 +86,83 @@ export const metadata: Metadata = {
   },
 };
 
+// Structured data for search and AI answer engines. One graph with stable
+// @ids so the entities link up: Oliver Kieselbach is the author/publisher of
+// the software and the site, glueckkanja AG is the provider that operates the
+// hosted service (see /about and /terms). Claims here are customer-facing
+// (.claude/CLAUDE.md, "Customer-Facing Claims") — verify before editing.
+const PERSON_ID = `${SITE_URL}/#oliver-kieselbach`;
+const ORG_ID = `${SITE_URL}/#glueckkanja`;
+const GITHUB_REPO = "https://github.com/okieselbach/AutopilotMonitor";
+
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Autopilot Monitor",
-  description:
-    "Real-time monitoring and troubleshooting platform for Windows deployments. Gives IT teams full visibility into enrollment phases, app progress, errors, and timelines.",
-  applicationCategory: "BusinessApplication",
-  operatingSystem: "Web",
-  offers: {
-    "@type": "Offer",
-    price: "0",
-    priceCurrency: "USD",
-  },
-  author: {
-    "@type": "Person",
-    name: "Oliver Kieselbach",
-    url: "https://www.linkedin.com/in/oliver-kieselbach/",
-  },
-  url: SITE_URL,
-  codeRepository: "https://github.com/okieselbach/AutopilotMonitor",
-  keywords:
-    "Windows Autopilot, Intune, enrollment monitoring, autopilot troubleshooting, Windows deployment",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": PERSON_ID,
+      name: "Oliver Kieselbach",
+      url: "https://oliverkieselbach.com",
+      jobTitle: "Microsoft MVP",
+      sameAs: [
+        "https://www.linkedin.com/in/oliver-kieselbach/",
+        "https://github.com/okieselbach",
+        "https://oliverkieselbach.com",
+      ],
+    },
+    {
+      "@type": "Organization",
+      "@id": ORG_ID,
+      name: "glueckkanja AG",
+      url: "https://www.glueckkanja.com",
+      address: { "@type": "PostalAddress", addressCountry: "DE" },
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: "Autopilot Monitor",
+      inLanguage: "en",
+      publisher: { "@id": PERSON_ID },
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#software`,
+      name: "Autopilot Monitor",
+      url: SITE_URL,
+      description:
+        "Free, open-source real-time monitoring and troubleshooting platform for Windows Autopilot enrollments managed through Microsoft Intune. A temporary agent streams enrollment events to a web portal; analyze rules detect failure patterns automatically; an MCP server lets AI assistants query the data.",
+      applicationCategory: "BusinessApplication",
+      applicationSubCategory: "IT monitoring",
+      operatingSystem: "Web (portal), Windows (agent)",
+      isAccessibleForFree: true,
+      offers: {
+        "@type": "Offer",
+        name: "Community plan",
+        price: "0",
+        priceCurrency: "EUR",
+        url: `${SITE_URL}/plans`,
+      },
+      author: { "@id": PERSON_ID },
+      creator: { "@id": PERSON_ID },
+      publisher: { "@id": PERSON_ID },
+      provider: { "@id": ORG_ID },
+      softwareHelp: { "@type": "CreativeWork", url: DOCS_URL },
+      sameAs: [GITHUB_REPO],
+      featureList: [
+        "Real-time enrollment monitoring with live push updates",
+        "Analyze rules that detect enrollment failure patterns automatically",
+        "Per-session event timeline with ESP phases, app installs, errors, and performance snapshots",
+        "Diagnostics collection (agent, IME, and device information bundle) without touching the device",
+        "Fleet health dashboard with success rates, failure trends, and enrollment duration",
+        "Delegated read-only administration across customer tenants for MSPs",
+        "Model Context Protocol (MCP) server for AI assistants",
+        "Notifications to Microsoft Teams, Slack, Discord, and generic JSON webhooks",
+      ],
+      keywords:
+        "Windows Autopilot, Microsoft Intune, enrollment monitoring, Autopilot troubleshooting, Enrollment Status Page, Windows deployment",
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -123,7 +178,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }}
         />
         <ThemeProvider>
           <AuthProvider>

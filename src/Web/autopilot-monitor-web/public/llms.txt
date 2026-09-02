@@ -1,0 +1,43 @@
+# Autopilot Monitor
+
+> Free, open-source real-time monitoring and troubleshooting for Windows Autopilot enrollments managed through Microsoft Intune. A lightweight, temporary agent streams enrollment events to a web portal, analyze rules flag failure patterns automatically, and a Model Context Protocol (MCP) server lets AI assistants query the data. Created and maintained by Oliver Kieselbach (Microsoft MVP); the hosted service is operated by glueckkanja AG and runs in Azure Germany West Central.
+
+Autopilot Monitor is for IT administrators, helpdesk engineers, and managed service providers who deploy Windows devices with Intune and Autopilot. The Community plan is free and covers the full current feature set; a Pro plan with reliability commitments, priority support, longer retention, and delegated administration across customer tenants is coming.
+
+## Portal
+
+- [Home](https://www.autopilotmonitor.com/): product overview
+- [About](https://www.autopilotmonitor.com/about): what it is, how it works, common questions
+- [Get started](https://www.autopilotmonitor.com/get-started): first steps for a new tenant
+- [Plans](https://www.autopilotmonitor.com/plans): Community vs. Pro
+- [Help](https://www.autopilotmonitor.com/help): support channels
+- [Privacy Policy](https://www.autopilotmonitor.com/privacy)
+- [Terms of Use](https://www.autopilotmonitor.com/terms)
+
+## Documentation
+
+- [Documentation home](https://docs.autopilotmonitor.com/)
+- [Documentation index for LLMs](https://docs.autopilotmonitor.com/llms.txt)
+- [How Autopilot Monitor works](https://docs.autopilotmonitor.com/getting-started/how-it-works): architecture and supported enrollment scenarios
+- [Requirements & access](https://docs.autopilotmonitor.com/getting-started/requirements-and-access)
+- [Deploy the agent](https://docs.autopilotmonitor.com/getting-started/deploy-the-agent)
+- [Autopilot Device Preparation](https://docs.autopilotmonitor.com/getting-started/autopilot-device-preparation)
+- [Windows 365 Cloud PCs](https://docs.autopilotmonitor.com/getting-started/windows-365-cloud-pcs)
+- [Agent lifecycle & security](https://docs.autopilotmonitor.com/concepts/agent-lifecycle-and-security)
+- [Roles & permissions](https://docs.autopilotmonitor.com/concepts/roles-and-permissions): including delegated (MSP) administration
+- [Analyze rules](https://docs.autopilotmonitor.com/rules/analyze-rules)
+- [Gather rules](https://docs.autopilotmonitor.com/rules/gather-rules)
+- [IME log patterns](https://docs.autopilotmonitor.com/rules/ime-log-patterns)
+- [AI integration (MCP)](https://docs.autopilotmonitor.com/integrations/ai-integration-mcp)
+- [Settings reference](https://docs.autopilotmonitor.com/reference/settings)
+- [Plans](https://docs.autopilotmonitor.com/plans)
+- [FAQ](https://docs.autopilotmonitor.com/troubleshooting/faq)
+- [Security & privacy FAQ](https://docs.autopilotmonitor.com/trust/security-faq): data residency, isolation, sub-processors
+- [Platform changelog](https://docs.autopilotmonitor.com/changelog/platform-changelog)
+- [Agent changelog](https://docs.autopilotmonitor.com/changelog/agent-changelog)
+
+## Source
+
+- [GitHub repository](https://github.com/okieselbach/AutopilotMonitor)
+- [Issues & feedback](https://github.com/okieselbach/AutopilotMonitor/issues)
+- [Oliver Kieselbach's blog](https://oliverkieselbach.com)

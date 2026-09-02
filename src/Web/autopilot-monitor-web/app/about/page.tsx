@@ -2,6 +2,19 @@ import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
+import { ABOUT_FAQ } from "./faq";
+
+// FAQPage structured data mirrors the visible "Common Questions" section
+// one-to-one (same source array), as search and AI answer engines require.
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: ABOUT_FAQ.map((item) => ({
+    "@type": "Question",
+    name: item.question,
+    acceptedAnswer: { "@type": "Answer", text: item.answer },
+  })),
+};
 
 const FEATURES = [
   {
@@ -14,7 +27,7 @@ const FEATURES = [
   {
     title: "Intelligent Analyze Rules",
     description:
-      "Built-in and fully customizable analyze rules automatically detect enrollment failure patterns — from reboot loops and app timeouts to policy conflicts and IME log anomalies.",
+      "Built-in and fully customizable analyze rules automatically detect enrollment failure patterns — from app install retry loops and ESP timeouts to detection-rule failures and IME log anomalies.",
     color: "indigo",
     bullets: ["Community-driven built-in rules", "Custom rule authoring", "Confidence-scored findings per session"],
   },
@@ -305,6 +318,28 @@ export default function AboutPage() {
             >
               Oliver Kieselbach on LinkedIn
             </a>
+          </div>
+        </section>
+
+        {/* Common Questions — answer-first, no collapsibles: each answer must
+            read as a self-contained paragraph when quoted on its own. */}
+        <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd).replace(/</g, "\\u003c") }}
+          />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Common Questions</h2>
+          <p className="text-gray-600 mb-6 leading-relaxed">
+            Short answers to what IT admins ask most often. The full FAQ lives in the{" "}
+            <a href={`${DOCS_URL}/troubleshooting/faq`} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">documentation</a>.
+          </p>
+          <div className="space-y-6">
+            {ABOUT_FAQ.map((item) => (
+              <div key={item.question}>
+                <h3 className="text-base font-semibold text-gray-900 mb-1.5">{item.question}</h3>
+                <p className="text-sm text-gray-700 leading-relaxed">{item.answer}</p>
+              </div>
+            ))}
           </div>
         </section>
 
