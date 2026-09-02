@@ -99,4 +99,29 @@ describe('toolError', () => {
     expect(text).toContain('shared by every member of the tenant');
     expect(text).not.toContain('larger usage plan');
   });
+
+  it("names the MANAGED tenant when a delegated read exhausted that tenant's budget", () => {
+    // "The budget follows the data": the managed Community customer's window blocked the read, so the
+    // hint points at that tenant's plan, not at the caller's organization — and the other managed
+    // tenants stay usable.
+    const err = new ApiError(429, JSON.stringify({
+      quotaExceeded: true,
+      plan: 'pro',
+      scope: 'daily',
+      level: 'tenant',
+      limit: 300,
+      used: 300,
+      resetUtc: '2026-09-03T00:00:00Z',
+      message: "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-09-03T00:00:00Z.",
+      targetTenantId: '7aa20c11-0002-4b7c-a1d2-52f3aaaa0002',
+    }));
+    const res = toolError('search_sessions', {}, err);
+    const text = res.content[0].text;
+    expect(text).toContain("managed tenant 'customer.example'");
+    expect(text).toContain('do not retry THIS tenant');
+    expect(text).toContain('upgrading it to Pro');
+    expect(text).toContain('other managed tenants remain available');
+    expect(text).not.toContain('shared by every member of the tenant');
+    expect(text).not.toContain('larger usage plan');
+  });
 });

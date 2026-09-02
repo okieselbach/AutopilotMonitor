@@ -129,4 +129,15 @@ public class FeatureEntitlementCatalogTests
         var e = FeatureEntitlementCatalog.Get((TenantEdition)42);
         Assert.Equal(TenantEdition.Community, e.Edition);
     }
+
+    // ── Delegated (MSP) tenant slots ─────────────────────────────────────────────
+
+    [Fact]
+    public void Entitlements_MaxDelegatedTenants_CommunityZero_ProTwo()
+    {
+        // Community cannot delegate at all (DelegatedAdminAllowed=false) — its slot count is 0 by construction;
+        // Pro includes 2 managed tenants, more via the per-tenant override (packages).
+        Assert.Equal(0, FeatureEntitlementCatalog.Get(TenantEdition.Community).MaxDelegatedTenants);
+        Assert.Equal(2, FeatureEntitlementCatalog.Get(TenantEdition.Pro).MaxDelegatedTenants);
+    }
 }

@@ -164,6 +164,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // keeps the common authenticated path free of the extra table read.
         string? delegatedRole = null;
         IReadOnlyCollection<string>? allowedTenantIds = null;
+        IReadOnlyCollection<string>? homeChargedTenantIds = null;
         var isScopedRoute = catalogEntry.TenantScoping is TenantScoping.RouteParam or TenantScoping.QueryParam;
         if (!hasGlobalScope && !string.IsNullOrEmpty(upn) && isScopedRoute && crossTenant)
         {
@@ -172,7 +173,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             var scope = await _delegatedAdminService.GetScopeAsync(AdminIdentity.FromPrincipal(principal));
             delegatedRole = scope.RoleFor(namedTarget);
             if (delegatedRole != null)
+            {
                 allowedTenantIds = scope.TenantIds;
+                // Billing attribution for the MCP quota layer: a target reached through a home-charged group.
+                if (scope.ChargesHome(namedTarget))
+                    homeChargedTenantIds = new[] { namedTarget!.ToLowerInvariant() };
+            }
         }
         // A delegated grant only applies to the READ tiers — never to write tiers (TenantAdminOrGA,
         // GlobalAdminOnly, …). This is the single fact that keeps delegation read-only in this phase and
@@ -272,6 +278,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             IsDelegatedReader = delegatedRole == Constants.DelegatedRoles.DelegatedReader || admittedViaDelegatedSubset,
             IsDelegatedAdmin = delegatedRole == Constants.DelegatedRoles.DelegatedAdmin,
             AllowedTenantIds = effectiveAllowedTenantIds,
+            // The bounded DATA aggregate: subset tier on a QueryParam route with no tenantId named. config/all
+            // (subset tier, TenantScoping.None) is a directory listing, not an aggregate — it stays false there.
+            IsDelegatedAggregate = admittedViaDelegatedSubset
+                && namedTarget == null
+                && catalogEntry.TenantScoping == TenantScoping.QueryParam,
+            HomeChargedTenantIds = homeChargedTenantIds ?? decision.HomeChargedTenantIds,
             // Additive: a caller's tenant-admin status is its OWN-TENANT role, independent of any
             // platform role. Evaluators that admit via a platform-role branch still surface the
             // resolved tenant role on decision.TenantRole; pure-tenant branches leave it null and
@@ -611,7 +623,8 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         if (!scope.IsEmpty)
             return CatalogDecisionResult.Allow(
                 userIdentifier, Constants.DelegatedRoles.DelegatedReader, "DelegatedSubset",
-                allowedTenantIds: scope.TenantIds);
+                allowedTenantIds: scope.TenantIds,
+                homeChargedTenantIds: scope.HomeChargedTenantIds.Count > 0 ? scope.HomeChargedTenantIds : null);
 
         return CatalogDecisionResult.Deny(userIdentifier, "NonGlobal", "NotGlobalOrDelegated");
     }
@@ -687,9 +700,15 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         /// </summary>
         public IReadOnlyCollection<string>? AllowedTenantIds { get; private init; }
 
+        /// <summary>
+        /// Subset tier only: the members of <see cref="AllowedTenantIds"/> reached through a home-charged
+        /// Tenant Group (MCP quota billing attribution, see RequestContext.HomeChargedTenantIds). Null when none.
+        /// </summary>
+        public IReadOnlyCollection<string>? HomeChargedTenantIds { get; private init; }
+
         public static CatalogDecisionResult Allow(string user, string role, string reason, string? tenantRole = null,
-            IReadOnlyCollection<string>? allowedTenantIds = null)
-            => new() { IsAllowed = true, UserIdentifier = user, UserRole = role, Reason = reason, TenantRole = tenantRole, AllowedTenantIds = allowedTenantIds };
+            IReadOnlyCollection<string>? allowedTenantIds = null, IReadOnlyCollection<string>? homeChargedTenantIds = null)
+            => new() { IsAllowed = true, UserIdentifier = user, UserRole = role, Reason = reason, TenantRole = tenantRole, AllowedTenantIds = allowedTenantIds, HomeChargedTenantIds = homeChargedTenantIds };
 
         public static CatalogDecisionResult Deny(string user, string role, string reason)
             => new() { IsAllowed = false, UserIdentifier = user, UserRole = role, Reason = reason };

@@ -253,6 +253,8 @@ builder.Services.AddSingleton<AdminIdentityBindingService>();
 builder.Services.AddSingleton<AdminIdentityResolver>();
 builder.Services.AddSingleton<GlobalAdminService>();
 builder.Services.AddSingleton<DelegatedAdminService>();
+builder.Services.AddSingleton<DelegatedSlotService>();
+builder.Services.AddSingleton<DelegationSelfService>();
 builder.Services.AddSingleton<McpUserService>();
 builder.Services.AddSingleton<PreviewWhitelistService>();
 // Shared activation path (whitelist add + auto-promote + welcome email) — used by the

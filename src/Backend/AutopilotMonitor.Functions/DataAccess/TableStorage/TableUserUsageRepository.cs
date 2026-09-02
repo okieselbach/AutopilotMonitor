@@ -208,7 +208,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // ---- McpTenantUsage (organization-wide quota counters) ----
 
-        public async Task IncrementTenantUsageAsync(string tenantId, string userId)
+        public async Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName, string? homeTenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(userId))
                 return;
@@ -226,6 +226,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     var count = entity.TryGetValue("RequestCount", out var c) ? Convert.ToInt64(c) : 0L;
                     entity["RequestCount"] = count + 1;
                     entity["LastRequestAt"] = DateTimeOffset.UtcNow;
+                    // Attribution columns (added 2026-09): the UPN as last seen, and the caller's home tenant
+                    // when this row was charged by a delegated (MSP) read. Refreshed on every increment so a
+                    // row created before the columns existed heals on its next hit.
+                    if (!string.IsNullOrEmpty(userPrincipalName))
+                        entity["UserPrincipalName"] = userPrincipalName;
+                    entity["HomeTenantId"] = homeTenantId ?? string.Empty;
                     await _tenantTableClient.UpdateEntityAsync(entity, entity.ETag);
                     return;
                 }
@@ -235,6 +241,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     {
                         ["Date"] = date,
                         ["UserId"] = userId,
+                        ["UserPrincipalName"] = userPrincipalName ?? string.Empty,
+                        ["HomeTenantId"] = homeTenantId ?? string.Empty,
                         ["RequestCount"] = 1L,
                         ["LastRequestAt"] = DateTimeOffset.UtcNow,
                     };
@@ -270,8 +278,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 {
                     TenantId = entity.PartitionKey,
                     UserId = entity.GetString("UserId") ?? string.Empty,
+                    UserPrincipalName = entity.GetString("UserPrincipalName") ?? string.Empty,
+                    HomeTenantId = entity.GetString("HomeTenantId") ?? string.Empty,
                     Date = entity.GetString("Date") ?? entity.RowKey.Split('_')[0],
                     RequestCount = entity.TryGetValue("RequestCount", out var rc) ? Convert.ToInt64(rc) : 0L,
+                    LastRequestAt = entity.GetDateTimeOffset("LastRequestAt")?.UtcDateTime,
                 });
             }
             return records;

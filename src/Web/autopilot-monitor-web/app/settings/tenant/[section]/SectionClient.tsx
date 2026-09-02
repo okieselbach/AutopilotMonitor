@@ -12,6 +12,7 @@ import { SectionSlaTargets } from "../sections/SectionSlaTargets";
 import { SectionSubmitLogs } from "../sections/SectionSubmitLogs";
 import { SectionContact } from "../sections/SectionContact";
 import { SectionOptionalGraphCapabilities } from "../sections/SectionOptionalGraphCapabilities";
+import { SectionDelegatedAccess } from "../sections/SectionDelegatedAccess";
 
 const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
   "plan": SectionPlan,
@@ -20,6 +21,7 @@ const SECTION_COMPONENTS: Record<TenantSectionId, React.ComponentType> = {
   "notifications": SectionNotifications,
   "sla-targets": SectionSlaTargets,
   "access-management": SectionAccessManagement,
+  "delegations": SectionDelegatedAccess,
   "bootstrap-sessions": SectionBootstrapSessions,
   "graph-permissions": SectionOptionalGraphCapabilities,
   "contact": SectionContact,

@@ -1054,6 +1054,19 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Self-service delegation invitations / slot holds: all rows are terminal long before 90 days
+                // (7-day invitation TTL, 24-hour release hold) — sweep them with the audit-grade retention.
+                var deleted = await _delegationInvitationRepo.DeleteOlderThanAsync(now.AddDays(-90));
+                if (deleted > 0)
+                    _logger.LogInformation("Delegation invitation cleanup: deleted {Count} rows older than 90 days", deleted);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup old delegation invitation rows");
+            }
+
+            try
+            {
                 var deleted = await _maintenanceRepo.DeleteAuditLogsOlderThanAsync(now.AddDays(-auditLogRetentionDays));
                 if (deleted > 0)
                     _logger.LogInformation("Audit log cleanup: deleted {Count} entries older than {Days} days", deleted, auditLogRetentionDays);

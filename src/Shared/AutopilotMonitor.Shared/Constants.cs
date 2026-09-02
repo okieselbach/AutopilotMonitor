@@ -927,6 +927,54 @@ namespace AutopilotMonitor.Shared
             public const string CustomerDelegated = "CustomerDelegated";
         }
 
+        /// <summary>Delegated ("MSP") tenant slots — the per-home-tenant limit on distinct managed tenants.</summary>
+        public static class DelegatedSlots
+        {
+            /// <summary>Machine-readable <c>code</c> on the 409 a slot-limited mutation returns (DelegatedSlotLimitReachedResponse).</summary>
+            public const string LimitReachedCode = "DelegatedSlotLimitReached";
+        }
+
+        /// <summary>Lifecycle of a DelegationInvitations row. <see cref="Expired"/> is derived (Pending past ExpiresDate), never stored.</summary>
+        public static class DelegationInvitationStatus
+        {
+            public const string Pending = "Pending";
+            public const string Accepted = "Accepted";
+            public const string Cancelled = "Cancelled";
+            /// <summary>The managed tenant left again; the slot stays occupied until HoldUntilDate.</summary>
+            public const string Released = "Released";
+            public const string Expired = "Expired";
+        }
+
+        /// <summary>
+        /// Deterministic ids of the implicit self-service Tenant Group every managing (MSP) tenant owns:
+        /// <c>msp-{homeTenantId}</c>. Its members are the customers that accepted an invitation; its assignees are
+        /// the managing tenant's own users. Ordinary group to every consumer (scope resolution, middleware, MCP).
+        /// </summary>
+        public static class TenantGroupIds
+        {
+            public const string SelfServicePrefix = "msp-";
+            public static string ForHomeTenant(string homeTenantId) => SelfServicePrefix + homeTenantId.ToLowerInvariant();
+            public static bool IsSelfService(string? groupId) => groupId != null && groupId.StartsWith(SelfServicePrefix, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>Machine-readable <c>code</c> values of the self-service delegation 4xx bodies.</summary>
+        public static class DelegationCodes
+        {
+            public const string InvalidInvitation = "InvalidInvitation";
+            public const string InvitationNotFound = "InvitationNotFound";
+            public const string InvitationExpired = "InvitationExpired";
+            public const string InvitationAlreadyUsed = "InvitationAlreadyUsed";
+            public const string InvitationCancelled = "InvitationCancelled";
+            public const string CannotAcceptOwnInvitation = "CannotAcceptOwnInvitation";
+            public const string AlreadyManaged = "AlreadyManaged";
+            public const string ManagerNotEntitled = "ManagerNotEntitled";
+            public const string DelegatedAdminNotAllowed = "DelegatedAdminNotAllowed";
+            public const string NotManagedBySelfService = "NotManagedBySelfService";
+            public const string NotATenantMember = "NotATenantMember";
+            public const string AssigneeNotFound = "AssigneeNotFound";
+            public const string IdentityBindingConflict = "IdentityBindingConflict";
+        }
+
         /// <summary>
         /// Placeholder substituted for secret-bearing string fields (SAS URLs, webhook URLs, API keys,
         /// custom webhook headers) when a config object is served to a read-only GlobalReader. Non-empty
@@ -1043,6 +1091,13 @@ namespace AutopilotMonitor.Shared
             // PK=UPN (lowercase), RK=groupId. Hot path: GetScopeAsync point-scans by PK to expand the
             // UPN's groups into the effective tenant set. NOT tenant-id-keyed (offboarding never touches it).
             public const string TenantGroupAssignments = "TenantGroupAssignments";
+
+            // Self-service delegation invitations + slot release holds of a managing (MSP) tenant.
+            // PK=home (managing) tenant id, RK=invitationId. Lifecycle Pending → Accepted → Released (hold)
+            // or Pending → Cancelled; "Expired" is derived. TenantId = the managed tenant once accepted, so
+            // the offboarding property wipe purges rows for an offboarded MANAGED tenant; the home tenant's
+            // own offboarding wipes the partition (exact-PK bucket).
+            public const string DelegationInvitations = "DelegationInvitations";
 
             // Admin identity bindings — the immutable Entra identity (tid + oid) behind every UPN that holds a
             // cross-tenant role (GlobalAdmins, DelegatedAdmins, TenantGroupAssignments). PK="Bindings",
@@ -1251,6 +1306,7 @@ namespace AutopilotMonitor.Shared
                 TenantAdmins,
                 McpUsers,
                 DelegatedAdmins,
+                DelegationInvitations,
                 TenantGroups,
                 TenantGroupAssignments,
                 AdminIdentityBindings,

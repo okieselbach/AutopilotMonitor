@@ -398,4 +398,25 @@ public class EndpointPolicyCatalogCompletenessTests
         Assert.True(match.Success);
         Assert.Equal(expectedTenantId, match.Groups["tenantId"].Value);
     }
+
+    [Fact]
+    public void SelfServiceDelegationRoutes_NeverCarryTenantIdParam_AndAreTenantAdminTiers()
+    {
+        // The managing tenant acts on CUSTOMER tenants (remove, revoke) and a customer accepts an invitation
+        // from a FOREIGN tenant: a {tenantId} template would put every such call behind the cross-tenant guard.
+        // The tenant is therefore ALWAYS the caller's JWT tenant, and the tiers are the tenant-admin ones.
+        var routes = EndpointAccessPolicyCatalog.Entries.Where(e => e.RouteTemplate.StartsWith("delegations/", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(routes);
+        foreach (var route in routes)
+        {
+            Assert.DoesNotContain("{tenantId}", route.RouteTemplate);
+            Assert.NotEqual(TenantScoping.RouteParam, route.TenantScoping);
+            Assert.NotEqual(TenantScoping.QueryParam, route.TenantScoping);
+            Assert.True(route.Policy is EndpointPolicy.TenantAdminOrGlobalReader or EndpointPolicy.TenantAdminOrGA,
+                $"{route.HttpMethod} {route.RouteTemplate} must be a tenant-admin tier, was {route.Policy}");
+        }
+        // Mutations never admit the read-only Global Reader.
+        foreach (var route in routes.Where(r => r.HttpMethod != "GET"))
+            Assert.Equal(EndpointPolicy.TenantAdminOrGA, route.Policy);
+    }
 }

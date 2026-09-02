@@ -121,7 +121,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     RetentionCapDays = entitlements.RetentionCapDays,
                     UserRateLimitPerMinute = entitlements.UserRateLimitPerMinute,
                     DelegatedAdminAllowed = entitlements.DelegatedAdminAllowed,
-                    McpUsagePlan = entitlements.McpUsagePlanName
+                    McpUsagePlan = entitlements.McpUsagePlanName,
+                    // Effective slot limit (override beats the catalog) — a count, computed from the config row.
+                    MaxDelegatedTenants = TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc)
                 }
             };
         }

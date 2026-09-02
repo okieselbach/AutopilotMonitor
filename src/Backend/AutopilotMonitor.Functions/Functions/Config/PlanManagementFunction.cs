@@ -59,7 +59,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         /// <summary>
         /// PATCH /api/config/{tenantId}/plan — GlobalAdminOnly (catalog-enforced).
-        /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null }.
+        /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null, "maxDelegatedTenants"?: int | null }.
+        /// maxDelegatedTenants sets the delegated (MSP) slot override (null clears it — the plan entitlement applies).
         /// The legacy stored value "enterprise" stays readable (resolves as Pro) but is no longer
         /// accepted on writes.
         /// Setting a trial date grants/extends the trial (TrialConsumed is NOT touched — GA
@@ -90,6 +91,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 string? newPlanTier = null;
                 bool trialProvided = false;
                 DateTime? newTrialExpiresUtc = null;
+                bool slotsProvided = false;
+                int? newMaxDelegatedTenants = null;
 
                 using (doc)
                 {
@@ -127,10 +130,27 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             return await BadRequestAsync(req, "trialExpiresUtc must be an ISO-8601 date-time string or null");
                         }
                     }
+
+                    if (doc.RootElement.TryGetProperty("maxDelegatedTenants", out var slotsProp))
+                    {
+                        slotsProvided = true;
+                        if (slotsProp.ValueKind == JsonValueKind.Null)
+                        {
+                            newMaxDelegatedTenants = null; // explicit null = clear the override
+                        }
+                        else if (slotsProp.ValueKind == JsonValueKind.Number && slotsProp.TryGetInt32(out var slots) && slots >= 0)
+                        {
+                            newMaxDelegatedTenants = slots;
+                        }
+                        else
+                        {
+                            return await BadRequestAsync(req, "maxDelegatedTenants must be a non-negative integer or null");
+                        }
+                    }
                 }
 
-                if (newPlanTier == null && !trialProvided)
-                    return await BadRequestAsync(req, "Provide planTier and/or trialExpiresUtc");
+                if (newPlanTier == null && !trialProvided && !slotsProvided)
+                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc and/or maxDelegatedTenants");
 
                 var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
@@ -145,6 +165,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var (editionBefore, editionAfter) =
                     ApplyPlanChanges(config, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
+                ApplyDelegatedSlotChange(config, slotsProvided, newMaxDelegatedTenants, changes);
 
                 if (changes.Count > 0)
                 {
@@ -199,7 +220,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     TrialExpiresUtc = config.TrialExpiresUtc,
                     TrialConsumed = config.TrialConsumed,
                     EffectiveEdition = editionAfter.ToString().ToLowerInvariant(),
-                    RetentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc)
+                    RetentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc),
+                    MaxDelegatedTenants = TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc),
+                    MaxDelegatedTenantsOverride = config.MaxDelegatedTenantsOverride,
                 });
                 return response;
             }
@@ -265,6 +288,20 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
 
             return (before, after);
+        }
+
+        /// <summary>
+        /// Pure mutation core for the delegated (MSP) slot override: records and applies the change only
+        /// when a value was provided AND differs. The audit entry names "(catalog)" for the absent override.
+        /// </summary>
+        internal static void ApplyDelegatedSlotChange(
+            TenantConfiguration config, bool provided, int? maxDelegatedTenants, Dictionary<string, string> changes)
+        {
+            if (!provided || config.MaxDelegatedTenantsOverride == maxDelegatedTenants)
+                return;
+            changes["MaxDelegatedTenantsOverride"] =
+                $"{config.MaxDelegatedTenantsOverride?.ToString() ?? "(catalog)"} -> {maxDelegatedTenants?.ToString() ?? "(catalog)"}";
+            config.MaxDelegatedTenantsOverride = maxDelegatedTenants;
         }
 
         /// <summary>

@@ -125,7 +125,8 @@ public class McpQuotaServiceTests
         string? mcpUserPlanOverride = null,
         TenantEdition edition = TenantEdition.Community,
         IMemoryCache? cache = null,
-        bool bound = true)
+        bool bound = true,
+        Func<string?, TenantEdition>? editionResolver = null)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -152,7 +153,7 @@ public class McpQuotaServiceTests
             usageRepo.Object,
             mcpUserService,
             adminConfigService,
-            new StubTenantEntitlementService(edition),
+            new StubTenantEntitlementService(editionResolver ?? (_ => edition)),
             cache,
             NullLogger<McpQuotaService>.Instance,
             new TestTimeProvider(Now));
@@ -357,7 +358,7 @@ public class McpQuotaServiceTests
             {
                 new() { UserId = Oid, Date = "20260707", RequestCount = 150 }
             });
-        cache.Remove($"mcp-quota:{Oid}"); // stands in for the 60s TTL elapsing
+        cache.Remove(McpQuotaService.UserCacheKey(Oid)); // stands in for the 60s TTL elapsing
 
         var decision = await svc.CheckAsync(Oid, Upn, TenantId);
 
@@ -476,5 +477,157 @@ public class McpQuotaServiceTests
         Assert.True(second.Allowed);
         Assert.Equal(-1, first.TenantDailyUsed);
         repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
+    }
+
+    // ── Delegated (MSP) reads: the budget follows the data ───────────────────────
+    // The CHARGED tenant (the managed customer) supplies the organization windows and counters; the
+    // caller's own windows still follow their HOME tenant's plan (and their per-user override).
+
+    private const string Target = "22222222-2222-2222-2222-222222222222";
+    private const string Target2 = "33333333-3333-3333-3333-333333333333";
+    private const string OtherOid = "00000000-0000-0000-0000-000000000002";
+
+    private static void TenantRows(Mock<IUserUsageRepository> repo, string tenantId, params (string Date, long Count)[] rows)
+        => repo.Setup(r => r.GetTenantUsageAsync(tenantId, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(rows.Select(r => new TenantUsageRecord
+            {
+                TenantId = tenantId,
+                UserId = "some-member-or-msp",
+                Date = r.Date,
+                RequestCount = r.Count
+            }).ToList());
+
+    private static TenantEdition HomeProTargetsCommunity(string? tenantId)
+        => tenantId == TenantId ? TenantEdition.Pro : TenantEdition.Community;
+
+    [Fact]
+    public async Task Check_DelegatedTarget_ChargesTheManagedTenantsPlanAndCounters()
+    {
+        // Pro MSP reads a Community customer whose organization window (300/day) other readers burned.
+        var repo = UsageRepo(("20260707", 5));
+        TenantRows(repo, Target, ("20260707", 300));
+        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+
+        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal("daily", d.Scope);
+        Assert.Equal("community", d.TenantPlan);
+        Assert.Equal(300, d.TenantDailyLimit);
+        Assert.Equal(Target, d.TargetTenantId);
+        // The caller's OWN windows still come from the Pro home tenant.
+        Assert.Equal("pro", d.Plan);
+        Assert.Equal(1000, d.DailyLimit);
+        repo.Verify(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Check_DelegatedTarget_UserBudgetStillFollowsHome()
+    {
+        // Community home (100/day) reading a Pro customer: the caller's own daily window bites first.
+        var repo = UsageRepo(("20260707", 100));
+        TenantRows(repo, Target, ("20260707", 1));
+        var svc = Build(repo, editionResolver: t => t == Target ? TenantEdition.Pro : TenantEdition.Community);
+
+        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("user", d.Level);
+        Assert.Equal("community", d.Plan);
+        Assert.Equal("pro", d.TenantPlan);
+        Assert.Equal(Target, d.TargetTenantId);
+    }
+
+    [Fact]
+    public async Task Check_OwnTenant_NamesNoTarget()
+    {
+        var svc = Build(UsageRepo(("20260707", 1)));
+        var legacy = await svc.CheckAsync(Oid, Upn, TenantId);
+        var explicitHome = await svc.CheckAsync(Oid, Upn, TenantId, TenantId);
+        Assert.Null(legacy.TargetTenantId);
+        Assert.Null(explicitHome.TargetTenantId);
+    }
+
+    [Fact]
+    public async Task Check_TenantSnapshot_IsSharedAcrossCallersOfTheSameTenant()
+    {
+        // Two different callers charged to the same customer read its organization counters ONCE per TTL.
+        var repo = UsageRepo(("20260707", 1));
+        repo.Setup(r => r.GetUsageByUserAsync(OtherOid, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ReturnsAsync(new List<UserUsageRecord>());
+        TenantRows(repo, Target, ("20260707", 10));
+        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+
+        await svc.CheckAsync(Oid, Upn, TenantId, Target);
+        await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId, Target);
+
+        repo.Verify(r => r.GetTenantUsageAsync(Target, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task CheckMany_ExcludesExhaustedTenants_AdmitsTheRest()
+    {
+        var repo = UsageRepo(("20260707", 1));
+        TenantRows(repo, Target, ("20260707", 300));
+        TenantRows(repo, Target2, ("20260707", 10));
+        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+
+        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
+
+        Assert.True(r.Allowed);
+        Assert.Null(r.BlockingDecision);
+        Assert.True(r.UserDecision.Allowed);
+        Assert.Equal(new[] { Target2 }, r.AdmittedTenantIds);
+        Assert.Equal(new[] { Target }, r.ExcludedTenantIds);
+    }
+
+    [Fact]
+    public async Task CheckMany_AllExhausted_BlocksWithTheEarliestReset()
+    {
+        var repo = UsageRepo(("20260707", 1));
+        TenantRows(repo, Target, ("20260707", 300));                       // daily window → resets tomorrow
+        TenantRows(repo, Target2, ("20260701", 9000), ("20260707", 1));   // monthly window → resets on the 1st
+        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+
+        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
+
+        Assert.False(r.Allowed);
+        Assert.Empty(r.AdmittedTenantIds);
+        Assert.Equal(2, r.ExcludedTenantIds.Count);
+        Assert.Equal("tenant", r.BlockingDecision!.Level);
+        Assert.Equal("daily", r.BlockingDecision.Scope);
+        Assert.Equal(new DateTime(2026, 7, 8, 0, 0, 0, DateTimeKind.Utc), r.BlockingDecision.ResetUtc);
+    }
+
+    [Fact]
+    public async Task CheckMany_UserExhausted_SkipsEveryTenantRead()
+    {
+        var repo = UsageRepo(("20260707", 100)); // Community home: 100/day
+        var svc = Build(repo);
+
+        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
+
+        Assert.False(r.Allowed);
+        Assert.Equal("user", r.BlockingDecision!.Level);
+        Assert.Equal(2, r.ExcludedTenantIds.Count);
+        repo.Verify(r2 => r2.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckMany_TenantReadFails_AdmitsThatTenant_FailOpen()
+    {
+        var repo = UsageRepo(("20260707", 1));
+        repo.Setup(r => r.GetTenantUsageAsync(Target, It.IsAny<string?>(), It.IsAny<string?>()))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+        TenantRows(repo, Target2, ("20260707", 10));
+        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+
+        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
+
+        Assert.True(r.Allowed);
+        Assert.Equal(new[] { Target, Target2 }, r.AdmittedTenantIds.OrderBy(t => t));
+        Assert.Empty(r.ExcludedTenantIds);
     }
 }

@@ -33,6 +33,7 @@ public class TenantGroupManagementFunction
     private readonly AdminIdentityResolver _identityResolver;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
+    private readonly DelegatedSlotService _slots;
 
     private const string AuditEntity = "DelegatedGroupAccess";
 
@@ -41,13 +42,15 @@ public class TenantGroupManagementFunction
         DelegatedAdminService delegatedAdminService,
         AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService)
+        ISignalRNotificationService signalRService,
+        DelegatedSlotService slots)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
         _identityResolver = identityResolver;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
+        _slots = slots;
     }
 
     /// <summary>GET /api/global/tenant-groups — list every group with tenants + assignee count. GlobalReadOrAdmin.</summary>
@@ -84,28 +87,67 @@ public class TenantGroupManagementFunction
         return response;
     }
 
-    /// <summary>PATCH /api/global/tenant-groups/{groupId} — rename. GlobalAdminOnly. Body: { "name": "..." }.</summary>
-    [Function("RenameTenantGroup")]
+    /// <summary>
+    /// PATCH /api/global/tenant-groups/{groupId} — update group metadata. GlobalAdminOnly.
+    /// Body: { "name"?: "...", "chargeHomeTenantQuota"?: true|false } — at least one field. A rename has no
+    /// scope effect; the quota flag re-attributes every assignee's MCP reads into the group's tenants (charged
+    /// to the assignee's home tenant instead of the managed tenant) and is audited under each tenant.
+    /// </summary>
+    [Function("UpdateTenantGroup")]
     [Authorize]
-    public async Task<HttpResponseData> RenameTenantGroup(
+    public async Task<HttpResponseData> UpdateTenantGroup(
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "global/tenant-groups/{groupId}")] HttpRequestData req,
         string groupId, FunctionContext context)
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<RenameTenantGroupRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Name))
-            return await Bad(req, "name is required");
+        var body = await req.ReadFromJsonAsync<UpdateTenantGroupRequest>();
+        if (body == null || (string.IsNullOrWhiteSpace(body.Name) && body.ChargeHomeTenantQuota == null))
+            return await Bad(req, "name and/or chargeHomeTenantQuota is required");
 
-        var ok = await _delegatedAdminService.RenameGroupAsync(groupId, body.Name);
-        if (!ok)
+        if (!string.IsNullOrWhiteSpace(body.Name))
+        {
+            if (!await _delegatedAdminService.RenameGroupAsync(groupId, body.Name))
+                return await NotFound(req);
+            _logger.LogInformation("Tenant group renamed: {GroupId} -> '{Name}' by {By}", groupId, body.Name, currentUpn);
+        }
+
+        if (body.ChargeHomeTenantQuota is bool chargeHomeTenantQuota
+            && !await SetChargeModeCoreAsync(groupId, chargeHomeTenantQuota, currentUpn))
             return await NotFound(req);
 
-        _logger.LogInformation("Tenant group renamed: {GroupId} -> '{Name}' by {By}", groupId, body.Name, currentUpn);
-
         var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Group renamed" });
+        await response.WriteAsJsonAsync(new { message = "Group updated" });
         return response;
+    }
+
+    /// <summary>
+    /// Testable core of the quota-charge-mode flip (no HTTP plumbing). Returns false when the group does not
+    /// exist. An unchanged value is a no-op (no audit); a real change is audited under EVERY tenant in the group
+    /// — the customer's trail records whose budget the group's assignees draw on from now on.
+    /// </summary>
+    internal async Task<bool> SetChargeModeCoreAsync(string groupId, bool chargeHomeTenantQuota, string? currentUpn)
+    {
+        var group = await _delegatedAdminService.GetGroupAsync(groupId);
+        if (group == null)
+            return false;
+        if (group.ChargeHomeTenantQuota == chargeHomeTenantQuota)
+            return true;
+
+        if (!await _delegatedAdminService.SetChargeHomeTenantQuotaAsync(groupId, chargeHomeTenantQuota))
+            return false;
+
+        await AuditPerTenantAsync(group.TenantIds, "UPDATE", "*", currentUpn,
+            new Dictionary<string, string>
+            {
+                { "Group", group.Name },
+                { "GroupId", groupId },
+                { "Reason", "quota-charge-mode-changed" },
+                { "ChargeHomeTenantQuota", chargeHomeTenantQuota ? "true" : "false" },
+            });
+
+        _logger.LogInformation("Tenant group {GroupId} chargeHomeTenantQuota={Flag} by {By}", groupId, chargeHomeTenantQuota, currentUpn);
+        return true;
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId} — delete group + all its assignments. GlobalAdminOnly.</summary>
@@ -168,13 +210,21 @@ public class TenantGroupManagementFunction
             return await Bad(req, "a valid tenantId (GUID) is required");
 
         var tenantId = body.TenantId.ToLowerInvariant();
+        // Every current assignee's HOME tenant gains this tenant — each must have a free slot (fresh read).
+        var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
+        var violation = await _slots.CheckAddTenantToGroupAsync(assignees.Select(a => a.Upn), tenantId);
+        if (violation != null)
+            return await DelegatedSlotResponses.ConflictAsync(req, violation);
+
         // The service refuses to add to a non-existent group (no ghost from a lone membership row).
         var added = await _delegatedAdminService.AddTenantToGroupAsync(groupId, tenantId);
         if (!added)
             return await NotFound(req);
 
+        foreach (var home in await _slots.ResolveHomeTenantsAsync(assignees.Select(a => a.Upn)))
+            _slots.Invalidate(home);
+
         // Every current assignee just gained access to this tenant — audit under that tenant per assignee.
-        var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
         foreach (var assignee in assignees)
         {
             await _maintenanceRepo.LogAuditEntryAsync(
@@ -268,6 +318,11 @@ public class TenantGroupManagementFunction
             return unresolved;
         }
 
+        // Slot limit of the assignee's HOME tenant: the whole group's tenant set must fit (fresh read).
+        var violation = await _slots.CheckAsync(identity.Value.TenantId, group.TenantIds);
+        if (violation != null)
+            return await DelegatedSlotResponses.ConflictAsync(req, violation);
+
         // The service re-checks existence (covers a delete racing this assign) — skip the audit if it no-ops.
         bool assigned;
         try
@@ -283,6 +338,7 @@ public class TenantGroupManagementFunction
         }
         if (!assigned)
             return await NotFound(req);
+        _slots.Invalidate(identity.Value.TenantId);
 
         // The UPN just gained read access to every tenant in the group — audit under each.
         await AuditPerTenantAsync(group.TenantIds, "CREATE", upn, currentUpn,
@@ -382,9 +438,12 @@ public class CreateTenantGroupRequest
     public string Name { get; set; } = string.Empty;
 }
 
-public class RenameTenantGroupRequest
+public class UpdateTenantGroupRequest
 {
-    public string Name { get; set; } = string.Empty;
+    /// <summary>New display name; omitted/blank = unchanged.</summary>
+    public string? Name { get; set; }
+    /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>; omitted = unchanged.</summary>
+    public bool? ChargeHomeTenantQuota { get; set; }
 }
 
 public class AddGroupTenantRequest

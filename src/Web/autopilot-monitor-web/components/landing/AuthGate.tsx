@@ -35,7 +35,10 @@ export function AuthGate() {
       // sign-in; only honor it when the user's tenant is activated. On the re-home hop only
       // PEEK: the link has to survive the extra sign-in round trip for the AuthGate pass that
       // follows, and leaving it in place beats re-saving it.
-      const returnUrl = rehomeNow ? peekPostLoginReturnUrl() : consumePostLoginReturnUrl();
+      // While activation is pending the link is only PEEKED as well: an invited customer admin whose
+      // tenant is still being activated must land on the invitation once activation completes, not on
+      // /dashboard — the link survives the /activation detour for the AuthGate pass that follows.
+      const returnUrl = rehomeNow || isActivationPending ? peekPostLoginReturnUrl() : consumePostLoginReturnUrl();
       let target: Route;
       if (isActivationPending) {
         target = "/activation";

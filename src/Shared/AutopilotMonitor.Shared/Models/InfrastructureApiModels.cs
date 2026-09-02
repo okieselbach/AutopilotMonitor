@@ -237,5 +237,12 @@ namespace AutopilotMonitor.Shared.Models
         public string ResetUtc { get; set; } = default!;
 
         public string Message { get; set; } = default!;
+
+        /// <summary>
+        /// The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs
+        /// the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the
+        /// all-managed-tenants-exhausted aggregate block.
+        /// </summary>
+        public string? TargetTenantId { get; set; }
     }
 }

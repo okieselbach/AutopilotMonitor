@@ -88,9 +88,33 @@ public sealed record RequestContext
     /// The set of tenant IDs (lowercase) the caller is authorized for via delegated assignments, or null
     /// when the caller is not a delegated admin (or full platform scope, which is unbounded = "all tenants").
     /// Populated on cross-tenant delegated reads; consumed by cross-tenant aggregation to bound the fan-out
-    /// to the delegated subset (Phase 2). Null ⇒ no delegated bound applies.
+    /// to the delegated subset (Phase 2). Null ⇒ no delegated bound applies. For an MCP fleet aggregate
+    /// McpQuotaEnforcementMiddleware may NARROW this set (never widen it, never null it) to the managed
+    /// tenants whose organization budget is not exhausted — see <see cref="QuotaExcludedTenantIds"/>.
     /// </summary>
     public IReadOnlyCollection<string>? AllowedTenantIds { get; init; }
+
+    /// <summary>
+    /// True when a delegated caller was admitted to a subset-tier DATA aggregate (GlobalReadOrDelegatedSubset +
+    /// TenantScoping.QueryParam, no tenantId named): the handler fans out over <see cref="AllowedTenantIds"/>.
+    /// False for config/all (TenantScoping.None — a directory listing) and for every single-target drill.
+    /// </summary>
+    public bool IsDelegatedAggregate { get; init; }
+
+    /// <summary>
+    /// Managed tenants dropped from <see cref="AllowedTenantIds"/> by McpQuotaEnforcementMiddleware because
+    /// their organization MCP budget is exhausted. Null when nothing was excluded (or not an MCP aggregate).
+    /// Handlers echo it as <c>quotaExcludedTenants</c>.
+    /// </summary>
+    public IReadOnlyCollection<string>? QuotaExcludedTenantIds { get; init; }
+
+    /// <summary>
+    /// The subset of this request's managed target tenants (the single target, or members of
+    /// <see cref="AllowedTenantIds"/>) that were reached through a Tenant Group flagged
+    /// <c>ChargeHomeTenantQuota</c>: MCP reads into them are charged to the caller's HOME tenant instead of
+    /// the managed tenant. Null when none apply. Billing attribution only — never an authorization input.
+    /// </summary>
+    public IReadOnlyCollection<string>? HomeChargedTenantIds { get; init; }
 
     /// <summary>True if the user is a Tenant Admin of their own tenant.</summary>
     public bool IsTenantAdmin { get; init; }

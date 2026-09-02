@@ -138,6 +138,8 @@ export interface TenantConfiguration {
   planTier?: string;
   trialExpiresUtc?: string | null;
   trialConsumed?: boolean;
+  /** Delegated (MSP) tenant slot override; null = plan entitlement. GA-only, via PATCH plan. */
+  maxDelegatedTenantsOverride?: number | null;
 }
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).

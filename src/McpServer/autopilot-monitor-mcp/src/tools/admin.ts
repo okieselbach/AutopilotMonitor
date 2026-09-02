@@ -5,6 +5,44 @@ import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
+
+/** Default first-page size of get_fleet_overview's session list (a fleet snapshot, not a sweep). */
+const FLEET_OVERVIEW_PAGE_SIZE = 25;
+
+/**
+ * Pure: the get_fleet_overview result. The two backend responses each carry their own
+ * quotaExcludedTenants (the quota layer decides per request); the union is what the model must know is
+ * missing. Absent keys stay absent (WhenWritingNull on the wire; undefined here) so the payload stays lean.
+ */
+export function buildFleetOverview(
+  sessions: SessionListResponse,
+  stats: SessionStatsResponse | undefined,
+  days: number,
+  managedTenants: string[] | undefined,
+): Record<string, unknown> {
+  const excluded = new Set<string>([
+    ...(sessions.quotaExcludedTenants ?? []),
+    ...(stats?.quotaExcludedTenants ?? []),
+  ]);
+  const quotaExcludedTenants = excluded.size > 0 ? [...excluded] : undefined;
+  return {
+    days,
+    ...(managedTenants ? { managedTenants } : {}),
+    ...(stats ? { stats: stats.stats } : {}),
+    count: sessions.count,
+    sessions: sessions.sessions,
+    ...(sessions.nextLink ? { nextLink: sessions.nextLink } : {}),
+    ...(quotaExcludedTenants
+      ? {
+          quotaExcludedTenants,
+          quotaNote:
+            `${quotaExcludedTenants.length} managed tenant(s) skipped: their organization MCP budget is exhausted, so ` +
+            'their sessions and stats are missing from this overview until their window resets or they upgrade their plan. ' +
+            'Every other managed tenant is included.',
+        }
+      : {}),
+  };
+}
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 import type {
   GeographicLocationSessionsLeanResponse,
@@ -21,6 +59,8 @@ import type {
   RuleStatsRuleAggregate,
   SoftwareInventoryResponse,
   VerdictCalibrationResponse,
+  SessionListResponse,
+  SessionStatsResponse,
 } from '../generated/wire-types.generated.js';
 // Vocabularies as VALUES, generated from the C# constants (see wire-vocabularies.generated.ts).
 // Tool enums derive from these — a hand-typed list is what let get_ops_events advertise a
@@ -635,6 +675,63 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_usage_metrics', args, error);
+      }
+    })
+  );
+
+  // Tool: get_fleet_overview — the bounded fleet aggregate. The ONLY delegated tool that takes no tenantId:
+  // it calls the two GlobalReadOrDelegatedSubset routes (global/stats/sessions + global/sessions) whose
+  // handlers the backend bounds to the caller's managed set — the same aggregate the delegated web
+  // dashboard uses. Quota: each managed tenant's OWN organization budget is charged once per call;
+  // exhausted tenants are dropped by the backend (never the whole request) and echoed as
+  // quotaExcludedTenants so the model can say what is missing. For a Global Admin / Reader the same routes
+  // return the unbounded platform-wide view. Not registered for normal (single-tenant) users.
+  if (ga || delegated) server.registerTool(
+    'get_fleet_overview',
+    {
+      title: 'Fleet Overview',
+      description:
+        (delegated
+          ? 'Bounded aggregate across ALL the tenants you manage as a delegated (MSP) administrator — the only tool that ' +
+            'needs no tenantId. '
+          : 'Platform-wide enrollment overview across every tenant (Global Admin / Reader). ') +
+        'Returns enrollment stats (counts, success rate, durations, today) plus the most recent sessions, merged ' +
+        'server-side newest-first' + (delegated ? ' and bounded to your managed tenants' : '') + '. ' +
+        (delegated
+          ? 'Quota: each managed tenant\'s OWN MCP budget is charged once per call; a tenant whose organization budget is ' +
+            'exhausted is SKIPPED (not failed) and listed in "quotaExcludedTenants" — its data is missing until its window ' +
+            'resets or it upgrades its plan. '
+          : '') +
+        'For filtered searches or one tenant use search_sessions / get_session_summary with a tenantId. Pagination of the ' +
+        'session list: pass the whole nextLink back as "continuation" (stats come with the first page only).',
+      inputSchema: {
+        days: z.coerce.number().int().min(1).max(365).optional().default(7)
+          .describe('Window in days for the stats and the session list (1-365, default 7).'),
+        pageSize: z.coerce.number().int().min(1).max(200).optional()
+          .describe('Sessions per page (1-200; default ' + FLEET_OVERVIEW_PAGE_SIZE + ' on the first page). On a follow-up call an explicit value overrides the pageSize embedded in the nextLink; omit it to keep that size.'),
+        continuation: z.string().optional()
+          .describe('The full nextLink from a prior response to fetch the next page of sessions (stats are not repeated).'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_fleet_overview', args, async () => {
+      try {
+        const { days, pageSize: explicitPageSize, continuation } = args;
+        const pageSize = pageSizeForCall(explicitPageSize, continuation, FLEET_OVERVIEW_PAGE_SIZE);
+        const sessionsPath = followNextLink('/api/global/sessions', { days, pageSize }, continuation, { pageSize });
+        const firstPage = !continuation;
+        const [sessions, stats] = await Promise.all([
+          apiFetch(sessionsPath) as Promise<SessionListResponse>,
+          firstPage
+            ? (apiFetch(`/api/global/stats/sessions${buildQuery({ days })}`) as Promise<SessionStatsResponse>)
+            : Promise.resolve(undefined),
+        ]);
+        return toolResultText(
+          buildFleetOverview(sessions, stats, days, delegated ? getDelegatedTenantIds() : undefined),
+          MAX_RESULT_SIZE_CHARS.sessions,
+        );
+      } catch (error: unknown) {
+        return toolError('get_fleet_overview', args, error);
       }
     })
   );

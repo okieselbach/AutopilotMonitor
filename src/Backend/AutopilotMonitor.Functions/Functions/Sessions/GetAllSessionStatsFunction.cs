@@ -67,7 +67,13 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     callerTenantId, tenantIdFilter ?? "none", days, allowedTenantIds != null);
 
                 var stats = await _sessionRepo.GetAllSessionStatsAsync(tenantIdFilter, days, allowedTenantIds);
-                return await req.OkAsync(new SessionStatsResponse { Success = true, Stats = stats });
+                return await req.OkAsync(new SessionStatsResponse
+                {
+                    Success = true,
+                    Stats = stats,
+                    // MCP fleet aggregate only: managed tenants the quota layer dropped (see GetAllSessions).
+                    QuotaExcludedTenants = req.GetRequestContext().QuotaExcludedTenantIds?.ToArray(),
+                });
             }
             catch (Exception ex)
             {

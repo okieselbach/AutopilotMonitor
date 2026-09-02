@@ -103,6 +103,9 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.ScriptNameCache,
             // Organization-wide MCP quota counters (PK=tenantId, RK={yyyyMMdd}_{oid}); also 90d retention.
             Constants.TableNames.McpTenantUsage,
+            // Self-service delegation invitations + slot holds this tenant issued as a MANAGING tenant
+            // (PK=home tenant id). Rows where it is the MANAGED tenant go via the property wipe below.
+            Constants.TableNames.DelegationInvitations,
         };
 
         // Variant D — RowKey-anchored wipes for tables whose ROW key is the tenant id.
@@ -160,8 +163,11 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.TenantGroups,
             // Identity bindings HOMED in this tenant (PK="Bindings", RK=UPN, TenantId = the admin's home
             // tenant). Once the home tenant is gone its admins' cross-tenant role rows must be inert; the
-            // rows themselves are UPN-keyed and survive, but without a binding they resolve nothing.
+            // tenant; tenant offboarding purges bindings homed in that tenant.
             Constants.TableNames.AdminIdentityBindings,
+            // Delegation invitation / hold rows where this tenant is the MANAGED side (TenantId property set on
+            // accept). Pending rows carry no TenantId and belong to the managing tenant's partition.
+            Constants.TableNames.DelegationInvitations,
         };
 
         // PR3.B plan §3 — Customs rules tables: archive each row to
@@ -984,6 +990,15 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
                 ct.ThrowIfCancellationRequested();
                 counts[table] = await _safeWipe.WipeByRowKeyAsync(table, tenantId, ct);
             }
+
+            // The tenant's own self-service Tenant Group ("msp-{tenantId}": PK=groupId, which no bucket above
+            // matches) and the assignment rows pointing at it — the managing side of self-service delegation.
+            ct.ThrowIfCancellationRequested();
+            var ownedGroupId = Constants.TenantGroupIds.ForHomeTenant(tenantId);
+            counts[$"{Constants.TableNames.TenantGroups}/owned"] =
+                await _safeWipe.WipeByExactPartitionAsync(Constants.TableNames.TenantGroups, ownedGroupId, ct);
+            counts[$"{Constants.TableNames.TenantGroupAssignments}/owned"] =
+                await _safeWipe.WipeByRowKeyAsync(Constants.TableNames.TenantGroupAssignments, ownedGroupId, ct);
         }
 
         // ── Failure path ────────────────────────────────────────────────────────

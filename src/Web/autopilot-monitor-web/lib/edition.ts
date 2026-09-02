@@ -25,6 +25,8 @@ export interface EditionInfo {
     userRateLimitPerMinute: number | null;
     delegatedAdminAllowed: boolean;
     mcpUsagePlan: string;
+    /** Effective delegated (MSP) tenant slot limit (override or plan entitlement); 0 = no delegation. */
+    maxDelegatedTenants: number;
   };
 }
 
@@ -43,6 +45,7 @@ export const COMMUNITY_DEFAULT: EditionInfo = {
     userRateLimitPerMinute: null,
     delegatedAdminAllowed: false,
     mcpUsagePlan: "community",
+    maxDelegatedTenants: 0,
   },
 };
 
@@ -74,6 +77,7 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
         typeof ent.userRateLimitPerMinute === "number" ? ent.userRateLimitPerMinute : null,
       delegatedAdminAllowed: ent.delegatedAdminAllowed === true,
       mcpUsagePlan: typeof ent.mcpUsagePlan === "string" ? ent.mcpUsagePlan : "community",
+      maxDelegatedTenants: typeof ent.maxDelegatedTenants === "number" ? ent.maxDelegatedTenants : 0,
     },
   };
 }

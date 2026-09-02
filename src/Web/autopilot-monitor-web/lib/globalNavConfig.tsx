@@ -206,6 +206,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         id: "cfg-tenant", label: "Tenant", icon: <BuildingOfficeIcon />,
         items: [
           { id: "cfg-access-mgmt", label: "Access Management", href: route("/settings/tenant/access-management") },
+          { id: "cfg-delegations", label: "Delegated Access", href: route("/settings/tenant/delegations") },
           { id: "cfg-autopilot", label: "Autopilot Validation", href: route("/settings/tenant/autopilot") },
           { id: "cfg-hardware", label: "Hardware Whitelist", href: route("/settings/tenant/hardware-whitelist") },
           { id: "cfg-notifications", label: "Notifications", href: route("/settings/tenant/notifications") },

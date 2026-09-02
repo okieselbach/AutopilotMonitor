@@ -8,23 +8,13 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { TenantGroup } from "@/utils/wire-types.generated";
+import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
+import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 
-/** One UPN assigned to a group (camelCase JSON from the backend). */
-interface GroupAssignee {
-  upn: string;
-  role: string; // "DelegatedReader" | "DelegatedAdmin"
-  isEnabled: boolean;
-}
-
-/** A tenant group as returned by /api/global/tenant-groups. */
-interface TenantGroup {
-  groupId: string;
-  name: string;
-  createdBy: string;
-  createdAt: string;
-  tenantIds: string[];
-  assigneeCount: number;
-  assignees: GroupAssignee[];
+/** A mutation held back by the slot limit, with everything needed to replay it after the limit is raised. */
+interface SlotPromptState extends SlotLimitError {
+  retry: { key: string; url: string; method: string; body: unknown; ok: string };
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -51,6 +41,9 @@ export function SectionTenantGroups() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // 409 DelegatedSlotLimitReached on add-tenant / assign: offer to raise the managing tenant's limit and replay.
+  const [slotPrompt, setSlotPrompt] = useState<SlotPromptState | null>(null);
+  const [raisingSlots, setRaisingSlots] = useState(false);
 
   // Per-group input state (keyed by groupId).
   const [tenantToAdd, setTenantToAdd] = useState<Record<string, string>>({});
@@ -118,8 +111,14 @@ export function SectionTenantGroups() {
           if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED && key.startsWith("assign:")) {
             setNeedHomeTenant((p) => ({ ...p, [key.slice("assign:".length)]: true }));
           }
+          const slot = parseSlotLimitError(response.status, data);
+          if (slot) {
+            setSlotPrompt({ ...slot, retry: { key, url, method, body, ok } });
+            return false;
+          }
           throw new Error(data.error || `Request failed: ${response.statusText}`);
         }
+        setSlotPrompt(null);
         flash(ok);
         await fetchGroups();
         return true;
@@ -134,6 +133,21 @@ export function SectionTenantGroups() {
     [getAccessToken, fetchGroups],
   );
 
+  const handleRaiseSlots = useCallback(async (newLimit: number) => {
+    if (!slotPrompt) return;
+    setRaisingSlots(true);
+    setError(null);
+    const failure = await raiseDelegatedSlotLimit(getAccessToken, slotPrompt.homeTenantId, newLimit);
+    setRaisingSlots(false);
+    if (failure) {
+      setError(failure);
+      return;
+    }
+    const { key, url, method, body, ok } = slotPrompt.retry;
+    setSlotPrompt(null);
+    await mutate(key, url, method, body, ok);
+  }, [slotPrompt, getAccessToken, mutate]);
+
   const handleCreate = useCallback(async () => {
     const name = newName.trim();
     if (!name) return;
@@ -147,7 +161,28 @@ export function SectionTenantGroups() {
     async (t: TenantGroup) => {
       const name = prompt("Rename group:", t.name)?.trim();
       if (!name || name === t.name) return;
-      await mutate(`rename:${t.groupId}`, api.tenantGroups.rename(t.groupId), "PATCH", { name }, `Renamed to "${name}".`);
+      await mutate(`rename:${t.groupId}`, api.tenantGroups.update(t.groupId), "PATCH", { name }, `Renamed to "${name}".`);
+    },
+    [mutate],
+  );
+
+  /**
+   * Operator flag: MCP reads an assignee makes into this group's tenants are charged to the assignee's HOME
+   * tenant's quota instead of the managed tenant's — for our own managed-service group, whose customers must
+   * never pay for (or be blocked by) our analysis. Audited under every tenant in the group.
+   */
+  const handleToggleChargeMode = useCallback(
+    async (t: TenantGroup) => {
+      const next = !t.chargeHomeTenantQuota;
+      await mutate(
+        `charge:${t.groupId}`,
+        api.tenantGroups.update(t.groupId),
+        "PATCH",
+        { chargeHomeTenantQuota: next },
+        next
+          ? `"${t.name}": MCP reads are now charged to the assignee's home tenant.`
+          : `"${t.name}": MCP reads are now charged to the managed tenant.`,
+      );
     },
     [mutate],
   );
@@ -271,6 +306,14 @@ export function SectionTenantGroups() {
             <span className="text-red-800">{error}</span>
           </div>
         )}
+        {slotPrompt && (
+          <DelegatedSlotPrompt
+            prompt={slotPrompt}
+            busy={raisingSlots || busyKey !== null}
+            onRaise={handleRaiseSlots}
+            onCancel={() => setSlotPrompt(null)}
+          />
+        )}
 
         {/* Create form */}
         <div className="bg-sky-50 border border-sky-200 rounded-lg p-4 space-y-3">
@@ -339,22 +382,57 @@ export function SectionTenantGroups() {
                         {t.tenantIds.length} tenant{t.tenantIds.length === 1 ? "" : "s"} · {t.assigneeCount} assignee
                         {t.assigneeCount === 1 ? "" : "s"}
                       </span>
+                      {t.chargeHomeTenantQuota && (
+                        <span
+                          className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap"
+                          title="MCP reads into these tenants are charged to the assignee's home tenant, not the managed tenant."
+                        >
+                          Quota: home tenant
+                        </span>
+                      )}
+                      {t.ownerTenantId && (
+                        <span
+                          className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 whitespace-nowrap"
+                          title={`Self-service group owned by tenant ${t.ownerTenantId}: its customers joined by invitation and the owner manages membership and assignees itself.`}
+                        >
+                          Owned by {domainOf(t.ownerTenantId) || t.ownerTenantId}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleRename(t)}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        onClick={() => handleDeleteGroup(t)}
-                        className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                      >
-                        Delete
-                      </button>
+                      {!t.ownerTenantId && (
+                        <>
+                          <button
+                            onClick={() => handleRename(t)}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                          >
+                            Rename
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGroup(t)}
+                            className="px-3 py-1 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
+
+                  {/* Quota attribution (operator-managed groups) */}
+                  <label className="flex items-start gap-2 px-4 py-2 border-b border-gray-100 text-xs text-gray-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={t.chargeHomeTenantQuota}
+                      onChange={() => handleToggleChargeMode(t)}
+                      disabled={busyKey === `charge:${t.groupId}`}
+                      className="mt-0.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                    />
+                    <span>
+                      Charge MCP quota to the assignee&rsquo;s <strong>home tenant</strong> instead of the managed tenant
+                      (operator-managed group: customers never pay for, or get blocked by, our own analysis).
+                    </span>
+                  </label>
 
                   <div className="p-4 grid gap-4 md:grid-cols-2">
                     {/* Tenants column */}
@@ -488,7 +566,9 @@ export function SectionTenantGroups() {
 
         <p className="text-xs text-gray-500">
           Reader is read-only (secrets redacted). Only onboarded tenants appear in the dropdown. Changes take
-          effect on the assignee&rsquo;s next request.
+          effect on the assignee&rsquo;s next request. By default an assignee&rsquo;s MCP reads into a managed tenant
+          draw on that tenant&rsquo;s own MCP budget (its plan governs it); the per-group checkbox re-attributes them
+          to the assignee&rsquo;s home tenant.
         </p>
       </div>
     </div>

@@ -198,6 +198,12 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>End of the retention downgrade grace window, or null — the key is omitted when null.</summary>
         public DateTime? RetentionGraceEndsUtc { get; set; }
+
+        /// <summary>Effective delegated (MSP) tenant slot limit after the change (override or plan entitlement).</summary>
+        public int MaxDelegatedTenants { get; set; }
+
+        /// <summary>The Global Admin override; omitted when the plan entitlement applies.</summary>
+        public int? MaxDelegatedTenantsOverride { get; set; }
     }
 
     /// <summary>

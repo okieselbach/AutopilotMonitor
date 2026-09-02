@@ -278,6 +278,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "metrics/software-inventory", EndpointPolicy.MemberRead),
         new("GET",    "metrics/geographic",        EndpointPolicy.MemberRead),
         new("GET",    "metrics/mcp-usage/user/{userId}", EndpointPolicy.TenantAdminOrGlobalReader),
+        // Organization usage by account, ALWAYS the caller's own JWT tenant (None): admin information (UPNs),
+        // and a delegated caller must never enumerate a managed tenant's accounts through it.
+        new("GET",    "metrics/mcp-usage/organization",  EndpointPolicy.TenantAdminOrGlobalReader),
         new("GET",    "metrics/geographic/sessions", EndpointPolicy.MemberRead),
         new("GET",    "metrics/ime-versions",      EndpointPolicy.MemberRead),
         new("GET",    "metrics/ime-pattern-health", EndpointPolicy.GlobalReadOrAdmin),
@@ -600,6 +603,26 @@ public static class EndpointAccessPolicyCatalog
         // (audit "who can actually use this grant, from which tenant"); rebind/remove are GlobalAdminOnly and
         // are the ONLY way to re-home a UPN or re-pin its object id (grants refuse to overwrite a binding).
         new("GET",    "global/identity-bindings",                               EndpointPolicy.GlobalReadOrAdmin),
+        // Delegated (MSP) slot accounting of a managing tenant — platform-operational (excludeDelegated).
+        new("GET",    "global/delegated-slots/{tenantId}",                EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam, excludeDelegated: true),
+        new("POST",   "global/delegated-slots/{tenantId}/release-hold",   EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        // Self-service delegation — the managing Pro tenant's own surface plus the managed tenant's "who manages
+        // me". Deliberately NO {tenantId} in these templates: the tenant is ALWAYS the caller's JWT tenant (a
+        // RouteParam template would put the managing tenant's mutations on a customer behind the cross-tenant
+        // guard). Reads admit the read-only Global Reader; mutations are tenant-admin (or GA) only.
+        new("GET",    "delegations/slots",                        EndpointPolicy.TenantAdminOrGlobalReader),
+        new("GET",    "delegations/managed",                      EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "delegations/managed/remove",               EndpointPolicy.TenantAdminOrGA),
+        new("GET",    "delegations/invitations",                  EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "delegations/invitations",                  EndpointPolicy.TenantAdminOrGA),
+        new("DELETE", "delegations/invitations/{invitationId}",   EndpointPolicy.TenantAdminOrGA),
+        new("GET",    "delegations/assignees",                    EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "delegations/assignees",                    EndpointPolicy.TenantAdminOrGA),
+        new("DELETE", "delegations/assignees/{upn}",              EndpointPolicy.TenantAdminOrGA),
+        new("GET",    "delegations/accept",                       EndpointPolicy.TenantAdminOrGA),
+        new("POST",   "delegations/accept",                       EndpointPolicy.TenantAdminOrGA),
+        new("GET",    "delegations/managers",                     EndpointPolicy.TenantAdminOrGlobalReader),
+        new("POST",   "delegations/managers/revoke",              EndpointPolicy.TenantAdminOrGA),
         new("PUT",    "global/identity-bindings/{upn}",                         EndpointPolicy.GlobalAdminOnly),
         new("DELETE", "global/identity-bindings/{upn}",                         EndpointPolicy.GlobalAdminOnly),
         new("PATCH",  "config/{tenantId}/plan",                            EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),

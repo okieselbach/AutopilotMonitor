@@ -86,6 +86,32 @@ namespace AutopilotMonitor.Functions.Services
                || config.BootstrapTokenEnabled;
 
         /// <summary>
+        /// The effective delegated ("MSP") tenant slot limit: the Global Admin override when set (it applies
+        /// regardless of edition — a package can be provisioned ahead of the plan flip; USING delegation still
+        /// needs Pro via DelegatedAdminAllowed), else the edition's catalog value (Community 0, Pro 2).
+        /// </summary>
+        public static int GetMaxDelegatedTenants(TenantConfiguration config, DateTime nowUtc)
+            => config.MaxDelegatedTenantsOverride
+               ?? FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).MaxDelegatedTenants;
+
+        /// <summary>Cached read-time variant of <see cref="GetMaxDelegatedTenants"/>. No row / any error ⇒ 0 (fail-closed).</summary>
+        public virtual async Task<int> GetMaxDelegatedTenantsAsync(string? homeTenantId)
+        {
+            if (string.IsNullOrWhiteSpace(homeTenantId))
+                return 0;
+            try
+            {
+                var config = await _configService.GetConfigurationIfExistsAsync(homeTenantId);
+                return config == null ? 0 : GetMaxDelegatedTenants(config, _time.GetUtcNow().UtcDateTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Entitlement] Delegated slot limit resolution failed for tenant {TenantId} — treating as 0 (fail-closed)", homeTenantId);
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// Whether Unrestricted Mode is effectively ACTIVE for this config. Requires all three:
         /// the edition allows it (Pro — read-time, so trial expiry / downgrade re-arms the
         /// guardrails fail-closed), the GA-only on-request gate

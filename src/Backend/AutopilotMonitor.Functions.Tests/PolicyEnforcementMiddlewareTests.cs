@@ -799,6 +799,91 @@ public class PolicyEnforcementMiddlewareTests
         Assert.False(rc.IsGlobalReader);
         Assert.NotNull(rc.AllowedTenantIds);
         Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
+        // …and it is the DATA aggregate the MCP quota layer may narrow (charged per managed tenant).
+        Assert.True(rc.IsDelegatedAggregate);
+        Assert.Null(rc.HomeChargedTenantIds);
+    }
+
+    [Fact]
+    public async Task Delegated_GlobalSessions_WithTenantId_IsADrill_NotAnAggregate()
+    {
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedReader);
+        Assert.Equal(TenantB, rc.TargetTenantId);
+        Assert.False(rc.IsDelegatedAggregate);
+        Assert.Null(rc.HomeChargedTenantIds);
+    }
+
+    [Fact]
+    public async Task Delegated_ConfigAll_IsADirectoryListing_NotAnAggregate()
+    {
+        // Subset tier with TenantScoping.None: admitted + bounded, but no data fan-out — the quota layer
+        // charges it to the caller's home tenant, never to the managed tenants.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/config/all", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedReader);
+        Assert.NotNull(rc.AllowedTenantIds);
+        Assert.False(rc.IsDelegatedAggregate);
+    }
+
+    private static void AsHomeChargedGroupMember(Harness h, string groupId, string upn, params string[] tenantIds)
+    {
+        h.Repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
+            .ReturnsAsync(new List<TenantGroupAssignment>
+            {
+                new() { Upn = upn, GroupId = groupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true, AssignedBy = "ga@vendor.example" },
+            });
+        h.Repo.Setup(r => r.GetGroupMembershipAsync(groupId))
+            .ReturnsAsync(new TenantGroupMembership
+            {
+                GroupId = groupId,
+                TenantIds = tenantIds.Select(t => t.ToLowerInvariant()).ToList(),
+                ChargeHomeTenantQuota = true,
+            });
+    }
+
+    [Fact]
+    public async Task Delegated_HomeChargedGroup_MarksTheDrillTarget()
+    {
+        const string upn = "ops@vendor.example";
+        var h = BuildHarness();
+        AsHomeChargedGroupMember(h, "grp-managed-service", upn, TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedReader);
+        Assert.Equal(new[] { TenantB.ToLowerInvariant() }, rc.HomeChargedTenantIds);
+    }
+
+    [Fact]
+    public async Task Delegated_HomeChargedGroup_MarksTheAggregateMembers()
+    {
+        const string upn = "ops@vendor.example";
+        var h = BuildHarness();
+        AsHomeChargedGroupMember(h, "grp-managed-service", upn, TenantB);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        var rc = result.Context!;
+        Assert.True(rc.IsDelegatedAggregate);
+        Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
+        Assert.Equal(new[] { TenantB.ToLowerInvariant() }, rc.HomeChargedTenantIds);
     }
 
     [Fact]
@@ -987,6 +1072,35 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.False(result.Allowed);
         Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delegated_DelegatedSlots_OnManagedTenant_IsForbidden_ExcludeDelegated()
+    {
+        // global/delegated-slots/{tenantId} is the operator's slot accounting of a MANAGING tenant —
+        // platform-operational, never a managed customer's telemetry; excludeDelegated keeps it GA/Reader-only.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+
+        var result = await h.Middleware.DecideAsync(
+            "GET", $"/api/global/delegated-slots/{TenantB}", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task GlobalReader_DelegatedSlots_IsAllowed()
+    {
+        const string upn = "reader@vendor.example";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+
+        var result = await h.Middleware.DecideAsync(
+            "GET", $"/api/global/delegated-slots/{TenantB}", TenantB, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
     }
 
     [Fact]

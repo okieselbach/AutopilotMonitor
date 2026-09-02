@@ -11,6 +11,7 @@ export const DOCS_PATHS = {
   hardwareWhitelist: "/reference/settings#hardware-whitelist",
   notifications: "/integrations/notifications",
   accessManagement: "/concepts/roles-and-permissions",
+  delegatedAccess: "/concepts/roles-and-permissions#msp-fleet-access",
   slaTargets: "/portal-guide/sla-compliance#configuring-targets",
   plan: "/plans",
   contact: "/reference/settings#contact",

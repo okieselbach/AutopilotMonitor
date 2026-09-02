@@ -93,7 +93,9 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Effective quota state nested in <see cref="GetMyMcpUsageResponse"/>: the caller's own windows and
-    /// the organization-wide windows of their tenant (shared by every member; 0 = unlimited).
+    /// the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a
+    /// delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed
+    /// tenants are charged to the managed tenant per request and never appear here.
     /// </summary>
     // Declaration order == wire order.
     public class McpUsageQuotaNode
@@ -121,6 +123,40 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string UserId { get; set; } = default!;
         public IReadOnlyList<UserUsageRecord> Records { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every
+    /// account whose requests were charged to this tenant's organization budget — its own members and any
+    /// delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters.
+    /// </summary>
+    // Declaration order == wire order.
+    public class GetMcpOrganizationUsageResponse : IApiResponse
+    {
+        public string TenantId { get; set; } = default!;
+        /// <summary>Effective range start (yyyyMMdd).</summary>
+        public string DateFrom { get; set; } = default!;
+        /// <summary>Effective range end (yyyyMMdd, inclusive).</summary>
+        public string DateTo { get; set; } = default!;
+        public IReadOnlyList<McpOrganizationUsageItem> Users { get; set; } = default!;
+    }
+
+    /// <summary>One account's share of the organization budget, nested in <see cref="GetMcpOrganizationUsageResponse"/>.</summary>
+    // Declaration order == wire order.
+    public class McpOrganizationUsageItem
+    {
+        public string UserId { get; set; } = default!;
+        /// <summary>Absent for rows written before the UPN was recorded.</summary>
+        public string? UserPrincipalName { get; set; }
+        /// <summary>True when the account is a delegated (MSP) administrator homed in another tenant.</summary>
+        public bool Delegated { get; set; }
+        /// <summary>The delegated administrator's home tenant; absent for the tenant's own members.</summary>
+        public string? HomeTenantId { get; set; }
+        public long RequestsToday { get; set; }
+        public long RequestsThisMonth { get; set; }
+        public long RequestsInRange { get; set; }
+        /// <summary>Absent for rows written before the timestamp was recorded.</summary>
+        public DateTime? LastRequestAt { get; set; }
     }
 
     /// <summary>

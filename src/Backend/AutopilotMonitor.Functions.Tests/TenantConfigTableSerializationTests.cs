@@ -212,4 +212,17 @@ public class TenantConfigTableSerializationTests
         Assert.Null(mapped.LastAuthClientId);
         Assert.Null(mapped.LastAuthClientIdSince);
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(20)]
+    public void Roundtrip_MaxDelegatedTenantsOverride_SurvivesStoreAndMap(int? overrideLimit)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, DomainName = "contoso.com", UpdatedBy = "ga@operator.example", MaxDelegatedTenantsOverride = overrideLimit };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(overrideLimit, mapped.MaxDelegatedTenantsOverride);
+    }
 }

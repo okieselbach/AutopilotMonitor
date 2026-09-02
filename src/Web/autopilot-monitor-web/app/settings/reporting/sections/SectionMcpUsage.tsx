@@ -7,6 +7,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { api } from "@/lib/api";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { McpOrganizationUsageItem, McpUsageQuotaNode } from "@/utils/wire-types.generated";
 
 interface UsageRecord {
   userId: string;
@@ -26,16 +27,12 @@ interface DailyAggregate {
 
 // GetMyMcpUsageResponse.quota — the caller's own windows plus the organization-wide windows every
 // member shares. 0 = unlimited; -1 used = counters temporarily unavailable.
-interface QuotaState {
-  dailyLimit: number;
-  monthlyLimit: number;
-  dailyUsed: number;
-  monthlyUsed: number;
-  tenantPlan: string;
-  tenantDailyLimit: number;
-  tenantMonthlyLimit: number;
-  tenantDailyUsed: number;
-  tenantMonthlyUsed: number;
+type QuotaState = McpUsageQuotaNode;
+
+function formatLastRequest(iso: string | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
 function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number }) {
@@ -79,8 +76,11 @@ function getDateTo(): string {
 }
 
 export function SectionMcpUsage() {
-  const { getAccessToken } = useAuth();
+  const { getAccessToken, user } = useAuth();
+  const canSeeOrganization = !!(user?.isTenantAdmin || user?.isGlobalAdmin);
   const [records, setRecords] = useState<UsageRecord[]>([]);
+  // Organization budget by account — tenant admins only; null = not loaded / not permitted.
+  const [orgUsers, setOrgUsers] = useState<McpOrganizationUsageItem[] | null>(null);
   const [usagePlan, setUsagePlan] = useState<string | null>(null);
   const [effectivePlan, setEffectivePlan] = useState<string | null>(null);
   const [quota, setQuota] = useState<QuotaState | null>(null);
@@ -106,6 +106,18 @@ export function SectionMcpUsage() {
       setEffectivePlan(data.effectivePlan || null);
       setQuota(data.quota ?? null);
       setUpn(data.upn || "");
+
+      if (canSeeOrganization) {
+        // Every account charged to this tenant's organization budget — including delegated (MSP)
+        // administrators reading the tenant. A 403 (role changed mid-session) just hides the card.
+        const orgRes = await authenticatedFetch(api.mcpUsage.organization(dateFrom, dateTo), getAccessToken);
+        if (orgRes.ok) {
+          const org = await orgRes.json();
+          setOrgUsers(org.users ?? []);
+        } else {
+          setOrgUsers(null);
+        }
+      }
     } catch (err) {
       if (err instanceof TokenExpiredError) {
         setError("Session expired. Please refresh the page.");
@@ -115,7 +127,7 @@ export function SectionMcpUsage() {
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken]);
+  }, [getAccessToken, canSeeOrganization]);
 
   useEffect(() => {
     const run = async () => {
@@ -123,6 +135,8 @@ export function SectionMcpUsage() {
     };
     void run();
   }, [fetchUsage, dateRange]);
+
+  const delegatedReaders = orgUsers?.filter((u) => u.delegated).length ?? 0;
 
   // Aggregate records by date
   const dailyAggregates: DailyAggregate[] = (() => {
@@ -208,10 +222,70 @@ export function SectionMcpUsage() {
             <QuotaBar label="Today (all members)" used={quota.tenantDailyUsed} limit={quota.tenantDailyLimit} />
             <QuotaBar label="This month (all members)" used={quota.tenantMonthlyUsed} limit={quota.tenantMonthlyLimit} />
             <p className="text-xs text-gray-500">
-              Shared by every account in your tenant. A personal plan override widens only the account&apos;s own
-              windows, never these.
+              Shared by every account in your tenant and by delegated (MSP) administrators reading it. A personal
+              plan override widens only the account&apos;s own windows, never these.
             </p>
+            {user?.isDelegated && (
+              <p className="text-xs text-gray-500">
+                Your reads into tenants you manage are charged to that tenant&apos;s own plan, not to these windows.
+              </p>
+            )}
           </div>
+        </div>
+      )}
+
+      {/* Organization usage by account (tenant admins) */}
+      {orgUsers && (
+        <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-900">Organization usage by account</h3>
+            <span className="text-xs text-gray-500">
+              {orgUsers.length} account{orgUsers.length === 1 ? "" : "s"}
+              {delegatedReaders > 0 && ` · ${delegatedReaders} delegated`}
+            </span>
+          </div>
+          {orgUsers.length === 0 ? (
+            <p className="text-sm text-gray-500">No requests have been charged to your organization budget yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                    <th className="py-1.5 pr-3 font-medium">Account</th>
+                    <th className="py-1.5 pr-3 font-medium text-right">Today</th>
+                    <th className="py-1.5 pr-3 font-medium text-right">This month</th>
+                    <th className="py-1.5 pr-3 font-medium text-right">Range ({dateRange})</th>
+                    <th className="py-1.5 font-medium">Last request</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orgUsers.map((u) => (
+                    <tr key={u.userId} className="border-b border-gray-50 last:border-0">
+                      <td className="py-1.5 pr-3 min-w-0">
+                        <span className="text-gray-900 break-all">{u.userPrincipalName || u.userId}</span>
+                        {u.delegated && (
+                          <span
+                            className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap"
+                            title={u.homeTenantId ? `Home tenant ${u.homeTenantId}` : undefined}
+                          >
+                            Delegated (MSP)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right font-mono text-gray-700">{u.requestsToday.toLocaleString()}</td>
+                      <td className="py-1.5 pr-3 text-right font-mono text-gray-700">{u.requestsThisMonth.toLocaleString()}</td>
+                      <td className="py-1.5 pr-3 text-right font-mono text-gray-700">{u.requestsInRange.toLocaleString()}</td>
+                      <td className="py-1.5 text-xs text-gray-500 whitespace-nowrap">{formatLastRequest(u.lastRequestAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-gray-500">
+            Every request counted against the organization windows above, by the account that made it. Delegated
+            (MSP) administrators reading your tenant appear here too — their reads draw on your plan.
+          </p>
         </div>
       )}
 

@@ -82,6 +82,7 @@
       "trialConsumed",
       "trialGrantedBy",
       "proDowngradedUtc",
+      "maxDelegatedTenantsOverride",
       "manufacturerWhitelist",
       "modelWhitelist",
       "validateAutopilotDevice",
@@ -547,6 +548,34 @@
     "accessRevoked"
   ],
   "types": {
+    "AcceptDelegationInvitationResponse": {
+      "kind": "object",
+      "doc": "Response of POST delegations/accept.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "homeTenantDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "managedTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "ActiveUserItem": {
       "kind": "object",
       "doc": "One currently active web user as listed by GET global/presence.",
@@ -4029,6 +4058,33 @@
         }
       ]
     },
+    "CreateDelegationInvitationResponse": {
+      "kind": "object",
+      "doc": "Response of POST delegations/invitations: the token is shown ONCE (the link is copy-only).",
+      "fields": [
+        {
+          "name": "invitationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "token",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "CreateTenantGroupResponse": {
       "kind": "object",
       "doc": "Response of POST global/tenant-groups: the created group's id and (trimmed) name.",
@@ -4578,6 +4634,381 @@
             "element": {
               "kind": "ref",
               "name": "DelegatedAdminEntry"
+            }
+          }
+        }
+      ]
+    },
+    "DelegatedSlotHold": {
+      "kind": "object",
+      "doc": "One release hold nested in DelegatedSlotUsageResponse.",
+      "fields": [
+        {
+          "name": "invitationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The managed tenant that was removed; absent when unknown."
+        },
+        {
+          "name": "holdUntilUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "releasedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "DelegatedSlotLimitReachedResponse": {
+      "kind": "object",
+      "doc": "409 body when a delegated-admin mutation (grant, group assign, add tenant to group, self-service invitation or accept) would push a managing (MSP) tenant over its delegated tenant slot limit. error comes first so generic error rendering keeps working; code lets the GA UI offer the \"raise the limit and retry\" flow.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The managing (home) tenant whose slots are exhausted."
+        },
+        {
+          "name": "homeTenantDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Its display name; absent when the config row carries none."
+        },
+        {
+          "name": "used",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Slots in use (distinct managed tenants + pending invitations + release holds)."
+        },
+        {
+          "name": "limit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "The effective limit (plan entitlement or the Global Admin override)."
+        },
+        {
+          "name": "required",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "New slots the rejected mutation needed."
+        }
+      ]
+    },
+    "DelegatedSlotUsageResponse": {
+      "kind": "object",
+      "doc": "Response of GET global/delegated-slots/{tenantId} and GET delegations/slots: a managing tenant's slot usage.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Effective limit (override when set, else the plan entitlement)."
+        },
+        {
+          "name": "catalogLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "The plan entitlement (Community 0, Pro 2)."
+        },
+        {
+          "name": "overrideLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "The Global Admin override; absent when the catalog value applies."
+        },
+        {
+          "name": "used",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "managedTenantIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "Distinct managed tenant ids (lowercase) reachable by users homed in this tenant."
+        },
+        {
+          "name": "pendingInvitations",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Pending self-service invitations (each holds a slot until accepted, cancelled or expired)."
+        },
+        {
+          "name": "holds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DelegatedSlotHold"
+            }
+          },
+          "doc": "Release holds: slots freed by a removal that stay occupied for 24 hours."
+        }
+      ]
+    },
+    "DelegationAcceptPreviewResponse": {
+      "kind": "object",
+      "doc": "Response of GET delegations/accept?token=: what accepting would do — no mutation.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The inviting (managing) tenant."
+        },
+        {
+          "name": "homeTenantDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Pending | Accepted | Cancelled | Released | Expired."
+        },
+        {
+          "name": "targetTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The caller's tenant — the one that would be managed."
+        },
+        {
+          "name": "targetTenantDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "DelegationAssignResponse": {
+      "kind": "object",
+      "doc": "Response of POST delegations/assignees.",
+      "fields": [
+        {
+          "name": "assignment",
+          "type": {
+            "kind": "ref",
+            "name": "TenantGroupAssignment"
+          }
+        }
+      ]
+    },
+    "DelegationAssigneeListResponse": {
+      "kind": "object",
+      "doc": "Response of GET delegations/assignees: the managing tenant's own users on its self-service group.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "groupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "assignees",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TenantGroupAssignment"
+            }
+          }
+        }
+      ]
+    },
+    "DelegationInvitationItem": {
+      "kind": "object",
+      "doc": "One invitation row as the managing tenant sees it. Never carries the token.",
+      "fields": [
+        {
+          "name": "invitationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Pending | Accepted | Cancelled | Released | Expired (derived: pending past its expiry)."
+        },
+        {
+          "name": "createdBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "createdUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "acceptedUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "acceptedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The managed tenant (accepted / released rows)."
+        },
+        {
+          "name": "tenantDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "holdUntilUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Released rows: while in the future the slot is still occupied."
+        }
+      ]
+    },
+    "DelegationInvitationListResponse": {
+      "kind": "object",
+      "doc": "Response of GET delegations/invitations.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "invitations",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DelegationInvitationItem"
             }
           }
         }
@@ -7189,6 +7620,45 @@
             "name": "string"
           },
           "doc": "\"cache\" or \"blob\"."
+        }
+      ]
+    },
+    "GetMcpOrganizationUsageResponse": {
+      "kind": "object",
+      "doc": "Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dateFrom",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Effective range start (yyyyMMdd)."
+        },
+        {
+          "name": "dateTo",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Effective range end (yyyyMMdd, inclusive)."
+        },
+        {
+          "name": "users",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpOrganizationUsageItem"
+            }
+          }
         }
       ]
     },
@@ -10547,6 +11017,130 @@
         }
       ]
     },
+    "ManagedTenantItem": {
+      "kind": "object",
+      "doc": "One managed tenant as the managing tenant sees it.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "domain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "self-service (joined by invitation, removable here) | operator (provisioned by platform operators)."
+        },
+        {
+          "name": "sinceUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "removable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "usage",
+          "type": {
+            "kind": "ref",
+            "name": "ManagedTenantQuotaUsage"
+          },
+          "optional": true,
+          "doc": "Absent when not resolved (cap reached or read failure)."
+        }
+      ]
+    },
+    "ManagedTenantListResponse": {
+      "kind": "object",
+      "doc": "Response of GET delegations/managed.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "slots",
+          "type": {
+            "kind": "ref",
+            "name": "DelegatedSlotUsageResponse"
+          }
+        },
+        {
+          "name": "tenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ManagedTenantItem"
+            }
+          }
+        }
+      ]
+    },
+    "ManagedTenantQuotaUsage": {
+      "kind": "object",
+      "doc": "MCP organization budget of a managed tenant, nested in ManagedTenantItem.",
+      "fields": [
+        {
+          "name": "tenantPlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantDailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantMonthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantDailyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantMonthlyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
     "McpHealthCheckResponse": {
       "kind": "object",
       "doc": "Response of GET health/mcp: the standalone MCP-server reachability probe.",
@@ -10564,6 +11158,75 @@
             "kind": "ref",
             "name": "HealthCheck"
           }
+        }
+      ]
+    },
+    "McpOrganizationUsageItem": {
+      "kind": "object",
+      "doc": "One account's share of the organization budget, nested in GetMcpOrganizationUsageResponse.",
+      "fields": [
+        {
+          "name": "userId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "userPrincipalName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent for rows written before the UPN was recorded."
+        },
+        {
+          "name": "delegated",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the account is a delegated (MSP) administrator homed in another tenant."
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The delegated administrator's home tenant; absent for the tenant's own members."
+        },
+        {
+          "name": "requestsToday",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "requestsThisMonth",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "requestsInRange",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "lastRequestAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absent for rows written before the timestamp was recorded."
         }
       ]
     },
@@ -10632,12 +11295,21 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "targetTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the all-managed-tenants-exhausted aggregate block."
         }
       ]
     },
     "McpUsageQuotaNode": {
       "kind": "object",
-      "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited).",
+      "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed tenants are charged to the managed tenant per request and never appear here.",
       "fields": [
         {
           "name": "dailyLimit",
@@ -12256,6 +12928,26 @@
             "name": "string"
           },
           "doc": "URL to the documentation"
+        }
+      ]
+    },
+    "ReleaseDelegatedSlotHoldResponse": {
+      "kind": "object",
+      "doc": "Response of POST global/delegated-slots/{tenantId}/release-hold: how many holds ended now.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "released",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
         }
       ]
     },
@@ -14104,6 +14796,18 @@
           },
           "optional": true,
           "doc": "Absent when there is no further page."
+        },
+        {
+          "name": "quotaExcludedTenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Managed tenants dropped from a delegated (MSP) MCP fleet aggregate because their organization MCP budget is exhausted (each managed tenant's own plan governs it). Absent unless at least one tenant was excluded; only GetAllSessions ever sets it."
         }
       ]
     },
@@ -14564,6 +15268,18 @@
             "kind": "ref",
             "name": "SessionStats"
           }
+        },
+        {
+          "name": "quotaExcludedTenants",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "See QuotaExcludedTenants; only GetAllSessionStats ever sets it."
         }
       ]
     },
@@ -15250,6 +15966,23 @@
           },
           "optional": true,
           "doc": "End of the retention downgrade grace window, or null — the key is omitted when null."
+        },
+        {
+          "name": "maxDelegatedTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Effective delegated (MSP) tenant slot limit after the change (override or plan entitlement)."
+        },
+        {
+          "name": "maxDelegatedTenantsOverride",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "The Global Admin override; omitted when the plan entitlement applies."
         }
       ]
     },
@@ -16416,6 +17149,15 @@
           "doc": "When the tenant's EFFECTIVE edition last dropped Pro → Community via the plan endpoint (UTC). Anchors the retention downgrade grace period: for RetentionDowngradeGraceDays after losing Pro the retention cap stays at the Pro value so a downgrade (e.g. non-payment) does not immediately hard-delete data older than the Community cap. Trial expiry needs no write — TrialExpiresUtc itself is the anchor there. Cleared whenever the tenant becomes effectively Pro again. Backend-only: not delivered to the agent (no ConfigVersion impact)."
         },
         {
+          "name": "maxDelegatedTenantsOverride",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Global-Admin override of the delegated (\"MSP\") tenant slot limit — how many distinct customer tenants users homed in this tenant may manage. Null = the plan entitlement applies (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package), while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only: not delivered to the agent (no ConfigVersion impact)."
+        },
+        {
           "name": "manufacturerWhitelist",
           "type": {
             "kind": "primitive",
@@ -17137,6 +17879,14 @@
             "kind": "primitive",
             "name": "string"
           }
+        },
+        {
+          "name": "maxDelegatedTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Effective delegated (MSP) tenant slot limit (override or plan entitlement); 0 = no delegation."
         }
       ]
     },
@@ -17322,6 +18072,23 @@
             }
           },
           "doc": "The UPNs assigned to this group (for the management UI)."
+        },
+        {
+          "name": "chargeHomeTenantQuota",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose customers must never pay (or be blocked) for the operator's own analysis. Off by default."
+        },
+        {
+          "name": "ownerTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The managing tenant that owns this self-service group (msp-{tenantId}); null for operator-created groups."
         }
       ]
     },
@@ -17385,6 +18152,129 @@
             "element": {
               "kind": "ref",
               "name": "TenantGroup"
+            }
+          }
+        }
+      ]
+    },
+    "TenantManagerAssignee": {
+      "kind": "object",
+      "doc": "One person with access, nested in TenantManagerItem.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "isEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
+    "TenantManagerItem": {
+      "kind": "object",
+      "doc": "One party that can read the caller's tenant, nested in TenantManagerListResponse.",
+      "fields": [
+        {
+          "name": "groupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The Tenant Group conferring the access; absent for direct operator grants."
+        },
+        {
+          "name": "ownerTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The managing tenant that owns the group (self-service); absent for operator-created groups and direct grants."
+        },
+        {
+          "name": "ownerDomain",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "self-service | operator"
+        },
+        {
+          "name": "assignees",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TenantManagerAssignee"
+            }
+          }
+        },
+        {
+          "name": "sinceUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "revocable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the caller (the managed tenant's admin) may end this access here."
+        }
+      ]
+    },
+    "TenantManagerListResponse": {
+      "kind": "object",
+      "doc": "Response of GET delegations/managers: who manages the caller's tenant.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "managers",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "TenantManagerItem"
             }
           }
         }

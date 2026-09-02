@@ -72,11 +72,14 @@ public class TableLifecycleBucketTests
 
     /// <summary>
     /// Tables allowed in MORE than one offboarding bucket. BootstrapSessions has main rows
-    /// under PK=tenantId AND CodeLookup rows under the discriminator PK.
+    /// under PK=tenantId AND CodeLookup rows under the discriminator PK. DelegationInvitations is
+    /// two-sided by design: PK = the MANAGING tenant (exact-partition wipe when it offboards) and the
+    /// TenantId property = the MANAGED tenant (property wipe when that one offboards).
     /// </summary>
     private static readonly string[] AllowedMultiBucket =
     {
         Constants.TableNames.BootstrapSessions,
+        Constants.TableNames.DelegationInvitations,
     };
 
     [Fact]

@@ -665,6 +665,102 @@ public class MetricsWireParityTests
             });
     }
 
+    // ---- GetMcpOrganizationUsage --------------------------------------------------------
+
+    [Fact]
+    public void GetMcpOrganizationUsageResponse_matches_the_by_user_shape()
+    {
+        var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
+        var userId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0009";
+        var homeTenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002";
+        var lastRequestAt = new DateTime(2026, 9, 2, 14, 5, 0, DateTimeKind.Utc);
+
+        AssertParity(
+            new
+            {
+                tenantId,
+                dateFrom = "20260901",
+                dateTo = "20260902",
+                users = new[]
+                {
+                    new
+                    {
+                        userId,
+                        userPrincipalName = "msp@partner.example",
+                        delegated = true,
+                        homeTenantId,
+                        requestsToday = 4L,
+                        requestsThisMonth = 120L,
+                        requestsInRange = 120L,
+                        lastRequestAt,
+                    },
+                },
+            },
+            new GetMcpOrganizationUsageResponse
+            {
+                TenantId = tenantId,
+                DateFrom = "20260901",
+                DateTo = "20260902",
+                Users = new List<McpOrganizationUsageItem>
+                {
+                    new()
+                    {
+                        UserId = userId,
+                        UserPrincipalName = "msp@partner.example",
+                        Delegated = true,
+                        HomeTenantId = homeTenantId,
+                        RequestsToday = 4,
+                        RequestsThisMonth = 120,
+                        RequestsInRange = 120,
+                        LastRequestAt = lastRequestAt,
+                    },
+                },
+            });
+    }
+
+    [Fact]
+    public void GetMcpOrganizationUsageResponse_omits_null_upn_home_and_lastRequest()
+    {
+        // A row written before the attribution columns existed: own member, no UPN, no timestamp.
+        var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
+        var userId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0009";
+        string? userPrincipalName = null;
+        string? homeTenantId = null;
+        DateTime? lastRequestAt = null;
+
+        AssertParity(
+            new
+            {
+                tenantId,
+                dateFrom = "20260901",
+                dateTo = "20260902",
+                users = new[]
+                {
+                    new
+                    {
+                        userId,
+                        userPrincipalName,
+                        delegated = false,
+                        homeTenantId,
+                        requestsToday = 0L,
+                        requestsThisMonth = 3L,
+                        requestsInRange = 3L,
+                        lastRequestAt,
+                    },
+                },
+            },
+            new GetMcpOrganizationUsageResponse
+            {
+                TenantId = tenantId,
+                DateFrom = "20260901",
+                DateTo = "20260902",
+                Users = new List<McpOrganizationUsageItem>
+                {
+                    new() { UserId = userId, Delegated = false, RequestsToday = 0, RequestsThisMonth = 3, RequestsInRange = 3 },
+                },
+            });
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

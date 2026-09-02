@@ -39,6 +39,7 @@ namespace AutopilotMonitor.Functions.DataAccess
             services.AddSingleton<IHardwareRejectionNotificationTracker, TableHardwareRejectionNotificationTracker>();
             services.AddSingleton<IDeviceSecurityRepository, TableDeviceSecurityRepository>();
             services.AddSingleton<IUserUsageRepository, TableUserUsageRepository>();
+            services.AddSingleton<IDelegationInvitationRepository, TableDelegationInvitationRepository>();
             services.AddSingleton<IDistressReportRepository, TableDistressReportRepository>();
             services.AddSingleton<IOpsEventRepository, TableOpsEventRepository>();
 

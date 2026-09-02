@@ -219,6 +219,16 @@ public class GetTenantFeatureFlagsPayloadTests
         Assert.Equal(90, element.GetProperty("entitlements").GetProperty("retentionCapDays").GetInt32());
         Assert.False(element.GetProperty("entitlements").GetProperty("delegatedAdminAllowed").GetBoolean());
         Assert.Equal("community", element.GetProperty("entitlements").GetProperty("mcpUsagePlan").GetString());
+        Assert.Equal(0, element.GetProperty("entitlements").GetProperty("maxDelegatedTenants").GetInt32());
+    }
+
+    [Fact]
+    public void Payload_Entitlements_MaxDelegatedTenants_ProTwo_OverrideWins()
+    {
+        Assert.Equal(2, Serialize(new TenantConfiguration { PlanTier = "pro" })
+            .GetProperty("entitlements").GetProperty("maxDelegatedTenants").GetInt32());
+        Assert.Equal(7, Serialize(new TenantConfiguration { PlanTier = "pro", MaxDelegatedTenantsOverride = 7 })
+            .GetProperty("entitlements").GetProperty("maxDelegatedTenants").GetInt32());
     }
 
     [Theory]

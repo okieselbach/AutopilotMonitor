@@ -38,10 +38,13 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
   const scopeLine = ga
     ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
     : delegated
-      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — there ' +
-        `is no cross-tenant aggregate. Your managed tenants: ${managedTenants.join(', ')}.` +
+      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — the one ' +
+        'exception is get_fleet_overview, a bounded aggregate across all your managed tenants. ' +
+        `Your managed tenants: ${managedTenants.join(', ')}.` +
         (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '') +
-        ' Call list_tenants to resolve these IDs to tenant display names (domainName).'
+        ' Call list_tenants to resolve these IDs to tenant display names (domainName). ' +
+        'Quota: a read into a managed tenant draws on THAT tenant\'s own MCP budget (its plan governs it); ' +
+        'an exhausted tenant answers 429 naming it (or is skipped by get_fleet_overview) while your other tenants stay available.'
       : 'Scope: all queries are automatically limited to your tenant.';
   // Role-aware headline: everyone below a real Global Admin keeps the exact READ-ONLY
   // contract (and wording) this server has always advertised. A strict GA additionally

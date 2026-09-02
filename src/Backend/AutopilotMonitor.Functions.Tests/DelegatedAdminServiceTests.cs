@@ -67,7 +67,16 @@ public class DelegatedAdminServiceTests
         repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>())).ReturnsAsync(assignments.ToList());
 
     private static void GroupTenants(Mock<IAdminRepository> repo, string groupId, params string[] tenantIds) =>
-        repo.Setup(r => r.GetGroupTenantsAsync(groupId)).ReturnsAsync(tenantIds.ToList());
+        GroupMembership(repo, groupId, chargeHomeTenantQuota: false, tenantIds);
+
+    /// <summary>Stubs the hot-path membership read (tenants + meta flags from one partition read).</summary>
+    private static void GroupMembership(Mock<IAdminRepository> repo, string groupId, bool chargeHomeTenantQuota, params string[] tenantIds) =>
+        repo.Setup(r => r.GetGroupMembershipAsync(groupId)).ReturnsAsync(new TenantGroupMembership
+        {
+            GroupId = groupId,
+            TenantIds = tenantIds.ToList(),
+            ChargeHomeTenantQuota = chargeHomeTenantQuota,
+        });
 
     private static DelegatedAdminEntry Row(
         string tenantId,
@@ -378,7 +387,97 @@ public class DelegatedAdminServiceTests
         await svc.GetScopeAsync(Id(Upn));
 
         repo.Verify(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()), Times.Once);
-        repo.Verify(r => r.GetGroupTenantsAsync(GroupId1), Times.Once);
+        repo.Verify(r => r.GetGroupMembershipAsync(GroupId1), Times.Once);
+    }
+
+    // --- ChargeHomeTenantQuota: MCP billing attribution rides in the scope (never authorization) ---
+
+    [Fact]
+    public async Task GetScope_FlaggedGroup_MarksItsTenantsHomeCharged()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(GroupId1));
+        GroupMembership(repo, GroupId1, chargeHomeTenantQuota: true, TenantA, TenantB);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(scope.Covers(TenantA));
+        Assert.True(scope.ChargesHome(TenantA));
+        Assert.True(scope.ChargesHome(TenantB));
+        Assert.Equal(2, scope.HomeChargedTenantIds.Count);
+    }
+
+    [Fact]
+    public async Task GetScope_UnflaggedGroup_NothingIsHomeCharged()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(GroupId1));
+        GroupTenants(repo, GroupId1, TenantA);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(scope.Covers(TenantA));
+        Assert.False(scope.ChargesHome(TenantA));
+        Assert.Empty(scope.HomeChargedTenantIds);
+    }
+
+    [Fact]
+    public async Task GetScope_DirectGrantAndFlaggedGroup_TheFlagWins()
+    {
+        // The operator's explicit group flag is the more privileged choice — a parallel direct grant on the
+        // same tenant does not re-attribute the reads to the managed tenant.
+        var (svc, repo) = Build();
+        Returns(repo, Row(TenantA, Constants.DelegatedRoles.DelegatedAdmin));
+        ReturnsGroups(repo, Assignment(GroupId1));
+        GroupMembership(repo, GroupId1, chargeHomeTenantQuota: true, TenantA);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.Equal(Constants.DelegatedRoles.DelegatedAdmin, scope.RoleFor(TenantA)); // stronger role kept
+        Assert.True(scope.ChargesHome(TenantA));
+    }
+
+    [Fact]
+    public async Task GetScope_DisabledAssignmentToFlaggedGroup_ConfersNothing()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(GroupId1, enabled: false));
+        GroupMembership(repo, GroupId1, chargeHomeTenantQuota: true, TenantA);
+
+        var scope = await svc.GetScopeAsync(Id(Upn));
+
+        Assert.False(scope.Covers(TenantA));
+        Assert.False(scope.ChargesHome(TenantA));
+    }
+
+    [Fact]
+    public async Task SetChargeHomeTenantQuota_InvalidatesEveryAssignee()
+    {
+        var (svc, repo) = Build();
+        ReturnsGroups(repo, Assignment(GroupId1));
+        GroupMembership(repo, GroupId1, chargeHomeTenantQuota: false, TenantA);
+        repo.Setup(r => r.SetTenantGroupChargeHomeTenantQuotaAsync(GroupId1, true)).ReturnsAsync(true);
+        repo.Setup(r => r.GetGroupAssigneesAsync(GroupId1)).ReturnsAsync(new List<TenantGroupAssignment> { Assignment(GroupId1) });
+
+        await svc.GetScopeAsync(Id(Upn));
+        var ok = await svc.SetChargeHomeTenantQuotaAsync(GroupId1, true);
+        await svc.GetScopeAsync(Id(Upn));
+
+        Assert.True(ok);
+        // The flag rides in the cached scope, so the flip forces a re-resolution for the assignee.
+        repo.Verify(r => r.GetGroupMembershipAsync(GroupId1), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task SetChargeHomeTenantQuota_UnknownGroup_IsFalse_AndInvalidatesNobody()
+    {
+        var (svc, repo) = Build();
+        repo.Setup(r => r.SetTenantGroupChargeHomeTenantQuotaAsync(It.IsAny<string>(), It.IsAny<bool>())).ReturnsAsync(false);
+
+        var ok = await svc.SetChargeHomeTenantQuotaAsync("no-such-group", true);
+
+        Assert.False(ok);
+        repo.Verify(r => r.GetGroupAssigneesAsync(It.IsAny<string>()), Times.Never);
     }
 
     // --- Group mutations go through the service and invalidate cached scope (no stale auth) ---
@@ -432,8 +531,8 @@ public class DelegatedAdminServiceTests
 
         Assert.True(unassigned);
         // Verify re-resolution via the tenant expansion (the unassign now also reads assignments itself,
-        // so asserting on GetGroupTenantsAsync isolates the two scope resolutions cleanly).
-        repo.Verify(r => r.GetGroupTenantsAsync(GroupId1), Times.Exactly(2));
+        // so asserting on GetGroupMembershipAsync isolates the two scope resolutions cleanly).
+        repo.Verify(r => r.GetGroupMembershipAsync(GroupId1), Times.Exactly(2));
     }
 
     [Fact]

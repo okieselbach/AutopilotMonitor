@@ -39,9 +39,13 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>
         /// Increments the tenant-wide MCP counter for (tenant, user, today) — the organization-wide
-        /// quota's counter, kept per user so the tenant partition has no hot row.
+        /// quota's counter, kept per user so the tenant partition has no hot row. <paramref name="tenantId"/>
+        /// is the CHARGED tenant: the caller's own tenant, or — for a delegated (MSP) read — the managed
+        /// tenant whose plan governs the request. <paramref name="homeTenantId"/> is the caller's home tenant
+        /// when it differs from the charged tenant (empty/null for the tenant's own members), so the charged
+        /// tenant's admins can tell delegated consumption from their own.
         /// </summary>
-        Task IncrementTenantUsageAsync(string tenantId, string userId);
+        Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName, string? homeTenantId);
 
         /// <summary>Tenant-wide MCP counters (one row per user and day) within an optional yyyyMMdd range.</summary>
         Task<List<TenantUsageRecord>> GetTenantUsageAsync(string tenantId, string? dateFrom = null, string? dateTo = null);
@@ -55,8 +59,14 @@ namespace AutopilotMonitor.Shared.DataAccess
     {
         public string TenantId { get; set; } = string.Empty;
         public string UserId { get; set; } = string.Empty;
+        /// <summary>UPN as last seen; empty on rows written before the column existed.</summary>
+        public string UserPrincipalName { get; set; } = string.Empty;
+        /// <summary>The caller's HOME tenant when the row was charged by a delegated (MSP) read; empty for
+        /// the tenant's own members (and for rows written before the column existed).</summary>
+        public string HomeTenantId { get; set; } = string.Empty;
         public string Date { get; set; } = string.Empty;
         public long RequestCount { get; set; }
+        public DateTime? LastRequestAt { get; set; }
     }
 
     /// <summary>

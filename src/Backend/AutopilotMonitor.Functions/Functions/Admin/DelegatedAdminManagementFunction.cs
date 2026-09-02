@@ -28,19 +28,22 @@ public class DelegatedAdminManagementFunction
     private readonly AdminIdentityResolver _identityResolver;
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
+    private readonly DelegatedSlotService _slots;
 
     public DelegatedAdminManagementFunction(
         ILogger<DelegatedAdminManagementFunction> logger,
         DelegatedAdminService delegatedAdminService,
         AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
-        ISignalRNotificationService signalRService)
+        ISignalRNotificationService signalRService,
+        DelegatedSlotService slots)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
         _identityResolver = identityResolver;
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
+        _slots = slots;
     }
 
     /// <summary>GET /api/global/delegated-admins — list every delegated assignment. GlobalReadOrAdmin.</summary>
@@ -82,6 +85,12 @@ public class DelegatedAdminManagementFunction
         if (identity == null)
             return await Unresolved(req);
 
+        // Slot limit of the HOME tenant (the MSP seat's plan): a new managed tenant needs a free slot. Fresh
+        // read, so a Global Admin's "raise the limit, then retry" round trip works on every instance.
+        var violation = await _slots.CheckAsync(identity.Value.TenantId, new[] { body.TenantId });
+        if (violation != null)
+            return await DelegatedSlotResponses.ConflictAsync(req, violation);
+
         DelegatedAdminEntry entry;
         try
         {
@@ -105,6 +114,7 @@ public class DelegatedAdminManagementFunction
                 { "HomeTenantId", identity.Value.TenantId.ToLowerInvariant() },
             });
 
+        _slots.Invalidate(identity.Value.TenantId);
         _logger.LogInformation("Delegated grant: {Upn} -> {TenantId} ({Role}) by {By}",
             entry.Upn, entry.TenantId, entry.Role, currentUpn);
 

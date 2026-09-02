@@ -671,11 +671,41 @@ export const api = {
     remove: (upn: string) => `${API_BASE_URL}/api/global/identity-bindings/${encodeURIComponent(upn)}`,
   },
 
+  // ── Delegated (MSP) tenant slots — GA read of a managing tenant's slot usage + hold release ──
+  delegatedSlots: {
+    get: (tenantId: string) => `${API_BASE_URL}/api/global/delegated-slots/${encodeURIComponent(tenantId)}`,
+    /** POST { invitationId } | { all: true } — ends a 24 h release hold early (GlobalAdminOnly). */
+    releaseHold: (tenantId: string) => `${API_BASE_URL}/api/global/delegated-slots/${encodeURIComponent(tenantId)}/release-hold`,
+  },
+
+  // ── Self-service delegation (always the caller's own tenant — no tenantId in these routes) ──
+  delegations: {
+    slots: () => `${API_BASE_URL}/api/delegations/slots`,
+    managed: () => `${API_BASE_URL}/api/delegations/managed`,
+    /** POST { tenantId } — end a self-service delegation to a managed tenant (24 h slot hold). */
+    removeManaged: () => `${API_BASE_URL}/api/delegations/managed/remove`,
+    /** GET list / POST mint a single-use invitation link. */
+    invitations: () => `${API_BASE_URL}/api/delegations/invitations`,
+    cancelInvitation: (invitationId: string) => `${API_BASE_URL}/api/delegations/invitations/${encodeURIComponent(invitationId)}`,
+    /** GET list / POST { upn } — the managing tenant's own users on its self-service group. */
+    assignees: () => `${API_BASE_URL}/api/delegations/assignees`,
+    unassign: (upn: string) => `${API_BASE_URL}/api/delegations/assignees/${encodeURIComponent(upn)}`,
+    /** GET ?token= — what accepting would do (no mutation). */
+    acceptPreview: (token: string) => `${API_BASE_URL}/api/delegations/accept${qs({ token })}`,
+    /** POST { token } — the caller's tenant joins the inviting tenant's managed set. */
+    accept: () => `${API_BASE_URL}/api/delegations/accept`,
+    /** GET — who can read the caller's tenant through a delegation. */
+    managers: () => `${API_BASE_URL}/api/delegations/managers`,
+    /** POST { homeTenantId } — the customer ends a self-service delegation. */
+    revokeManager: () => `${API_BASE_URL}/api/delegations/managers/revoke`,
+  },
+
   // ── Tenant Groups (MSP mode — named bundles of tenants for delegated admins) ──
   tenantGroups: {
     list: () => `${API_BASE_URL}/api/global/tenant-groups`,
     create: () => `${API_BASE_URL}/api/global/tenant-groups`,
-    rename: (groupId: string) =>
+    /** PATCH — update group metadata: { name?, chargeHomeTenantQuota? } (at least one). */
+    update: (groupId: string) =>
       `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}`,
     remove: (groupId: string) =>
       `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}`,
@@ -710,6 +740,9 @@ export const api = {
       `${API_BASE_URL}/api/metrics/mcp-usage/me${qs({ dateFrom, dateTo })}`,
     user: (userId: string, dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/metrics/mcp-usage/user/${encodeURIComponent(userId)}${qs({ dateFrom, dateTo })}`,
+    /** Own tenant's organization budget by account (members + delegated MSP admins). Tenant Admin / Global Reader. */
+    organization: (dateFrom?: string, dateTo?: string) =>
+      `${API_BASE_URL}/api/metrics/mcp-usage/organization${qs({ dateFrom, dateTo })}`,
     global: (tenantId?: string, dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/global/metrics/mcp-usage${qs({ tenantId, dateFrom, dateTo })}`,
     daily: (tenantId?: string, dateFrom?: string, dateTo?: string) =>

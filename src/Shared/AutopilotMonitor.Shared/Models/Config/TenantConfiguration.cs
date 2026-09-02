@@ -195,6 +195,15 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime? ProDowngradedUtc { get; set; }
 
         /// <summary>
+        /// Global-Admin override of the delegated ("MSP") tenant slot limit — how many distinct customer
+        /// tenants users homed in this tenant may manage. Null = the plan entitlement applies
+        /// (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package),
+        /// while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only:
+        /// not delivered to the agent (no ConfigVersion impact).
+        /// </summary>
+        public int? MaxDelegatedTenantsOverride { get; set; }
+
+        /// <summary>
         /// Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*")
         /// Comma-separated list
         /// </summary>

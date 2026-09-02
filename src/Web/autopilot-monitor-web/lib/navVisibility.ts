@@ -131,7 +131,7 @@ export function filterExpandableNavGroups(
             // Tenant-admin-only sub-sections: Operators and Viewers (read-only settings
             // viewers) don't see them — matches the in-page "tenant administrators only" gates. A platform
             // scope (GA / read-only GlobalReader) keeps the full GA-identical sidebar.
-            if (sub.id === "cfg-autopilot" || sub.id === "cfg-access-mgmt" || sub.id === "cfg-offboarding") {
+            if (sub.id === "cfg-autopilot" || sub.id === "cfg-access-mgmt" || sub.id === "cfg-offboarding" || sub.id === "cfg-delegations") {
               return flags.isAdminLike || flags.hasGlobalScope;
             }
             return true;

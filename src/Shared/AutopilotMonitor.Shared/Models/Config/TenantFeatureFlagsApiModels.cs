@@ -46,5 +46,7 @@ namespace AutopilotMonitor.Shared.Models
         public int? UserRateLimitPerMinute { get; set; }
         public bool DelegatedAdminAllowed { get; set; }
         public string McpUsagePlan { get; set; } = string.Empty;
+        /// <summary>Effective delegated (MSP) tenant slot limit (override or plan entitlement); 0 = no delegation.</summary>
+        public int MaxDelegatedTenants { get; set; }
     }
 }

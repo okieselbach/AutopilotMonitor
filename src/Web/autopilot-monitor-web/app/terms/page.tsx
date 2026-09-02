@@ -116,10 +116,10 @@ export default function TermsPage() {
           </p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li>Delegated access is <strong>read-only</strong> and limited to exactly the tenants in scope. Configuration secrets are redacted.</li>
-            <li>A grant is either assigned by platform operators or delegated by the customer&apos;s own tenant admin; customer-initiated delegations require approval before they take effect.</li>
+            <li>A grant is either assigned by platform operators or accepted by the customer&apos;s own tenant administrator through a single-use invitation link from the managing organization; nothing is granted until the customer accepts, and the number of tenants a managing organization may manage is limited by its plan.</li>
             <li>Every grant, revocation, and disablement is recorded in the <strong>managed customer tenant&apos;s</strong> audit log, so a customer can always determine who holds access to their data.</li>
             <li>A managing organization is responsible for having the necessary data protection agreements in place with the customers it manages.</li>
-            <li>Access can be revoked at any time by the customer or by platform operators and takes effect within seconds.</li>
+            <li>Access can be revoked at any time by the customer, by the managing organization, or by platform operators and takes effect within seconds; a managing organization&apos;s slot for a removed customer is released after 24 hours.</li>
           </ul>
         </div>
 

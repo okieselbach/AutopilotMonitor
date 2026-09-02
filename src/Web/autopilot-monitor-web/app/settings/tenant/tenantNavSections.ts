@@ -1,5 +1,6 @@
 export const TENANT_NAV_SECTIONS = [
   { id: "access-management", label: "Access Management", description: "Manage tenant admins and operators" },
+  { id: "delegations", label: "Delegated Access", description: "Who can read your tenant, and the tenants you manage (MSP)" },
   { id: "autopilot", label: "Autopilot Validation", description: "Autopilot device and corporate identifier validation" },
   { id: "hardware-whitelist", label: "Hardware Whitelist", description: "Manufacturer and model whitelist configuration" },
   { id: "notifications", label: "Notifications", description: "Webhook notification configuration" },

@@ -978,6 +978,45 @@ public class SessionsWireParityTests
             });
     }
 
+    // ---- Delegated (MSP) MCP fleet aggregate: quota-excluded tenants ---------------------
+
+    [Fact]
+    public void SessionListResponse_carries_quotaExcludedTenants_on_a_narrowed_fleet_aggregate()
+    {
+        IReadOnlyList<SessionSummary> items = new List<SessionSummary> { SampleSummary("0b6f7a37-1111-4d61-9c93-0aa111111111") };
+        string? nextLink = null;
+        var quotaExcludedTenants = new[] { "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002" };
+
+        AssertParity(
+            new
+            {
+                success = true,
+                count = items.Count,
+                sessions = items,
+                nextLink,
+                quotaExcludedTenants,
+            },
+            new SessionListResponse
+            {
+                Success = true,
+                Count = items.Count,
+                Sessions = items,
+                NextLink = null,
+                QuotaExcludedTenants = quotaExcludedTenants,
+            });
+    }
+
+    [Fact]
+    public void SessionStatsResponse_carries_quotaExcludedTenants_on_a_narrowed_fleet_aggregate()
+    {
+        var stats = new SessionStats { Days = 7, ComputedAt = new DateTime(2026, 8, 30, 12, 0, 0, DateTimeKind.Utc) };
+        var quotaExcludedTenants = new[] { "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002", "7aa20c11-0002-4b7c-a1d2-52f3aaaa0003" };
+
+        AssertParity(
+            new { success = true, stats, quotaExcludedTenants },
+            new SessionStatsResponse { Success = true, Stats = stats, QuotaExcludedTenants = quotaExcludedTenants });
+    }
+
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)
         => ApiResponseWireParityTests.AssertWireIdentical(anonymousLiteral, typed);
 }

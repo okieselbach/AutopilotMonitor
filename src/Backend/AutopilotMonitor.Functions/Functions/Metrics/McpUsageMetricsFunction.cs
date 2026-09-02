@@ -103,6 +103,111 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         }
 
         /// <summary>
+        /// GET /api/metrics/mcp-usage/organization?dateFrom=&amp;dateTo= — the caller's OWN tenant's organization
+        /// budget broken down by account: its members and any delegated (MSP) administrators whose reads were
+        /// charged to this tenant (flagged, with their home tenant). Always the JWT tenant (TenantScoping.None)
+        /// — a delegated caller can never list a managed tenant's accounts through this route. Reads the
+        /// organization counters (McpTenantUsage, one partition range), never the per-user log.
+        /// </summary>
+        [Function("GetMcpOrganizationUsage")]
+        public async Task<HttpResponseData> GetOrganizationUsage(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "metrics/mcp-usage/organization")] HttpRequestData req)
+        {
+            var ctx = req.GetRequestContext();
+            var tenantId = ctx.TenantId;
+            if (string.IsNullOrWhiteSpace(tenantId))
+            {
+                var unauthorized = req.CreateResponse(HttpStatusCode.Unauthorized);
+                await unauthorized.WriteAsJsonAsync(new { error = "Unable to determine tenant identity" });
+                return unauthorized;
+            }
+
+            try
+            {
+                var nowUtc = DateTime.UtcNow;
+                var today = nowUtc.ToString("yyyyMMdd");
+                var monthStart = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc).ToString("yyyyMMdd");
+                var dateFrom = NormalizeDay(req.Query["dateFrom"]) ?? monthStart;
+                var dateTo = NormalizeDay(req.Query["dateTo"]) ?? today;
+
+                // One read covers the requested range AND the current month/day windows (yyyyMMdd sorts as text).
+                var readFrom = string.CompareOrdinal(dateFrom, monthStart) < 0 ? dateFrom : monthStart;
+                var readTo = string.CompareOrdinal(dateTo, today) > 0 ? dateTo : today;
+                var records = await _userUsageRepo.GetTenantUsageAsync(tenantId, readFrom, readTo);
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new GetMcpOrganizationUsageResponse
+                {
+                    TenantId = tenantId,
+                    DateFrom = dateFrom,
+                    DateTo = dateTo,
+                    Users = AggregateOrganizationUsage(records, tenantId, dateFrom, dateTo, today, monthStart),
+                });
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting organization MCP usage");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
+                return errorResponse;
+            }
+        }
+
+        /// <summary>
+        /// Pure: folds the organization counter rows into one item per account. A row whose HomeTenantId is set
+        /// and differs from the tenant was charged by a delegated (MSP) read. Ordered by this month's usage.
+        /// </summary>
+        internal static List<McpOrganizationUsageItem> AggregateOrganizationUsage(
+            IEnumerable<TenantUsageRecord> records, string tenantId, string dateFrom, string dateTo, string today, string monthStart)
+        {
+            var byUser = new Dictionary<string, McpOrganizationUsageItem>(StringComparer.OrdinalIgnoreCase);
+            foreach (var record in records)
+            {
+                if (string.IsNullOrEmpty(record.UserId))
+                    continue;
+                if (!byUser.TryGetValue(record.UserId, out var item))
+                {
+                    item = new McpOrganizationUsageItem { UserId = record.UserId };
+                    byUser[record.UserId] = item;
+                }
+
+                if (!string.IsNullOrEmpty(record.UserPrincipalName))
+                    item.UserPrincipalName = record.UserPrincipalName;
+                if (!string.IsNullOrEmpty(record.HomeTenantId)
+                    && !string.Equals(record.HomeTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
+                {
+                    item.Delegated = true;
+                    item.HomeTenantId = record.HomeTenantId;
+                }
+                if (record.LastRequestAt is DateTime last && (item.LastRequestAt == null || last > item.LastRequestAt))
+                    item.LastRequestAt = last;
+
+                var day = record.Date;
+                if (day == today) item.RequestsToday += record.RequestCount;
+                if (string.CompareOrdinal(day, monthStart) >= 0 && string.CompareOrdinal(day, today) <= 0)
+                    item.RequestsThisMonth += record.RequestCount;
+                if (string.CompareOrdinal(day, dateFrom) >= 0 && string.CompareOrdinal(day, dateTo) <= 0)
+                    item.RequestsInRange += record.RequestCount;
+            }
+
+            return byUser.Values
+                .OrderByDescending(i => i.RequestsThisMonth)
+                .ThenByDescending(i => i.RequestsInRange)
+                .ThenBy(i => i.UserPrincipalName ?? i.UserId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <summary>Accepts yyyy-MM-dd or yyyyMMdd; null for anything else.</summary>
+        internal static string? NormalizeDay(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            var digits = raw.Replace("-", string.Empty);
+            return digits.Length == 8 && digits.All(char.IsDigit) ? digits : null;
+        }
+
+        /// <summary>
         /// GET /api/metrics/mcp-usage/user/{userId}?dateFrom=&amp;dateTo= — Usage for a specific user.
         ///
         /// Catalog policy is TenantAdminOrGlobalReader, but the route has no TenantScoping — middleware

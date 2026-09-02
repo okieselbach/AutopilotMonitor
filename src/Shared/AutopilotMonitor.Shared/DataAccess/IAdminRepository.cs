@@ -53,16 +53,25 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<string> CreateTenantGroupAsync(string name, string createdBy);
         /// <summary>Renames a group (meta row). Returns false if the group does not exist.</summary>
         Task<bool> RenameTenantGroupAsync(string groupId, string name);
+        /// <summary>Sets the group's <see cref="TenantGroup.ChargeHomeTenantQuota"/> flag (meta row). Returns false if the group does not exist.</summary>
+        Task<bool> SetTenantGroupChargeHomeTenantQuotaAsync(string groupId, bool chargeHomeTenantQuota);
         /// <summary>Deletes a group: all rows in its partition (meta + membership) AND every UPN
         /// assignment referencing it (cross-partition RowKey scan of the assignments table).</summary>
         Task<bool> DeleteTenantGroupAsync(string groupId);
         /// <summary>All groups with their tenant members + assignee counts — for the management UI (not hot path).</summary>
         Task<List<TenantGroup>> GetAllTenantGroupsAsync();
         Task<TenantGroup?> GetTenantGroupAsync(string groupId);
+        /// <summary>Creates the meta row of a tenant-OWNED (self-service) group if missing — idempotent, never touches an existing group.</summary>
+        Task EnsureOwnedTenantGroupAsync(string groupId, string name, string ownerTenantId);
+        /// <summary>Ids of every group partition holding a membership row for the tenant (cross-partition RowKey scan; existence is re-checked meta-backed by callers).</summary>
+        Task<List<string>> GetGroupIdsContainingTenantAsync(string tenantId);
         Task<bool> AddTenantToGroupAsync(string groupId, string tenantId);
         Task<bool> RemoveTenantFromGroupAsync(string groupId, string tenantId);
         /// <summary>Tenant IDs (lowercase) in a group, excluding the meta row (HOT PATH — PartitionKey scan).</summary>
         Task<List<string>> GetGroupTenantsAsync(string groupId);
+        /// <summary>The group's tenant members PLUS its meta-row flags from the same single partition read
+        /// (HOT PATH — scope resolution). Null when the group does not exist (no meta row).</summary>
+        Task<TenantGroupMembership?> GetGroupMembershipAsync(string groupId);
         /// <summary>Creates or replaces a UPN→group assignment.</summary>
         Task<bool> AssignGroupAsync(string upn, string groupId, string role, bool isEnabled, string assignedBy);
         Task<bool> UnassignGroupAsync(string upn, string groupId);
@@ -76,6 +85,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<AdminIdentityBinding?> GetIdentityBindingAsync(string upn);
         /// <summary>Every binding — for the operator management UI (small table, not a hot path).</summary>
         Task<List<AdminIdentityBinding>> GetAllIdentityBindingsAsync();
+        /// <summary>Every binding homed in one tenant (single-partition property filter) — the delegated slot count's attribution.</summary>
+        Task<List<AdminIdentityBinding>> GetIdentityBindingsByHomeTenantAsync(string homeTenantId);
         /// <summary>Creates or replaces the binding for a UPN. <paramref name="objectId"/> null/empty ⇒ pinned on first sign-in.</summary>
         Task<bool> UpsertIdentityBindingAsync(string upn, string tenantId, string? objectId, string boundBy);
         /// <summary>
@@ -142,6 +153,27 @@ namespace AutopilotMonitor.Shared.DataAccess
         public int AssigneeCount { get; set; }
         /// <summary>The UPNs assigned to this group (for the management UI).</summary>
         public List<TenantGroupAssignment> Assignees { get; set; } = new();
+        /// <summary>
+        /// Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's
+        /// HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose
+        /// customers must never pay (or be blocked) for the operator's own analysis. Off by default.
+        /// </summary>
+        public bool ChargeHomeTenantQuota { get; set; }
+        /// <summary>The managing tenant that owns this self-service group (<c>msp-{tenantId}</c>); null for operator-created groups.</summary>
+        public string? OwnerTenantId { get; set; }
+    }
+
+    /// <summary>
+    /// Hot-path projection of one Tenant Group: its tenant members and the meta-row flags that shape the
+    /// scope they confer, read from the single group partition (see <see cref="IAdminRepository.GetGroupMembershipAsync"/>).
+    /// </summary>
+    public class TenantGroupMembership
+    {
+        public string GroupId { get; set; } = string.Empty;
+        /// <summary>Tenant IDs (lowercase) in this group.</summary>
+        public List<string> TenantIds { get; set; } = new();
+        /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>.</summary>
+        public bool ChargeHomeTenantQuota { get; set; }
     }
 
     /// <summary>

@@ -44,6 +44,11 @@ public class RevokeEnforcementTests
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<DelegatedAdminService>.Instance);
 
+    /// <summary>Slot service over the same mocked repo (the revoke/validation seams never reach it).</summary>
+    private static DelegatedSlotService BuildSlots(Mock<IAdminRepository> repo) =>
+        new(repo.Object, Mock.Of<IConfigRepository>(), Mock.Of<IDelegationInvitationRepository>(),
+            new MemoryCache(new MemoryCacheOptions()), NullLogger<DelegatedSlotService>.Instance);
+
     private static Mock<IMaintenanceRepository> BuildAuditRepo()
     {
         var audit = new Mock<IMaintenanceRepository>();
@@ -66,7 +71,7 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new DelegatedAdminManagementFunction(
-            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR);
+            NullLogger<DelegatedAdminManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo));
         return (fn, repo, audit, signalR);
     }
 
@@ -83,8 +88,53 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
-            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR);
+            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo));
         return (fn, repo, audit, signalR);
+    }
+
+    // --- ChargeHomeTenantQuota flip: audited under every tenant, no-op on an unchanged value ---
+
+    [Fact]
+    public async Task SetChargeMode_UnknownGroup_False_NoAudit()
+    {
+        var (fn, _, audit, _) = BuildGroupFn();
+        var ok = await fn.SetChargeModeCoreAsync("no-such-group", true, "ga@vendor.example");
+        Assert.False(ok);
+        VerifyNoAudit(audit);
+    }
+
+    [Fact]
+    public async Task SetChargeMode_UnchangedValue_IsNoOp_NoAudit()
+    {
+        var (fn, repo, audit, _) = BuildGroupFn();
+        repo.Setup(r => r.GetTenantGroupAsync(GroupId)).ReturnsAsync(
+            new TenantGroup { GroupId = GroupId, Name = "Managed Service", TenantIds = { TenantA }, ChargeHomeTenantQuota = true });
+
+        var ok = await fn.SetChargeModeCoreAsync(GroupId, true, "ga@vendor.example");
+
+        Assert.True(ok);
+        repo.Verify(r => r.SetTenantGroupChargeHomeTenantQuotaAsync(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        VerifyNoAudit(audit);
+    }
+
+    [Fact]
+    public async Task SetChargeMode_RealChange_AuditsUnderEveryTenantInTheGroup()
+    {
+        var (fn, repo, audit, _) = BuildGroupFn();
+        repo.Setup(r => r.GetTenantGroupAsync(GroupId)).ReturnsAsync(
+            new TenantGroup { GroupId = GroupId, Name = "Managed Service", TenantIds = { TenantA, TenantB } });
+        repo.Setup(r => r.SetTenantGroupChargeHomeTenantQuotaAsync(GroupId, true)).ReturnsAsync(true);
+
+        var ok = await fn.SetChargeModeCoreAsync(GroupId, true, "ga@vendor.example");
+
+        Assert.True(ok);
+        foreach (var tenant in new[] { TenantA, TenantB })
+        {
+            audit.Verify(a => a.LogAuditEntryAsync(tenant, "UPDATE", "DelegatedGroupAccess", "*", "ga@vendor.example",
+                It.Is<Dictionary<string, string>?>(d => d != null
+                    && d["Reason"] == "quota-charge-mode-changed"
+                    && d["ChargeHomeTenantQuota"] == "true")), Times.Once);
+        }
     }
 
     // --- Delegated grant validation (fail-closed) ---

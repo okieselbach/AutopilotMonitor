@@ -7,6 +7,13 @@
 // (optional = key absent under WhenWritingNull) and names mirror the C# wire exactly.
 
 
+/** Response of POST delegations/accept. */
+export interface AcceptDelegationInvitationResponse {
+  homeTenantId: string;
+  homeTenantDomain?: string;
+  managedTenantId: string;
+}
+
 /** One currently active web user as listed by GET global/presence. */
 export interface ActiveUserItem {
   tenantId: string;
@@ -768,6 +775,13 @@ export interface CreateAnalyzeRuleFromTemplateResponse {
   message: string;
 }
 
+/** Response of POST delegations/invitations: the token is shown ONCE (the link is copy-only). */
+export interface CreateDelegationInvitationResponse {
+  invitationId: string;
+  token: string;
+  expiresUtc: string;
+}
+
 /** Response of POST global/tenant-groups: the created group's id and (trimmed) name. */
 export interface CreateTenantGroupResponse {
   groupId: string;
@@ -897,6 +911,97 @@ export interface DelegatedAdminGrantResponse {
 /** Response of GET global/delegated-admins: every delegated assignment. */
 export interface DelegatedAdminListResponse {
   assignments: DelegatedAdminEntry[];
+}
+
+/** One release hold nested in DelegatedSlotUsageResponse. */
+export interface DelegatedSlotHold {
+  invitationId: string;
+  /** The managed tenant that was removed; absent when unknown. */
+  tenantId?: string;
+  holdUntilUtc: string;
+  releasedBy: string;
+}
+
+/** 409 body when a delegated-admin mutation (grant, group assign, add tenant to group, self-service invitation or accept) would push a managing (MSP) tenant over its delegated tenant slot limit. error comes first so generic error rendering keeps working; code lets the GA UI offer the "raise the limit and retry" flow. */
+export interface DelegatedSlotLimitReachedResponse {
+  error: string;
+  code: string;
+  /** The managing (home) tenant whose slots are exhausted. */
+  homeTenantId: string;
+  /** Its display name; absent when the config row carries none. */
+  homeTenantDomain?: string;
+  /** Slots in use (distinct managed tenants + pending invitations + release holds). */
+  used: number;
+  /** The effective limit (plan entitlement or the Global Admin override). */
+  limit: number;
+  /** New slots the rejected mutation needed. */
+  required: number;
+}
+
+/** Response of GET global/delegated-slots/{tenantId} and GET delegations/slots: a managing tenant's slot usage. */
+export interface DelegatedSlotUsageResponse {
+  homeTenantId: string;
+  /** Effective limit (override when set, else the plan entitlement). */
+  limit: number;
+  /** The plan entitlement (Community 0, Pro 2). */
+  catalogLimit: number;
+  /** The Global Admin override; absent when the catalog value applies. */
+  overrideLimit?: number;
+  used: number;
+  /** Distinct managed tenant ids (lowercase) reachable by users homed in this tenant. */
+  managedTenantIds: string[];
+  /** Pending self-service invitations (each holds a slot until accepted, cancelled or expired). */
+  pendingInvitations: number;
+  /** Release holds: slots freed by a removal that stay occupied for 24 hours. */
+  holds: DelegatedSlotHold[];
+}
+
+/** Response of GET delegations/accept?token=: what accepting would do — no mutation. */
+export interface DelegationAcceptPreviewResponse {
+  /** The inviting (managing) tenant. */
+  homeTenantId: string;
+  homeTenantDomain?: string;
+  expiresUtc: string;
+  /** Pending | Accepted | Cancelled | Released | Expired. */
+  status: string;
+  /** The caller's tenant — the one that would be managed. */
+  targetTenantId: string;
+  targetTenantDomain?: string;
+}
+
+/** Response of POST delegations/assignees. */
+export interface DelegationAssignResponse {
+  assignment: TenantGroupAssignment;
+}
+
+/** Response of GET delegations/assignees: the managing tenant's own users on its self-service group. */
+export interface DelegationAssigneeListResponse {
+  homeTenantId: string;
+  groupId: string;
+  assignees: TenantGroupAssignment[];
+}
+
+/** One invitation row as the managing tenant sees it. Never carries the token. */
+export interface DelegationInvitationItem {
+  invitationId: string;
+  /** Pending | Accepted | Cancelled | Released | Expired (derived: pending past its expiry). */
+  status: string;
+  createdBy: string;
+  createdUtc: string;
+  expiresUtc: string;
+  acceptedUtc?: string;
+  acceptedBy?: string;
+  /** The managed tenant (accepted / released rows). */
+  tenantId?: string;
+  tenantDomain?: string;
+  /** Released rows: while in the future the slot is still occupied. */
+  holdUntilUtc?: string;
+}
+
+/** Response of GET delegations/invitations. */
+export interface DelegationInvitationListResponse {
+  homeTenantId: string;
+  invitations: DelegationInvitationItem[];
 }
 
 /** One sampled table row key (delete preview / stored manifest summary). */
@@ -1506,6 +1611,16 @@ export interface GetLatestVersionsResponse {
   fetchedAtUtc?: string;
   /** "cache" or "blob". */
   source: string;
+}
+
+/** Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters. */
+export interface GetMcpOrganizationUsageResponse {
+  tenantId: string;
+  /** Effective range start (yyyyMMdd). */
+  dateFrom: string;
+  /** Effective range end (yyyyMMdd, inclusive). */
+  dateTo: string;
+  users: McpOrganizationUsageItem[];
 }
 
 /** Per-user MCP/API usage envelope (GetMcpUserUsage). Non-global callers only receive the records attributed to their own tenant; a foreign oid and an unknown oid are indistinguishable (both 200 with empty records). The MCP server paginates over the records key — its name is wire-critical. */
@@ -2214,10 +2329,54 @@ export interface MaintenanceResult {
   contactEmailsBackfilled: number;
 }
 
+/** One managed tenant as the managing tenant sees it. */
+export interface ManagedTenantItem {
+  tenantId: string;
+  domain?: string;
+  /** self-service (joined by invitation, removable here) | operator (provisioned by platform operators). */
+  source: string;
+  sinceUtc?: string;
+  removable: boolean;
+  /** Absent when not resolved (cap reached or read failure). */
+  usage?: ManagedTenantQuotaUsage;
+}
+
+/** Response of GET delegations/managed. */
+export interface ManagedTenantListResponse {
+  homeTenantId: string;
+  slots: DelegatedSlotUsageResponse;
+  tenants: ManagedTenantItem[];
+}
+
+/** MCP organization budget of a managed tenant, nested in ManagedTenantItem. */
+export interface ManagedTenantQuotaUsage {
+  tenantPlan: string;
+  tenantDailyLimit: number;
+  tenantMonthlyLimit: number;
+  tenantDailyUsed: number;
+  tenantMonthlyUsed: number;
+}
+
 /** Response of GET health/mcp: the standalone MCP-server reachability probe. */
 export interface McpHealthCheckResponse {
   timestamp: string;
   check: HealthCheck;
+}
+
+/** One account's share of the organization budget, nested in GetMcpOrganizationUsageResponse. */
+export interface McpOrganizationUsageItem {
+  userId: string;
+  /** Absent for rows written before the UPN was recorded. */
+  userPrincipalName?: string;
+  /** True when the account is a delegated (MSP) administrator homed in another tenant. */
+  delegated: boolean;
+  /** The delegated administrator's home tenant; absent for the tenant's own members. */
+  homeTenantId?: string;
+  requestsToday: number;
+  requestsThisMonth: number;
+  requestsInRange: number;
+  /** Absent for rows written before the timestamp was recorded. */
+  lastRequestAt?: string;
 }
 
 /** 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted (structurally a success shape: first key is quotaExceeded). */
@@ -2235,9 +2394,11 @@ export interface McpQuotaExceededResponse {
   /** Reset time of the exceeded window, pre-formatted "yyyy-MM-ddTHH:mm:ssZ". */
   resetUtc: string;
   message: string;
+  /** The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the all-managed-tenants-exhausted aggregate block. */
+  targetTenantId?: string;
 }
 
-/** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). */
+/** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed tenants are charged to the managed tenant per request and never appear here. */
 export interface McpUsageQuotaNode {
   dailyLimit: number;
   monthlyLimit: number;
@@ -2600,6 +2761,12 @@ export interface RelatedDoc {
   title: string;
   /** URL to the documentation */
   url: string;
+}
+
+/** Response of POST global/delegated-slots/{tenantId}/release-hold: how many holds ended now. */
+export interface ReleaseDelegatedSlotHoldResponse {
+  homeTenantId: string;
+  released: number;
 }
 
 /** A remediation step with title and sub-steps */
@@ -3007,6 +3174,8 @@ export interface SessionListResponse {
   sessions: SessionSummary[];
   /** Absent when there is no further page. */
   nextLink?: string;
+  /** Managed tenants dropped from a delegated (MSP) MCP fleet aggregate because their organization MCP budget is exhausted (each managed tenant's own plan governs it). Absent unless at least one tenant was excluded; only GetAllSessions ever sets it. */
+  quotaExcludedTenants?: string[];
 }
 
 export interface SessionMetrics {
@@ -3109,6 +3278,8 @@ export interface SessionStats {
 export interface SessionStatsResponse {
   success: boolean;
   stats: SessionStats;
+  /** See QuotaExcludedTenants; only GetAllSessionStats ever sets it. */
+  quotaExcludedTenants?: string[];
 }
 
 /** Status of an enrollment session */
@@ -3253,6 +3424,10 @@ export interface SetTenantPlanTierResponse {
   effectiveEdition: string;
   /** End of the retention downgrade grace window, or null — the key is omitted when null. */
   retentionGraceEndsUtc?: string;
+  /** Effective delegated (MSP) tenant slot limit after the change (override or plan entitlement). */
+  maxDelegatedTenants: number;
+  /** The Global Admin override; omitted when the plan entitlement applies. */
+  maxDelegatedTenantsOverride?: number;
 }
 
 /** Distinct-CVE counts grouped by their highest CVSS severity band. */
@@ -3529,6 +3704,8 @@ export interface TenantConfiguration {
   trialGrantedBy?: string;
   /** When the tenant's EFFECTIVE edition last dropped Pro → Community via the plan endpoint (UTC). Anchors the retention downgrade grace period: for RetentionDowngradeGraceDays after losing Pro the retention cap stays at the Pro value so a downgrade (e.g. non-payment) does not immediately hard-delete data older than the Community cap. Trial expiry needs no write — TrialExpiresUtc itself is the anchor there. Cleared whenever the tenant becomes effectively Pro again. Backend-only: not delivered to the agent (no ConfigVersion impact). */
   proDowngradedUtc?: string;
+  /** Global-Admin override of the delegated ("MSP") tenant slot limit — how many distinct customer tenants users homed in this tenant may manage. Null = the plan entitlement applies (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package), while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only: not delivered to the agent (no ConfigVersion impact). */
+  maxDelegatedTenantsOverride?: number;
   /** Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*") Comma-separated list */
   manufacturerWhitelist: string;
   /** Hardware whitelist: Allowed models (supports wildcards like "Latitude*") Comma-separated list Default: "*" (all models allowed) */
@@ -3703,6 +3880,8 @@ export interface TenantFeatureEntitlements {
   userRateLimitPerMinute?: number;
   delegatedAdminAllowed: boolean;
   mcpUsagePlan: string;
+  /** Effective delegated (MSP) tenant slot limit (override or plan entitlement); 0 = no delegation. */
+  maxDelegatedTenants: number;
 }
 
 /** Response of GET config/{tenantId}/feature-flags: the member-readable subset of the tenant configuration — UI display toggles, feature switches and the read-time edition/entitlement surface. Adding a field here is a deliberate decision that the field is non-sensitive (no webhook URLs, SAS tokens, allowlists, addresses). */
@@ -3745,6 +3924,10 @@ export interface TenantGroup {
   assigneeCount: number;
   /** The UPNs assigned to this group (for the management UI). */
   assignees: TenantGroupAssignment[];
+  /** Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose customers must never pay (or be blocked) for the operator's own analysis. Off by default. */
+  chargeHomeTenantQuota: boolean;
+  /** The managing tenant that owns this self-service group (msp-{tenantId}); null for operator-created groups. */
+  ownerTenantId?: string;
 }
 
 /** One UPN→group assignment. PK=UPN, RK=groupId in storage. */
@@ -3761,6 +3944,35 @@ export interface TenantGroupAssignment {
 /** Response of GET global/tenant-groups: every group with tenants + assignees. */
 export interface TenantGroupListResponse {
   groups: TenantGroup[];
+}
+
+/** One person with access, nested in TenantManagerItem. */
+export interface TenantManagerAssignee {
+  upn: string;
+  role: string;
+  isEnabled: boolean;
+}
+
+/** One party that can read the caller's tenant, nested in TenantManagerListResponse. */
+export interface TenantManagerItem {
+  /** The Tenant Group conferring the access; absent for direct operator grants. */
+  groupId?: string;
+  /** The managing tenant that owns the group (self-service); absent for operator-created groups and direct grants. */
+  ownerTenantId?: string;
+  ownerDomain?: string;
+  name: string;
+  /** self-service | operator */
+  source: string;
+  assignees: TenantManagerAssignee[];
+  sinceUtc?: string;
+  /** True when the caller (the managed tenant's admin) may end this access here. */
+  revocable: boolean;
+}
+
+/** Response of GET delegations/managers: who manages the caller's tenant. */
+export interface TenantManagerListResponse {
+  tenantId: string;
+  managers: TenantManagerItem[];
 }
 
 export interface TenantMetrics {

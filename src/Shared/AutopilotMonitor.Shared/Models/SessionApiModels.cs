@@ -726,6 +726,12 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<SessionSummary> Sessions { get; set; } = default!;
         /// <summary>Absent when there is no further page.</summary>
         public string? NextLink { get; set; }
+        /// <summary>
+        /// Managed tenants dropped from a delegated (MSP) MCP fleet aggregate because their organization MCP
+        /// budget is exhausted (each managed tenant's own plan governs it). Absent unless at least one tenant
+        /// was excluded; only GetAllSessions ever sets it.
+        /// </summary>
+        public string[]? QuotaExcludedTenants { get; set; }
     }
 
     /// <summary>
@@ -749,6 +755,8 @@ namespace AutopilotMonitor.Shared.Models
     {
         public bool Success { get; set; }
         public SessionStats Stats { get; set; } = default!;
+        /// <summary>See <see cref="SessionListResponse.QuotaExcludedTenants"/>; only GetAllSessionStats ever sets it.</summary>
+        public string[]? QuotaExcludedTenants { get; set; }
     }
 
     /// <summary>Single-session detail envelope (GetSession).</summary>

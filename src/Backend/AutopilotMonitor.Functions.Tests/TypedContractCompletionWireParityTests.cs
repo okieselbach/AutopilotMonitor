@@ -387,6 +387,7 @@ public class TypedContractCompletionWireParityTests
                     userRateLimitPerMinute = (int?)null, // platform default → key vanishes
                     delegatedAdminAllowed = false,
                     mcpUsagePlan = "community",
+                    maxDelegatedTenants = 0,
                 },
             },
             new TenantFeatureFlagsResponse
@@ -411,6 +412,7 @@ public class TypedContractCompletionWireParityTests
                     UserRateLimitPerMinute = null,
                     DelegatedAdminAllowed = false,
                     McpUsagePlan = "community",
+                    MaxDelegatedTenants = 0,
                 },
             });
     }

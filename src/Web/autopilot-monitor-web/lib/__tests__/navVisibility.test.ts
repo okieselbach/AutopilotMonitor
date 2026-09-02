@@ -196,7 +196,7 @@ describe("item and sub-item filtering", () => {
   });
 
   it("tenant-admin-only sub-sections hide from Operators and Viewers but not platform scopes", () => {
-    for (const sub of ["cfg-autopilot", "cfg-access-mgmt", "cfg-offboarding"]) {
+    for (const sub of ["cfg-autopilot", "cfg-access-mgmt", "cfg-offboarding", "cfg-delegations"]) {
       expect(subIds(flagsOf("TenantAdmin"))).toContain(sub);
       expect(subIds(flagsOf("GlobalReader+adminModeOn"))).toContain(sub);
       expect(subIds(flagsOf("Operator")), `Operator must not see '${sub}'`).not.toContain(sub);

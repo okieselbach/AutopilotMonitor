@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
+import type { DelegatedSlotUsageResponse } from "@/utils/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -46,6 +47,8 @@ export interface TenantConfiguration {
   trialExpiresUtc?: string | null;
   /** Whether the tenant has used its one self-service trial. */
   trialConsumed?: boolean;
+  /** Delegated (MSP) tenant slot override; null/undefined = plan entitlement (Community 0, Pro 2). Managed via PATCH plan. */
+  maxDelegatedTenantsOverride?: number | null;
   /**
    * Dual app-reg homing: null/undefined = legacy app. Typed explicitly so a payload refactor
    * cannot silently drop the field on the generic PUT round-trip (absent ⇒ backend resets to
@@ -134,6 +137,51 @@ function TenantManagementSectionInner({
   const [editingTenant, setEditingTenant] = useState<TenantConfiguration | null>(null);
   const [savingTenant, setSavingTenant] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
+  // Delegated (MSP) slot usage of the tenant being edited (GET global/delegated-slots/{id}); null = not loaded.
+  const [slotUsage, setSlotUsage] = useState<DelegatedSlotUsageResponse | null>(null);
+  const [releasingHold, setReleasingHold] = useState<string | null>(null);
+  // Support escape hatch: end a removed customer's 24 h slot hold early (GlobalAdminOnly, audited).
+  const handleReleaseHold = async (tenantId: string, invitationId: string) => {
+    if (!canMutate) return;
+    try {
+      setReleasingHold(invitationId);
+      setError(null);
+      const response = await authenticatedFetch(api.delegatedSlots.releaseHold(tenantId), getAccessToken, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invitationId }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to release the hold: ${response.statusText}`);
+      }
+      setSlotUsage((prev) => prev
+        ? { ...prev, holds: prev.holds.filter((h) => h.invitationId !== invitationId), used: Math.max(0, prev.used - 1) }
+        : prev);
+      setSuccessMessage("Slot hold released — the managing tenant can invite again now.");
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to release the hold");
+    } finally {
+      setReleasingHold(null);
+    }
+  };
+  const editingTenantId = editingTenant?.tenantId ?? null;
+  useEffect(() => {
+    if (!editingTenantId) return;
+    let cancelled = false;
+    authenticatedFetch(api.delegatedSlots.get(editingTenantId), getAccessToken)
+      .then(async (res) => {
+        if (cancelled) return;
+        setSlotUsage(res.ok ? ((await res.json()) as DelegatedSlotUsageResponse) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setSlotUsage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingTenantId, getAccessToken]);
   const [homingDialogTarget, setHomingDialogTarget] = useState<"primary" | "legacy" | null>(null);
   const [savingHoming, setSavingHoming] = useState(false);
   // Failures of the homing/offboard calls go into these instead of the page-level
@@ -236,6 +284,7 @@ function TenantManagementSectionInner({
           // "enterprise" normalizes to "pro" on save, legacy "free" to "community".
           planTier: tenant.planTier === "pro" || tenant.planTier === "enterprise" ? "pro" : "community",
           trialExpiresUtc: tenant.trialExpiresUtc ?? null,
+          maxDelegatedTenants: tenant.maxDelegatedTenantsOverride ?? null,
         }),
       });
 
@@ -250,7 +299,9 @@ function TenantManagementSectionInner({
         planTier: result.planTier,
         trialExpiresUtc: result.trialExpiresUtc ?? null,
         trialConsumed: result.trialConsumed ?? t.trialConsumed,
+        maxDelegatedTenantsOverride: result.maxDelegatedTenantsOverride ?? null,
       });
+      setSlotUsage((prev) => (prev ? { ...prev, limit: result.maxDelegatedTenants ?? prev.limit, overrideLimit: result.maxDelegatedTenantsOverride ?? undefined } : prev));
       setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? apply(t) : t)));
       setEditingTenant(prev => (prev && prev.tenantId === tenant.tenantId ? apply(prev) : prev));
       setSuccessMessage(`Plan saved — effective edition: ${result.effectiveEdition}`);
@@ -830,6 +881,62 @@ function TenantManagementSectionInner({
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Set a date to grant/extend a Pro trial; clear to end it. Saving does not reset trial consumption.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Delegated tenant slots (override)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={editingTenant.maxDelegatedTenantsOverride ?? ""}
+                        onChange={(e) => setEditingTenant({
+                          ...editingTenant,
+                          maxDelegatedTenantsOverride: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value))),
+                        })}
+                        placeholder={slotUsage ? `plan: ${slotUsage.catalogLimit}` : "plan default"}
+                        className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      />
+                      {editingTenant.maxDelegatedTenantsOverride != null && (
+                        <button
+                          onClick={() => setEditingTenant({ ...editingTenant, maxDelegatedTenantsOverride: null })}
+                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          title="Clear the override (the plan entitlement applies)"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      {slotUsage && (
+                        <span className="text-xs text-gray-600">
+                          Slots: {slotUsage.used} of {slotUsage.limit} in use
+                          {slotUsage.pendingInvitations > 0 && ` (${slotUsage.pendingInvitations} pending)`}
+                          {slotUsage.holds.length > 0 && ` (${slotUsage.holds.length} on hold)`}
+                        </span>
+                      )}
+                    </div>
+                    {slotUsage && slotUsage.holds.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {slotUsage.holds.map((h) => (
+                          <li key={h.invitationId} className="flex flex-wrap items-center gap-x-2 text-xs text-gray-600">
+                            <span className="font-mono">{h.tenantId ?? "unknown tenant"}</span>
+                            <span>held until {new Date(h.holdUntilUtc).toLocaleString()}</span>
+                            <span className="text-gray-400">by {h.releasedBy}</span>
+                            <button
+                              type="button"
+                              disabled={!canMutate || releasingHold === h.invitationId}
+                              onClick={() => handleReleaseHold(editingTenant.tenantId, h.invitationId)}
+                              className="ml-auto text-purple-700 hover:underline disabled:opacity-50"
+                              title="End this 24 h hold now (support escape hatch; audited)"
+                            >
+                              {releasingHold === h.invitationId ? "Releasing…" : "Release now"}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      How many distinct customer tenants this (MSP) tenant&rsquo;s users may manage. Blank = plan entitlement
+                      (Community 0, Pro 2); a value applies regardless of plan, using delegation still requires Pro.
                     </p>
                   </div>
                   <div className="flex items-center justify-between">

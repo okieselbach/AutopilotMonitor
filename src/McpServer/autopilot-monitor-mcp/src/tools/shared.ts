@@ -116,8 +116,9 @@ export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: str
     // offset-based client-side pagers (geo-offset:/inv-offset:) still need it re-passed every page. The
     // per-tool `continuation` arg description owns those mechanics; here we only state the invariant.
     return 'REQUIRED: name the tenant to query — one of YOUR managed tenants (delegated/MSP), or your own ' +
-      'home tenant if you are a member of it. There is no cross-tenant aggregate and no implicit default — ' +
-      'every query must name a specific tenant. Call list_tenants to see your tenants with display names.';
+      'home tenant if you are a member of it. There is no cross-tenant aggregate here and no implicit default — ' +
+      'every query must name a specific tenant. Call list_tenants to see your tenants with display names; ' +
+      'for a bounded overview across ALL your managed tenants call get_fleet_overview instead.';
   }
   return ga ? gaText : tenantText;
 }

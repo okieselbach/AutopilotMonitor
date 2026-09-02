@@ -311,3 +311,76 @@ describe('get_software_inventory exposes a required tenantId selector to delegat
     expect(ok).toBeDefined();
   });
 });
+
+describe('get_fleet_overview — the ONE delegated tool without a tenantId (bounded server-side)', () => {
+  /** Stub fetch with per-path bodies; capture every URL. */
+  function stubFleetFetch(bodies: Record<string, unknown>): { urls: string[] } {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      urls.push(u);
+      const key = Object.keys(bodies).find((k) => u.includes(k));
+      const body = key ? bodies[key] : { success: true, sessions: [], count: 0 };
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) } as unknown as Response;
+    }));
+    return { urls };
+  }
+
+  it('is registered for a delegated caller and a platform caller, never for a plain tenant user', () => {
+    expect(() => handlerFor('get_fleet_overview', { delegated: true })).not.toThrow();
+    expect(() => handlerFor('get_fleet_overview', { ga: true })).not.toThrow();
+    expect(() => handlerFor('get_fleet_overview', {})).toThrow(/not registered/);
+  });
+
+  it('calls the two subset-tier routes WITHOUT a tenantId and merges quotaExcludedTenants', async () => {
+    const handler = handlerFor('get_fleet_overview', { delegated: true });
+    const { urls } = stubFleetFetch({
+      '/api/global/stats/sessions': { success: true, stats: { days: 7, activeCount: 1 }, quotaExcludedTenants: ['cccc-3333'] },
+      '/api/global/sessions': { success: true, count: 1, sessions: [{ sessionId: 's1' }], nextLink: '/api/global/sessions?days=7&pageSize=25&continuation=x', quotaExcludedTenants: ['cccc-3333', 'dddd-4444'] },
+    });
+
+    const r = await runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED, 'cccc-3333', 'dddd-4444'] }, () =>
+      handler({ days: 7 }, extra));
+
+    expect(r.isError).toBeFalsy();
+    expect(urls).toHaveLength(2);
+    expect(urls.some((u) => u.includes('/api/global/stats/sessions?') && u.includes('days=7'))).toBe(true);
+    expect(urls.some((u) => u.includes('/api/global/sessions?') && u.includes('days=7'))).toBe(true);
+    expect(urls.every((u) => !u.includes('tenantId='))).toBe(true);
+    const body = JSON.parse(resultText(r));
+    expect(body.stats).toEqual({ days: 7, activeCount: 1 });
+    expect(body.sessions).toEqual([{ sessionId: 's1' }]);
+    expect(body.nextLink).toContain('/api/global/sessions');
+    expect(body.managedTenants).toEqual([MANAGED, 'cccc-3333', 'dddd-4444']);
+    expect(body.quotaExcludedTenants).toEqual(['cccc-3333', 'dddd-4444']);
+    expect(body.quotaNote).toMatch(/2 managed tenant\(s\) skipped/);
+  });
+
+  it('a follow-up page fetches only the session list (stats are first-page only) and omits the quota keys when nothing was excluded', async () => {
+    const handler = handlerFor('get_fleet_overview', { delegated: true });
+    const { urls } = stubFleetFetch({
+      '/api/global/sessions': { success: true, count: 0, sessions: [] },
+    });
+
+    const r = await runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED] }, () =>
+      handler({ continuation: '/api/global/sessions?days=7&pageSize=25&continuation=abc' }, extra));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('/api/global/sessions?days=7&pageSize=25&continuation=abc');
+    const body = JSON.parse(resultText(r));
+    expect(body).not.toHaveProperty('stats');
+    expect(body).not.toHaveProperty('quotaExcludedTenants');
+    expect(body).not.toHaveProperty('quotaNote');
+  });
+
+  it('every OTHER delegated tool still requires a tenantId (the invariant is unchanged)', async () => {
+    const handler = handlerFor('search_sessions', { delegated: true });
+    const { urls } = stubFleetFetch({});
+    const r = await runWithCaller({ token: 'msp', isGlobalAdmin: false, delegatedTenantIds: [MANAGED] }, () =>
+      handler({}, extra));
+    expect(urls).toHaveLength(0);
+    expect(r.isError).toBe(true);
+    expect(resultText(r)).toMatch(/tenantId is required/i);
+    expect(resultText(r)).toMatch(/get_fleet_overview/);
+  });
+});

@@ -114,6 +114,11 @@ public class DelegatedAdminService
         // set on the group. Same fail-closed + stronger-role-wins merge as direct grants; a tenant
         // present both directly and via a group keeps the stronger role. Membership changes converge
         // within the cache TTL (no separate per-group cache by design).
+        // A group flagged ChargeHomeTenantQuota (operator-run managed service) marks its tenants as
+        // home-charged for the MCP quota layer: reads into them draw on the assignee's HOME tenant budget,
+        // never the managed tenant's. The flag wins over a parallel direct grant on the same tenant —
+        // it is the operator's explicit, more privileged choice. Billing attribution only, never authz.
+        var homeCharged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var groupAssignments = await _adminRepo.GetGroupAssignmentsForUpnAsync(upn);
         foreach (var assignment in groupAssignments)
         {
@@ -124,11 +129,16 @@ public class DelegatedAdminService
             if (role == null)
                 continue;
 
-            var groupTenants = await _adminRepo.GetGroupTenantsAsync(assignment.GroupId);
-            foreach (var tenantId in groupTenants)
+            // Members + meta flags from ONE partition read (meta-backed: a missing meta row ⇒ no group, no scope).
+            var membership = await _adminRepo.GetGroupMembershipAsync(assignment.GroupId);
+            if (membership == null)
+                continue;
+            foreach (var tenantId in membership.TenantIds)
             {
                 if (string.IsNullOrWhiteSpace(tenantId))
                     continue;
+                if (membership.ChargeHomeTenantQuota)
+                    homeCharged.Add(tenantId);
                 if (tenantRoles.TryGetValue(tenantId, out var existing) && IsStronger(existing, role))
                     continue;
                 tenantRoles[tenantId] = role;
@@ -141,7 +151,7 @@ public class DelegatedAdminService
         // NOT of the managed targets. A Pro MSP may manage Community customers. Resolution
         // failure / unknown home tenant counts as Community (fail-closed inside the entitlement
         // service), which empties the scope. Grant rows stay untouched — inert until upgrade/trial.
-        var scope = new DelegatedScope(tenantRoles);
+        var scope = new DelegatedScope(tenantRoles, homeCharged);
         _cache.Set(cacheKey, scope, _cacheDuration);
         return scope;
     }
@@ -261,6 +271,24 @@ public class DelegatedAdminService
     /// <summary>Renames a group (name only — no scope effect, no invalidation needed).</summary>
     public Task<bool> RenameGroupAsync(string groupId, string name)
         => _adminRepo.RenameTenantGroupAsync(NormalizeGroupId(groupId), name);
+
+    /// <summary>Creates a tenant-OWNED (self-service) group's meta row if missing — no scope effect (a fresh group has no members).</summary>
+    public Task EnsureOwnedGroupAsync(string groupId, string name, string ownerTenantId)
+        => _adminRepo.EnsureOwnedTenantGroupAsync(NormalizeGroupId(groupId), name, ownerTenantId);
+
+    /// <summary>
+    /// Sets the group's <see cref="TenantGroup.ChargeHomeTenantQuota"/> flag. The flag rides in every
+    /// assignee's cached scope (<see cref="DelegatedScope.HomeChargedTenantIds"/>), so every current assignee
+    /// is invalidated. Returns false if the group does not exist.
+    /// </summary>
+    public async Task<bool> SetChargeHomeTenantQuotaAsync(string groupId, bool chargeHomeTenantQuota)
+    {
+        groupId = NormalizeGroupId(groupId);
+        var ok = await _adminRepo.SetTenantGroupChargeHomeTenantQuotaAsync(groupId, chargeHomeTenantQuota);
+        if (ok)
+            await InvalidateGroupAssigneesAsync(groupId);
+        return ok;
+    }
 
     /// <summary>Deletes a group and all its assignments; invalidates every (former) assignee's scope.</summary>
     public async Task<bool> DeleteGroupAsync(string groupId)
@@ -400,12 +428,31 @@ public sealed class DelegatedScope
     public static readonly DelegatedScope Empty = new(new Dictionary<string, string>());
 
     private readonly IReadOnlyDictionary<string, string> _tenantRoles;
+    private readonly HashSet<string> _homeCharged;
 
     public DelegatedScope(IReadOnlyDictionary<string, string> tenantRoles)
-        => _tenantRoles = tenantRoles;
+        : this(tenantRoles, null)
+    {
+    }
+
+    public DelegatedScope(IReadOnlyDictionary<string, string> tenantRoles, IReadOnlyCollection<string>? homeChargedTenantIds)
+    {
+        _tenantRoles = tenantRoles;
+        _homeCharged = new HashSet<string>(homeChargedTenantIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>Tenant IDs (lowercase) this scope grants access to.</summary>
     public IReadOnlyCollection<string> TenantIds => (IReadOnlyCollection<string>)_tenantRoles.Keys;
+
+    /// <summary>
+    /// The covered tenants reached through a Tenant Group flagged <see cref="TenantGroup.ChargeHomeTenantQuota"/>:
+    /// MCP reads into them are charged to the caller's HOME tenant. Billing attribution only — never authz.
+    /// </summary>
+    public IReadOnlyCollection<string> HomeChargedTenantIds => _homeCharged;
+
+    /// <summary>True if MCP reads into the given tenant are charged to the caller's home tenant.</summary>
+    public bool ChargesHome(string? tenantId)
+        => !string.IsNullOrEmpty(tenantId) && _homeCharged.Contains(tenantId);
 
     public bool IsEmpty => _tenantRoles.Count == 0;
 
@@ -493,6 +540,15 @@ public class TenantGroupEntity : ITableEntity
 
     /// <summary>The managed tenant ID (lowercase) — denormalized copy of RowKey on membership rows; empty on meta.</summary>
     public string TenantId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Meta row only (null/omitted on membership rows): see <see cref="TenantGroup.ChargeHomeTenantQuota"/>.
+    /// Nullable so a membership-row write never carries a spurious false column.
+    /// </summary>
+    public bool? ChargeHomeTenantQuota { get; set; }
+
+    /// <summary>Meta row only: the managing tenant that owns this self-service group (see <see cref="Constants.TenantGroupIds"/>); null on operator-created groups.</summary>
+    public string? OwnerTenantId { get; set; }
 }
 
 /// <summary>

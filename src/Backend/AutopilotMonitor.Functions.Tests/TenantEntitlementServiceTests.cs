@@ -295,4 +295,40 @@ public class TenantEntitlementServiceTests
         };
         Assert.Equal(60, TenantEntitlementService.GetEffectiveRetentionDays(below, Now.AddDays(5)));
     }
+
+    // ── Delegated (MSP) tenant slot limit ────────────────────────────────────────
+
+    [Theory]
+    [InlineData("community", null, 0)]
+    [InlineData("pro", null, 2)]
+    [InlineData("pro", 20, 20)]
+    [InlineData("community", 4, 4)] // override applies regardless of edition (pre-provisioned package)
+    [InlineData("pro", 0, 0)]        // an explicit zero is a limit, not "unset"
+    public void GetMaxDelegatedTenants_OverrideBeatsTheCatalog(string tier, int? overrideLimit, int expected)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = tier, MaxDelegatedTenantsOverride = overrideLimit };
+        Assert.Equal(expected, TenantEntitlementService.GetMaxDelegatedTenants(config, Now));
+    }
+
+    [Fact]
+    public void GetMaxDelegatedTenants_ActiveTrial_GetsTheProCount()
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = "free", TrialExpiresUtc = Now.AddDays(3) };
+        Assert.Equal(2, TenantEntitlementService.GetMaxDelegatedTenants(config, Now));
+    }
+
+    [Fact]
+    public async Task GetMaxDelegatedTenantsAsync_NoRow_FailsClosedToZero()
+    {
+        var (svc, _) = Build(config: null);
+        Assert.Equal(0, await svc.GetMaxDelegatedTenantsAsync(TenantId));
+        Assert.Equal(0, await svc.GetMaxDelegatedTenantsAsync(null));
+    }
+
+    [Fact]
+    public async Task GetMaxDelegatedTenantsAsync_ReadsTheOverride()
+    {
+        var (svc, _) = Build(new TenantConfiguration { TenantId = TenantId, PlanTier = "pro", MaxDelegatedTenantsOverride = 7 });
+        Assert.Equal(7, await svc.GetMaxDelegatedTenantsAsync(TenantId));
+    }
 }

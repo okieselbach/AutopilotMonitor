@@ -4,6 +4,7 @@ using AutopilotMonitor.Shared.DataAccess;
 using Azure;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Security;
 
 namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 {
@@ -450,6 +451,53 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return groupId;
         }
 
+        public async Task EnsureOwnedTenantGroupAsync(string groupId, string name, string ownerTenantId)
+        {
+            try
+            {
+                await _tenantGroupsTableClient.GetEntityAsync<TenantGroupEntity>(groupId, TenantGroupEntity.MetaRowKey);
+                return; // exists — never overwrite a name or flags an operator may have edited
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+            }
+
+            try
+            {
+                await _tenantGroupsTableClient.AddEntityAsync(new TenantGroupEntity
+                {
+                    PartitionKey = groupId,
+                    RowKey = TenantGroupEntity.MetaRowKey,
+                    Name = name?.Trim() ?? string.Empty,
+                    CreatedBy = "self-service",
+                    CreatedDate = DateTime.UtcNow,
+                    OwnerTenantId = ownerTenantId.ToLowerInvariant(),
+                });
+            }
+            catch (RequestFailedException ex) when (ex.Status == 409)
+            {
+                // Two accepts raced on the first customer — the other one created it.
+            }
+        }
+
+        public async Task<List<string>> GetGroupIdsContainingTenantAsync(string tenantId)
+        {
+            var groupIds = new List<string>();
+            if (string.IsNullOrWhiteSpace(tenantId))
+                return groupIds;
+
+            // Cross-partition scan on RowKey (== tenantId membership rows) — the managed tenant's "who manages
+            // me" view, not the hot auth path. Typed predicate overload escapes safely.
+            var normalizedTenantId = tenantId.ToLowerInvariant();
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>(
+                e => e.RowKey == normalizedTenantId))
+            {
+                if (!groupIds.Contains(entity.PartitionKey, StringComparer.Ordinal))
+                    groupIds.Add(entity.PartitionKey);
+            }
+            return groupIds;
+        }
+
         public async Task<bool> RenameTenantGroupAsync(string groupId, string name)
         {
             if (string.IsNullOrWhiteSpace(groupId))
@@ -463,6 +511,28 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 if (entity == null) return false;
 
                 entity.Name = name?.Trim() ?? string.Empty;
+                await _tenantGroupsTableClient.UpdateEntityAsync(entity, ETag.All);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return false;
+            }
+        }
+
+        public async Task<bool> SetTenantGroupChargeHomeTenantQuotaAsync(string groupId, bool chargeHomeTenantQuota)
+        {
+            if (string.IsNullOrWhiteSpace(groupId))
+                return false;
+
+            try
+            {
+                var result = await _tenantGroupsTableClient.GetEntityAsync<TenantGroupEntity>(
+                    groupId, TenantGroupEntity.MetaRowKey);
+                var entity = result.Value;
+                if (entity == null) return false;
+
+                entity.ChargeHomeTenantQuota = chargeHomeTenantQuota;
                 await _tenantGroupsTableClient.UpdateEntityAsync(entity, ETag.All);
                 return true;
             }
@@ -608,6 +678,32 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return metaBacked ? tenants : new List<string>();
         }
 
+        public async Task<TenantGroupMembership?> GetGroupMembershipAsync(string groupId)
+        {
+            if (string.IsNullOrWhiteSpace(groupId))
+                return null;
+
+            // HOT PATH (scope resolution): the same single PartitionKey scan as GetGroupTenantsAsync, but it
+            // also lifts the meta-row flags the scope depends on. Same meta-backed invariant: no meta row ⇒
+            // no group ⇒ null (never scope from stray membership rows).
+            var membership = new TenantGroupMembership { GroupId = groupId };
+            var metaBacked = false;
+            await foreach (var entity in _tenantGroupsTableClient.QueryAsync<TenantGroupEntity>(
+                e => e.PartitionKey == groupId))
+            {
+                if (entity.RowKey == TenantGroupEntity.MetaRowKey)
+                {
+                    metaBacked = true;
+                    membership.ChargeHomeTenantQuota = entity.ChargeHomeTenantQuota ?? false;
+                }
+                else
+                {
+                    membership.TenantIds.Add(entity.RowKey);
+                }
+            }
+            return metaBacked ? membership : null;
+        }
+
         public async Task<bool> AssignGroupAsync(string upn, string groupId, string role, bool isEnabled, string assignedBy)
         {
             if (string.IsNullOrWhiteSpace(upn) || string.IsNullOrWhiteSpace(groupId))
@@ -698,6 +794,21 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             var bindings = new List<AdminIdentityBinding>();
             await foreach (var entity in _identityBindingsTableClient.QueryAsync<AdminIdentityBindingEntity>(
                 filter: $"PartitionKey eq '{AdminIdentityBindingEntity.Partition}'"))
+            {
+                bindings.Add(MapToBinding(entity));
+            }
+            return bindings;
+        }
+
+        public async Task<List<AdminIdentityBinding>> GetIdentityBindingsByHomeTenantAsync(string homeTenantId)
+        {
+            var bindings = new List<AdminIdentityBinding>();
+            if (string.IsNullOrWhiteSpace(homeTenantId))
+                return bindings;
+
+            // Single partition ("Bindings") + TenantId property filter: admin-scale rows, no cross-partition scan.
+            await foreach (var entity in _identityBindingsTableClient.QueryAsync<AdminIdentityBindingEntity>(
+                filter: $"PartitionKey eq '{AdminIdentityBindingEntity.Partition}' and TenantId eq '{ODataSanitizer.EscapeValue(homeTenantId.ToLowerInvariant())}'"))
             {
                 bindings.Add(MapToBinding(entity));
             }
@@ -933,6 +1044,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 group.Name = entity.Name;
                 group.CreatedBy = entity.CreatedBy;
                 group.CreatedAt = entity.CreatedDate ?? default;
+                group.ChargeHomeTenantQuota = entity.ChargeHomeTenantQuota ?? false;
+                group.OwnerTenantId = string.IsNullOrEmpty(entity.OwnerTenantId) ? null : entity.OwnerTenantId;
                 return true;
             }
 

@@ -41,14 +41,22 @@ export function toolError(
     // say so, and say WHOSE budget it is, so a member blocked by the tenant window does not go and
     // create more accounts or ask for a bigger personal plan.
     const p = error.parsed;
-    const whose = p.level === 'tenant' ? "your organization's" : 'your';
+    // A delegated (MSP) read is charged to the MANAGED tenant ("the budget follows the data"): its plan
+    // governs the window, so the fix is on that tenant's side — and the caller's other managed tenants
+    // stay perfectly usable.
+    const managedTenant = p.level === 'tenant' && typeof p.targetTenantId === 'string' && p.targetTenantId
+      ? p.targetTenantId
+      : undefined;
+    const whose = managedTenant ? `the managed tenant ${managedTenant}'s` : p.level === 'tenant' ? "your organization's" : 'your';
     parts.push(`**Quota exceeded in ${toolName}**: ${p.message ?? `${whose} MCP ${p.scope ?? ''} request quota is exhausted.`}`);
     if (p.limit != null && p.used != null) parts.push(`**Budget**: ${p.used} of ${p.limit} requests used (${p.scope ?? 'window'}, ${p.level ?? 'user'} level).`);
     if (p.resetUtc) parts.push(`**Resets at**: ${p.resetUtc}`);
     parts.push(
-      p.level === 'tenant'
-        ? '**Suggestion**: do not retry before the reset — the window is shared by every member of the tenant; a tenant admin can review consumption under Configuration → Reporting → MCP Usage.'
-        : '**Suggestion**: do not retry before the reset; narrow further queries, or ask an administrator about a larger usage plan.',
+      managedTenant
+        ? `**Suggestion**: do not retry THIS tenant before the reset — its window is shared by all of that tenant's members and delegated admins and is governed by the managed tenant's own plan (upgrading it to Pro lifts it). Your other managed tenants remain available.`
+        : p.level === 'tenant'
+          ? '**Suggestion**: do not retry before the reset — the window is shared by every member of the tenant; a tenant admin can review consumption under Configuration → Reporting → MCP Usage.'
+          : '**Suggestion**: do not retry before the reset; narrow further queries, or ask an administrator about a larger usage plan.',
     );
   } else if (error instanceof ApiError && error.parsed) {
     // Structured backend error (4xx) — extract rich details

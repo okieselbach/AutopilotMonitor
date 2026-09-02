@@ -117,6 +117,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     // role-aware routing to the GlobalReadOrAdmin fleet variant — same placement as
     // get_time_attribution (F2 counterpart).
     'get_device_history',
+    // Platform scope + delegated (MSP): the bounded fleet aggregate over the two
+    // GlobalReadOrDelegatedSubset routes (global/stats/sessions + global/sessions).
+    'get_fleet_overview',
     'get_geographic_metrics',
     'get_geographic_sessions',
     'get_ime_pattern_health',
@@ -197,6 +200,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'annotate_session',
     'get_agent_efficiency_metrics',
     'get_api_usage',
+    'get_fleet_overview',
     'get_ime_pattern_health',
     'get_ops_events',
     'get_platform_metrics',
@@ -220,7 +224,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // for tenant users — is ADDED back so a delegated caller can resolve its managed
   // tenants' display names (backend bounds config/all to the managed subset).
   const DELEGATED_HIDDEN = ['get_ime_version_history'];
-  const DELEGATED_ADDED = ['list_tenants'];
+  // get_fleet_overview is the ONE delegated tool without a tenantId: the backend bounds the two
+  // subset-tier routes it calls to the caller's managed set (never a client-side fan-out).
+  const DELEGATED_ADDED = ['get_fleet_overview', 'list_tenants'];
 
   const without = (set: string[], remove: string[]) => set.filter((n) => !remove.includes(n));
 
@@ -237,7 +243,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     expect(registeredToolNames(false, false, false)).toEqual(without(GA_FULL, PLATFORM_ONLY));
   });
 
-  it('delegated (MSP) caller = tenant user minus the global IME archive, plus list_tenants', () => {
+  it('delegated (MSP) caller = tenant user minus the global IME archive, plus list_tenants + get_fleet_overview', () => {
     const tenant = without(GA_FULL, PLATFORM_ONLY);
     const expected = [...without(tenant, DELEGATED_HIDDEN), ...DELEGATED_ADDED].sort();
     expect(registeredToolNames(false, false, true)).toEqual(expected);

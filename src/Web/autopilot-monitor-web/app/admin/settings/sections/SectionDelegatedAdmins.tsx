@@ -7,6 +7,8 @@ import { useTenantList } from "@/hooks/useTenantList";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
+import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
+import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
@@ -51,6 +53,10 @@ export function SectionDelegatedAdmins() {
   const [homeTenantPick, setHomeTenantPick] = useState("");
   const [granting, setGranting] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // 409 DelegatedSlotLimitReached: the home tenant's slots are full — offer to raise the limit and retry
+  // the (still filled-in) grant form.
+  const [slotPrompt, setSlotPrompt] = useState<SlotLimitError | null>(null);
+  const [raisingSlots, setRaisingSlots] = useState(false);
 
   const domainOf = useMemo(() => {
     const map = new Map(tenants.map((t) => [t.tenantId.toLowerCase(), t.domainName]));
@@ -113,8 +119,15 @@ export function SectionDelegatedAdmins() {
         if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED) {
           setNeedHomeTenant(true);
         }
+        const slot = parseSlotLimitError(response.status, data);
+        if (slot) {
+          // Keep the form as-is; the prompt's "raise & retry" re-runs this grant.
+          setSlotPrompt(slot);
+          return;
+        }
         throw new Error(data.error || `Failed to grant: ${response.statusText}`);
       }
+      setSlotPrompt(null);
       const dom = domainOf(newTenantId);
       flash(`Granted ${upn} ${ROLE_LABELS[newRole] ?? newRole} on ${dom || newTenantId}.`);
       setNewUpn("");
@@ -130,6 +143,20 @@ export function SectionDelegatedAdmins() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newUpn, newTenantId, newRole, needHomeTenant, homeTenantPick, getAccessToken, fetchAssignments, domainOf]);
+
+  const handleRaiseSlots = useCallback(async (newLimit: number) => {
+    if (!slotPrompt) return;
+    setRaisingSlots(true);
+    setError(null);
+    const failure = await raiseDelegatedSlotLimit(getAccessToken, slotPrompt.homeTenantId, newLimit);
+    setRaisingSlots(false);
+    if (failure) {
+      setError(failure);
+      return;
+    }
+    setSlotPrompt(null);
+    await handleGrant();
+  }, [slotPrompt, getAccessToken, handleGrant]);
 
   const handleToggle = useCallback(async (a: DelegatedAssignment) => {
     const key = `${a.upn}|${a.tenantId}`;
@@ -216,6 +243,14 @@ export function SectionDelegatedAdmins() {
             </svg>
             <span className="text-red-800">{error}</span>
           </div>
+        )}
+        {slotPrompt && (
+          <DelegatedSlotPrompt
+            prompt={slotPrompt}
+            busy={raisingSlots || granting}
+            onRaise={handleRaiseSlots}
+            onCancel={() => setSlotPrompt(null)}
+          />
         )}
 
         {/* Grant form */}

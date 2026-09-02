@@ -41,6 +41,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly INotificationRepository _notificationRepo;
         private readonly ITenantNotificationRepository _tenantNotificationRepo;
         private readonly IHardwareRejectionNotificationTracker _hardwareRejectionTracker;
+        private readonly IDelegationInvitationRepository _delegationInvitationRepo;
         private readonly DataAccess.TableStorage.BackupJobsRepository _backupJobsRepo;
         private readonly OpsEventService _opsEventService;
         private readonly IRuleRepository _ruleRepo;
@@ -74,6 +75,7 @@ namespace AutopilotMonitor.Functions.Services
             INotificationRepository notificationRepo,
             ITenantNotificationRepository tenantNotificationRepo,
             IHardwareRejectionNotificationTracker hardwareRejectionTracker,
+            IDelegationInvitationRepository delegationInvitationRepo,
             DataAccess.TableStorage.BackupJobsRepository backupJobsRepo,
             OpsEventService opsEventService,
             IRuleRepository ruleRepo,
@@ -102,6 +104,7 @@ namespace AutopilotMonitor.Functions.Services
             _notificationRepo = notificationRepo;
             _tenantNotificationRepo = tenantNotificationRepo;
             _hardwareRejectionTracker = hardwareRejectionTracker;
+            _delegationInvitationRepo = delegationInvitationRepo;
             _backupJobsRepo = backupJobsRepo;
             _opsEventService = opsEventService;
             _ruleRepo = ruleRepo;

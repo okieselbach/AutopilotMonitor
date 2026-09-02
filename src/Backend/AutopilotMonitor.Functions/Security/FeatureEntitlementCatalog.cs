@@ -49,6 +49,15 @@ namespace AutopilotMonitor.Functions.Security
         public bool DelegatedAdminAllowed { get; init; }
 
         /// <summary>
+        /// How many DISTINCT customer tenants the users homed in a tenant of this edition may manage
+        /// (delegated "MSP" slots) — direct grants ∪ assigned Tenant Groups, plus pending self-service
+        /// invitations and release holds. A Global Admin may raise it per tenant via
+        /// TenantConfiguration.MaxDelegatedTenantsOverride (plan packages, sales). Counted and enforced by
+        /// DelegatedSlotService; the Pro gate on USING delegation stays <see cref="DelegatedAdminAllowed"/>.
+        /// </summary>
+        public int MaxDelegatedTenants { get; init; }
+
+        /// <summary>
         /// Whether the OOBE bootstrap feature (bootstrap sessions/codes) is included in the plan.
         /// When true, bootstrap endpoints work without the per-tenant GA flag
         /// (TenantConfiguration.BootstrapTokenEnabled remains an additive per-tenant enable for
@@ -121,6 +130,7 @@ namespace AutopilotMonitor.Functions.Security
             UserRateLimitPerMinute = null,   // AdminConfiguration default (120) applies
             DeviceRateLimitPerMinute = null, // AdminConfiguration default (100) applies
             DelegatedAdminAllowed = false,
+            MaxDelegatedTenants = 0,
             BootstrapIncluded = false,
             UnrestrictedModeAvailable = false,
             McpUsagePlanName = CommunityTierName,
@@ -137,6 +147,7 @@ namespace AutopilotMonitor.Functions.Security
             UserRateLimitPerMinute = 150,
             DeviceRateLimitPerMinute = 150,
             DelegatedAdminAllowed = true,
+            MaxDelegatedTenants = 2,
             BootstrapIncluded = true,
             UnrestrictedModeAvailable = true,
             McpUsagePlanName = ProTierName,

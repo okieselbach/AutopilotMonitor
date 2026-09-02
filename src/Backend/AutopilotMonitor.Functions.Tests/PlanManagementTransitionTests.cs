@@ -142,4 +142,45 @@ public class PlanManagementTransitionTests
         PlanManagementFunction.ApplyPlanChanges(config, "community", false, null, Caller, later, changes);
         Assert.Equal(later, config.ProDowngradedUtc);
     }
+
+    // ── Delegated (MSP) slot override ────────────────────────────────────────────
+
+    [Fact]
+    public void SlotChange_NotProvided_IsANoOp()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", MaxDelegatedTenantsOverride = 3 };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyDelegatedSlotChange(config, provided: false, maxDelegatedTenants: null, changes);
+        Assert.Equal(3, config.MaxDelegatedTenantsOverride);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void SlotChange_SetFromCatalog_RecordsAndApplies()
+    {
+        var config = new TenantConfiguration { TenantId = "t1" };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyDelegatedSlotChange(config, provided: true, maxDelegatedTenants: 4, changes);
+        Assert.Equal(4, config.MaxDelegatedTenantsOverride);
+        Assert.Equal("(catalog) -> 4", changes["MaxDelegatedTenantsOverride"]);
+    }
+
+    [Fact]
+    public void SlotChange_ClearToCatalog_RecordsAndApplies()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", MaxDelegatedTenantsOverride = 4 };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyDelegatedSlotChange(config, provided: true, maxDelegatedTenants: null, changes);
+        Assert.Null(config.MaxDelegatedTenantsOverride);
+        Assert.Equal("4 -> (catalog)", changes["MaxDelegatedTenantsOverride"]);
+    }
+
+    [Fact]
+    public void SlotChange_SameValue_RecordsNothing()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", MaxDelegatedTenantsOverride = 4 };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyDelegatedSlotChange(config, provided: true, maxDelegatedTenants: 4, changes);
+        Assert.Empty(changes);
+    }
 }

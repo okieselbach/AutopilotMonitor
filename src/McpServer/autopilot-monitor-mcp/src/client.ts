@@ -214,7 +214,10 @@ export function pickGlobalOrTenantPath(globalPath: string, tenantPath: string, e
  * platform GA/Reader behavior — where tenantId is optional — is untouched.
  *
  * This makes the "delegated must name a managed tenant; no aggregate" invariant explicit at the tool
- * boundary, on top of the backend middleware bound (which authorizes but cannot guess a tenantId).
+ * boundary, on top of the backend middleware bound (which authorizes but cannot guess a tenantId). The ONE
+ * deliberate exception is get_fleet_overview (admin.ts), which never goes through this guard: it calls the
+ * two GlobalReadOrDelegatedSubset routes (global/sessions, global/stats/sessions) whose handlers the backend
+ * bounds to the caller's managed set server-side — the same bounded aggregate the delegated web dashboard uses.
  */
 export function enforceDelegatedTenant(tenantId?: string): string | undefined {
   if (!isDelegated()) return tenantId;
@@ -230,7 +233,7 @@ export function enforceDelegatedTenant(tenantId?: string): string | undefined {
       'tenantId is required: as a delegated (MSP) user you must name the tenant to query. ' +
       `Managed tenants: ${allowed.join(', ')}` +
       (home ? `; or your own home tenant: ${home}.` : '.') +
-      ' Call list_tenants to see them with display names.',
+      ' Call list_tenants to see them with display names, or get_fleet_overview for a bounded aggregate across all of them.',
     );
   }
   if (!allowed.includes(t) && t !== home) {

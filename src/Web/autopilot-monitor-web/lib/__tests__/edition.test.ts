@@ -20,6 +20,7 @@ describe("parseEditionInfo", () => {
         retentionCapDays: 365,
         userRateLimitPerMinute: 150,
         delegatedAdminAllowed: true,
+        maxDelegatedTenants: 2,
         mcpUsagePlan: "pro",
       },
     });
@@ -30,6 +31,7 @@ describe("parseEditionInfo", () => {
     expect(info.entitlements.retentionCapDays).toBe(365);
     expect(info.entitlements.userRateLimitPerMinute).toBe(150);
     expect(info.entitlements.delegatedAdminAllowed).toBe(true);
+    expect(info.entitlements.maxDelegatedTenants).toBe(2);
   });
 
   it("accepts the pre-rename edition value 'enterprise' as pro (deploy-order safety)", () => {
@@ -54,6 +56,7 @@ describe("parseEditionInfo", () => {
     const info = parseEditionInfo({ edition: "pro" });
     expect(info.entitlements.retentionCapDays).toBe(90);
     expect(info.entitlements.userRateLimitPerMinute).toBeNull();
+    expect(info.entitlements.maxDelegatedTenants).toBe(0);
   });
 
   it("contactEmailSet: only an explicit false means missing (fail-safe against older backends)", () => {

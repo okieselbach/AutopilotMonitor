@@ -118,8 +118,8 @@ public class DelegatedAdminEditionGateTests
                     AssignedBy = "ga@vendor.example",
                 }
             });
-        repo.Setup(r => r.GetGroupTenantsAsync("tpl-aaaaaaaa"))
-            .ReturnsAsync(new List<string> { ManagedTenantA, ManagedTenantB });
+        repo.Setup(r => r.GetGroupMembershipAsync("tpl-aaaaaaaa"))
+            .ReturnsAsync(new TenantGroupMembership { GroupId = "tpl-aaaaaaaa", TenantIds = new List<string> { ManagedTenantA, ManagedTenantB } });
 
         var svc = new DelegatedAdminService(
             repo.Object,
