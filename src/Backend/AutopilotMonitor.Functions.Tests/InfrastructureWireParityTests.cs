@@ -661,7 +661,7 @@ public class InfrastructureWireParityTests
                 limit = 200,
                 used = 200L,
                 resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP daily request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z."
+                message = "MCP daily request quota exceeded for plan 'community'. The Community plan is sized for occasional use; Pro raises your daily and monthly windows. Resets at 2026-08-31T00:00:00Z."
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision));
     }
@@ -744,7 +744,7 @@ public class InfrastructureWireParityTests
                 limit = 300,
                 used = 300L,
                 resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-08-31T00:00:00Z.",
+                message = "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). That tenant is on the Community plan, which is sized for occasional use; its own plan governs this window, not yours. Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-08-31T00:00:00Z.",
                 targetTenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002"
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, "customer.example"));

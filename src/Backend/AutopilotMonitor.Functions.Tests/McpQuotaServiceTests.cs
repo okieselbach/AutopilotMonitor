@@ -126,7 +126,8 @@ public class McpQuotaServiceTests
         TenantEdition edition = TenantEdition.Community,
         IMemoryCache? cache = null,
         bool bound = true,
-        Func<string?, TenantEdition>? editionResolver = null)
+        Func<string?, TenantEdition>? editionResolver = null,
+        Func<string?, string?>? tenantPlanOverrideResolver = null)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -153,7 +154,7 @@ public class McpQuotaServiceTests
             usageRepo.Object,
             mcpUserService,
             adminConfigService,
-            new StubTenantEntitlementService(editionResolver ?? (_ => edition)),
+            new StubTenantEntitlementService(editionResolver ?? (_ => edition), tenantPlanOverrideResolver),
             cache,
             NullLogger<McpQuotaService>.Instance,
             new TestTimeProvider(Now));
@@ -276,6 +277,86 @@ public class McpQuotaServiceTests
         Assert.False(d.Allowed);
         Assert.Equal("no-such-plan", d.Plan);
         Assert.Equal(100, d.DailyLimit);
+    }
+
+    // ── Tenant-wide plan override (TenantConfiguration.McpUsagePlanOverride) ─────
+    // Precedence: per-user override > tenant override > edition default. The tenant override drives BOTH
+    // the members' default user plan AND the organization windows; the edition itself is untouched.
+
+    private const string MspPlanJson =
+        """[{"name":"msp","dailyRequestLimit":1500,"monthlyRequestLimit":15000,"tenantDailyRequestLimit":5000,"tenantMonthlyRequestLimit":40000,"description":""}]""";
+
+    [Fact]
+    public async Task Check_TenantOverride_DrivesUserDefaultAndTenantWindows()
+    {
+        // Pro edition, tenant override "msp": user windows AND tenant windows follow the msp definition.
+        var svc = Build(UsageRepo(("20260707", 1200)), planDefinitionsJson: MspPlanJson,
+            edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp");
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(d.Allowed);
+        Assert.Equal("msp", d.Plan);
+        Assert.Equal(1500, d.DailyLimit);
+        Assert.Equal(15000, d.MonthlyLimit);
+        Assert.Equal("msp", d.TenantPlan);
+        Assert.Equal(5000, d.TenantDailyLimit);
+        Assert.Equal(40000, d.TenantMonthlyLimit);
+    }
+
+    [Fact]
+    public async Task Check_PerUserOverride_StillWinsOverTheTenantOverride_ForTheUserWindowsOnly()
+    {
+        var json = MspPlanJson.TrimEnd(']') + """,{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 2000)), planDefinitionsJson: json,
+            edition: TenantEdition.Pro, mcpUserPlanOverride: "power", tenantPlanOverrideResolver: _ => "msp");
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(d.Allowed);
+        Assert.Equal("power", d.Plan);
+        Assert.Equal(10000, d.DailyLimit);
+        // The organization windows follow the TENANT plan (the override), never the per-user plan.
+        Assert.Equal("msp", d.TenantPlan);
+        Assert.Equal(5000, d.TenantDailyLimit);
+    }
+
+    [Fact]
+    public async Task Check_TenantOverrideWithoutDefinition_FailsClosedToCommunityLimits()
+    {
+        // The plan endpoint validates the name on SET; if the definition is deleted later the read side
+        // falls back fail-closed (user: Community catalog; tenant: the EDITION's catalog windows).
+        var svc = Build(UsageRepo(("20260707", 100)), edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp");
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("msp", d.Plan);
+        Assert.Equal(100, d.DailyLimit);
+        Assert.Equal("msp", d.TenantPlan);
+        Assert.Equal(3000, d.TenantDailyLimit);
+    }
+
+    [Fact]
+    public async Task Check_DelegatedTarget_MspHomeOverride_LiftsTheCallerNotTheCustomer()
+    {
+        // The MSP's home tenant carries the "msp" override; the managed Community customer does not.
+        // The caller's own windows are lifted, the customer's organization window still bites.
+        var repo = UsageRepo(("20260707", 1200));
+        TenantRows(repo, Target, ("20260707", 300));
+        var svc = Build(repo, planDefinitionsJson: MspPlanJson,
+            editionResolver: HomeProTargetsCommunity,
+            tenantPlanOverrideResolver: t => t == TenantId ? "msp" : null);
+
+        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+
+        Assert.False(d.Allowed);
+        Assert.Equal("tenant", d.Level);
+        Assert.Equal("msp", d.Plan);
+        Assert.Equal(1500, d.DailyLimit);
+        Assert.Equal("community", d.TenantPlan);
+        Assert.Equal(300, d.TenantDailyLimit);
+        Assert.Equal(Target, d.TargetTenantId);
     }
 
     [Fact]

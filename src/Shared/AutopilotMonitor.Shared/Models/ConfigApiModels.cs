@@ -204,6 +204,12 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>The Global Admin override; omitted when the plan entitlement applies.</summary>
         public int? MaxDelegatedTenantsOverride { get; set; }
+
+        /// <summary>Effective MCP usage plan name of the tenant after the change (override or edition default).</summary>
+        public string McpUsagePlan { get; set; } = default!;
+
+        /// <summary>The Global Admin MCP usage-plan override (a SectionUsagePlans plan name); omitted when the edition default applies.</summary>
+        public string? McpUsagePlanOverride { get; set; }
     }
 
     /// <summary>

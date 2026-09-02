@@ -225,4 +225,16 @@ public class TenantConfigTableSerializationTests
 
         Assert.Equal(overrideLimit, mapped.MaxDelegatedTenantsOverride);
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("msp")]
+    public void Roundtrip_McpUsagePlanOverride_SurvivesStoreAndMap(string? planOverride)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, DomainName = "contoso.com", UpdatedBy = "ga@operator.example", McpUsagePlanOverride = planOverride };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(planOverride, mapped.McpUsagePlanOverride);
+    }
 }

@@ -140,6 +140,8 @@ export interface TenantConfiguration {
   trialConsumed?: boolean;
   /** Delegated (MSP) tenant slot override; null = plan entitlement. GA-only, via PATCH plan. */
   maxDelegatedTenantsOverride?: number | null;
+  /** MCP usage-plan override (a SectionUsagePlans plan name); null = edition default. GA-only, via PATCH plan. */
+  mcpUsagePlanOverride?: string | null;
 }
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).

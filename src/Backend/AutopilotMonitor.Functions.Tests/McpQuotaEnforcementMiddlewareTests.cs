@@ -230,6 +230,48 @@ public class McpQuotaEnforcementMiddlewareTests
     }
 
     [Fact]
+    public void OwnCommunityTenant_NamesTheUpgradePath()
+    {
+        // The quota is the upgrade lever: a member blocked by their own Community organization window is told
+        // that Community is sized for occasional use and that Pro lifts it — Pro members never see the hint.
+        var community = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", target: null));
+        Assert.Contains("sized for occasional use", community.Message);
+        Assert.Contains("upgrading your organization to Pro", community.Message);
+        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", community.Message);
+
+        var pro = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("pro", target: null, 3000, 3000));
+        Assert.DoesNotContain("upgrading", pro.Message);
+        Assert.DoesNotContain("occasional use", pro.Message);
+    }
+
+    [Fact]
+    public void ManagedCommunityTarget_SaysWhosePlanGoverns()
+    {
+        // The delegated admin must learn that the CUSTOMER's plan (not their own Pro/MSP plan) governs the window.
+        var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", TenantB), "customer.example");
+        Assert.Contains("on the Community plan", body.Message);
+        Assert.Contains("its own plan governs this window, not yours", body.Message);
+        Assert.Contains("Upgrading that tenant to Pro", body.Message);
+    }
+
+    [Theory]
+    [InlineData("community", true)]
+    [InlineData("Community", true)]
+    [InlineData("pro", false)]
+    [InlineData("power", false)] // per-user override plan: an individual budget, "upgrade to Pro" would be wrong advice
+    public void UserLevelBlock_HintsProOnlyForTheCommunityEdition(string userPlan, bool expectHint)
+    {
+        var decision = McpQuotaService.BuildDecision(
+            new McpPlanLimits(userPlan, 100, 3000, "pro", 3000, 60000),
+            dailyUsed: 100, monthlyUsed: 500, tenantDailyUsed: 1, tenantMonthlyUsed: 1, Now);
+        var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(decision);
+        Assert.Equal("user", body.Level);
+        Assert.StartsWith($"MCP daily request quota exceeded for plan '{userPlan}'.", body.Message);
+        Assert.Equal(expectHint, body.Message.Contains("Pro raises your daily and monthly windows"));
+        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", body.Message);
+    }
+
+    [Fact]
     public void AllManagedTenantsExhausted_NamesTheCount_AndNoSingleTarget()
     {
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", TenantB), exhaustedTenantCount: 3);
@@ -249,6 +291,8 @@ public class McpQuotaEnforcementMiddlewareTests
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, "customer.example", exhaustedTenantCount: 2);
         Assert.Equal("user", body.Level);
         Assert.Null(body.TargetTenantId);
-        Assert.Equal("MCP daily request quota exceeded for plan 'community'. Resets at 2026-09-03T00:00:00Z.", body.Message);
+        Assert.Equal(
+            "MCP daily request quota exceeded for plan 'community'. The Community plan is sized for occasional use; Pro raises your daily and monthly windows. Resets at 2026-09-03T00:00:00Z.",
+            body.Message);
     }
 }

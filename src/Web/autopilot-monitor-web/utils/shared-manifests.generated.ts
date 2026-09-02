@@ -87,6 +87,7 @@ export const SHARED_MANIFEST = {
       "trialGrantedBy",
       "proDowngradedUtc",
       "maxDelegatedTenantsOverride",
+      "mcpUsagePlanOverride",
       "manufacturerWhitelist",
       "modelWhitelist",
       "validateAutopilotDevice",

@@ -204,6 +204,16 @@ namespace AutopilotMonitor.Shared.Models
         public int? MaxDelegatedTenantsOverride { get; set; }
 
         /// <summary>
+        /// Global-Admin override of the tenant's MCP usage plan — the NAME of a SectionUsagePlans plan
+        /// (AdminConfiguration.PlanTierDefinitionsJson), e.g. "msp". Applies to the WHOLE tenant: every
+        /// member's default user plan (a per-user McpUsers override still wins) AND the organization-wide
+        /// windows. Null/blank = the edition default (community/pro). Does NOT change the edition — Pro
+        /// feature gates stay on PlanTier. Mutable only via the plan endpoint (validated against the plan
+        /// definitions there). Backend-only: not delivered to the agent (no ConfigVersion impact).
+        /// </summary>
+        public string? McpUsagePlanOverride { get; set; }
+
+        /// <summary>
         /// Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*")
         /// Comma-separated list
         /// </summary>

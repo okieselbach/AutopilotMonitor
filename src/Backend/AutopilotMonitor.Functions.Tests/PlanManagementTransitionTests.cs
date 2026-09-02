@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Config;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -182,5 +183,65 @@ public class PlanManagementTransitionTests
         var changes = new Dictionary<string, string>();
         PlanManagementFunction.ApplyDelegatedSlotChange(config, provided: true, maxDelegatedTenants: 4, changes);
         Assert.Empty(changes);
+    }
+
+    // ── Tenant-wide MCP usage-plan override ──────────────────────────────────────
+
+    [Fact]
+    public void McpPlanChange_NotProvided_IsANoOp()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", McpUsagePlanOverride = "msp" };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyMcpUsagePlanChange(config, provided: false, mcpUsagePlan: null, changes);
+        Assert.Equal("msp", config.McpUsagePlanOverride);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void McpPlanChange_SetFromDefault_NormalizesRecordsAndApplies()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PlanTier = "pro" };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyMcpUsagePlanChange(config, provided: true, mcpUsagePlan: " MSP ", changes);
+        Assert.Equal("msp", config.McpUsagePlanOverride);
+        Assert.Equal("(edition default) -> msp", changes["McpUsagePlanOverride"]);
+        // The override never touches the edition.
+        Assert.Equal("pro", config.PlanTier);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void McpPlanChange_ClearToDefault_RecordsAndApplies(string? cleared)
+    {
+        var config = new TenantConfiguration { TenantId = "t1", McpUsagePlanOverride = "msp" };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyMcpUsagePlanChange(config, provided: true, mcpUsagePlan: cleared, changes);
+        Assert.Null(config.McpUsagePlanOverride);
+        Assert.Equal("msp -> (edition default)", changes["McpUsagePlanOverride"]);
+    }
+
+    [Fact]
+    public void McpPlanChange_SameValue_RecordsNothing()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", McpUsagePlanOverride = "msp" };
+        var changes = new Dictionary<string, string>();
+        PlanManagementFunction.ApplyMcpUsagePlanChange(config, provided: true, mcpUsagePlan: "Msp", changes);
+        Assert.Equal("msp", config.McpUsagePlanOverride);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
+    public void IsKnownUsagePlan_MatchesDefinitionsCaseInsensitively()
+    {
+        var definitions = new List<PlanTierDefinition>
+        {
+            new() { Name = "community" }, new() { Name = "pro" }, new() { Name = " MSP " },
+        };
+        Assert.True(PlanManagementFunction.IsKnownUsagePlan("msp", definitions));
+        Assert.True(PlanManagementFunction.IsKnownUsagePlan("pro", definitions));
+        Assert.False(PlanManagementFunction.IsKnownUsagePlan("enterprise", definitions));
+        Assert.False(PlanManagementFunction.IsKnownUsagePlan("msp", new List<PlanTierDefinition>()));
     }
 }

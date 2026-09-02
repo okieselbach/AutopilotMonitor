@@ -112,6 +112,46 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// The tenant's effective MCP usage plan NAME: the Global Admin override
+        /// (<see cref="TenantConfiguration.McpUsagePlanOverride"/>, a SectionUsagePlans plan name — applies
+        /// to the WHOLE tenant: every member's default user plan AND the organization windows) when set,
+        /// else the edition's catalog plan name. Precedence above this is the per-user override in McpUsers
+        /// (McpQuotaService). Does NOT change the edition — Pro feature gates stay on PlanTier. Normalized
+        /// (trimmed, lower-case) so it matches SectionUsagePlans lookups.
+        /// </summary>
+        public static string GetMcpUsagePlanName(TenantConfiguration config, DateTime nowUtc)
+        {
+            var overridePlan = NormalizePlanName(config.McpUsagePlanOverride);
+            return overridePlan ?? FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).McpUsagePlanName;
+        }
+
+        /// <summary>Trimmed lower-case plan name, or null for blank input.</summary>
+        public static string? NormalizePlanName(string? planName)
+            => string.IsNullOrWhiteSpace(planName) ? null : planName.Trim().ToLowerInvariant();
+
+        /// <summary>
+        /// Cached read-time variant of <see cref="GetMcpUsagePlanName"/>. No row / any error ⇒ the Community
+        /// plan name (fail-closed — an override can never be granted by a failed lookup).
+        /// </summary>
+        public virtual async Task<string> GetMcpUsagePlanNameAsync(string? tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+                return FeatureEntitlementCatalog.CommunityTierName;
+            try
+            {
+                var config = await _configService.GetConfigurationIfExistsAsync(tenantId);
+                return config == null
+                    ? FeatureEntitlementCatalog.CommunityTierName
+                    : GetMcpUsagePlanName(config, _time.GetUtcNow().UtcDateTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Entitlement] MCP usage plan resolution failed for tenant {TenantId} — treating as Community (fail-closed)", tenantId);
+                return FeatureEntitlementCatalog.CommunityTierName;
+            }
+        }
+
+        /// <summary>
         /// Whether Unrestricted Mode is effectively ACTIVE for this config. Requires all three:
         /// the edition allows it (Pro — read-time, so trial expiry / downgrade re-arms the
         /// guardrails fail-closed), the GA-only on-request gate

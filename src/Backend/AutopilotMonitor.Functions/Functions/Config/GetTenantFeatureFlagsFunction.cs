@@ -121,7 +121,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     RetentionCapDays = entitlements.RetentionCapDays,
                     UserRateLimitPerMinute = entitlements.UserRateLimitPerMinute,
                     DelegatedAdminAllowed = entitlements.DelegatedAdminAllowed,
-                    McpUsagePlan = entitlements.McpUsagePlanName,
+                    // Effective plan NAME (tenant-wide GA override beats the edition default) — the per-user
+                    // override in McpUsers is not a tenant property and stays out of the flags.
+                    McpUsagePlan = TenantEntitlementService.GetMcpUsagePlanName(config, nowUtc),
                     // Effective slot limit (override beats the catalog) — a count, computed from the config row.
                     MaxDelegatedTenants = TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc)
                 }

@@ -26,6 +26,8 @@ namespace AutopilotMonitor.Functions.Helpers
             ("trialConsumed",     c => c.TrialConsumed),
             // Delegated (MSP) slot override — a count, not a secret; the GA tenant list renders it.
             ("maxDelegatedTenantsOverride", c => c.MaxDelegatedTenantsOverride),
+            // MCP usage-plan override — a plan name, not a secret; the GA tenant list renders it.
+            ("mcpUsagePlanOverride", c => c.McpUsagePlanOverride),
             ("disabled",          c => c.Disabled),
             ("disabledReason",    c => c.DisabledReason),
             ("onboardedAt",       c => c.OnboardedAt),

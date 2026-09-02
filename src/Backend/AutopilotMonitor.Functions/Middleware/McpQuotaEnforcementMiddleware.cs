@@ -258,6 +258,9 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// The 429 body for a blocked decision. The message names WHOSE budget is exhausted — a member hitting the
     /// organization-wide window must not conclude their own plan is too small, and a delegated admin hitting
     /// a MANAGED tenant's window must learn that the managed tenant's plan (not their own) governs it.
+    /// Every Community block also says that Community is sized for occasional use and that Pro lifts the
+    /// window: the quota is the upgrade lever ("the budget follows the data" — a managed Community customer
+    /// is read with Community windows, so the fix is on the CUSTOMER's plan, never the MSP's).
     /// </summary>
     /// <param name="targetTenantLabel">Display label (domain) of <see cref="McpQuotaDecision.TargetTenantId"/>; falls back to the id.</param>
     /// <param name="exhaustedTenantCount">Set on the aggregate block where EVERY managed tenant is exhausted.</param>
@@ -279,16 +282,24 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             var label = string.IsNullOrWhiteSpace(targetTenantLabel) ? decision.TargetTenantId : targetTenantLabel;
             var upgrade = FeatureEntitlementCatalog.IsPermanentProTier(decision.TenantPlan)
                 ? string.Empty
-                : " Upgrading that tenant to Pro lifts its organization windows.";
+                : " That tenant is on the Community plan, which is sized for occasional use; its own plan governs this window, not yours. Upgrading that tenant to Pro lifts its organization windows.";
             message = $"MCP {decision.Scope} request quota of the managed tenant '{label}' exceeded (tenant plan '{decision.TenantPlan}', shared by all its members and delegated admins).{upgrade} {reset}";
         }
         else if (decision.Level == McpQuotaLevel.Tenant)
         {
-            message = $"MCP {decision.Scope} request quota of your organization exceeded (tenant plan '{decision.TenantPlan}', shared by all its members). {reset}";
+            var upgrade = FeatureEntitlementCatalog.IsPermanentProTier(decision.TenantPlan)
+                ? string.Empty
+                : " The Community plan is sized for occasional use; upgrading your organization to Pro lifts its organization windows.";
+            message = $"MCP {decision.Scope} request quota of your organization exceeded (tenant plan '{decision.TenantPlan}', shared by all its members).{upgrade} {reset}";
         }
         else
         {
-            message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'. {reset}";
+            // Only the Community EDITION plan gets the Pro hint — a per-user override plan (any other name)
+            // is already a deliberate individual budget, and "upgrade to Pro" would be wrong advice there.
+            var upgrade = string.Equals(decision.Plan, FeatureEntitlementCatalog.CommunityTierName, StringComparison.OrdinalIgnoreCase)
+                ? " The Community plan is sized for occasional use; Pro raises your daily and monthly windows."
+                : string.Empty;
+            message = $"MCP {decision.Scope} request quota exceeded for plan '{decision.Plan}'.{upgrade} {reset}";
         }
 
         return new McpQuotaExceededResponse

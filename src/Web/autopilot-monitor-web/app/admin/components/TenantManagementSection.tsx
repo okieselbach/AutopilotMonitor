@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import type { DelegatedSlotUsageResponse } from "@/utils/wire-types.generated";
+import type { DelegatedSlotUsageResponse, PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
@@ -49,6 +49,11 @@ export interface TenantConfiguration {
   trialConsumed?: boolean;
   /** Delegated (MSP) tenant slot override; null/undefined = plan entitlement (Community 0, Pro 2). Managed via PATCH plan. */
   maxDelegatedTenantsOverride?: number | null;
+  /**
+   * MCP usage-plan override — a SectionUsagePlans plan name applied to the WHOLE tenant (every member's
+   * default plan + the organization windows); null/undefined = edition default. Managed via PATCH plan.
+   */
+  mcpUsagePlanOverride?: string | null;
   /**
    * Dual app-reg homing: null/undefined = legacy app. Typed explicitly so a payload refactor
    * cannot silently drop the field on the generic PUT round-trip (absent ⇒ backend resets to
@@ -139,6 +144,8 @@ function TenantManagementSectionInner({
   const [savingPlan, setSavingPlan] = useState(false);
   // Delegated (MSP) slot usage of the tenant being edited (GET global/delegated-slots/{id}); null = not loaded.
   const [slotUsage, setSlotUsage] = useState<DelegatedSlotUsageResponse | null>(null);
+  // SectionUsagePlans plan names — the valid values of the MCP usage-plan override select; null = not loaded.
+  const [usagePlanNames, setUsagePlanNames] = useState<string[] | null>(null);
   const [releasingHold, setReleasingHold] = useState<string | null>(null);
   // Support escape hatch: end a removed customer's 24 h slot hold early (GlobalAdminOnly, audited).
   const handleReleaseHold = async (tenantId: string, invitationId: string) => {
@@ -177,6 +184,24 @@ function TenantManagementSectionInner({
       })
       .catch(() => {
         if (!cancelled) setSlotUsage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingTenantId, getAccessToken]);
+  useEffect(() => {
+    // Loaded once per editor open (the definitions rarely change); a failed load leaves the select
+    // with just the stored value + "edition default", so the editor stays usable.
+    if (!editingTenantId) return;
+    let cancelled = false;
+    authenticatedFetch(api.mcpUsage.planTiers(), getAccessToken)
+      .then(async (res) => {
+        if (cancelled) return;
+        const data = res.ok ? ((await res.json()) as PlanTierDefinitionsResponse) : null;
+        setUsagePlanNames(data ? data.tiers.map((t) => t.name.trim().toLowerCase()).filter(Boolean) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setUsagePlanNames(null);
       });
     return () => {
       cancelled = true;
@@ -285,6 +310,7 @@ function TenantManagementSectionInner({
           planTier: tenant.planTier === "pro" || tenant.planTier === "enterprise" ? "pro" : "community",
           trialExpiresUtc: tenant.trialExpiresUtc ?? null,
           maxDelegatedTenants: tenant.maxDelegatedTenantsOverride ?? null,
+          mcpUsagePlan: tenant.mcpUsagePlanOverride ?? null,
         }),
       });
 
@@ -300,6 +326,7 @@ function TenantManagementSectionInner({
         trialExpiresUtc: result.trialExpiresUtc ?? null,
         trialConsumed: result.trialConsumed ?? t.trialConsumed,
         maxDelegatedTenantsOverride: result.maxDelegatedTenantsOverride ?? null,
+        mcpUsagePlanOverride: result.mcpUsagePlanOverride ?? null,
       });
       setSlotUsage((prev) => (prev ? { ...prev, limit: result.maxDelegatedTenants ?? prev.limit, overrideLimit: result.maxDelegatedTenantsOverride ?? undefined } : prev));
       setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? apply(t) : t)));
@@ -937,6 +964,42 @@ function TenantManagementSectionInner({
                     <p className="text-xs text-gray-500 mt-1">
                       How many distinct customer tenants this (MSP) tenant&rsquo;s users may manage. Blank = plan entitlement
                       (Community 0, Pro 2); a value applies regardless of plan, using delegation still requires Pro.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">MCP usage plan (override)</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={editingTenant.mcpUsagePlanOverride ?? ""}
+                        onChange={(e) => setEditingTenant({
+                          ...editingTenant,
+                          mcpUsagePlanOverride: e.target.value === "" ? null : e.target.value,
+                        })}
+                        className="w-48 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      >
+                        <option value="">Edition default</option>
+                        {/* The stored value stays selectable even when the definitions failed to load or no longer list it. */}
+                        {Array.from(new Set([
+                          ...(usagePlanNames ?? []),
+                          ...(editingTenant.mcpUsagePlanOverride ? [editingTenant.mcpUsagePlanOverride] : []),
+                        ])).map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                      {editingTenant.mcpUsagePlanOverride != null && (
+                        <button
+                          onClick={() => setEditingTenant({ ...editingTenant, mcpUsagePlanOverride: null })}
+                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                          title="Clear the override (the edition's plan applies)"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Applies a usage plan (Admin → Settings → Usage Plans) to the whole tenant: every member&rsquo;s default
+                      MCP budget and the organization-wide windows. Blank = the edition&rsquo;s plan (community/pro). Does not
+                      change the edition; a per-user plan on the MCP Users page still wins for that account.
                     </p>
                   </div>
                   <div className="flex items-center justify-between">

@@ -331,4 +331,58 @@ public class TenantEntitlementServiceTests
         var (svc, _) = Build(new TenantConfiguration { TenantId = TenantId, PlanTier = "pro", MaxDelegatedTenantsOverride = 7 });
         Assert.Equal(7, await svc.GetMaxDelegatedTenantsAsync(TenantId));
     }
+
+    // ── MCP usage plan (tenant-wide override) ────────────────────────────────────
+
+    [Theory]
+    [InlineData("pro", null, "pro")]
+    [InlineData("community", null, "community")]
+    [InlineData("free", null, "community")]
+    [InlineData("pro", "msp", "msp")]
+    [InlineData("community", "msp", "msp")]     // override applies regardless of edition
+    [InlineData("pro", "  MSP  ", "msp")]       // normalized like SectionUsagePlans names
+    [InlineData("pro", "   ", "pro")]           // blank = not set
+    public void GetMcpUsagePlanName_OverrideBeatsTheEditionDefault(string tier, string? planOverride, string expected)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = tier, McpUsagePlanOverride = planOverride };
+        Assert.Equal(expected, TenantEntitlementService.GetMcpUsagePlanName(config, Now));
+    }
+
+    [Fact]
+    public void GetMcpUsagePlanName_ActiveTrial_GetsThePlanName_ButOverrideStillWins()
+    {
+        var trial = new TenantConfiguration { TenantId = TenantId, PlanTier = "free", TrialExpiresUtc = Now.AddDays(3) };
+        Assert.Equal("pro", TenantEntitlementService.GetMcpUsagePlanName(trial, Now));
+        trial.McpUsagePlanOverride = "msp";
+        Assert.Equal("msp", TenantEntitlementService.GetMcpUsagePlanName(trial, Now));
+    }
+
+    [Fact]
+    public async Task GetMcpUsagePlanNameAsync_NoRow_FailsClosedToCommunity()
+    {
+        var (svc, _) = Build(config: null);
+        Assert.Equal("community", await svc.GetMcpUsagePlanNameAsync(TenantId));
+        Assert.Equal("community", await svc.GetMcpUsagePlanNameAsync(null));
+    }
+
+    [Fact]
+    public async Task GetMcpUsagePlanNameAsync_StorageError_FailsClosedToCommunity()
+    {
+        var repo = new Mock<IConfigRepository>();
+        repo.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>()))
+            .ThrowsAsync(new InvalidOperationException("storage down"));
+        var configService = new TenantConfigurationService(
+            repo.Object, NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()));
+        var svc = new TenantEntitlementService(
+            configService, NullLogger<TenantEntitlementService>.Instance, new TestTimeProvider(Now));
+
+        Assert.Equal("community", await svc.GetMcpUsagePlanNameAsync(TenantId));
+    }
+
+    [Fact]
+    public async Task GetMcpUsagePlanNameAsync_ReadsTheOverride()
+    {
+        var (svc, _) = Build(new TenantConfiguration { TenantId = TenantId, PlanTier = "pro", McpUsagePlanOverride = "msp" });
+        Assert.Equal("msp", await svc.GetMcpUsagePlanNameAsync(TenantId));
+    }
 }

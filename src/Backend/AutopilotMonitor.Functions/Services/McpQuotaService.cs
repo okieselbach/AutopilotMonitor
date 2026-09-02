@@ -222,9 +222,9 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            // 2. Home-tenant edition default (fail-closed → Community inside the entitlement service).
-            var homeEntitlements = await _entitlementService.GetEntitlementsAsync(homeTenantId);
-            var planName = overridePlan ?? homeEntitlements.McpUsagePlanName;
+            // 2. Home-tenant plan: the tenant-wide GA override (TenantConfiguration.McpUsagePlanOverride) when
+            //    set, else the edition default (fail-closed → Community inside the entitlement service).
+            var planName = overridePlan ?? await _entitlementService.GetMcpUsagePlanNameAsync(homeTenantId);
 
             // 3. Limits: admin-edited SectionUsagePlans definitions, else catalog fallbacks.
             var definitions = await LoadDefinitionsAsync(planName);
@@ -242,14 +242,14 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// The CHARGED tenant's organization windows: its edition plan's definition when that carries tenant
-        /// limits (null = not set → the edition's catalog tenant limits; an explicit 0 lifts the window), never
-        /// a per-user override.
+        /// The CHARGED tenant's organization windows: its tenant plan (the tenant-wide GA override, else the
+        /// edition plan) definition when that carries tenant limits (null = not set → the edition's catalog
+        /// tenant limits; an explicit 0 lifts the window), never a per-user override.
         /// </summary>
         private async Task<TenantPlanLimits> ResolveTenantLimitsAsync(string? chargeTenantId, List<PlanTierDefinition> definitions)
         {
             var entitlements = await _entitlementService.GetEntitlementsAsync(chargeTenantId);
-            var tenantPlan = entitlements.McpUsagePlanName;
+            var tenantPlan = await _entitlementService.GetMcpUsagePlanNameAsync(chargeTenantId);
             var tenantDefinition = Find(definitions, tenantPlan);
             return new TenantPlanLimits(
                 tenantPlan,

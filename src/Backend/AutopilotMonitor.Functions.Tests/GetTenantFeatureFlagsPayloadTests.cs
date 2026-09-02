@@ -231,6 +231,19 @@ public class GetTenantFeatureFlagsPayloadTests
             .GetProperty("entitlements").GetProperty("maxDelegatedTenants").GetInt32());
     }
 
+    [Fact]
+    public void Payload_Entitlements_McpUsagePlan_TenantOverrideWins_EditionUnchanged()
+    {
+        // The tenant-wide plan override changes the plan NAME only — the edition (and every Pro gate) stays.
+        var element = Serialize(new TenantConfiguration { PlanTier = "pro", McpUsagePlanOverride = " MSP " });
+        Assert.Equal("msp", element.GetProperty("entitlements").GetProperty("mcpUsagePlan").GetString());
+        Assert.Equal("pro", element.GetProperty("edition").GetString());
+
+        var community = Serialize(new TenantConfiguration { McpUsagePlanOverride = "msp" });
+        Assert.Equal("msp", community.GetProperty("entitlements").GetProperty("mcpUsagePlan").GetString());
+        Assert.Equal("community", community.GetProperty("edition").GetString());
+    }
+
     [Theory]
     [InlineData("pro")]
     [InlineData("enterprise")] // legacy stored value resolves — and reports — as "pro"

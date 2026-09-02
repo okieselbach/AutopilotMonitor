@@ -3428,6 +3428,10 @@ export interface SetTenantPlanTierResponse {
   maxDelegatedTenants: number;
   /** The Global Admin override; omitted when the plan entitlement applies. */
   maxDelegatedTenantsOverride?: number;
+  /** Effective MCP usage plan name of the tenant after the change (override or edition default). */
+  mcpUsagePlan: string;
+  /** The Global Admin MCP usage-plan override (a SectionUsagePlans plan name); omitted when the edition default applies. */
+  mcpUsagePlanOverride?: string;
 }
 
 /** Distinct-CVE counts grouped by their highest CVSS severity band. */
@@ -3706,6 +3710,8 @@ export interface TenantConfiguration {
   proDowngradedUtc?: string;
   /** Global-Admin override of the delegated ("MSP") tenant slot limit — how many distinct customer tenants users homed in this tenant may manage. Null = the plan entitlement applies (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package), while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only: not delivered to the agent (no ConfigVersion impact). */
   maxDelegatedTenantsOverride?: number;
+  /** Global-Admin override of the tenant's MCP usage plan — the NAME of a SectionUsagePlans plan (AdminConfiguration.PlanTierDefinitionsJson), e.g. "msp". Applies to the WHOLE tenant: every member's default user plan (a per-user McpUsers override still wins) AND the organization-wide windows. Null/blank = the edition default (community/pro). Does NOT change the edition — Pro feature gates stay on PlanTier. Mutable only via the plan endpoint (validated against the plan definitions there). Backend-only: not delivered to the agent (no ConfigVersion impact). */
+  mcpUsagePlanOverride?: string;
   /** Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*") Comma-separated list */
   manufacturerWhitelist: string;
   /** Hardware whitelist: Allowed models (supports wildcards like "Latitude*") Comma-separated list Default: "*" (all models allowed) */

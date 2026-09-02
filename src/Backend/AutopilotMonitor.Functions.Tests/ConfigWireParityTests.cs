@@ -430,7 +430,9 @@ public class ConfigWireParityTests
                 effectiveEdition = "pro",
                 retentionGraceEndsUtc,
                 maxDelegatedTenants = 5,
-                maxDelegatedTenantsOverride = 5
+                maxDelegatedTenantsOverride = 5,
+                mcpUsagePlan = "msp",
+                mcpUsagePlanOverride = "msp"
             },
             new SetTenantPlanTierResponse
             {
@@ -441,7 +443,9 @@ public class ConfigWireParityTests
                 EffectiveEdition = "pro",
                 RetentionGraceEndsUtc = retentionGraceEndsUtc,
                 MaxDelegatedTenants = 5,
-                MaxDelegatedTenantsOverride = 5
+                MaxDelegatedTenantsOverride = 5,
+                McpUsagePlan = "msp",
+                McpUsagePlanOverride = "msp"
             });
     }
 
@@ -452,6 +456,7 @@ public class ConfigWireParityTests
         DateTime? trialExpiresUtc = null;
         DateTime? retentionGraceEndsUtc = null;
         int? maxDelegatedTenantsOverride = null;
+        string? mcpUsagePlanOverride = null;
 
         AssertParity(
             new
@@ -463,7 +468,9 @@ public class ConfigWireParityTests
                 effectiveEdition = "community",
                 retentionGraceEndsUtc,
                 maxDelegatedTenants = 0,
-                maxDelegatedTenantsOverride
+                maxDelegatedTenantsOverride,
+                mcpUsagePlan = "community",
+                mcpUsagePlanOverride
             },
             new SetTenantPlanTierResponse
             {
@@ -474,7 +481,9 @@ public class ConfigWireParityTests
                 EffectiveEdition = "community",
                 RetentionGraceEndsUtc = null,
                 MaxDelegatedTenants = 0,
-                MaxDelegatedTenantsOverride = null
+                MaxDelegatedTenantsOverride = null,
+                McpUsagePlan = "community",
+                McpUsagePlanOverride = null
             });
     }
 

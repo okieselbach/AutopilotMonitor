@@ -59,8 +59,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
         /// <summary>
         /// PATCH /api/config/{tenantId}/plan — GlobalAdminOnly (catalog-enforced).
-        /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null, "maxDelegatedTenants"?: int | null }.
+        /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null, "maxDelegatedTenants"?: int | null,
+        ///         "mcpUsagePlan"?: string | null }.
         /// maxDelegatedTenants sets the delegated (MSP) slot override (null clears it — the plan entitlement applies).
+        /// mcpUsagePlan sets the tenant-wide MCP usage-plan override — the name of a SectionUsagePlans plan, validated
+        /// against the current definitions (400 for an unknown name, so a typo can never silently drop the tenant
+        /// to the Community fallback); null clears it (the edition default applies). It does NOT change the edition.
         /// The legacy stored value "enterprise" stays readable (resolves as Pro) but is no longer
         /// accepted on writes.
         /// Setting a trial date grants/extends the trial (TrialConsumed is NOT touched — GA
@@ -93,6 +97,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 DateTime? newTrialExpiresUtc = null;
                 bool slotsProvided = false;
                 int? newMaxDelegatedTenants = null;
+                bool mcpPlanProvided = false;
+                string? newMcpUsagePlan = null;
 
                 using (doc)
                 {
@@ -147,10 +153,41 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             return await BadRequestAsync(req, "maxDelegatedTenants must be a non-negative integer or null");
                         }
                     }
+
+                    if (doc.RootElement.TryGetProperty("mcpUsagePlan", out var mcpPlanProp))
+                    {
+                        mcpPlanProvided = true;
+                        if (mcpPlanProp.ValueKind == JsonValueKind.Null)
+                        {
+                            newMcpUsagePlan = null; // explicit null = clear the override
+                        }
+                        else if (mcpPlanProp.ValueKind == JsonValueKind.String)
+                        {
+                            // Blank = clear as well (the select's "edition default" option); a name is validated below.
+                            newMcpUsagePlan = TenantEntitlementService.NormalizePlanName(mcpPlanProp.GetString());
+                        }
+                        else
+                        {
+                            return await BadRequestAsync(req, "mcpUsagePlan must be a plan name or null");
+                        }
+                    }
                 }
 
-                if (newPlanTier == null && !trialProvided && !slotsProvided)
-                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc and/or maxDelegatedTenants");
+                if (newPlanTier == null && !trialProvided && !slotsProvided && !mcpPlanProvided)
+                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc, maxDelegatedTenants and/or mcpUsagePlan");
+
+                if (newMcpUsagePlan != null)
+                {
+                    // Fail-loud on SET: an override naming a plan that exists nowhere would resolve fail-closed to
+                    // the Community fallback at read time — silently shrinking the tenant instead of raising it.
+                    var adminConfig = await _adminConfigService.GetConfigurationAsync();
+                    var definitions = PlanTierDefinitionParser.Parse(adminConfig.PlanTierDefinitionsJson);
+                    if (!IsKnownUsagePlan(newMcpUsagePlan, definitions))
+                    {
+                        var known = string.Join(", ", KnownUsagePlanNames(definitions));
+                        return await BadRequestAsync(req, $"Unknown mcpUsagePlan '{newMcpUsagePlan}'. Known plans: {known}");
+                    }
+                }
 
                 var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
@@ -166,6 +203,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var (editionBefore, editionAfter) =
                     ApplyPlanChanges(config, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
                 ApplyDelegatedSlotChange(config, slotsProvided, newMaxDelegatedTenants, changes);
+                ApplyMcpUsagePlanChange(config, mcpPlanProvided, newMcpUsagePlan, changes);
 
                 if (changes.Count > 0)
                 {
@@ -223,6 +261,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     RetentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc),
                     MaxDelegatedTenants = TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc),
                     MaxDelegatedTenantsOverride = config.MaxDelegatedTenantsOverride,
+                    McpUsagePlan = TenantEntitlementService.GetMcpUsagePlanName(config, nowUtc),
+                    McpUsagePlanOverride = config.McpUsagePlanOverride,
                 });
                 return response;
             }
@@ -303,6 +343,30 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 $"{config.MaxDelegatedTenantsOverride?.ToString() ?? "(catalog)"} -> {maxDelegatedTenants?.ToString() ?? "(catalog)"}";
             config.MaxDelegatedTenantsOverride = maxDelegatedTenants;
         }
+
+        /// <summary>
+        /// Pure mutation core for the tenant-wide MCP usage-plan override: records and applies the change only
+        /// when a value was provided AND differs (case-insensitive — the stored value is normalized on write).
+        /// The audit entry names "(edition default)" for the absent override. Validation of the plan name against
+        /// the definitions happens in the endpoint (I/O), not here.
+        /// </summary>
+        internal static void ApplyMcpUsagePlanChange(
+            TenantConfiguration config, bool provided, string? mcpUsagePlan, Dictionary<string, string> changes)
+        {
+            var normalized = TenantEntitlementService.NormalizePlanName(mcpUsagePlan);
+            if (!provided || string.Equals(config.McpUsagePlanOverride, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+            changes["McpUsagePlanOverride"] =
+                $"{config.McpUsagePlanOverride ?? "(edition default)"} -> {normalized ?? "(edition default)"}";
+            config.McpUsagePlanOverride = normalized;
+        }
+
+        /// <summary>Pure: whether <paramref name="planName"/> (normalized) names a SectionUsagePlans definition.</summary>
+        internal static bool IsKnownUsagePlan(string planName, IEnumerable<PlanTierDefinition> definitions)
+            => definitions.Any(d => string.Equals(TenantEntitlementService.NormalizePlanName(d.Name), planName, StringComparison.OrdinalIgnoreCase));
+
+        private static IEnumerable<string> KnownUsagePlanNames(IEnumerable<PlanTierDefinition> definitions)
+            => definitions.Select(d => TenantEntitlementService.NormalizePlanName(d.Name)).Where(n => n != null).Select(n => n!).OrderBy(n => n, StringComparer.Ordinal);
 
         /// <summary>
         /// POST /api/config/{tenantId}/trial — TenantAdminOrGA (catalog-enforced). Self-service
