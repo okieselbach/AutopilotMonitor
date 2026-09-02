@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { savePostLoginReturnUrl, consumePostLoginReturnUrl } from "../postLoginReturn";
+import { savePostLoginReturnUrl, consumePostLoginReturnUrl, peekPostLoginReturnUrl } from "../postLoginReturn";
 
 // Guards the deep-link-after-reauth contract: ProtectedRoute stashes the page the
 // user opened (e.g. a /sessions?id=… link in a new tab) before the MSAL login
@@ -37,6 +37,14 @@ describe("postLoginReturn", () => {
 
   it("returns null when nothing was saved", () => {
     expect(consumePostLoginReturnUrl()).toBeNull();
+  });
+
+  it("peek reads without clearing — the re-home hop leaves the deep link for the next pass", () => {
+    savePostLoginReturnUrl("/sessions?id=abc-123");
+    expect(peekPostLoginReturnUrl()).toBe("/sessions?id=abc-123");
+    expect(peekPostLoginReturnUrl()).toBe("/sessions?id=abc-123");
+    expect(consumePostLoginReturnUrl()).toBe("/sessions?id=abc-123");
+    expect(peekPostLoginReturnUrl()).toBeNull();
   });
 
   it("ignores the bare root path", () => {

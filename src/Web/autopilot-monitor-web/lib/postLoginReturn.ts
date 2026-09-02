@@ -36,6 +36,20 @@ export function savePostLoginReturnUrl(path: string): void {
   }
 }
 
+/**
+ * Read the saved return URL WITHOUT clearing it. For the post-login re-home hop (AuthGate):
+ * the deep link must survive one more sign-in round trip on the other app registration, so it
+ * is left in place for the AuthGate pass that follows instead of being consumed and re-saved.
+ */
+export function peekPostLoginReturnUrl(): string | null {
+  try {
+    const value = window.sessionStorage.getItem(RETURN_URL_KEY);
+    return isSafeReturnPath(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Read and clear the saved return URL. Returns null if absent or unsafe. */
 export function consumePostLoginReturnUrl(): string | null {
   try {

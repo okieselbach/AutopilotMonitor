@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { Route } from "next";
 import { trustedRoute } from "../../lib/routes";
-import { consumePostLoginReturnUrl, savePostLoginReturnUrl } from "../../lib/postLoginReturn";
+import { consumePostLoginReturnUrl, peekPostLoginReturnUrl } from "../../lib/postLoginReturn";
 import { hasOwnTenantOrPlatformRole, hasTenantReadScope } from "../../lib/tenantScope";
 import { portalHandoverUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 import { consumePendingRehome, getSelectedAuthApp, legacyConfigured, switchAuthApp, tryBeginRehome } from "../../lib/authApp";
@@ -23,9 +23,19 @@ export function AuthGate() {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading && user) {
-      // Always consume (read + clear) so a stale deep link can't misroute a later
-      // sign-in; only honor it when the user's tenant is activated.
-      const returnUrl = consumePostLoginReturnUrl();
+      // Dual app-reg window: the sign-in that just completed ran on the other app than the
+      // tenant is homed on (fresh browser, wrong default). Same-origin: re-home NOW — switch
+      // the browser to the homed app and land on the target, where ProtectedRoute completes
+      // the sign-in silently via the Entra session and returns here with the deep link intact.
+      // One hop per tab; the pending request is consumed either way.
+      const rehome = consumePendingRehome();
+      const crossOrigin = shouldCrossOriginToPortal();
+      const rehomeNow = rehome !== null && !crossOrigin && tryBeginRehome();
+      // Normally consume (read + clear) so a stale deep link can't misroute a later
+      // sign-in; only honor it when the user's tenant is activated. On the re-home hop only
+      // PEEK: the link has to survive the extra sign-in round trip for the AuthGate pass that
+      // follows, and leaving it in place beats re-saving it.
+      const returnUrl = rehomeNow ? peekPostLoginReturnUrl() : consumePostLoginReturnUrl();
       let target: Route;
       if (isActivationPending) {
         target = "/activation";
@@ -40,20 +50,13 @@ export function AuthGate() {
       } else {
         target = "/progress";
       }
-      // Dual app-reg window: the sign-in that just completed ran on the other app than the
-      // tenant is homed on (fresh browser, wrong default). Same-origin: re-home NOW — switch
-      // the browser to the homed app and land on the target, where ProtectedRoute completes
-      // the sign-in silently via the Entra session and returns here with the deep link intact.
-      // One hop per tab; the pending request is consumed either way.
-      const rehome = consumePendingRehome();
       // On the public host, hand over to the portal origin in ONE full-page
       // navigation instead of router.push + HostRoutingGuard bounce. Auth state
       // is per-origin — the portal side runs its own (silent) MSAL sign-in, on
       // the app this browser just learned (passed along as ?authapp=).
-      if (shouldCrossOriginToPortal()) {
+      if (crossOrigin) {
         window.location.href = portalHandoverUrl(target, legacyConfigured() ? getSelectedAuthApp() : null);
-      } else if (rehome && tryBeginRehome()) {
-        savePostLoginReturnUrl(target);
+      } else if (rehomeNow) {
         trackEvent("auth_app_rehomed", { from: activeAuthApp, to: rehome });
         switchAuthApp(rehome, target);
       } else {
