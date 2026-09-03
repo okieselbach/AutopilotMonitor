@@ -1,5 +1,10 @@
 version: 2
 
+# Grouping: every ecosystem gets one batched PR for minor/patch version
+# updates and one batched PR for security updates. Groups apply to version
+# updates only by default, so the security-updates groups are declared
+# explicitly — otherwise every advisory lands as its own PR.
+
 updates:
   - package-ecosystem: nuget
     directory: /
@@ -10,6 +15,9 @@ updates:
       dotnet:
         patterns: ['*']
         update-types: [minor, patch]
+      dotnet-security:
+        applies-to: security-updates
+        patterns: ['*']
 
   - package-ecosystem: npm
     directory: /src/Web/autopilot-monitor-web
@@ -20,6 +28,9 @@ updates:
       web:
         patterns: ['*']
         update-types: [minor, patch]
+      web-security:
+        applies-to: security-updates
+        patterns: ['*']
     # Major bumps are breaking and reviewed deliberately, not auto-PR'd.
     # Security updates ignore this filter, so the Security tab stays clean.
     ignore:
@@ -35,6 +46,9 @@ updates:
       mcp:
         patterns: ['*']
         update-types: [minor, patch]
+      mcp-security:
+        applies-to: security-updates
+        patterns: ['*']
     # Major bumps are breaking and reviewed deliberately, not auto-PR'd.
     # Security updates ignore this filter, so the Security tab stays clean.
     ignore:
@@ -45,3 +59,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+      actions-security:
+        applies-to: security-updates
+        patterns: ['*']
