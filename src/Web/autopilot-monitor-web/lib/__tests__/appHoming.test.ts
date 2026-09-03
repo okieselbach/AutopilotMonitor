@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { appHomingErrorMessage } from "../appHoming";
+import { ADD_ON_GRANT_SCRIPT_URL, appHomingErrorMessage, buildAddOnGrantCommand } from "../appHoming";
 import { classifyClientId } from "../authApp";
 
 const PRIMARY = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -62,5 +62,39 @@ describe("appHomingErrorMessage", () => {
   it("falls back to the HTTP status text for unknown reasons", () => {
     expect(appHomingErrorMessage(undefined, "Bad Gateway")).toContain("Bad Gateway");
     expect(appHomingErrorMessage("something-new", "Conflict")).toContain("Conflict");
+  });
+
+  it("names the blocking add-on roles on a refused probe", () => {
+    const message = appHomingErrorMessage("probe-failed", "Conflict", ["DeviceManagementScripts.Read.All"]);
+    expect(message).toContain("DeviceManagementScripts.Read.All");
+    expect(message).toContain("Grant them on the new app");
+    // No roles ⇒ the generic wording (nothing to name).
+    expect(appHomingErrorMessage("probe-failed", "Conflict", [])).not.toContain("add-on");
+  });
+});
+
+describe("buildAddOnGrantCommand", () => {
+  const TENANT = "11111111-1111-1111-1111-111111111111";
+
+  it("targets the given client id with raw permissions for the funnel", () => {
+    const cmd = buildAddOnGrantCommand(PRIMARY, TENANT, {
+      permissions: ["CloudPC.Read.All", "DeviceManagementScripts.Read.All"],
+    });
+    expect(cmd).toContain(`irm '${ADD_ON_GRANT_SCRIPT_URL}' -OutFile .\\Grant-AutopilotMonitorAddOn.ps1`);
+    expect(cmd).toContain(`-ClientId "${PRIMARY}"`);
+    expect(cmd).toContain('-Permissions "CloudPC.Read.All","DeviceManagementScripts.Read.All"');
+    expect(cmd).toContain(`-TenantId "${TENANT}"`);
+    expect(cmd).not.toContain("-Features");
+  });
+
+  it("uses the feature form for the Optional Graph capabilities page", () => {
+    const cmd = buildAddOnGrantCommand(LEGACY, TENANT, { features: "ScriptDisplayNames" });
+    expect(cmd).toContain(`-ClientId "${LEGACY}"`);
+    expect(cmd).toContain("-Features ScriptDisplayNames");
+    expect(cmd).not.toContain("-Permissions");
+  });
+
+  it("leaves a placeholder when the tenant id is unknown", () => {
+    expect(buildAddOnGrantCommand(PRIMARY, undefined, { features: "All" })).toContain('-TenantId "<your-tenant-id>"');
   });
 });

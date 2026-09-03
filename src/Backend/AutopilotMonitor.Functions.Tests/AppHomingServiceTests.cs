@@ -189,19 +189,52 @@ public class AppHomingServiceTests
     // ── ProbePrimaryConsentAsync (role-superset rule) ───────────────────────
 
     [Fact]
-    public async Task Probe_refuses_when_primary_lacks_a_role_the_legacy_app_holds()
+    public async Task Probe_defers_as_transient_when_primary_lacks_only_a_manifest_role()
     {
         // The trap of the primary-default sign-in: a delegated User.Read consent created the
         // primary SP (token acquirable, no roles) while the legacy app carries the validation
-        // role — flipping would break device validation until re-consent.
+        // role — flipping would break device validation. The same shape appears for ~15 s right
+        // after a real admin consent (role still propagating): never a flip, but retryable.
         SetupProbe(GraphTokenResult.Success(Jwt()));
         SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
 
         var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
 
         Assert.False(probe.Succeeded);
-        Assert.False(probe.IsTransient);
+        Assert.True(probe.IsTransient);
         Assert.Equal(new[] { ValidationRole }, probe.MissingRoles);
+    }
+
+    [Fact]
+    public async Task Probe_refuses_permanently_when_primary_lacks_a_legacy_add_on_role()
+    {
+        // Tenant granted the optional ScriptDisplayNames add-on on the legacy SP. No re-consent
+        // can put it on the primary SP — only the grant script can — so the refusal is permanent
+        // and names exactly the add-on role the admin has to grant.
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole)));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole, ScriptsRole)));
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        Assert.False(probe.IsTransient);
+        Assert.Equal(new[] { ScriptsRole }, probe.MissingRoles);
+    }
+
+    [Fact]
+    public async Task Probe_reports_only_add_on_roles_when_manifest_and_add_on_roles_are_both_missing()
+    {
+        // Live 2026-09-03 shape (thesrgroup, 1 s after consent): validation role still
+        // propagating AND the add-on missing. The add-on decides (permanent); the propagating
+        // manifest role is not the admin's problem and must not appear in the to-do list.
+        SetupProbe(GraphTokenResult.Success(Jwt()));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole, ScriptsRole)));
+
+        var probe = await _sut.ProbePrimaryConsentAsync(TenantId);
+
+        Assert.False(probe.Succeeded);
+        Assert.False(probe.IsTransient);
+        Assert.Equal(new[] { ScriptsRole }, probe.MissingRoles);
     }
 
     [Fact]
@@ -272,16 +305,33 @@ public class AppHomingServiceTests
     // ── TryAutoFlipToPrimaryAsync ───────────────────────────────────────────
 
     [Fact]
-    public async Task AutoFlip_does_not_flip_when_primary_lacks_a_legacy_role()
+    public async Task AutoFlip_does_not_flip_when_primary_lacks_a_legacy_add_on_role_and_names_it()
+    {
+        SetupProbe(GraphTokenResult.Success(Jwt(ValidationRole)));
+        SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole, ScriptsRole)));
+
+        var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
+
+        Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome.Outcome);
+        Assert.False(outcome.Flipped);
+        Assert.False(outcome.Pending);
+        Assert.Equal(new[] { ScriptsRole }, outcome.MissingRoles);
+        VerifyNeverSaved();
+        Assert.Empty(_savedOpsEvents);
+    }
+
+    [Fact]
+    public async Task AutoFlip_is_pending_while_a_manifest_role_propagates()
     {
         SetupProbe(GraphTokenResult.Success(Jwt()));
         SetupLegacyToken(GraphTokenResult.Success(Jwt(ValidationRole)));
 
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.ProbeTransient, outcome.Outcome);
+        Assert.True(outcome.Pending);
+        Assert.Null(outcome.MissingRoles);
         VerifyNeverSaved();
-        Assert.Empty(_savedOpsEvents);
     }
 
     [Fact]
@@ -289,7 +339,7 @@ public class AppHomingServiceTests
     {
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.Flipped, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.Flipped, outcome.Outcome);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.Is<TenantConfiguration>(c =>
             string.Equals(c.HomedAppClientId, PrimaryId, StringComparison.OrdinalIgnoreCase)
             && c.UpdatedBy == Actor), It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
@@ -308,7 +358,7 @@ public class AppHomingServiceTests
 
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.ProbeFailed, outcome.Outcome);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
@@ -319,7 +369,7 @@ public class AppHomingServiceTests
 
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.ProbeTransient, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.ProbeTransient, outcome.Outcome);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 
@@ -331,7 +381,7 @@ public class AppHomingServiceTests
 
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(config, Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome.Outcome);
         _graphTokenMock.Verify(x => x.GetAccessTokenForAppAsync(It.IsAny<string>(),
             It.IsAny<EntraAppCredentials>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -343,7 +393,7 @@ public class AppHomingServiceTests
 
         var outcome = await _sut.TryAutoFlipToPrimaryAsync(LegacyHomedConfig(), Actor);
 
-        Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome);
+        Assert.Equal(AppHomingAutoFlipOutcome.NotEligible, outcome.Outcome);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 

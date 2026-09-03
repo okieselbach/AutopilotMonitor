@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +33,21 @@ namespace AutopilotMonitor.Functions.Services
         bool Succeeded,
         bool IsTransient,
         IReadOnlyCollection<string>? MissingRoles = null);
+
+    /// <summary>
+    /// Outcome of <see cref="AppHomingService.TryAutoFlipToPrimaryAsync"/>; <c>MissingRoles</c> is
+    /// set only for <see cref="AppHomingAutoFlipOutcome.ProbeFailed"/> caused by legacy add-on
+    /// roles the primary app lacks — the list the admin needs to grant on the primary app.
+    /// </summary>
+    public sealed record AppHomingAutoFlipResult(
+        AppHomingAutoFlipOutcome Outcome,
+        IReadOnlyCollection<string>? MissingRoles = null)
+    {
+        public bool Flipped => Outcome == AppHomingAutoFlipOutcome.Flipped;
+
+        /// <summary>The probe was inconclusive (transient failure or consent still propagating) — a retry converges.</summary>
+        public bool Pending => Outcome == AppHomingAutoFlipOutcome.ProbeTransient;
+    }
 
     public enum AppHomingDecisionKind { Allow, AllowNoOp, RequireProbe, Deny }
 
@@ -144,10 +160,27 @@ namespace AutopilotMonitor.Functions.Services
                 return new AppHomingProbeResult(Succeeded: true, IsTransient: false);
             }
 
+            // Two very different "missing": a role the primary MANIFEST requests is granted by the
+            // admin consent the tenant just gave and is merely still propagating (observed live:
+            // present on the re-mint 14 s later) — that is transient, the caller's retry converges.
+            // A tenant-side ADD-ON grant on the legacy SP (Optional Graph capabilities) is not part
+            // of any consent: no re-consent can ever produce it, only the grant script against the
+            // primary app can — permanent until then, and the admin must be told exactly which.
+            var missingAddOns = missing
+                .Where(role => !GraphAppPermissions.DefaultConsentSet.Contains(role, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            if (missingAddOns.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Tenant {TenantId}: primary app is consented, manifest role(s) still propagating — homing flip deferred: {MissingRoles}",
+                    tenantId, string.Join(", ", missing));
+                return new AppHomingProbeResult(Succeeded: false, IsTransient: true, MissingRoles: missing);
+            }
+
             _logger.LogWarning(
-                "Tenant {TenantId}: primary app is consented but lacks {MissingCount} legacy Graph role(s) — homing flip refused until re-consent: {MissingRoles}",
-                tenantId, missing.Count, string.Join(", ", missing));
-            return new AppHomingProbeResult(Succeeded: false, IsTransient: false, MissingRoles: missing);
+                "Tenant {TenantId}: primary app is consented but lacks {MissingCount} legacy add-on Graph role(s) — homing flip refused until granted on the primary app: {MissingRoles}",
+                tenantId, missingAddOns.Count, string.Join(", ", missingAddOns));
+            return new AppHomingProbeResult(Succeeded: false, IsTransient: false, MissingRoles: missingAddOns);
         }
 
         private static readonly IReadOnlySet<string> EmptyRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -165,24 +198,24 @@ namespace AutopilotMonitor.Functions.Services
         /// caller while the kill switch is off) short-circuit at eligibility. A transient probe
         /// never flips; the next consent-status/access-check call retries naturally.
         /// </summary>
-        public virtual async Task<AppHomingAutoFlipOutcome> TryAutoFlipToPrimaryAsync(
+        public virtual async Task<AppHomingAutoFlipResult> TryAutoFlipToPrimaryAsync(
             TenantConfiguration? config, string actorUpn, CancellationToken ct = default)
         {
             if (config == null || !await IsFunnelEligibleAsync(config))
             {
-                return AppHomingAutoFlipOutcome.NotEligible;
+                return new AppHomingAutoFlipResult(AppHomingAutoFlipOutcome.NotEligible);
             }
 
             var probe = await ProbePrimaryConsentAsync(config.TenantId, ct);
             if (!probe.Succeeded)
             {
                 return probe.IsTransient
-                    ? AppHomingAutoFlipOutcome.ProbeTransient
-                    : AppHomingAutoFlipOutcome.ProbeFailed;
+                    ? new AppHomingAutoFlipResult(AppHomingAutoFlipOutcome.ProbeTransient)
+                    : new AppHomingAutoFlipResult(AppHomingAutoFlipOutcome.ProbeFailed, probe.MissingRoles);
             }
 
             await FlipAsync(config.TenantId, _appRegistry.Primary.ClientId, actorUpn, "consent-auto-flip", forced: false);
-            return AppHomingAutoFlipOutcome.Flipped;
+            return new AppHomingAutoFlipResult(AppHomingAutoFlipOutcome.Flipped);
         }
 
         /// <summary>

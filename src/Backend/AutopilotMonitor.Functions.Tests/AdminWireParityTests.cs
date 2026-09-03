@@ -244,19 +244,24 @@ public class AdminWireParityTests
     public void AutopilotConsentStatusResponse_matches_the_consent_status_shape()
     {
         string? message = "Consent verified";
+        IReadOnlyList<string>? appHomingMissingRoles = null;
 
         AssertParity(
             new
             {
                 isConsented = true,
                 message,
-                homingFlipped = false
+                homingFlipped = false,
+                appHomingPending = true,
+                appHomingMissingRoles,
             },
             new AutopilotConsentStatusResponse
             {
                 IsConsented = true,
                 Message = message,
-                HomingFlipped = false
+                HomingFlipped = false,
+                AppHomingPending = true,
+                AppHomingMissingRoles = null,
             });
     }
 
@@ -264,19 +269,49 @@ public class AdminWireParityTests
     public void AutopilotConsentStatusResponse_omits_a_null_message()
     {
         string? message = null;
+        IReadOnlyList<string>? appHomingMissingRoles = null;
 
         AssertParity(
             new
             {
                 isConsented = false,
                 message,
-                homingFlipped = false
+                homingFlipped = false,
+                appHomingPending = false,
+                appHomingMissingRoles,
             },
             new AutopilotConsentStatusResponse
             {
                 IsConsented = false,
                 Message = null,
-                HomingFlipped = false
+                HomingFlipped = false,
+                AppHomingPending = false,
+                AppHomingMissingRoles = null,
+            });
+    }
+
+    [Fact]
+    public void AutopilotConsentStatusResponse_carries_the_blocking_add_on_roles()
+    {
+        string? message = "Consent verified";
+        var roles = new[] { "DeviceManagementScripts.Read.All" };
+
+        AssertParity(
+            new
+            {
+                isConsented = true,
+                message,
+                homingFlipped = false,
+                appHomingPending = false,
+                appHomingMissingRoles = roles,
+            },
+            new AutopilotConsentStatusResponse
+            {
+                IsConsented = true,
+                Message = message,
+                HomingFlipped = false,
+                AppHomingPending = false,
+                AppHomingMissingRoles = roles,
             });
     }
 
@@ -285,6 +320,8 @@ public class AdminWireParityTests
     [Fact]
     public void AutopilotAccessCheckResponse_matches_the_access_check_shape()
     {
+        IReadOnlyList<string>? appHomingMissingRoles = null;
+
         AssertParity(
             new
             {
@@ -292,6 +329,8 @@ public class AdminWireParityTests
                 isTransient = false,
                 requiredPermission = "DeviceManagementServiceConfig.Read.All",
                 homingFlipped = true,
+                appHomingPending = false,
+                appHomingMissingRoles,
             },
             new AutopilotAccessCheckResponse
             {
@@ -299,6 +338,34 @@ public class AdminWireParityTests
                 IsTransient = false,
                 RequiredPermission = "DeviceManagementServiceConfig.Read.All",
                 HomingFlipped = true,
+                AppHomingPending = false,
+                AppHomingMissingRoles = null,
+            });
+    }
+
+    [Fact]
+    public void AutopilotAccessCheckResponse_carries_the_blocking_add_on_roles()
+    {
+        var roles = new[] { "CloudPC.Read.All", "DeviceManagementScripts.Read.All" };
+
+        AssertParity(
+            new
+            {
+                accessPresent = true,
+                isTransient = false,
+                requiredPermission = "DeviceManagementServiceConfig.Read.All",
+                homingFlipped = false,
+                appHomingPending = false,
+                appHomingMissingRoles = roles,
+            },
+            new AutopilotAccessCheckResponse
+            {
+                AccessPresent = true,
+                IsTransient = false,
+                RequiredPermission = "DeviceManagementServiceConfig.Read.All",
+                HomingFlipped = false,
+                AppHomingPending = false,
+                AppHomingMissingRoles = roles,
             });
     }
 

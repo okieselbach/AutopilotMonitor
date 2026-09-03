@@ -174,6 +174,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
             Attempted = probe != null,
             Succeeded = probe?.Succeeded ?? false,
             IsTransient = probe?.IsTransient ?? false,
+            MissingRoles = probe is { Succeeded: false, IsTransient: false, MissingRoles: { Count: > 0 } missing }
+                ? missing.ToList()
+                : null,
         };
     }
 }

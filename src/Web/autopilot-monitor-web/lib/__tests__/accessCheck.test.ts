@@ -27,4 +27,12 @@ describe("classifyAccessCheck", () => {
   it("reports absent when accessPresent is omitted on an authoritative response", () => {
     expect(classifyAccessCheck(true, { isTransient: false })).toBe("absent");
   });
+
+  it("ignores the app-homing side signals — they never decide the validation gate", () => {
+    expect(classifyAccessCheck(true, {
+      accessPresent: true, isTransient: false, homingFlipped: false, appHomingPending: true,
+      appHomingMissingRoles: ["DeviceManagementScripts.Read.All"],
+    })).toBe("reconciled");
+    expect(classifyAccessCheck(true, { accessPresent: false, isTransient: false, homingFlipped: true })).toBe("absent");
+  });
 });

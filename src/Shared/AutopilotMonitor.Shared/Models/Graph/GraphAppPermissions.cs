@@ -41,5 +41,12 @@
         /// inventory instead.
         /// </summary>
         public const string CloudPCReadAll = "CloudPC.Read.All";
+
+        /// <summary>
+        /// Application roles the published app manifest requests — the set a tenant-wide admin
+        /// consent grants by itself. Everything else a service principal holds is a tenant-side
+        /// add-on grant (<see cref="GraphFeatureCatalog"/>) that no re-consent can produce.
+        /// </summary>
+        public static readonly string[] DefaultConsentSet = { DeviceManagementServiceConfigReadAll };
     }
 }

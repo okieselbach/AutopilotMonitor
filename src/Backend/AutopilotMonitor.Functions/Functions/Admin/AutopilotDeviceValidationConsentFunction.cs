@@ -171,7 +171,7 @@ public class AutopilotDeviceValidationConsentFunction
         // homed app naturally. Unbudgeted on purpose: this runs in the post-redirect callback,
         // where the consent-propagation retry chain is exactly what we want to ride.
         var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-        var flipOutcome = await _appHomingService.TryAutoFlipToPrimaryAsync(tenantConfig, requestCtx.UserPrincipalName);
+        var flip = await _appHomingService.TryAutoFlipToPrimaryAsync(tenantConfig, requestCtx.UserPrincipalName);
 
         var result = await _graphTokenService.GetConsentStatusAsync(requestCtx.TargetTenantId);
 
@@ -188,7 +188,9 @@ public class AutopilotDeviceValidationConsentFunction
         {
             IsConsented = result.IsConsented,
             Message = result.Message,
-            HomingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped
+            HomingFlipped = flip.Flipped,
+            AppHomingPending = flip.Pending,
+            AppHomingMissingRoles = flip.MissingRoles?.ToList(),
         });
         return response;
     }
@@ -226,23 +228,26 @@ public class AutopilotDeviceValidationConsentFunction
 
         bool isTransient;
         bool accessPresent;
-        AppHomingAutoFlipOutcome flipOutcome;
+        AppHomingAutoFlipResult flip;
         using (var budgetCts = new CancellationTokenSource(AccessCheckBudget))
         {
-            // Consent-driven homing auto-flip BEFORE the fresh snapshot: the "detect existing
-            // access" / reconcile path never touches consent-status, so this is its flip hook. A
-            // budget-exhausted probe is transient ⇒ no flip; the frontend already renders "retry".
-            var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
-            flipOutcome = await _appHomingService.TryAutoFlipToPrimaryAsync(
-                tenantConfig, requestCtx.UserPrincipalName, budgetCts.Token);
-
             // Always read fresh. This probe is admin-triggered (reconcile on consent-fail, the
             // "detect existing access" button, post-consent verification) and low-frequency, so a
             // stale cached snapshot must never decide it. In particular, a snapshot acquired during
             // AAD consent propagation can carry an empty roles claim and would otherwise be cached for
             // the token lifetime (~55 min) — wedging the admin out long after consent has propagated.
             // Invalidating here makes every click re-acquire from AAD, so a retry always reflects reality.
+            // Runs BEFORE the homing probe below for the same reason: after the admin grants a missing
+            // add-on role on the primary app, "Detect existing access" must mint the primary token
+            // fresh, not judge the grant on a token cached from before it.
             _graphFeatureDetector.InvalidateTenant(requestCtx.TargetTenantId);
+
+            // Consent-driven homing auto-flip BEFORE the fresh snapshot: the "detect existing
+            // access" / reconcile path never touches consent-status, so this is its flip hook. A
+            // budget-exhausted probe is transient ⇒ no flip; the frontend already renders "retry".
+            var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
+            flip = await _appHomingService.TryAutoFlipToPrimaryAsync(
+                tenantConfig, requestCtx.UserPrincipalName, budgetCts.Token);
 
             GraphPermissionSnapshot snapshot;
             try
@@ -272,7 +277,9 @@ public class AutopilotDeviceValidationConsentFunction
             AccessPresent = accessPresent,
             IsTransient = isTransient,
             RequiredPermission = GraphAppPermissions.DeviceManagementServiceConfigReadAll,
-            HomingFlipped = flipOutcome == AppHomingAutoFlipOutcome.Flipped,
+            HomingFlipped = flip.Flipped,
+            AppHomingPending = flip.Pending,
+            AppHomingMissingRoles = flip.MissingRoles?.ToList(),
         });
         return response;
     }

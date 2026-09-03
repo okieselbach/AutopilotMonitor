@@ -1,12 +1,15 @@
 "use client";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
 import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
-import { legacyConfigured, switchAuthApp } from "@/lib/authApp";
+import { buildAddOnGrantCommand } from "@/lib/appHoming";
+import { legacyConfigured, primaryClientId, switchAuthApp } from "@/lib/authApp";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DOCS_URL } from "@/utils/config";
 import { useTenantConfig } from "../../TenantConfigContext";
 import { TenantNotifications } from "../../TenantNotifications";
+import { AppHomingAddOnStep } from "../../components/AppHomingAddOnStep";
 import AutopilotValidationSection from "../../components/AutopilotValidationSection";
 import NotRegisteredDevicesInsights from "../../components/NotRegisteredDevicesInsights";
 
@@ -24,10 +27,11 @@ export function SectionAutopilotValidation() {
     saveValidationGate,
     autopilotConsentInProgress, savingSection,
     beginDeviceValidationConsentFlow, detectExistingAccess,
-    appHomingFunnelActive, homingFlipped,
+    appHomingFunnelActive, homingFlipped, homingMissingRoles,
   } = useTenantConfig();
 
   const { getAccessToken } = useAuth();
+  const { tenantId } = useTenant();
   // Cert-device binding stays Global-Admin-only: only the operator can turn the binding check
   // on while its enrollment-race behaviour is still being measured. Follows the Global-Admin
   // VIEW, so switching it off (or presenting in demo mode) yields the real tenant-admin section.
@@ -47,6 +51,14 @@ export function SectionAutopilotValidation() {
   // null/absent) keep working unchanged — this is a purely informational nudge, part of the
   // incentive-driven re-consent campaign. Never a warning, never an action requirement.
   const homedOnLegacyApp = legacyConfigured() && config != null && !config.homedAppClientId;
+  // Funnel, second stop: consent succeeded but the previous app holds add-on roles the new app
+  // lacks. The grant command must target the NEW app — the tenant is still homed on the previous
+  // one, so the Optional Graph capabilities page would pre-fill the wrong client id.
+  const newAppClientId = primaryClientId();
+  const addOnStepRoles =
+    appHomingFunnelActive && !homingFlipped && newAppClientId && homingMissingRoles && homingMissingRoles.length > 0
+      ? homingMissingRoles
+      : null;
 
   return (
     <>
@@ -74,6 +86,13 @@ export function SectionAutopilotValidation() {
             </a>
           </div>
         </div>
+      ) : addOnStepRoles ? (
+        <AppHomingAddOnStep
+          missingRoles={addOnStepRoles}
+          command={buildAddOnGrantCommand(newAppClientId!, tenantId, { permissions: addOnStepRoles })}
+          busy={autopilotConsentInProgress || savingSection === "autopilotValidation"}
+          onDetectExistingAccess={() => { void detectExistingAccess("autopilot"); }}
+        />
       ) : appHomingFunnelActive ? (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg p-5 shadow-sm dark:from-blue-950/40 dark:to-indigo-950/40 dark:border-blue-700/60">
           <div className="flex items-start gap-3">
@@ -96,6 +115,9 @@ export function SectionAutopilotValidation() {
                 <strong>Privileged Role Administrator</strong>). The consented permission stays the
                 same read-only Graph permission as before
                 (<code className="text-xs bg-blue-100 dark:bg-blue-900/60 px-1 rounded">DeviceManagementServiceConfig.Read.All</code>).
+                If you granted the previous app optional Graph add-on permissions, the switch waits
+                until the new app holds them too — this page then lists them together with the
+                command to grant them, so nothing stops working.
               </p>
               <a
                 href={`${DOCS_URL}${DOCS_PATHS.appRegistrationMigration}`}

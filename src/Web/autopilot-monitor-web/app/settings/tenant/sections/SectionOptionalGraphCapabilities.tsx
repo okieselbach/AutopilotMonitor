@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
-import { AGENT_DOWNLOAD_URL, DOCS_URL } from "@/utils/config";
+import { DOCS_URL } from "@/utils/config";
 import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { ADD_ON_GRANT_SCRIPT_URL, buildAddOnGrantCommand } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 
 interface FeatureStatus {
@@ -119,10 +120,10 @@ export function SectionOptionalGraphCapabilities() {
   const featureNames = featureRows.map(f => f.name);
   const exampleFeature = featureNames[0] ?? "ScriptDisplayNames";
 
-  const scriptDownloadUrl = `${AGENT_DOWNLOAD_URL}/Grant-AutopilotMonitorAddOn.ps1`;
+  const scriptDownloadUrl = ADD_ON_GRANT_SCRIPT_URL;
   const docsUrl = `${DOCS_URL}/reference/optional-graph-permissions`;
   const psCommand = status?.clientId
-    ? `irm '${scriptDownloadUrl}' -OutFile .\\Grant-AutopilotMonitorAddOn.ps1\n.\\Grant-AutopilotMonitorAddOn.ps1 \`\n    -ClientId "${status.clientId}" \`\n    -Features ${exampleFeature} \`\n    -TenantId "${tenantId ?? "<your-tenant-id>"}"`
+    ? buildAddOnGrantCommand(status.clientId, tenantId, { features: exampleFeature })
     : "";
 
   return (

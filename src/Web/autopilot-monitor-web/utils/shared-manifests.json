@@ -2079,6 +2079,18 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        {
+          "name": "missingRoles",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Legacy add-on Graph roles the primary app lacks (probe refused, not transient), or null — the key is omitted when null. The admin grants exactly these on the primary app."
         }
       ]
     },
@@ -3287,6 +3299,26 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        {
+          "name": "appHomingPending",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges."
+        },
+        {
+          "name": "appHomingMissingRoles",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null."
         }
       ]
     },
@@ -3316,6 +3348,26 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        {
+          "name": "appHomingPending",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges."
+        },
+        {
+          "name": "appHomingMissingRoles",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null."
         }
       ]
     },

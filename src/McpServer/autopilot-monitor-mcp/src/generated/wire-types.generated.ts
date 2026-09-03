@@ -353,6 +353,8 @@ export interface AppHomingProbeWire {
   attempted: boolean;
   succeeded: boolean;
   isTransient: boolean;
+  /** Legacy add-on Graph roles the primary app lacks (probe refused, not transient), or null — the key is omitted when null. The admin grants exactly these on the primary app. */
+  missingRoles?: string[];
 }
 
 /** App install SLA snapshot. */
@@ -603,6 +605,10 @@ export interface AutopilotAccessCheckResponse {
   isTransient: boolean;
   requiredPermission: string;
   homingFlipped: boolean;
+  /** True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges. */
+  appHomingPending: boolean;
+  /** Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null. */
+  appHomingMissingRoles?: string[];
 }
 
 /** Response of GET config/{tenantId}/autopilot-device-validation/consent-status. */
@@ -611,6 +617,10 @@ export interface AutopilotConsentStatusResponse {
   /** Human-readable detail from the consent probe, or null — the key is omitted when null. */
   message?: string;
   homingFlipped: boolean;
+  /** True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges. */
+  appHomingPending: boolean;
+  /** Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null. */
+  appHomingMissingRoles?: string[];
 }
 
 /** Response of GET config/{tenantId}/autopilot-device-validation/consent-url. */

@@ -33,6 +33,12 @@ namespace AutopilotMonitor.Shared.Models
 
         public bool Succeeded { get; set; }
         public bool IsTransient { get; set; }
+
+        /// <summary>
+        /// Legacy add-on Graph roles the primary app lacks (probe refused, not transient), or null —
+        /// the key is omitted when null. The admin grants exactly these on the primary app.
+        /// </summary>
+        public IReadOnlyList<string>? MissingRoles { get; set; }
     }
 
     /// <summary>

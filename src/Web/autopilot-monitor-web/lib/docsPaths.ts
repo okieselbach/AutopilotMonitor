@@ -49,6 +49,8 @@ export const DOCS_PATHS = {
   // Dual app-registration window (sign-in banners, failed-sign-in screen)
   appRegistrationMigration: "/troubleshooting-and-support/app-registration-migration",
   appRegistrationMigrationAfter: "/troubleshooting-and-support/app-registration-migration#after-the-migration",
+  appRegistrationMigrationAddOns: "/troubleshooting-and-support/app-registration-migration#optional-graph-add-on-permissions",
+  optionalGraphPermissions: "/reference/optional-graph-permissions",
 } as const;
 
 /** Top-level URL segments GitBook publishes for docs.autopilotmonitor.com (SUMMARY.md groups + root pages). */

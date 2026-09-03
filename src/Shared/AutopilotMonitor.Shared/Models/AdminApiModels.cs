@@ -85,6 +85,15 @@ namespace AutopilotMonitor.Shared.Models
         public string? Message { get; set; }
 
         public bool HomingFlipped { get; set; }
+
+        /// <summary>True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges.</summary>
+        public bool AppHomingPending { get; set; }
+
+        /// <summary>
+        /// Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted
+        /// on the primary app; null when nothing blocks — the key is omitted when null.
+        /// </summary>
+        public IReadOnlyList<string>? AppHomingMissingRoles { get; set; }
     }
 
     /// <summary>Response of GET config/{tenantId}/autopilot-device-validation/access-check.</summary>
@@ -98,6 +107,15 @@ namespace AutopilotMonitor.Shared.Models
 
         public string RequiredPermission { get; set; } = default!;
         public bool HomingFlipped { get; set; }
+
+        /// <summary>True when the homing auto-flip was deferred (consent still propagating / transient) — a retry converges.</summary>
+        public bool AppHomingPending { get; set; }
+
+        /// <summary>
+        /// Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted
+        /// on the primary app; null when nothing blocks — the key is omitted when null.
+        /// </summary>
+        public IReadOnlyList<string>? AppHomingMissingRoles { get; set; }
     }
 
     /// <summary>

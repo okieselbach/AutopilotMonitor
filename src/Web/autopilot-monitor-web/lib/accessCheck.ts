@@ -13,6 +13,13 @@ export interface AccessCheckPayload {
    * classifyAccessCheck.
    */
   homingFlipped?: boolean;
+  /** The homing auto-flip was deferred (consent on the new app still propagating) — another probe converges. */
+  appHomingPending?: boolean;
+  /**
+   * Optional Graph add-on roles the previous app holds in this tenant but the new app lacks;
+   * the flip stays refused until the admin grants exactly these on the new app.
+   */
+  appHomingMissingRoles?: string[] | null;
 }
 
 /**

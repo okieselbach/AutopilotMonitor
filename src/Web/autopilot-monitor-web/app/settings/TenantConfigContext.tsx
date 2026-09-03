@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -121,6 +121,12 @@ interface TenantConfigContextValue {
   appHomingFunnelActive: boolean;
   /** True when this session's consent/verify flow just switched the tenant to the new app. */
   homingFlipped: boolean;
+  /**
+   * Optional Graph add-on roles the previous app holds but the new app still lacks — the
+   * backend refused the switch until the admin grants exactly these on the new app. Learned from
+   * this session's consent-status / access-check responses; cleared once the tenant switches.
+   */
+  homingMissingRoles: string[] | null;
 
   // Validation
   validateAutopilotDevice: boolean;
@@ -470,6 +476,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [editionInfo, setEditionInfo] = useState<EditionInfo>(COMMUNITY_DEFAULT);
   const [appHomingFunnelActive, setAppHomingFunnelActive] = useState(false);
   const [homingFlipped, setHomingFlipped] = useState(false);
+  const [homingMissingRoles, setHomingMissingRoles] = useState<string[] | null>(null);
+  // Last probe said the flip is still converging (consent on the new app propagating). Read by
+  // the post-consent poll loop — a ref, because the loop runs inside one async callback.
+  const homingPendingRef = useRef(false);
 
   // The backend auto-flipped this tenant's app-reg homing during consent-status/access-check.
   // Reflect it locally without a refetch: badge/one-liner surfaces read config.homedAppClientId,
@@ -479,8 +489,29 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     trackEvent("app_homing_flipped", { source });
     setHomingFlipped(true);
     setAppHomingFunnelActive(false);
+    setHomingMissingRoles(null);
+    homingPendingRef.current = false;
     setConfig(prev => (prev ? { ...prev, homedAppClientId: primaryClientId() ?? prev.homedAppClientId } : prev));
   }, []);
+
+  // Every consent-status / access-check response carries the homing probe's verdict as a side
+  // signal: flipped, still converging, or blocked by add-on roles the new app lacks. The blocked
+  // list drives the funnel's "one more step" banner (grant command against the NEW app) and is
+  // only ever cleared by the flip itself — a later transient probe must not hide the to-do.
+  const noteHomingProbe = useCallback((payload: AccessCheckPayload | undefined, source: "consent-status" | "access-check") => {
+    if (!payload) return;
+    if (payload.homingFlipped) {
+      markHomingFlipped(source);
+      return;
+    }
+    homingPendingRef.current = payload.appHomingPending === true;
+    const roles = payload.appHomingMissingRoles;
+    if (roles && roles.length > 0) {
+      // Funnel trace point: consent done, switch held back by tenant-side add-on grants.
+      trackEvent("app_homing_blocked_by_roles", { source, roleCount: roles.length });
+      setHomingMissingRoles(roles);
+    }
+  }, [markHomingFlipped]);
   const [startingTrial, setStartingTrial] = useState(false);
 
   // -----------------------------------------------------------------------
@@ -889,10 +920,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       return "transient";
     }
     // Side signal, orthogonal to the access classification: the probe may have auto-flipped
-    // the tenant's app-reg homing (self-service migration).
-    if (payload?.homingFlipped) markHomingFlipped("access-check");
+    // the tenant's app-reg homing (self-service migration), deferred it, or named what blocks it.
+    noteHomingProbe(payload, "access-check");
     return classifyAccessCheck(ok, payload);
-  }, [tenantId, getAccessToken, markHomingFlipped]);
+  }, [tenantId, getAccessToken, noteHomingProbe]);
 
   // Direct gate persist for the toggle UI (disable + second-gate enable): same shared config
   // PUT, explicit override values. saveConfiguration re-syncs the local gate state from the
@@ -1070,7 +1101,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
 
         const statusData = await statusResponse.json();
-        if (statusData.homingFlipped) markHomingFlipped("consent-status");
+        noteHomingProbe(statusData, "consent-status");
         if (!statusData.isConsented) {
           throw new Error(statusData.message || "Consent is not active yet for this tenant.");
         }
@@ -1103,14 +1134,20 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // call, so a bounded poll converges as soon as Microsoft has propagated the role. The
         // consent-in-progress spinner stays up for the duration (finally-block clears it).
         let probe: AccessCheckOutcome = "absent";
+        let reconciled = false;
         let attempts = 0;
         for (attempts = 1; attempts <= 5; attempts++) {
           if (attempts > 1) await new Promise((resolve) => setTimeout(resolve, 15000));
           probe = await probeAccessCheck();
-          if (probe === "reconciled") break;
+          if (probe === "reconciled") reconciled = true;
+          // Keep polling while the homing switch is still converging: the switch rides this very
+          // probe, and the validation role resolves against the PREVIOUS app first — breaking on
+          // that reconcile left funnel tenants consented but never switched (live 2026-09-02:
+          // one probe 1 s after consent, role still propagating on the new app, no retry).
+          if (reconciled && !homingPendingRef.current) break;
         }
 
-        if (probe === "reconciled") {
+        if (reconciled) {
           if (attempts > 1) trackEvent("consent_verify_propagated", { trigger, attempts: String(attempts) });
           const saved = await persistValidation(reconcileTrigger);
           if (saved) {
@@ -1145,7 +1182,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     };
 
     handleConsentCallback();
-  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation, markHomingFlipped]);
+  }, [tenantId, config, router, getAccessToken, addNotification, tryReconcilePreApprovedConsent, probeAccessCheck, persistValidation, noteHomingProbe]);
 
   // Manual "Detect existing access" affordance — for admins who never even attempt the consent
   // redirect because they know they lack consent rights. Probes and, on success, enables
@@ -1666,7 +1703,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       // Edition / trial
       editionInfo, startingTrial, startTrial,
-      appHomingFunnelActive, homingFlipped,
+      appHomingFunnelActive, homingFlipped, homingMissingRoles,
 
       // Validation
       validateAutopilotDevice, setValidateAutopilotDevice,
@@ -1780,7 +1817,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       user, getAccessToken,
   }), [
     config, loading, canEditConfig, savingSection, error, successMessage,
-    editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped,
+    editionInfo, startingTrial, startTrial, appHomingFunnelActive, homingFlipped, homingMissingRoles,
     validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation,
     validateCloudPcDevice, handleToggleCloudPcValidation,
     validateIntuneDeviceBinding, handleToggleIntuneDeviceBinding,

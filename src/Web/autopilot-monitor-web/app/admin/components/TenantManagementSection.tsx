@@ -365,7 +365,7 @@ function TenantManagementSectionInner({
           force,
           reason: data.reason ?? `http-${response.status}`,
         });
-        throw new Error(appHomingErrorMessage(data.reason, response.statusText));
+        throw new Error(appHomingErrorMessage(data.reason, response.statusText, data.probe?.missingRoles));
       }
       trackEvent("app_homing_manual_flip", {
         tenantId: tenant.tenantId,

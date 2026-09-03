@@ -83,6 +83,7 @@ public class ConfigWireParityTests
         string? homedAppClientId = "0f9e8d7c-6b5a-4433-2211-aabbccddeeff";
         string? lastAuthClientId = "0f9e8d7c-6b5a-4433-2211-aabbccddeeff";
         DateTime? lastAuthClientIdSince = new DateTime(2026, 8, 29, 6, 30, 0, DateTimeKind.Utc);
+        IReadOnlyList<string>? missingRoles = null;
 
         AssertParity(
             new
@@ -99,6 +100,7 @@ public class ConfigWireParityTests
                     attempted = true,
                     succeeded = true,
                     isTransient = false,
+                    missingRoles,
                 },
             },
             new UpdateTenantAppHomingResponse
@@ -125,6 +127,7 @@ public class ConfigWireParityTests
         string? homedAppClientId = null;
         string? lastAuthClientId = null;
         DateTime? lastAuthClientIdSince = null;
+        IReadOnlyList<string>? missingRoles = null;
 
         AssertParity(
             new
@@ -140,6 +143,7 @@ public class ConfigWireParityTests
                     attempted = false,
                     succeeded = false,
                     isTransient = false,
+                    missingRoles,
                 },
             },
             new UpdateTenantAppHomingResponse
@@ -155,6 +159,50 @@ public class ConfigWireParityTests
                     Attempted = false,
                     Succeeded = false,
                     IsTransient = false,
+                },
+            });
+    }
+
+    [Fact]
+    public void AppHomingProbeWire_carries_the_blocking_add_on_roles_on_refusal()
+    {
+        // Refused self-service flip: the response names the legacy add-on roles the primary app lacks.
+        string? homedAppClientId = null;
+        string? lastAuthClientId = "1a400946-62c1-4ab4-aa37-f730ac89704d";
+        DateTime? lastAuthClientIdSince = new DateTime(2026, 9, 2, 19, 14, 11, DateTimeKind.Utc);
+        var missingRoles = new[] { "DeviceManagementScripts.Read.All" };
+
+        AssertParity(
+            new
+            {
+                success = true,
+                changed = false,
+                homedApp = "legacy",
+                homedAppClientId,
+                lastAuthClientId,
+                lastAuthClientIdSince,
+                probe = new
+                {
+                    attempted = true,
+                    succeeded = false,
+                    isTransient = false,
+                    missingRoles,
+                },
+            },
+            new UpdateTenantAppHomingResponse
+            {
+                Success = true,
+                Changed = false,
+                HomedApp = "legacy",
+                HomedAppClientId = null,
+                LastAuthClientId = lastAuthClientId,
+                LastAuthClientIdSince = lastAuthClientIdSince,
+                Probe = new AppHomingProbeWire
+                {
+                    Attempted = true,
+                    Succeeded = false,
+                    IsTransient = false,
+                    MissingRoles = missingRoles,
                 },
             });
     }
