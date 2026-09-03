@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please redact tenant IDs, device names, serial numbers, and anything personal before posting.
+        For a failed enrollment in your own tenant, the fastest path is the **Report Session** button in the portal — it attaches the session context for support without exposing it here.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Web portal
+        - Agent (on device)
+        - Bootstrap script / Intune deployment
+        - MCP server / AI integration
+        - Analysis rules / log patterns
+        - Backend / API
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Agent version / portal date
+      description: Agent version from the session details, or the date you saw it in the portal.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Relevant excerpts only, redacted. Paste text rather than screenshots of text where possible.
+      render: text

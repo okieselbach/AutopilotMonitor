@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/okieselbach/AutopilotMonitor/discussions
+    about: Ask how something works or float a feature idea before it becomes a request.
+  - name: Documentation
+    url: https://docs.autopilotmonitor.com
+    about: Setup guides, troubleshooting, and the security FAQ.
+  - name: Security vulnerability
+    url: https://github.com/okieselbach/AutopilotMonitor/security/advisories/new
+    about: Report privately. Please never open a public issue for a security finding.

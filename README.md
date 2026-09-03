@@ -27,16 +27,31 @@ Autopilot Monitor provides real-time tracking, intelligent diagnostics, and auto
 - **Monitoring Agent** — Lightweight .NET application that collects telemetry and evidence during enrollment
 - **Backend API** — Azure Functions-based ingestion and processing pipeline
 - **Web Dashboard** — Next.js application for real-time monitoring and fleet analytics
+- **MCP Server** — Model Context Protocol server that lets AI assistants query and troubleshoot enrollments in natural language
+
+## AI Integration (MCP)
+
+Autopilot Monitor ships a hosted **[Model Context Protocol](https://modelcontextprotocol.io)** server. Connect Claude Desktop, VS Code, or any MCP client that speaks Streamable HTTP with OAuth, and ask questions like:
+
+- *"Show me all failed enrollments from the last 24 hours and group them by failure reason."*
+- *"Why did session X fail, and which app install caused the delay?"*
+- *"Which devices in my fleet are affected by CVE-2024-30078?"*
+
+Server URL: `https://mcp.autopilotmonitor.com/mcp` — sign-in runs through your existing work account, access is scoped to your tenant exactly like in the portal, and no credentials are stored. Setup guide: **[AI Integration (MCP)](https://docs.autopilotmonitor.com/integrations/ai-integration-mcp)**.
 
 ## Documentation
 
 Full admin documentation is available at **[docs.autopilotmonitor.com](https://docs.autopilotmonitor.com)**
 
+## Feedback
+
+Bug reports and feature requests go through [Issues](https://github.com/okieselbach/AutopilotMonitor/issues/new/choose), questions and ideas through [Discussions](https://github.com/okieselbach/AutopilotMonitor/discussions). Security issues are reported privately, see [SECURITY.md](SECURITY.md). For a problem in your own tenant, the **Report Session** button in the portal is the fastest path.
+
 ## License
 
-This project uses a **split licensing model**:
+This project uses a **split licensing model**. The root [LICENSE](LICENSE) is AGPL-3.0, which covers the server-side components; the device-side components carry their own MIT license file:
 
-- **MIT License** — Agent (`src/Agent/`) and Shared library (`src/Shared/`) — unrestricted use on end-user devices
-- **AGPL-3.0** — Backend (`src/Backend/`), Web Dashboard (`src/Web/`), and MCP Server (`src/McpServer/`) — server-side components remain open source
+- **MIT License** — Agent ([`src/Agent/`](src/Agent/LICENSE)) and Shared library ([`src/Shared/`](src/Shared/LICENSE)) — unrestricted use on end-user devices, no copyleft obligations
+- **AGPL-3.0** — Backend ([`src/Backend/`](src/Backend/LICENSE)), Web Dashboard ([`src/Web/`](src/Web/LICENSE)), and MCP Server ([`src/McpServer/`](src/McpServer/LICENSE)) — modifications to server-side components remain open source, especially when deployed as a network service
 
-See [LICENSE](LICENSE) for full details.
+The Shared library is MIT because it is a dependency of the MIT-licensed Agent. The license file inside each component directory is authoritative for that component.
