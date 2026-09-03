@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.DataAccess;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Services
@@ -825,14 +826,28 @@ namespace AutopilotMonitor.Functions.Services
         /// emergency channel — it cleaned itself up and exited on a session that never reached
         /// a terminal state. This is the "are we silently losing agents?" signal; emitted by
         /// <see cref="Functions.Ingest.ReportAgentErrorFunction"/> once per session (guarded by
-        /// the timeline-event idempotency check). Warning-tier so operators can wire a Telegram
-        /// rule; if real-world volume turns out noisy, downgrade or remove — the timeline event
-        /// on the session is the durable record.
+        /// the timeline-event idempotency check). Severity is decided by the caller from the
+        /// session status at break time (<c>ReportAgentErrorFunction.ClassifyEmergencyBreak</c>):
+        /// Warning when the session was still open (the break IS the verdict — Telegram-rule
+        /// worthy), Info when the sweep had already terminalized it and the break is a late
+        /// cleanup after the device was powered on again. The 2026-09-03 audit found 224 of 269
+        /// breaks in three days were such late cleanups (kiosk devices stored for weeks); as
+        /// Warnings they buried the real ones. <paramref name="statusAtBreak"/> lands in the
+        /// details as <c>sessionStatusAtBreak</c> so the feed shows which case it was.
         /// </summary>
-        public Task RecordAgentEmergencyBreakAsync(string tenantId, string sessionId, string? agentVersion, string message)
-            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, OpsEventSeverity.Warning,
-                $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
-                tenantId, "System.EmergencyChannel", new { sessionId, agentVersion });
+        public Task RecordAgentEmergencyBreakAsync(
+            string tenantId, string sessionId, string? agentVersion, string message,
+            string severity, SessionStatus? statusAtBreak, bool lateCleanup)
+        {
+            var statusText = statusAtBreak?.ToString() ?? "unknown";
+            var context = lateCleanup
+                ? $"late cleanup — session already {statusText} when the break arrived"
+                : $"session still {statusText} when the break arrived";
+            return WriteAsync(OpsEventCategory.Agent, OpsEventTypes.AgentEmergencyBreak, severity,
+                $"Agent emergency break on session {sessionId} (agent {agentVersion ?? "?"}, {context}): {message}",
+                tenantId, "System.EmergencyChannel",
+                new { sessionId, agentVersion, sessionStatusAtBreak = statusText, lateCleanup });
+        }
 
         /// <summary>
         /// An agent reported that its RUNNING exe's SHA-256 differs from the hash the backend

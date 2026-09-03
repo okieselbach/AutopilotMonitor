@@ -137,6 +137,12 @@ namespace AutopilotMonitor.Functions.Services
         {
             // Ingest fires once per batch; one ops event per (session, outcome) per hour is the
             // signal operators need, the rest is in the Warning trace.
+            // The throttle is an in-process IMemoryCache, i.e. PER FUNCTION INSTANCE. On Flex
+            // Consumption a burst of requests for one session fans out across instances, so the
+            // same (session, outcome) can surface once per instance that saw it (observed
+            // 2026-09-03: 3 events in 5 s from 3 instances). Deliberately accepted — the count is
+            // a "how many instances noticed" figure, not an incident count; a distributed throttle
+            // is not worth a storage round-trip on the hot agent path.
             var key = $"sob:{tenantId}:{sessionId}:{decision.Outcome}";
             if (_cache.TryGetValue(key, out _))
                 return;

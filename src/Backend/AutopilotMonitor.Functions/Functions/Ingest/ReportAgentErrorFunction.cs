@@ -342,8 +342,28 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 // absolute age cap — exactly the "are we losing agents?" signal. Emitted only on
                 // first materialization so repeat reports for the same session cannot flood the
                 // ops feed. OpsEventService never throws.
+                //
+                // Severity follows what the platform already knows about the session (ops audit
+                // 2026-09-03): the break is wall-clock, so a device that was powered off for weeks
+                // fires it on its first boot — long after the sweep reconciled the session. That
+                // break is a late cleanup, not news; only a break on a still-open session is the
+                // decision itself (classifier rule 3). The row read is best-effort: unknown status
+                // keeps the historical Warning.
+                SessionStatus? statusAtBreak = null;
+                try
+                {
+                    statusAtBreak = (await sessionRepo.GetSessionAsync(tenantId, report.SessionId))?.Status;
+                }
+                catch (Exception readEx)
+                {
+                    logger.LogDebug(readEx,
+                        "ReportAgentError: session status read failed for emergency-break severity on {SessionId}", report.SessionId);
+                }
+
+                var verdict = ClassifyEmergencyBreak(statusAtBreak);
                 await opsEventService.RecordAgentEmergencyBreakAsync(
-                    tenantId, report.SessionId, report.AgentVersion, evt.Message);
+                    tenantId, report.SessionId, report.AgentVersion, evt.Message,
+                    verdict.Severity, statusAtBreak, verdict.LateCleanup);
             }
             catch (Exception ex)
             {
@@ -351,6 +371,19 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     "ReportAgentError: failed to materialize agent_emergency_break event for session {SessionId}", report.SessionId);
             }
         }
+
+        /// <summary>
+        /// Ops-event verdict for an emergency break, keyed on the session status the platform holds
+        /// when the report arrives. Terminal (Succeeded / Failed / Incomplete) = the sweep already
+        /// decided the enrollment and the agent merely cleaned up late (device powered on after a
+        /// shelf period) — Info, <c>LateCleanup=true</c>. Open or unknown = the break is the first
+        /// and only signal that nothing more will arrive — Warning, the historical semantics.
+        /// Pure so the rule is unit-testable.
+        /// </summary>
+        internal static (string Severity, bool LateCleanup) ClassifyEmergencyBreak(SessionStatus? statusAtBreak)
+            => statusAtBreak.HasValue && Helpers.DeviceJourneyCalculator.IsTerminal(statusAtBreak.Value)
+                ? (OpsEventSeverity.Info, true)
+                : (OpsEventSeverity.Warning, false);
 
         /// <summary>
         /// Builds the backend-materialized <c>agent_emergency_break</c> timeline event from the agent's

@@ -182,6 +182,80 @@ public class ReportAgentErrorFunctionTests
         Assert.Empty(h.OpsEvents);
     }
 
+    // Severity by session state at break time (ops audit 2026-09-03): a break on a session the
+    // sweep already terminalized is a late cleanup after a shelf period — Info, never a Warning
+    // that buries the real "agent gave up on an open session" breaks.
+    [Theory]
+    [InlineData(SessionStatus.Succeeded)]
+    [InlineData(SessionStatus.Failed)]
+    [InlineData(SessionStatus.Incomplete)]
+    public async Task Break_on_already_terminal_session_is_info_late_cleanup(SessionStatus status)
+    {
+        var h = new Harness();
+        h.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
+            .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = TenantId, Status = status });
+
+        await h.RunAsync(Report(Now));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Info, ops.Severity);
+        Assert.Contains("late cleanup", ops.Message);
+        Assert.Contains($"already {status}", ops.Message);
+        Assert.Contains($"\"sessionStatusAtBreak\":\"{status}\"", ops.Details);
+        Assert.Contains("\"lateCleanup\":true", ops.Details);
+        // The timeline event keeps its Warning severity — the classifier reads the type, not the tier.
+        h.SessionRepo.Verify(r => r.StoreEventsBatchAsync(
+            It.Is<List<EnrollmentEvent>>(e => e[0].Severity == EventSeverity.Warning)), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(SessionStatus.InProgress)]
+    [InlineData(SessionStatus.AwaitingUser)]
+    [InlineData(SessionStatus.Pending)]
+    [InlineData(SessionStatus.Stalled)]
+    public async Task Break_on_open_session_stays_warning(SessionStatus status)
+    {
+        var h = new Harness();
+        h.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
+            .ReturnsAsync(new SessionSummary { SessionId = SessionId, TenantId = TenantId, Status = status });
+
+        await h.RunAsync(Report(Now));
+
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Warning, ops.Severity);
+        Assert.Contains($"still {status}", ops.Message);
+        Assert.Contains("\"lateCleanup\":false", ops.Details);
+    }
+
+    [Fact]
+    public async Task Unknown_or_unreadable_session_status_keeps_warning()
+    {
+        // No row (Harness default: GetSessionAsync → null) — the historical Warning semantics.
+        var h = new Harness();
+        await h.RunAsync(Report(Now));
+        var ops = Assert.Single(h.OpsEvents);
+        Assert.Equal(OpsEventSeverity.Warning, ops.Severity);
+        Assert.Contains("\"sessionStatusAtBreak\":\"unknown\"", ops.Details);
+
+        // Row read throws — the break must still be recorded, still as Warning.
+        var h2 = new Harness();
+        h2.SessionRepo.Setup(r => r.GetSessionAsync(TenantId, SessionId))
+            .ThrowsAsync(new InvalidOperationException("table down"));
+        await h2.RunAsync(Report(Now));
+        Assert.Equal(OpsEventSeverity.Warning, Assert.Single(h2.OpsEvents).Severity);
+    }
+
+    [Fact]
+    public void ClassifyEmergencyBreak_is_terminal_set_only()
+    {
+        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Succeeded));
+        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Failed));
+        Assert.Equal((OpsEventSeverity.Info, true), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Incomplete));
+        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.AwaitingUser));
+        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(SessionStatus.Unknown));
+        Assert.Equal((OpsEventSeverity.Warning, false), ReportAgentErrorFunction.ClassifyEmergencyBreak(null));
+    }
+
     [Fact]
     public async Task Storage_failure_is_swallowed_and_never_throws()
     {
