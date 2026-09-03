@@ -16,6 +16,16 @@ import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedCont
 import { CalculatingCard } from "@/components/CalculatingCard";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { formatThroughput } from "@/lib/formatting";
+import type { GeographicMetricsResponse } from "@/utils/wire-types.generated";
+import {
+  DEFAULT_MAP_COLOR_MODE,
+  MAP_COLOR_MODES,
+  MAP_COLOR_MODE_BY_ID,
+  isMapColorModeId,
+  type MapColorModeId,
+} from "./mapColorModes";
+import { MapLegend } from "./MapLegend";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
@@ -23,65 +33,6 @@ const GEO_FETCH_TIMEOUT_MS = 180_000;
 
 // Dynamically import the map component (Leaflet requires window/document)
 const GeoMap = dynamic(() => import("./GeoMap"), { ssr: false });
-
-interface LocationMetric {
-  locationKey: string;
-  country: string;
-  region: string;
-  city: string;
-  loc: string;
-  sessionCount: number;
-  succeeded: number;
-  failed: number;
-  successRate: number;
-  avgDurationMinutes: number;
-  medianDurationMinutes: number;
-  p95DurationMinutes: number;
-  avgAppCount: number;
-  minutesPerApp: number;
-  appLoadScore: number;
-  avgThroughputBytesPerSec: number;
-  totalDownloadBytes: number;
-  durationVsGlobalPct: number;
-  throughputVsGlobalPct: number;
-  avgApiLatencyMs: number;
-  medianApiLatencyMs: number;
-  apiLatencySessionCount: number;
-  apiLatencyVsGlobalPct: number;
-  isOutlier: boolean;
-  outlierDirection: string | null;
-  // Delivery Optimization
-  doSessionCount: number;
-  avgDoPercentPeerCaching: number;
-  totalDoBytesFromPeers: number;
-  totalDoBytesFromHttp: number;
-  totalDoBytesFromLanPeers: number;
-  totalDoBytesFromGroupPeers: number;
-  totalDoBytesFromInternetPeers: number;
-}
-
-interface GlobalAverages {
-  avgDurationMinutes: number;
-  medianDurationMinutes: number;
-  avgMinutesPerApp: number;
-  avgThroughputBytesPerSec: number;
-  stdDevDurationMinutes: number;
-  avgApiLatencyMs: number;
-  medianApiLatencyMs: number;
-  avgDoPercentPeerCaching: number;
-  totalDoBytesFromPeers: number;
-  totalDoBytesFromHttp: number;
-}
-
-interface GeographicMetricsResponse {
-  success: boolean;
-  locations: LocationMetric[];
-  globalAverages: GlobalAverages;
-  computedAt: string;
-  totalSessions: number;
-  locationsWithData: number;
-  geoLocationEnabled: boolean;
-}
 
 type GroupBy = "city" | "region" | "country";
 type SortBy = "sessionCount" | "avgDurationMinutes" | "appLoadScore" | "avgThroughputBytesPerSec" | "medianApiLatencyMs" | "avgDoPercentPeerCaching";
@@ -94,40 +45,6 @@ function SortIcon({ col, sortBy, sortDesc }: { col: SortBy; sortBy: SortBy; sort
   if (sortBy !== col) return <span className="text-gray-300 ml-1">&#8597;</span>;
   return <span className="text-blue-600 ml-1">{sortDesc ? "▼" : "▲"}</span>;
 }
-
-const durationColor = (value: number, globalAvg: number) => {
-  if (globalAvg <= 0) return "text-gray-700";
-  const ratio = value / globalAvg;
-  if (ratio <= 0.8) return "bg-green-100 text-green-800";
-  if (ratio <= 1.0) return "bg-green-50 text-green-700";
-  if (ratio <= 1.2) return "bg-yellow-50 text-yellow-700";
-  if (ratio <= 1.5) return "bg-orange-50 text-orange-700";
-  return "bg-red-100 text-red-800";
-};
-
-const scoreColor = (score: number) => {
-  if (score <= 0) return "text-gray-400";
-  if (score < 80) return "text-green-600";
-  if (score <= 120) return "text-gray-700";
-  return "text-red-600";
-};
-
-// Absolute buckets, not relative-to-global: latency encodes physical distance to the backend
-// region, and the decision it supports ("open a closer region?") needs absolute thresholds.
-const latencyColor = (ms: number) => {
-  if (ms <= 0) return "text-gray-400";
-  if (ms < 250) return "bg-green-100 text-green-800";
-  if (ms < 500) return "bg-yellow-100 text-yellow-800";
-  if (ms < 800) return "bg-orange-100 text-orange-700";
-  return "bg-red-100 text-red-800";
-};
-
-const formatThroughput = (bytesPerSec: number) => {
-  if (bytesPerSec <= 0) return "—";
-  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
-  if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
-  return `${bytesPerSec.toFixed(0)} B/s`;
-};
 
 const formatBytes = (bytes: number) => {
   if (bytes <= 0) return "—";
@@ -146,6 +63,8 @@ export default function GeographicPerformancePage() {
   const [sortBy, setSortBy] = useState<SortBy>("sessionCount");
   const [sortDesc, setSortDesc] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
+  const [colorModeId, setColorModeId] = useState<MapColorModeId>(DEFAULT_MAP_COLOR_MODE);
+  const colorMode = MAP_COLOR_MODE_BY_ID[colorModeId];
 
   const isTimeRangeMount = useRef(true);
 
@@ -204,7 +123,7 @@ export default function GeographicPerformancePage() {
     const sorted = [...geoMetrics.locations].sort((a, b) => {
       const aVal = a[sortBy];
       const bVal = b[sortBy];
-      return sortDesc ? (bVal as number) - (aVal as number) : (aVal as number) - (bVal as number);
+      return sortDesc ? bVal - aVal : aVal - bVal;
     });
     return sorted;
   }, [geoMetrics, sortBy, sortDesc]);
@@ -364,16 +283,34 @@ export default function GeographicPerformancePage() {
           {/* Map */}
           {geoMetrics && geoMetrics.locations.length > 0 && (
             <div className="bg-white rounded-lg shadow mb-6">
-              <div className="px-4 py-3 border-b border-gray-200">
+              <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <h2 className="text-lg font-semibold text-gray-900">Performance Map</h2>
+                <label className="flex items-center gap-2 text-sm text-gray-600">
+                  Color by
+                  <select
+                    value={colorModeId}
+                    onChange={(e) => {
+                      if (isMapColorModeId(e.target.value)) setColorModeId(e.target.value);
+                    }}
+                    className="border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  >
+                    {MAP_COLOR_MODES.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="p-4" style={{ height: "450px" }}>
                 <GeoMap
                   locations={geoMetrics.locations}
-                  globalAvgDuration={geoMetrics.globalAverages.avgDurationMinutes}
+                  globalAverages={geoMetrics.globalAverages}
+                  colorMode={colorMode}
                   selectedLocation={selectedLocation}
                   onLocationSelect={setSelectedLocation}
                 />
+              </div>
+              <div className="px-4 pb-3">
+                <MapLegend mode={colorMode} />
               </div>
             </div>
           )}
@@ -529,13 +466,7 @@ export default function GeographicPerformancePage() {
                                 location where everything is still in flight has no rate yet. */}
                             {loc.succeeded + loc.failed > 0 ? (
                               <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                  loc.successRate >= 90
-                                    ? "bg-green-100 text-green-800"
-                                    : loc.successRate >= 70
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : "bg-red-100 text-red-800"
-                                }`}
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.success.resolve(loc, geoMetrics.globalAverages).className}`}
                               >
                                 {loc.successRate}%
                               </span>
@@ -550,10 +481,7 @@ export default function GeographicPerformancePage() {
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${durationColor(
-                                loc.avgDurationMinutes,
-                                geoMetrics.globalAverages.avgDurationMinutes
-                              )}`}
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.duration.resolve(loc, geoMetrics.globalAverages).className}`}
                             >
                               {Math.round(loc.avgDurationMinutes)} min
                             </span>
@@ -562,7 +490,7 @@ export default function GeographicPerformancePage() {
                             {loc.p95DurationMinutes > 0 ? `${Math.round(loc.p95DurationMinutes)} min` : "—"}
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            <span className={`font-medium ${scoreColor(loc.appLoadScore)}`}>
+                            <span className={`font-medium ${MAP_COLOR_MODE_BY_ID.score.resolve(loc, geoMetrics.globalAverages).className}`}>
                               {loc.appLoadScore > 0 ? Math.round(loc.appLoadScore) : "—"}
                             </span>
                             {loc.minutesPerApp > 0 && (
@@ -577,7 +505,7 @@ export default function GeographicPerformancePage() {
                           <td className="px-4 py-3 text-sm">
                             {loc.medianApiLatencyMs > 0 ? (
                               <div title={`Median across ${loc.apiLatencySessionCount} session(s) with latency data · weighted avg ${Math.round(loc.avgApiLatencyMs)} ms${loc.apiLatencyVsGlobalPct !== 0 ? ` · ${loc.apiLatencyVsGlobalPct > 0 ? "+" : ""}${loc.apiLatencyVsGlobalPct.toFixed(0)}% vs global` : ""}`}>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${latencyColor(loc.medianApiLatencyMs)}`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.latency.resolve(loc, geoMetrics.globalAverages).className}`}>
                                   {Math.round(loc.medianApiLatencyMs)} ms
                                 </span>
                                 <span className="text-xs text-gray-400 ml-1">({loc.apiLatencySessionCount})</span>
@@ -593,11 +521,7 @@ export default function GeographicPerformancePage() {
                                   ? `LAN: ${formatBytes(loc.totalDoBytesFromLanPeers)} | Group: ${formatBytes(loc.totalDoBytesFromGroupPeers)} | Internet: ${formatBytes(loc.totalDoBytesFromInternetPeers)}`
                                   : `${loc.doSessionCount} session(s) with DO data`
                               }>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                  loc.avgDoPercentPeerCaching >= 50 ? "bg-green-100 text-green-800" :
-                                  loc.avgDoPercentPeerCaching >= 10 ? "bg-yellow-100 text-yellow-800" :
-                                  "bg-gray-100 text-gray-600"
-                                }`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.do.resolve(loc, geoMetrics.globalAverages).className}`}>
                                   {loc.avgDoPercentPeerCaching > 0 ? `${loc.avgDoPercentPeerCaching}%` : "0%"}
                                 </span>
                                 <span className="text-xs text-gray-400 ml-1">
