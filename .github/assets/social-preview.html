@@ -1,0 +1,55 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;}
+  body{width:1280px;height:640px;overflow:hidden;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#0f172a;
+    background:
+      radial-gradient(900px 600px at 105% 110%, #dcfce7 0%, rgba(220,252,231,0) 60%),
+      radial-gradient(700px 500px at -10% -10%, #e0f2fe 0%, rgba(224,242,254,0) 60%),
+      linear-gradient(180deg,#ffffff 0%,#f6f8f7 100%);
+    position:relative;}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(15,23,42,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(15,23,42,.045) 1px,transparent 1px);background-size:40px 40px;mask-image:linear-gradient(180deg,rgba(0,0,0,.7),rgba(0,0,0,0) 85%);}
+  .left{position:absolute;left:72px;top:0;height:640px;width:520px;display:flex;flex-direction:column;justify-content:center;z-index:2;}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:26px;}
+  .brand svg{width:44px;height:40px;}
+  .brand span{font-size:22px;font-weight:600;letter-spacing:-.01em;color:#0f172a;}
+  h1{margin:0 0 18px;font-size:50px;line-height:1.06;font-weight:800;letter-spacing:-.035em;}
+  h1 em{font-style:normal;color:#16a34a;}
+  p.tag{margin:0 0 30px;font-size:20px;line-height:1.45;color:#475569;font-weight:400;max-width:480px;}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:34px;}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:#fff;border:1px solid #e2e8f0;box-shadow:0 1px 2px rgba(15,23,42,.05);font-size:15px;font-weight:500;color:#1e293b;}
+  .chip i{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;}
+  .chip.b i{background:#3b82f6}.chip.p i{background:#8b5cf6}
+  .foot{display:flex;align-items:center;gap:14px;font-size:15px;color:#64748b;font-weight:500;}
+  .foot b{color:#0f172a;font-weight:600;}
+  .foot .dot{width:4px;height:4px;border-radius:50%;background:#cbd5e1;}
+  .shot{position:absolute;left:600px;top:76px;width:1000px;height:640px;border-radius:14px;background:#fff;
+    box-shadow:0 30px 80px -20px rgba(15,23,42,.35),0 0 0 1px rgba(15,23,42,.08);overflow:hidden;z-index:1;}
+  .bar{position:relative;z-index:2;height:34px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;padding:0 14px;gap:7px;}
+  .bar i{width:10px;height:10px;border-radius:50%;background:#e2e8f0;display:inline-block;}
+  .bar .url{margin-left:12px;flex:0 0 auto;height:20px;padding:0 10px;border-radius:6px;background:#fff;border:1px solid #e2e8f0;font-size:11px;line-height:20px;color:#64748b;}
+  .shot img{position:absolute;left:-214px;top:-16px;width:1440px;height:900px;transform-origin:top left;transform:scale(.94);}
+</style></head>
+<body>
+<div class="grid"></div>
+<div class="left">
+  <div class="brand">
+    <svg viewBox="0 0 209 191" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 180.201L208.401 190.502L188.157 76.2438L5.48363e-06 0L0 180.201Z" fill="#33B161"/></svg>
+    <span>Autopilot Monitor</span>
+  </div>
+  <h1>See every Windows<br>enrollment <em>as it happens</em></h1>
+  <p class="tag">Live session timelines, fleet health, and on-demand diagnostics for Windows Autopilot and Intune.</p>
+  <div class="chips">
+    <span class="chip"><i></i>Live session timeline</span>
+    <span class="chip b"><i></i>Fleet health</span>
+    <span class="chip p"><i></i>MCP server for AI troubleshooting</span>
+  </div>
+  <div class="foot"><b>autopilotmonitor.com</b><span class="dot"></span>Open source<span class="dot"></span>Free Community plan</div>
+</div>
+<div class="shot">
+  <div class="bar"><i></i><i></i><i></i><span class="url">portal.autopilotmonitor.com/dashboard</span></div>
+  <img src="social-preview-dashboard.png" alt="">
+</div>
+</body></html>
