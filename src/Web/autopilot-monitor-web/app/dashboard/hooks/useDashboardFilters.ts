@@ -24,6 +24,9 @@ interface UseDashboardFiltersParams {
   tenantId: string | null | undefined;
   globalAdminMode: boolean;
   tenantIdFilter: string;
+  // tenantId -> verified domain (cross-tenant views). Lets the search box match the domain
+  // shown in the Tenant column; undefined outside cross-tenant mode.
+  tenantDomainById?: Map<string, string>;
   hasMore: boolean;
   loadingMore: boolean;
   loadMore: () => void;
@@ -73,6 +76,7 @@ export function useDashboardFilters({
   tenantId,
   globalAdminMode,
   tenantIdFilter,
+  tenantDomainById,
   hasMore,
   loadingMore,
   loadMore,
@@ -196,11 +200,15 @@ export function useDashboardFilters({
         session.osDisplayVersion,
         session.osEdition,
         session.osLanguage,
+        // Tenant column is cross-tenant only; keep single-tenant search free of a value
+        // every row shares.
+        globalAdminMode ? session.tenantId : "",
+        globalAdminMode ? tenantDomainById?.get(session.tenantId) : "",
       ].join(" ").toLowerCase();
 
       return searchableText.includes(query);
     });
-  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, blockedDevicesSet]);
+  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, blockedDevicesSet, globalAdminMode, tenantDomainById]);
 
   const sortedSessions = useMemo(() => {
     if (!sortColumn) return filteredSessions;

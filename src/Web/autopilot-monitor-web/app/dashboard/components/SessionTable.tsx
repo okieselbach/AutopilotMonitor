@@ -92,6 +92,8 @@ interface SessionTableProps {
   onTenantIdFilterSubmit: () => void;
   onTenantIdFilterClear: () => void;
   tenantList: { tenantId: string; domainName: string }[];
+  /** tenantId -> domain, shared with the dashboard's search filter (one source for display and search). */
+  tenantDomainById: Map<string, string>;
   blockedDevicesSet: Set<string>;
   isActivationPending: boolean;
   user: { isGlobalAdmin?: boolean } | null;
@@ -146,6 +148,7 @@ export function SessionTable({
   onTenantIdFilterSubmit,
   onTenantIdFilterClear,
   tenantList,
+  tenantDomainById,
   blockedDevicesSet,
   isActivationPending,
   user,
@@ -227,6 +230,13 @@ export function SessionTable({
           break;
         }
       }
+      // Tenant domain is not a Session field -- it comes from the tenant list (cross-tenant only).
+      if (seen.has(session.sessionId) || !globalAdminMode) continue;
+      const domain = tenantDomainById.get(session.tenantId);
+      if (domain && domain.toLowerCase().includes(q)) {
+        seen.add(session.sessionId);
+        exactResults.push({ session, matchedField: "Tenant", matchedValue: domain, isExact: true });
+      }
     }
 
     // Phase 2: Levenshtein fuzzy matches (fill remaining slots, min 3 chars for fuzzy)
@@ -249,12 +259,7 @@ export function SessionTable({
     return [...exactResults, ...fuzzyResults];
     // SEARCH_FIELDS is a stable literal — intentionally omitted from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deferredSearchQuery, sessions]);
-
-  const tenantDomainById = useMemo(
-    () => new Map(tenantList.map((t) => [t.tenantId, t.domainName])),
-    [tenantList],
-  );
+  }, [deferredSearchQuery, sessions, globalAdminMode, tenantDomainById]);
 
   // Persist visible columns to localStorage
   useEffect(() => {

@@ -24,6 +24,8 @@ import { useBlockDevice } from "./hooks/useBlockDevice";
 import { useTenantSecurityConfig } from "./hooks/useTenantSecurityConfig";
 import { useTenantList } from "./hooks/useTenantList";
 import { delegatedScopedTenantList, upnDomain } from "@/utils/homeTenantScope";
+import { resolveTenantFilterInput } from "@/utils/tenantFilterResolve";
+import { isGuid } from "@/utils/inputValidation";
 import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
@@ -141,7 +143,7 @@ function HomeContent() {
 
   const {
     sessions, loading, hasMore, loadingMore, loadingAll,
-    refetch, refetchWith, loadMore, loadAll, searchAll, removeSession,
+    refetchWith, loadMore, loadAll, searchAll, removeSession,
   } = useDashboardSessions({
     user, tenantId, globalAdminMode: crossTenant, joinGlobalAdmins, tenantIdFilter, adminMode,
     getAccessToken, addNotification, setBlockedDevicesSet, signalR,
@@ -151,6 +153,22 @@ function HomeContent() {
     showDeleteConfirm, deleteTargets, pendingDeletions,
     deleteSessions, confirmDelete, cancelDelete,
   } = useDeleteSession(getAccessToken, addNotification, adminMode, removeSession);
+
+  const rawTenantList = useTenantList(crossTenant, getAccessToken);
+  // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
+  // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
+  // home-tenant reads route via the member path (see utils/homeTenantScope.ts). GA/Reader: the full list.
+  const tenantList = useMemo(() => {
+    if (!isDelegated || hasGlobalScope) return rawTenantList;
+    return delegatedScopedTenantList(
+      rawTenantList, user?.delegatedTenantIds, user?.tenantId, upnDomain(user?.upn), !!user?.role);
+  }, [rawTenantList, isDelegated, hasGlobalScope, user?.delegatedTenantIds, user?.tenantId, user?.upn, user?.role]);
+  // Single tenantId -> domain source for the table's Tenant column AND the search box, so a
+  // domain that is visible in the list is also searchable.
+  const tenantDomainById = useMemo(
+    () => new Map(tenantList.map((t) => [t.tenantId, t.domainName])),
+    [tenantList],
+  );
 
   const {
     searchQuery, setSearchQuery,
@@ -167,6 +185,7 @@ function HomeContent() {
     tenantId,
     globalAdminMode: crossTenant,
     tenantIdFilter,
+    tenantDomainById,
     hasMore,
     loadingMore,
     loadMore,
@@ -244,15 +263,6 @@ function HomeContent() {
   }, [user, router]);
 
   const { serialValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
-  const rawTenantList = useTenantList(crossTenant, getAccessToken);
-  // Delegated: bound the tenant filter's autocomplete to the managed subset (defense in depth on top of the
-  // backend-bounded config/all), plus the caller's own HOME tenant when they hold a member role there —
-  // home-tenant reads route via the member path (see utils/homeTenantScope.ts). GA/Reader: the full list.
-  const tenantList = useMemo(() => {
-    if (!isDelegated || hasGlobalScope) return rawTenantList;
-    return delegatedScopedTenantList(
-      rawTenantList, user?.delegatedTenantIds, user?.tenantId, upnDomain(user?.upn), !!user?.role);
-  }, [rawTenantList, isDelegated, hasGlobalScope, user?.delegatedTenantIds, user?.tenantId, user?.upn, user?.role]);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).
@@ -323,8 +333,14 @@ function HomeContent() {
   };
 
   const submitTenantIdFilter = () => {
-    setSubmittedTenantIdFilter(tenantIdFilter);
-    refetch();
+    // A typed domain name only became a tenant ID when a suggestion was picked; resolve it
+    // here too so Enter/Filter on a typed domain scopes the same way. The box is updated to
+    // the resolved ID (same as a picked suggestion), and the fetch takes the resolved value
+    // explicitly -- the live filter ref would still hold the pre-resolution text.
+    const resolved = resolveTenantFilterInput(tenantIdFilter, tenantList);
+    setTenantIdFilter(resolved);
+    setSubmittedTenantIdFilter(resolved);
+    refetchWith(resolved);
   };
 
   const clearTenantIdFilter = () => {
@@ -474,7 +490,9 @@ function HomeContent() {
               />
               {submittedTenantIdFilter.trim() && (
                 <p className="text-sm text-gray-500">
-                  No sessions found for this tenant yet. Clear the filter or enter another tenant to continue.
+                  {isGuid(submittedTenantIdFilter)
+                    ? "No sessions found for this tenant yet. Clear the filter or enter another tenant to continue."
+                    : `No tenant matches "${submittedTenantIdFilter.trim()}". Pick one from the suggestions or paste the tenant ID.`}
                 </p>
               )}
             </div>
@@ -545,6 +563,7 @@ function HomeContent() {
               onTenantIdFilterSubmit={submitTenantIdFilter}
               onTenantIdFilterClear={clearTenantIdFilter}
               tenantList={tenantList}
+              tenantDomainById={tenantDomainById}
               blockedDevicesSet={blockedDevicesSet}
               isActivationPending={isActivationPending}
               user={user}
