@@ -12,20 +12,49 @@ namespace AutopilotMonitor.Functions.Services
     /// <summary>
     /// Service for managing tenant-specific configuration.
     /// Caching and business logic layer — delegates storage to IConfigRepository.
+    ///
+    /// Every configuration that leaves this service through a READ path carries the load-time projection
+    /// <see cref="TenantConfiguration.ManagedByProTenantId"/> (see <see cref="ManagedTenantProIndex"/>): it is
+    /// applied on cache hits and misses alike, so its staleness is bounded by the index TTL alone, and it is
+    /// never applied to a synthesized default (a tenant without a row can never be projected as Pro).
     /// </summary>
     public class TenantConfigurationService
     {
         private readonly IConfigRepository _configRepo;
         private readonly ILogger<TenantConfigurationService> _logger;
         private readonly IMemoryCache _cache;
+        private readonly ManagedTenantProIndex _proIndex;
 
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
-        public TenantConfigurationService(IConfigRepository configRepo, ILogger<TenantConfigurationService> logger, IMemoryCache cache)
+        public TenantConfigurationService(
+            IConfigRepository configRepo,
+            ILogger<TenantConfigurationService> logger,
+            IMemoryCache cache,
+            ManagedTenantProIndex proIndex)
         {
             _configRepo = configRepo;
             _logger = logger;
             _cache = cache;
+            _proIndex = proIndex;
+        }
+
+        /// <summary>
+        /// Test seam — no delegation index: no tenant is ever projected as managed. Production DI always
+        /// resolves the four-argument constructor (the longest satisfiable one).
+        /// </summary>
+        public TenantConfigurationService(IConfigRepository configRepo, ILogger<TenantConfigurationService> logger, IMemoryCache cache)
+            : this(configRepo, logger, cache, ManagedTenantProIndex.None)
+        {
+        }
+
+        /// <summary>Applies the read-time projection (see the class remarks). Idempotent; null passes through.</summary>
+        private async Task<TenantConfiguration?> ProjectAsync(TenantConfiguration? config)
+        {
+            if (config == null)
+                return null;
+            config.ManagedByProTenantId = await _proIndex.GetConferringOwnerAsync(config.TenantId);
+            return config;
         }
 
         /// <summary>
@@ -43,7 +72,7 @@ namespace AutopilotMonitor.Functions.Services
 
             if (_cache.TryGetValue(cacheKey, out TenantConfiguration? cachedConfig) && cachedConfig != null)
             {
-                return cachedConfig;
+                return (await ProjectAsync(cachedConfig))!;
             }
 
             try
@@ -54,7 +83,7 @@ namespace AutopilotMonitor.Functions.Services
                 if (config != null)
                 {
                     _cache.Set(cacheKey, config, CacheDuration);
-                    return config;
+                    return (await ProjectAsync(config))!;
                 }
 
                 // Configuration not found - create and save default immediately
@@ -197,13 +226,13 @@ namespace AutopilotMonitor.Functions.Services
             var cacheKey = $"tenant-config:{tenantId}";
 
             if (_cache.TryGetValue(cacheKey, out TenantConfiguration? cachedConfig) && cachedConfig != null)
-                return cachedConfig;
+                return await ProjectAsync(cachedConfig);
 
             var config = await _configRepo.GetTenantConfigurationAsync(tenantId);
             if (config != null)
                 _cache.Set(cacheKey, config, CacheDuration);
 
-            return config;
+            return await ProjectAsync(config);
         }
 
         /// <summary>
@@ -224,7 +253,7 @@ namespace AutopilotMonitor.Functions.Services
             if (config != null)
                 _cache.Set($"tenant-config:{tenantId}", config, CacheDuration);
 
-            return config;
+            return await ProjectAsync(config);
         }
 
         /// <summary>
@@ -261,7 +290,10 @@ namespace AutopilotMonitor.Functions.Services
         {
             try
             {
-                return await _configRepo.GetAllTenantConfigurationsAsync();
+                var configs = await _configRepo.GetAllTenantConfigurationsAsync();
+                foreach (var config in configs)
+                    await ProjectAsync(config);
+                return configs;
             }
             catch (Exception ex)
             {
@@ -279,7 +311,10 @@ namespace AutopilotMonitor.Functions.Services
         {
             try
             {
-                return await _configRepo.GetTenantConfigurationsPageAsync(pageSize, continuation);
+                var page = await _configRepo.GetTenantConfigurationsPageAsync(pageSize, continuation);
+                foreach (var config in page.Items)
+                    await ProjectAsync(config);
+                return page;
             }
             catch (Exception ex)
             {

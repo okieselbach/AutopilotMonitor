@@ -54,9 +54,40 @@ public class TrialExpirySweepFunctionTests
         var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch);
 
         var sut = new TrialExpirySweepFunction(
-            configRepo.Object, opsService, NullLogger<TrialExpirySweepFunction>.Instance,
+            Configs(configRepo.Object), opsService, NullLogger<TrialExpirySweepFunction>.Instance,
             new TestTimeProvider(Now));
         return (sut, events);
+    }
+
+    private static TenantConfigurationService Configs(IConfigRepository repo, ManagedTenantProIndex? index = null)
+        => new(repo, NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()), index ?? ManagedTenantProIndex.None);
+
+    [Fact]
+    public async Task ExpiredTrial_OfManagedTenant_EmitsNothing_StillProViaMsp()
+    {
+        // The tenant's own trial ran out yesterday, but a permanent-Pro tenant manages it — the
+        // projection keeps it Pro, so no "trial expired" alert may reach sales/support.
+        var managed = Tenant("t-managed", Now.AddHours(-2), retentionDays: 365);
+        var configRepo = new Mock<IConfigRepository>();
+        configRepo.Setup(r => r.GetAllTenantConfigurationsAsync()).ReturnsAsync(new List<TenantConfiguration> { managed });
+        var events = new List<OpsEventEntry>();
+        var opsRepo = new Mock<IOpsEventRepository>();
+        opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Callback<OpsEventEntry>(events.Add).Returns(Task.CompletedTask);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var adminConfig = new Mock<AdminConfigurationService>(
+            Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, cache)
+        { CallBase = false };
+        adminConfig.Setup(a => a.GetConfigurationAsync()).ReturnsAsync(new AdminConfiguration { UpdatedBy = "test" });
+        var opsService = new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, TestNotifications.InertOpsAlertDispatch(adminConfig.Object));
+        var index = new StubManagedTenantProIndex(id => id == "t-managed" ? "11111111-1111-1111-1111-111111111111" : null);
+
+        var sut = new TrialExpirySweepFunction(Configs(configRepo.Object, index), opsService,
+            NullLogger<TrialExpirySweepFunction>.Instance, new TestTimeProvider(Now));
+        var result = await sut.RunCoreAsync(CancellationToken.None);
+
+        Assert.Equal(0, result.TrialsSeen);
+        Assert.Equal(0, result.ExpiredEmitted);
+        Assert.Empty(events);
     }
 
     [Fact]
@@ -247,7 +278,7 @@ public class TrialExpirySweepFunctionTests
         var alertDispatch = TestNotifications.InertOpsAlertDispatch(adminConfig.Object);
 
         var sut = new TrialExpirySweepFunction(
-            configRepo.Object,
+            Configs(configRepo.Object),
             new OpsEventService(opsRepo.Object, NullLogger<OpsEventService>.Instance, alertDispatch),
             NullLogger<TrialExpirySweepFunction>.Instance,
             new TestTimeProvider(Now));

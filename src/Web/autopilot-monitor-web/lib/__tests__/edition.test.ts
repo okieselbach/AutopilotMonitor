@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMMUNITY_DEFAULT,
   editionLabel,
+  isProViaMsp,
   missingContactProfileParts,
   parseEditionInfo,
   trialDaysLeft,
@@ -37,6 +38,27 @@ describe("parseEditionInfo", () => {
   it("accepts the pre-rename edition value 'enterprise' as pro (deploy-order safety)", () => {
     const info = parseEditionInfo({ edition: "enterprise" });
     expect(info.edition).toBe("pro");
+  });
+
+  it("parses editionSource and flags conferred Pro", () => {
+    const info = parseEditionInfo({ edition: "pro", editionSource: "msp", entitlements: { delegatedAdminAllowed: false } });
+    expect(info.editionSource).toBe("msp");
+    expect(isProViaMsp(info)).toBe(true);
+    expect(info.entitlements.delegatedAdminAllowed).toBe(false);
+    expect(parseEditionInfo({ edition: "pro", editionSource: "plan" }).editionSource).toBe("plan");
+    expect(parseEditionInfo({ edition: "pro", editionSource: "trial", isTrial: true }).editionSource).toBe("trial");
+  });
+
+  it("editionSource: older backend without the field derives it from edition/isTrial", () => {
+    expect(parseEditionInfo({ edition: "pro" }).editionSource).toBe("plan");
+    expect(parseEditionInfo({ edition: "pro", isTrial: true }).editionSource).toBe("trial");
+    expect(parseEditionInfo({ edition: "community" }).editionSource).toBe("community");
+  });
+
+  it("editionSource: unknown or inconsistent values never yield an MSP badge (fail-closed)", () => {
+    expect(parseEditionInfo({ edition: "pro", editionSource: "partner" }).editionSource).toBe("plan");
+    expect(parseEditionInfo({ edition: "community", editionSource: "msp" }).editionSource).toBe("community");
+    expect(isProViaMsp(parseEditionInfo({ edition: "community", editionSource: "msp" }))).toBe(false);
   });
 
   it("fails closed to Community for malformed payloads", () => {

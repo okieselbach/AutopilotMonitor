@@ -42,27 +42,29 @@ public class TrialExpirySweepFunction
     /// <summary>03:30 UTC daily — off the busy maintenance window, after ScriptNameCacheCleanup (03:00).</summary>
     private const string Cron = "0 30 3 * * *";
 
-    private readonly IConfigRepository _configRepo;
+    // The configuration SERVICE, not the repository: the sweep judges effective editions, and only the
+    // service projects ManagedByProTenantId (a managed tenant's expired trial changes nothing).
+    private readonly TenantConfigurationService _configs;
     private readonly OpsEventService _opsEvents;
     private readonly ILogger<TrialExpirySweepFunction> _logger;
     private readonly TimeProvider _time;
 
     public TrialExpirySweepFunction(
-        IConfigRepository configRepo,
+        TenantConfigurationService configs,
         OpsEventService opsEvents,
         ILogger<TrialExpirySweepFunction> logger)
-        : this(configRepo, opsEvents, logger, TimeProvider.System)
+        : this(configs, opsEvents, logger, TimeProvider.System)
     {
     }
 
     /// <summary>Test seam — inject a fake <see cref="TimeProvider"/> for deterministic window math.</summary>
     internal TrialExpirySweepFunction(
-        IConfigRepository configRepo,
+        TenantConfigurationService configs,
         OpsEventService opsEvents,
         ILogger<TrialExpirySweepFunction> logger,
         TimeProvider time)
     {
-        _configRepo = configRepo;
+        _configs = configs;
         _opsEvents = opsEvents;
         _logger = logger;
         _time = time;
@@ -83,7 +85,7 @@ public class TrialExpirySweepFunction
         System.Collections.Generic.List<AutopilotMonitor.Shared.Models.TenantConfiguration> configs;
         try
         {
-            configs = await _configRepo.GetAllTenantConfigurationsAsync().ConfigureAwait(false);
+            configs = await _configs.GetAllConfigurationsAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -114,8 +116,10 @@ public class TrialExpirySweepFunction
         if (config.TrialExpiresUtc is not DateTime expiry)
             return;
 
-        // Permanent Pro: the trial timestamps are inert leftovers — expiry changes nothing.
-        if (FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier))
+        // Permanent Pro, or Pro conferred by the managing tenant: the trial timestamps are inert
+        // leftovers — expiry changes nothing.
+        if (FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier) ||
+            FeatureEntitlementCatalog.Resolve(config, now).IsViaMsp)
             return;
 
         result.TrialsSeen++;

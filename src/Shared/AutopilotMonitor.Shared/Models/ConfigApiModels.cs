@@ -202,6 +202,9 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Effective edition after the change, lowercase ("community" | "pro").</summary>
         public string EffectiveEdition { get; set; } = default!;
 
+        /// <summary>Source of the effective edition: "community" | "plan" | "trial" | "msp" (conferred by the managing tenant).</summary>
+        public string EditionSource { get; set; } = default!;
+
         /// <summary>End of the retention downgrade grace window, or null — the key is omitted when null.</summary>
         public DateTime? RetentionGraceEndsUtc { get; set; }
 
@@ -216,6 +219,9 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>The Global Admin MCP usage-plan override (a SectionUsagePlans plan name); omitted when the edition default applies.</summary>
         public string? McpUsagePlanOverride { get; set; }
+
+        /// <summary>Sales bookkeeping: whether the tenant pays for its plan. No entitlement effect.</summary>
+        public bool PayingCustomer { get; set; }
     }
 
     /// <summary>

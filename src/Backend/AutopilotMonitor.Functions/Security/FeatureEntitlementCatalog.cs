@@ -1,4 +1,5 @@
 using System;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Security
 {
@@ -10,6 +11,40 @@ namespace AutopilotMonitor.Functions.Security
     {
         Community,
         Pro
+    }
+
+    /// <summary>
+    /// WHY a tenant is on its effective edition. <see cref="Msp"/> wins over the tenant's own plan
+    /// and trial for display purposes ("Pro (MSP)" is shown even to a paying Pro tenant while it is
+    /// managed) — the entitlement set is the UNION, see <see cref="EditionResolution.OwnPro"/>.
+    /// </summary>
+    public enum EditionSource
+    {
+        /// <summary>No Pro from any source.</summary>
+        Community,
+        /// <summary>Permanent Pro tier stored on the tenant (paid or support-assigned).</summary>
+        Plan,
+        /// <summary>Active trial (TrialExpiresUtc in the future) on a non-Pro tier.</summary>
+        Trial,
+        /// <summary>Pro conferred by the permanent-Pro tenant that manages this tenant (self-service delegation).</summary>
+        Msp
+    }
+
+    /// <summary>
+    /// Read-time edition resolution: the effective edition, its source, and whether the tenant is Pro
+    /// in its OWN right (plan or trial) independent of any managing tenant. Delegation entitlements
+    /// (DelegatedAdminAllowed, MaxDelegatedTenants) follow <see cref="OwnPro"/> only — conferred Pro
+    /// never lets a managed tenant delegate onward.
+    /// </summary>
+    public readonly record struct EditionResolution(TenantEdition Edition, EditionSource Source, bool OwnPro)
+    {
+        public bool IsPro => Edition == TenantEdition.Pro;
+        public bool IsTrial => Source == EditionSource.Trial;
+        public bool IsViaMsp => Source == EditionSource.Msp;
+        /// <summary>Wire spelling of <see cref="Source"/> ("community" | "plan" | "trial" | "msp").</summary>
+        public string SourceName => Source.ToString().ToLowerInvariant();
+        /// <summary>Wire spelling of <see cref="Edition"/> ("community" | "pro").</summary>
+        public string EditionName => Edition.ToString().ToLowerInvariant();
     }
 
     /// <summary>
@@ -43,7 +78,9 @@ namespace AutopilotMonitor.Functions.Security
         /// <summary>
         /// Whether users HOMED in this tenant may hold delegated ("MSP") admin scopes over other
         /// tenants. The gate applies to the delegated admin's home tenant (JWT tid) — the managed
-        /// TARGET tenants may be any edition (a Pro MSP may manage Community customers).
+        /// TARGET tenants may be any edition (a Pro MSP may manage Community customers; a
+        /// permanent-Pro MSP additionally confers Pro on them, see <see cref="EditionSource.Msp"/>).
+        /// Conferred Pro never includes this right (no transitive delegation).
         /// Enforced at resolve time in DelegatedAdminService.GetScopeAsync.
         /// </summary>
         public bool DelegatedAdminAllowed { get; init; }
@@ -97,9 +134,11 @@ namespace AutopilotMonitor.Functions.Security
     ///
     /// Resolution is computed at READ time: Pro ⇔ PlanTier == "pro" (or the legacy stored value
     /// "enterprise", kept readable so existing rows need no migration) OR an active trial
-    /// (TrialExpiresUtc strictly in the future). Trial expiry therefore degrades the tenant
-    /// automatically without any timer or sweep. Everything else — null, empty, "free",
-    /// unknown — is Community (fail-closed, no data migration required).
+    /// (TrialExpiresUtc strictly in the future) OR the tenant is managed by a permanent-Pro tenant
+    /// (<see cref="TenantConfiguration.ManagedByProTenantId"/>, a load-time projection that is never
+    /// stored). Trial expiry and the end of a delegation therefore degrade the tenant automatically
+    /// without any timer or sweep. Everything else — null, empty, "free", unknown — is Community
+    /// (fail-closed, no data migration required).
     /// </summary>
     public static class FeatureEntitlementCatalog
     {
@@ -158,6 +197,28 @@ namespace AutopilotMonitor.Functions.Security
         };
 
         /// <summary>
+        /// Pro conferred by a managing tenant: every Pro value EXCEPT the delegation right. A managed
+        /// tenant that is not Pro in its own right cannot invite or manage tenants itself — the
+        /// delegation right is what the managing tenant paid for, and conferral must not chain.
+        /// </summary>
+        private static readonly EditionEntitlements ProViaMsp = new()
+        {
+            Edition = TenantEdition.Pro,
+            RetentionCapDays = Pro.RetentionCapDays,
+            UserRateLimitPerMinute = Pro.UserRateLimitPerMinute,
+            DeviceRateLimitPerMinute = Pro.DeviceRateLimitPerMinute,
+            DelegatedAdminAllowed = false,
+            MaxDelegatedTenants = 0,
+            BootstrapIncluded = Pro.BootstrapIncluded,
+            UnrestrictedModeAvailable = Pro.UnrestrictedModeAvailable,
+            McpUsagePlanName = Pro.McpUsagePlanName,
+            McpDailyRequestLimit = Pro.McpDailyRequestLimit,
+            McpMonthlyRequestLimit = Pro.McpMonthlyRequestLimit,
+            McpTenantDailyRequestLimit = Pro.McpTenantDailyRequestLimit,
+            McpTenantMonthlyRequestLimit = Pro.McpTenantMonthlyRequestLimit
+        };
+
+        /// <summary>
         /// True when the stored tier is a PERMANENT Pro tier ("pro", or the legacy stored value
         /// "enterprise"), independent of any trial. Used to separate paid tenants from trial
         /// tenants (feature-flags isTrial, trial-expiry sweep skip).
@@ -170,22 +231,53 @@ namespace AutopilotMonitor.Functions.Security
         }
 
         /// <summary>
-        /// Resolves the effective edition from the stored plan tier and trial expiry.
-        /// Pro ⇔ tier "pro"/legacy "enterprise" (case-insensitive) OR trialExpiresUtc &gt; nowUtc.
-        /// A trial expiring exactly at <paramref name="nowUtc"/> is already over (strict &gt;).
+        /// Resolves the effective edition and its source from the stored plan tier, the trial expiry
+        /// and the load-time "managed by a permanent-Pro tenant" projection.
+        /// Own Pro ⇔ tier "pro"/legacy "enterprise" (case-insensitive) OR trialExpiresUtc &gt; nowUtc
+        /// (a trial expiring exactly at <paramref name="nowUtc"/> is already over — strict &gt;).
+        /// Source precedence for DISPLAY: Msp &gt; Plan &gt; Trial; <see cref="EditionResolution.OwnPro"/>
+        /// keeps the tenant's own standing so the entitlement union is exact.
         /// </summary>
-        public static TenantEdition ResolveEdition(string? planTier, DateTime? trialExpiresUtc, DateTime nowUtc)
+        public static EditionResolution Resolve(string? planTier, DateTime? trialExpiresUtc, string? managedByProTenantId, DateTime nowUtc)
         {
-            if (IsPermanentProTier(planTier))
-                return TenantEdition.Pro;
+            var permanentPro = IsPermanentProTier(planTier);
+            var trialActive = trialExpiresUtc.HasValue && trialExpiresUtc.Value > nowUtc;
+            var ownPro = permanentPro || trialActive;
 
-            if (trialExpiresUtc.HasValue && trialExpiresUtc.Value > nowUtc)
-                return TenantEdition.Pro;
-
-            return TenantEdition.Community;
+            if (!string.IsNullOrWhiteSpace(managedByProTenantId))
+                return new EditionResolution(TenantEdition.Pro, EditionSource.Msp, ownPro);
+            if (permanentPro)
+                return new EditionResolution(TenantEdition.Pro, EditionSource.Plan, true);
+            if (trialActive)
+                return new EditionResolution(TenantEdition.Pro, EditionSource.Trial, true);
+            return new EditionResolution(TenantEdition.Community, EditionSource.Community, false);
         }
 
-        /// <summary>Returns the entitlement set for an edition. Unknown enum values → Community (fail-closed).</summary>
+        /// <summary>Config-based overload of <see cref="Resolve(string?, DateTime?, string?, DateTime)"/> — the one every config-holding caller uses.</summary>
+        public static EditionResolution Resolve(TenantConfiguration config, DateTime nowUtc)
+            => Resolve(config.PlanTier, config.TrialExpiresUtc, config.ManagedByProTenantId, nowUtc);
+
+        /// <summary>The effective edition only — see <see cref="Resolve(TenantConfiguration, DateTime)"/>.</summary>
+        public static TenantEdition ResolveEdition(TenantConfiguration config, DateTime nowUtc)
+            => Resolve(config, nowUtc).Edition;
+
+        /// <summary>
+        /// Returns the entitlement set for a resolution: Community values unless Pro; the full Pro set when the
+        /// tenant is Pro in its own right (plan or trial); the conferred set (no delegation right) when Pro comes
+        /// only from the managing tenant. Unknown enum values → Community (fail-closed).
+        /// </summary>
+        public static EditionEntitlements Get(EditionResolution resolution)
+        {
+            if (resolution.Edition != TenantEdition.Pro)
+                return Community;
+            return resolution.OwnPro ? Pro : ProViaMsp;
+        }
+
+        /// <summary>
+        /// Returns the entitlement set for a bare edition (catalog lookups such as a cap value). Callers that
+        /// hold a config must use <see cref="Get(EditionResolution)"/> so conferred Pro is resolved correctly.
+        /// Unknown enum values → Community (fail-closed).
+        /// </summary>
         public static EditionEntitlements Get(TenantEdition edition) =>
             edition == TenantEdition.Pro ? Pro : Community;
     }

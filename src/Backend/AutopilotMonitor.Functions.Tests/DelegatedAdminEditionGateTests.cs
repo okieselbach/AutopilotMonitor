@@ -67,6 +67,32 @@ public class DelegatedAdminEditionGateTests
         Assert.True(scope.Covers(ManagedTenantB));
     }
 
+    private const string ConferredProHomeTenant = "66666666-6666-6666-6666-666666666666";
+
+    [Fact]
+    public async Task ConferredProHomeTenant_SuppressesEntireScope_NoTransitiveDelegation()
+    {
+        // The home tenant is Pro only because ANOTHER tenant manages it: the gate is the delegation
+        // ENTITLEMENT (absent from conferred Pro), not the edition.
+        var repo = new Mock<IAdminRepository>();
+        repo.Setup(r => r.GetDelegatedTenantsAsync(It.IsAny<string>())).ReturnsAsync(new List<DelegatedAdminEntry> { Row(ManagedTenantA) });
+        repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>())).ReturnsAsync(new List<TenantGroupAssignment>());
+        var svc = new DelegatedAdminService(
+            repo.Object,
+            new StubAdminIdentityBindingService(bound: true),
+            new StubTenantEntitlementService(
+                tenantId => tenantId == ConferredProHomeTenant
+                    ? new EditionResolution(TenantEdition.Pro, EditionSource.Msp, OwnPro: false)
+                    : new EditionResolution(TenantEdition.Community, EditionSource.Community, OwnPro: false),
+                planOverrideResolver: null),
+            new MemoryCache(new MemoryCacheOptions()),
+            NullLogger<DelegatedAdminService>.Instance);
+
+        var scope = await svc.GetScopeAsync(Id(ConferredProHomeTenant));
+
+        Assert.True(scope.IsEmpty);
+    }
+
     [Fact]
     public async Task CommunityHomeTenant_SuppressesEntireScope()
     {

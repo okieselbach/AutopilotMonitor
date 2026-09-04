@@ -31,6 +31,91 @@ public sealed class TenantConfigurationServiceReadSemanticsTests
         return (service, repo);
     }
 
+    // ── Conferred-Pro projection (ManagedByProTenantId) ──────────────────────
+
+    private const string Owner = "99999999-9999-9999-9999-999999999999";
+
+    private static (TenantConfigurationService service, Mock<IConfigRepository> repo, StubManagedTenantProIndex index) BuildProjecting(string? owner)
+    {
+        var repo = new Mock<IConfigRepository>();
+        var index = new StubManagedTenantProIndex(id => string.Equals(id, TenantId, StringComparison.OrdinalIgnoreCase) ? owner : null);
+        var service = new TenantConfigurationService(
+            repo.Object, Mock.Of<ILogger<TenantConfigurationService>>(), new MemoryCache(new MemoryCacheOptions()), index);
+        return (service, repo, index);
+    }
+
+    [Fact]
+    public async Task Projection_IsAppliedOnMissAndOnCacheHit()
+    {
+        var (service, repo, _) = BuildProjecting(Owner);
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(new TenantConfiguration { TenantId = TenantId });
+
+        var first = await service.GetConfigurationIfExistsAsync(TenantId);
+        var second = await service.GetConfigurationIfExistsAsync(TenantId); // cache hit
+
+        Assert.Equal(Owner, first!.ManagedByProTenantId);
+        Assert.Equal(Owner, second!.ManagedByProTenantId);
+        repo.Verify(r => r.GetTenantConfigurationAsync(TenantId), Times.Once);
+    }
+
+    [Fact]
+    public async Task Projection_FollowsTheIndex_NotTheCachedRow()
+    {
+        // The index answer changes (delegation ended) while the config row stays cached: the next
+        // read must reflect the index, i.e. staleness is bounded by the INDEX, not by this cache.
+        var repo = new Mock<IConfigRepository>();
+        string? owner = Owner;
+        var index = new StubManagedTenantProIndex(_ => owner);
+        var service = new TenantConfigurationService(
+            repo.Object, Mock.Of<ILogger<TenantConfigurationService>>(), new MemoryCache(new MemoryCacheOptions()), index);
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(new TenantConfiguration { TenantId = TenantId });
+
+        Assert.Equal(Owner, (await service.GetConfigurationAsync(TenantId)).ManagedByProTenantId);
+        owner = null;
+        Assert.Null((await service.GetConfigurationAsync(TenantId)).ManagedByProTenantId);
+    }
+
+    [Fact]
+    public async Task Projection_CoversFreshAllAndPageReads()
+    {
+        var (service, repo, _) = BuildProjecting(Owner);
+        TenantConfiguration Row() => new() { TenantId = TenantId };
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(Row());
+        repo.Setup(r => r.GetAllTenantConfigurationsAsync()).ReturnsAsync(new List<TenantConfiguration> { Row(), new() { TenantId = "other" } });
+        repo.Setup(r => r.GetTenantConfigurationsPageAsync(It.IsAny<int>(), It.IsAny<string?>()))
+            .ReturnsAsync(new AutopilotMonitor.Shared.Pagination.RawPage<TenantConfiguration>(new List<TenantConfiguration> { Row() }, null));
+
+        Assert.Equal(Owner, (await service.GetConfigurationFreshAsync(TenantId))!.ManagedByProTenantId);
+        var all = await service.GetAllConfigurationsAsync();
+        Assert.Equal(Owner, all.Single(c => c.TenantId == TenantId).ManagedByProTenantId);
+        Assert.Null(all.Single(c => c.TenantId == "other").ManagedByProTenantId);
+        var page = await service.GetConfigurationsPageAsync(10, null);
+        Assert.Equal(Owner, page.Items.Single().ManagedByProTenantId);
+    }
+
+    [Fact]
+    public async Task Projection_NeverAppliesToASynthesizedDefault()
+    {
+        // No row ⇒ the auto-created default is returned unprojected: a tenant without a configuration
+        // row can never be Pro, whatever the index says (fail-closed).
+        var (service, repo, _) = BuildProjecting(Owner);
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync((TenantConfiguration?)null);
+        repo.Setup(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>())).ReturnsAsync(true);
+
+        var config = await service.GetConfigurationAsync(TenantId);
+
+        Assert.Null(config.ManagedByProTenantId);
+    }
+
+    [Fact]
+    public async Task ThreeArgumentConstructor_ProjectsNobody()
+    {
+        var (service, repo) = Build();
+        repo.Setup(r => r.GetTenantConfigurationAsync(TenantId)).ReturnsAsync(new TenantConfiguration { TenantId = TenantId });
+
+        Assert.Null((await service.GetConfigurationIfExistsAsync(TenantId))!.ManagedByProTenantId);
+    }
+
     [Fact]
     public async Task GetConfigurationIfExistsAsync_StorageError_Propagates()
     {

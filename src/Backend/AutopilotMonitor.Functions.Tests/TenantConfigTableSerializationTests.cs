@@ -227,6 +227,43 @@ public class TenantConfigTableSerializationTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Roundtrip_PayingCustomer_SurvivesStoreAndMap(bool paying)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, DomainName = "contoso.com", UpdatedBy = "ga@operator.example", PayingCustomer = paying };
+
+        var mapped = TableConfigRepository.ConvertFromTenantTableEntity(TableConfigRepository.ConvertToTenantTableEntity(config));
+
+        Assert.Equal(paying, mapped.PayingCustomer);
+    }
+
+    [Fact]
+    public void Map_LegacyRow_WithoutPayingCustomerColumn_ReadsFalse()
+    {
+        var entity = new TableEntity(TenantId, "config") { { "DomainName", "fabrikam.com" } };
+
+        Assert.False(TableConfigRepository.ConvertFromTenantTableEntity(entity).PayingCustomer);
+    }
+
+    [Fact]
+    public void ManagedByProTenantId_IsNeverStored_AndNeverMapped()
+    {
+        // Read-time projection (conferred Pro): a value set on the model must not reach the table —
+        // otherwise a stale column could keep a tenant Pro after its delegation ended.
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId, DomainName = "contoso.com", UpdatedBy = "ga@operator.example",
+            ManagedByProTenantId = "11111111-1111-1111-1111-111111111111",
+        };
+
+        var entity = TableConfigRepository.ConvertToTenantTableEntity(config);
+
+        Assert.False(entity.ContainsKey("ManagedByProTenantId"));
+        Assert.Null(TableConfigRepository.ConvertFromTenantTableEntity(entity).ManagedByProTenantId);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("msp")]
     public void Roundtrip_McpUsagePlanOverride_SurvivesStoreAndMap(string? planOverride)

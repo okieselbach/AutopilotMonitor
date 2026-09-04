@@ -88,6 +88,8 @@ export const SHARED_MANIFEST = {
       "proDowngradedUtc",
       "maxDelegatedTenantsOverride",
       "mcpUsagePlanOverride",
+      "payingCustomer",
+      "managedByProTenantId",
       "manufacturerWhitelist",
       "modelWhitelist",
       "validateAutopilotDevice",

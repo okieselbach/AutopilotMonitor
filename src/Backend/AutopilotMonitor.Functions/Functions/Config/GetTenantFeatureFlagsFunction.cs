@@ -72,10 +72,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// </summary>
         internal static TenantFeatureFlagsResponse BuildPayload(TenantConfiguration config, DateTime nowUtc, bool appHomingFunnelActive = false)
         {
-            var edition = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
-            var entitlements = FeatureEntitlementCatalog.Get(edition);
-            var isTrial = edition == TenantEdition.Pro &&
-                          !FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier);
+            // Edition + source in one resolution: Pro from the plan, from a trial, or conferred by the
+            // managing tenant ("msp" — shown as "Pro (MSP)", entitlements without the delegation right).
+            var resolution = FeatureEntitlementCatalog.Resolve(config, nowUtc);
+            var entitlements = FeatureEntitlementCatalog.Get(resolution);
+            var isTrial = resolution.IsTrial;
 
             return new TenantFeatureFlagsResponse
             {
@@ -106,10 +107,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 UnrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(config, nowUtc),
                 // Edition/entitlement surface (read-time resolution — non-sensitive by design):
                 // drives the EditionBadge, trial CTA and retention hint in the web UI.
-                Edition = edition.ToString().ToLowerInvariant(),
+                Edition = resolution.EditionName,
+                EditionSource = resolution.SourceName,
                 IsTrial = isTrial,
                 TrialExpiresUtc = isTrial ? config.TrialExpiresUtc : null,
-                TrialAvailable = !config.TrialConsumed && edition == TenantEdition.Community,
+                TrialAvailable = !config.TrialConsumed && !resolution.IsPro,
                 // Pro-requires-contact surface: drives the trial CTA gate and the dashboard
                 // "set a contact address" banner for Pro tenants. Boolean only — the address
                 // itself stays in the admin-gated full config response.

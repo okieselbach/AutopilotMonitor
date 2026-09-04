@@ -42,6 +42,7 @@ public class DelegationSelfServiceTests
         public required FakeSignalRNotificationService SignalR { get; init; }
         public required List<DelegationInvitation> Rows { get; init; }
         public required List<string> GroupTenants { get; init; }
+        public required Mock<ProConferralService> ProConferral { get; init; }
     }
 
     private static Harness Build(TenantEdition homeEdition = TenantEdition.Pro, int? slotOverride = null)
@@ -111,9 +112,66 @@ public class DelegationSelfServiceTests
             .ReturnsAsync(true);
         var signalR = new FakeSignalRNotificationService();
 
+        // Conferred Pro is the projection's business — here we only pin that the accept/end paths notify it.
+        var proConferral = new Mock<ProConferralService>(
+            repo.Object,
+            new TenantConfigurationService(configRepo.Object, NullLogger<TenantConfigurationService>.Instance, cache),
+            ManagedTenantProIndex.None,
+            NullLogger<ProConferralService>.Instance) { CallBase = false };
+
         var svc = new DelegationSelfService(repo.Object, invitations.Object, delegatedAdmins, slots, entitlements, configRepo.Object, audit.Object, signalR,
-            NullLogger<DelegationSelfService>.Instance, time);
-        return new Harness { Svc = svc, Repo = repo, Invitations = invitations, Audit = audit, SignalR = signalR, Rows = rows, GroupTenants = groupTenants };
+            proConferral.Object, NullLogger<DelegationSelfService>.Instance, time);
+        return new Harness { Svc = svc, Repo = repo, Invitations = invitations, Audit = audit, SignalR = signalR, Rows = rows, GroupTenants = groupTenants, ProConferral = proConferral };
+    }
+
+    // ── Conferred Pro hooks ───────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Accept_NotifiesConferredProProjection_ForTheCustomer()
+    {
+        var h = Build();
+        h.Rows.Add(Pending());
+
+        var r = await h.Svc.AcceptAsync(Token(), Customer, CustomerAdmin);
+
+        Assert.True(r.Ok);
+        h.ProConferral.Verify(p => p.NotifyDelegationChangedAsync(Customer), Times.Once);
+        h.ProConferral.Verify(p => p.RecordLossAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveManaged_RecordsConferredProLoss_WithTheAuditReason()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+
+        var r = await h.Svc.RemoveManagedAsync(Home, Customer, MspAdmin);
+
+        Assert.True(r.Ok);
+        h.ProConferral.Verify(p => p.RecordLossAsync(Customer, Home, "customer-removed-by-manager"), Times.Once);
+    }
+
+    [Fact]
+    public async Task RevokeManager_RecordsConferredProLoss_WithTheAuditReason()
+    {
+        var h = Build();
+        h.GroupTenants.Add(Customer);
+
+        var r = await h.Svc.RevokeManagerAsync(Customer, Home, CustomerAdmin);
+
+        Assert.True(r.Ok);
+        h.ProConferral.Verify(p => p.RecordLossAsync(Customer, Home, "customer-revoked"), Times.Once);
+    }
+
+    [Fact]
+    public async Task RemoveManaged_NotAMember_RecordsNoLoss()
+    {
+        var h = Build();
+
+        var r = await h.Svc.RemoveManagedAsync(Home, Customer, MspAdmin);
+
+        Assert.False(r.Ok);
+        h.ProConferral.Verify(p => p.RecordLossAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     private static DelegationInvitation Pending(string id = "inv1", DateTime? expires = null) => new()

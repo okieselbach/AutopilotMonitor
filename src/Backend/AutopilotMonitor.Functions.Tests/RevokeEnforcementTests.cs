@@ -88,7 +88,8 @@ public class RevokeEnforcementTests
         var audit = BuildAuditRepo();
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
-            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo));
+            NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo),
+            TestProConferral.Inert());
         return (fn, repo, audit, signalR);
     }
 

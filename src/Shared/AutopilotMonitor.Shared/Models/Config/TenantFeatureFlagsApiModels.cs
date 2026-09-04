@@ -27,6 +27,8 @@ namespace AutopilotMonitor.Shared.Models
         public bool UnrestrictedMode { get; set; }
         /// <summary>Resolved edition, lowercase ("community" / "pro").</summary>
         public string Edition { get; set; } = string.Empty;
+        /// <summary>Why: "community" | "plan" (own Pro tier) | "trial" | "msp" (Pro conferred by the managing tenant — shown as "Pro (MSP)").</summary>
+        public string EditionSource { get; set; } = string.Empty;
         public bool IsTrial { get; set; }
         /// <summary>Absent unless the tenant is on an active trial.</summary>
         public DateTime? TrialExpiresUtc { get; set; }

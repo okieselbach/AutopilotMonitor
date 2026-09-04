@@ -28,6 +28,10 @@ namespace AutopilotMonitor.Functions.Helpers
             ("maxDelegatedTenantsOverride", c => c.MaxDelegatedTenantsOverride),
             // MCP usage-plan override — a plan name, not a secret; the GA tenant list renders it.
             ("mcpUsagePlanOverride", c => c.McpUsagePlanOverride),
+            // Sales bookkeeping flag — operator-only, never a customer surface.
+            ("payingCustomer",    c => c.PayingCustomer),
+            // Load-time projection: the permanent-Pro tenant conferring Pro on this one (null = none).
+            ("managedByProTenantId", c => c.ManagedByProTenantId),
             ("disabled",          c => c.Disabled),
             ("disabledReason",    c => c.DisabledReason),
             ("onboardedAt",       c => c.OnboardedAt),

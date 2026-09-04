@@ -59,6 +59,7 @@ public class DelegationSelfService
     private readonly IConfigRepository _configRepo;
     private readonly IMaintenanceRepository _audit;
     private readonly ISignalRNotificationService _signalR;
+    private readonly ProConferralService _proConferral;
     private readonly ILogger<DelegationSelfService> _logger;
     private readonly TimeProvider _time;
 
@@ -71,8 +72,9 @@ public class DelegationSelfService
         IConfigRepository configRepo,
         IMaintenanceRepository audit,
         ISignalRNotificationService signalR,
+        ProConferralService proConferral,
         ILogger<DelegationSelfService> logger)
-        : this(adminRepo, invitations, delegatedAdmins, slots, entitlements, configRepo, audit, signalR, logger, TimeProvider.System)
+        : this(adminRepo, invitations, delegatedAdmins, slots, entitlements, configRepo, audit, signalR, proConferral, logger, TimeProvider.System)
     {
     }
 
@@ -86,6 +88,7 @@ public class DelegationSelfService
         IConfigRepository configRepo,
         IMaintenanceRepository audit,
         ISignalRNotificationService signalR,
+        ProConferralService proConferral,
         ILogger<DelegationSelfService> logger,
         TimeProvider time)
     {
@@ -97,6 +100,7 @@ public class DelegationSelfService
         _configRepo = configRepo;
         _audit = audit;
         _signalR = signalR;
+        _proConferral = proConferral;
         _logger = logger;
         _time = time;
     }
@@ -217,6 +221,8 @@ public class DelegationSelfService
 
         await EnsureOwnedGroupAsync(home);
         await _delegatedAdmins.AddTenantToGroupAsync(groupId, target);
+        // Conferred Pro is projected from this membership — drop the caches so the customer sees "Pro (MSP)" now.
+        await _proConferral.NotifyDelegationChangedAsync(target);
 
         var actor = callerUpn.ToLowerInvariant();
         var assignees = await _delegatedAdmins.GetGroupAssigneesAsync(groupId);
@@ -280,6 +286,8 @@ public class DelegationSelfService
         if (!await _delegatedAdmins.RemoveTenantFromGroupAsync(groupId, target))
             return DelegationResult<bool>.Fail(404, Constants.DelegationCodes.NotManagedBySelfService, "That tenant is not managed through a self-service delegation.");
 
+        // The customer's conferred Pro ends with the membership: stamp its retention grace anchor.
+        await _proConferral.RecordLossAsync(target, home, reason);
         var hold = await _slots.RecordReleaseAsync(home, target, actor);
         var by = actor.ToLowerInvariant();
         foreach (var assignee in assignees)

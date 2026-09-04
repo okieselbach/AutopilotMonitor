@@ -15,6 +15,14 @@ import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { matchesTenantSearch, notificationEmailFor, parseTenantSearch } from "./tenantSearch";
 
+/** "Pro (MSP)" / "Pro (Trial)" / "Pro" / "Community" for the plan-save confirmation. */
+function effectiveEditionLabel(edition: unknown, source: unknown): string {
+  if (edition !== "pro") return "Community";
+  if (source === "msp") return "Pro (MSP)";
+  if (source === "trial") return "Pro (Trial)";
+  return "Pro";
+}
+
 export interface TenantConfiguration {
   tenantId: string;
   domainName: string;
@@ -54,6 +62,13 @@ export interface TenantConfiguration {
    * default plan + the organization windows); null/undefined = edition default. Managed via PATCH plan.
    */
   mcpUsagePlanOverride?: string | null;
+  /** Sales bookkeeping: the tenant pays for its plan. No entitlement effect. Managed via PATCH plan. */
+  payingCustomer?: boolean;
+  /**
+   * Read-time projection (never stored): the permanent-Pro tenant whose delegation confers Pro on this
+   * one, or null. While set the effective edition is "Pro (MSP)".
+   */
+  managedByProTenantId?: string | null;
   /**
    * Dual app-reg homing: null/undefined = legacy app. Typed explicitly so a payload refactor
    * cannot silently drop the field on the generic PUT round-trip (absent ⇒ backend resets to
@@ -311,6 +326,7 @@ function TenantManagementSectionInner({
           trialExpiresUtc: tenant.trialExpiresUtc ?? null,
           maxDelegatedTenants: tenant.maxDelegatedTenantsOverride ?? null,
           mcpUsagePlan: tenant.mcpUsagePlanOverride ?? null,
+          payingCustomer: tenant.payingCustomer === true,
         }),
       });
 
@@ -327,11 +343,12 @@ function TenantManagementSectionInner({
         trialConsumed: result.trialConsumed ?? t.trialConsumed,
         maxDelegatedTenantsOverride: result.maxDelegatedTenantsOverride ?? null,
         mcpUsagePlanOverride: result.mcpUsagePlanOverride ?? null,
+        payingCustomer: result.payingCustomer === true,
       });
       setSlotUsage((prev) => (prev ? { ...prev, limit: result.maxDelegatedTenants ?? prev.limit, overrideLimit: result.maxDelegatedTenantsOverride ?? undefined } : prev));
       setTenants(prev => prev.map(t => (t.tenantId === tenant.tenantId ? apply(t) : t)));
       setEditingTenant(prev => (prev && prev.tenantId === tenant.tenantId ? apply(prev) : prev));
-      setSuccessMessage(`Plan saved — effective edition: ${result.effectiveEdition}`);
+      setSuccessMessage(`Plan saved — effective edition: ${effectiveEditionLabel(result.effectiveEdition, result.editionSource)}`);
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
       if (err instanceof TokenExpiredError) {
@@ -668,13 +685,25 @@ function TenantManagementSectionInner({
                                   Waitlist
                                 </span>
                               )}
-                              {tenant.planTier === "pro" || tenant.planTier === "enterprise" ? (
+                              {tenant.managedByProTenantId ? (
+                                <span
+                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                                  title={`Pro conferred by the managing tenant ${tenant.managedByProTenantId}`}
+                                >
+                                  Pro (MSP)
+                                </span>
+                              ) : tenant.planTier === "pro" || tenant.planTier === "enterprise" ? (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                                   Pro
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                   Community
+                                </span>
+                              )}
+                              {tenant.payingCustomer && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800" title="Paying customer (sales bookkeeping)">
+                                  Paying
                                 </span>
                               )}
                               {tenant.validateAutopilotDevice && (
@@ -841,14 +870,18 @@ function TenantManagementSectionInner({
                     const isProTier = editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise";
                     const trialActive = !!editingTenant.trialExpiresUtc &&
                       new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
-                    const effective = isProTier || trialActive ? "Pro" : "Community";
+                    const viaMsp = !!editingTenant.managedByProTenantId;
+                    const effective = viaMsp || isProTier || trialActive ? "Pro" : "Community";
                     return (
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        effective === "Pro"
-                          ? "bg-purple-100 text-purple-800"
-                          : "bg-gray-100 text-gray-700"
-                      }`}>
-                        Effective: {effective}{!isProTier && trialActive ? " (Trial)" : ""}
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          effective === "Pro"
+                            ? "bg-purple-100 text-purple-800"
+                            : "bg-gray-100 text-gray-700"
+                        }`}
+                        title={viaMsp ? `Pro conferred by the managing tenant ${editingTenant.managedByProTenantId}` : undefined}
+                      >
+                        Effective: {effective}{viaMsp ? " (MSP)" : !isProTier && trialActive ? " (Trial)" : ""}
                       </span>
                     );
                   })()}
@@ -910,6 +943,20 @@ function TenantManagementSectionInner({
                       Set a date to grant/extend a Pro trial; clear to end it. Saving does not reset trial consumption.
                     </p>
                   </div>
+                  <label className="flex items-start gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={editingTenant.payingCustomer === true}
+                      onChange={(e) => setEditingTenant({ ...editingTenant, payingCustomer: e.target.checked })}
+                      className="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span>
+                      <span className="font-medium">Paying customer</span>
+                      <span className="block text-xs text-gray-500">
+                        Sales bookkeeping only: distinguishes a paid Pro from a support-assigned one or Pro conferred by an MSP. Changes nothing about the plan.
+                      </span>
+                    </span>
+                  </label>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Delegated tenant slots (override)</label>
                     <div className="flex items-center gap-2">

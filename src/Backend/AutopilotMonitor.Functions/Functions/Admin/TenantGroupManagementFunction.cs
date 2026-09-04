@@ -34,6 +34,7 @@ public class TenantGroupManagementFunction
     private readonly IMaintenanceRepository _maintenanceRepo;
     private readonly ISignalRNotificationService _signalRService;
     private readonly DelegatedSlotService _slots;
+    private readonly ProConferralService _proConferral;
 
     private const string AuditEntity = "DelegatedGroupAccess";
 
@@ -43,7 +44,8 @@ public class TenantGroupManagementFunction
         AdminIdentityResolver identityResolver,
         IMaintenanceRepository maintenanceRepo,
         ISignalRNotificationService signalRService,
-        DelegatedSlotService slots)
+        DelegatedSlotService slots,
+        ProConferralService proConferral)
     {
         _logger = logger;
         _delegatedAdminService = delegatedAdminService;
@@ -51,6 +53,14 @@ public class TenantGroupManagementFunction
         _maintenanceRepo = maintenanceRepo;
         _signalRService = signalRService;
         _slots = slots;
+        _proConferral = proConferral;
+    }
+
+    /// <summary>The managing tenant that owns <paramref name="groupId"/> (self-service group), or null for operator groups / unknown groups.</summary>
+    private async Task<string?> OwnerOfAsync(string groupId)
+    {
+        var group = await _delegatedAdminService.GetGroupAsync(groupId);
+        return string.IsNullOrWhiteSpace(group?.OwnerTenantId) ? null : group!.OwnerTenantId;
     }
 
     /// <summary>GET /api/global/tenant-groups — list every group with tenants + assignee count. GlobalReadOrAdmin.</summary>
@@ -223,6 +233,9 @@ public class TenantGroupManagementFunction
 
         foreach (var home in await _slots.ResolveHomeTenantsAsync(assignees.Select(a => a.Upn)))
             _slots.Invalidate(home);
+        // An OWNED (self-service) group confers Pro on its members — drop the projection caches now.
+        if (await OwnerOfAsync(groupId) != null)
+            await _proConferral.NotifyDelegationChangedAsync(tenantId);
 
         // Every current assignee just gained access to this tenant — audit under that tenant per assignee.
         foreach (var assignee in assignees)
@@ -251,11 +264,16 @@ public class TenantGroupManagementFunction
 
         // Snapshot assignees BEFORE the removal so we can audit each one's lost access under this tenant.
         var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
+        var owner = await OwnerOfAsync(groupId);
         // The service returns false when the group doesn't exist or the tenant isn't a member — so a typo
         // can't 200 and write false "access removed" audit rows. Only audit after a real removal.
         var removed = await _delegatedAdminService.RemoveTenantFromGroupAsync(groupId, normalizedTenantId);
         if (!removed)
             return await NotFound(req);
+
+        // Leaving an OWNED (self-service) group ends conferred Pro — stamp the tenant's retention grace anchor.
+        if (owner != null)
+            await _proConferral.RecordLossAsync(normalizedTenantId, owner, "tenant-removed-from-group");
 
         foreach (var assignee in assignees)
         {

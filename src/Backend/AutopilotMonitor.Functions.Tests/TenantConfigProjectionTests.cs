@@ -28,7 +28,7 @@ public class TenantConfigProjectionTests
     private static readonly string[] AllSafeKeys =
     {
         "tenantId", "domainName", "planTier", "trialExpiresUtc", "trialConsumed", "maxDelegatedTenantsOverride",
-        "mcpUsagePlanOverride",
+        "mcpUsagePlanOverride", "payingCustomer", "managedByProTenantId",
         "disabled", "disabledReason",
         "onboardedAt", "onboardedBy", "lastUpdated", "dataRetentionDays",
         "homedAppClientId", "lastAuthClientId", "lastAuthClientIdSince",

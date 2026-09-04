@@ -376,6 +376,7 @@ public class TypedContractCompletionWireParityTests
                 enableIntegrityBypassAnalyzer = true,
                 unrestrictedMode = false,
                 edition = "community",
+                editionSource = "community",
                 isTrial = false,
                 trialExpiresUtc = (DateTime?)null,      // not on trial → key vanishes
                 trialAvailable = true,
@@ -401,6 +402,7 @@ public class TypedContractCompletionWireParityTests
                 EnableIntegrityBypassAnalyzer = true,
                 UnrestrictedMode = false,
                 Edition = "community",
+                EditionSource = "community",
                 IsTrial = false,
                 TrialExpiresUtc = null,
                 TrialAvailable = true,

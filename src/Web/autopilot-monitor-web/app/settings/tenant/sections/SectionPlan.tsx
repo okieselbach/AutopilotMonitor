@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTenantConfig } from "../../TenantConfigContext";
-import { missingContactProfileParts, trialDaysLeft } from "@/lib/edition";
+import { isProViaMsp, missingContactProfileParts, trialDaysLeft } from "@/lib/edition";
 import { PlanCards } from "@/components/plans/PlanCards";
 import { SITE_URL } from "@/utils/config";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -31,6 +31,7 @@ export function SectionPlan() {
   const [confirming, setConfirming] = useState(false);
 
   const isPro = editionInfo.edition === "pro";
+  const viaMsp = isProViaMsp(editionInfo);
   const daysLeft = editionInfo.isTrial ? trialDaysLeft(editionInfo.trialExpiresUtc) : 0;
   const trialConsumed = !isPro && !editionInfo.trialAvailable;
   const canStartTrial =
@@ -44,8 +45,15 @@ export function SectionPlan() {
   ) : undefined;
 
   const proBadge = isPro ? (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-600 text-white">
-      {editionInfo.isTrial ? `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "Current plan"}
+    <span
+      className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-600 text-white"
+      title={viaMsp ? "Included through the organization that manages this tenant." : undefined}
+    >
+      {viaMsp
+        ? "Current plan — via MSP"
+        : editionInfo.isTrial
+          ? `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
+          : "Current plan"}
     </span>
   ) : (
     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">

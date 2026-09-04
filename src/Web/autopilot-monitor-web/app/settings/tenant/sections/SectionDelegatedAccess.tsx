@@ -8,6 +8,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { isProViaMsp } from "@/lib/edition";
 import { buildInviteLink, describeDelegationError, holdRemainingLabel, invitationStatusLabel } from "@/lib/delegations";
 import type {
   DelegationAssigneeListResponse,
@@ -191,6 +192,11 @@ export function SectionDelegatedAccess() {
           docsPath={DOCS_PATHS.delegatedAccess}
         />
         <div className="p-6 space-y-3">
+          {isProViaMsp(editionInfo) && (
+            <p className="text-sm text-purple-800 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+              Your Pro plan is included through one of these organizations. It ends when that delegation ends.
+            </p>
+          )}
           {loading && !managers ? (
             <p className="text-sm text-gray-500">Loading…</p>
           ) : !managers || managers.managers.length === 0 ? (
@@ -253,7 +259,7 @@ export function SectionDelegatedAccess() {
           tone="purple"
           iconPath="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
           title="Tenants you manage"
-          subtitle="Invite customer tenants with a single-use link; their admin accepts it and your assigned users get read-only access. Each managed tenant's AI (MCP) usage draws on that tenant's own plan."
+          subtitle="Invite customer tenants with a single-use link; their admin accepts it and your assigned users get read-only access. Tenants you manage are on Pro for as long as you manage them, and each managed tenant's AI (MCP) usage draws on that tenant's own plan."
           docsPath={DOCS_PATHS.delegatedAccess}
           trailing={slots && (
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">

@@ -41,6 +41,53 @@ public class PlanManagementTransitionTests
     }
 
     [Fact]
+    public void ManagedTenant_PlanTierDowngrade_IsNotAnEffectiveDowngrade_NoAnchor()
+    {
+        // Conferred Pro keeps the tenant effectively Pro — the plan endpoint sees Pro → Pro, so no
+        // grace anchor and no downgrade event; the anchor is stamped when the delegation ends instead.
+        var config = new TenantConfiguration
+        {
+            TenantId = "t1", PlanTier = "pro", ManagedByProTenantId = "11111111-1111-1111-1111-111111111111",
+        };
+
+        var (before, after, changes) = Apply(config, planTier: "community");
+
+        Assert.Equal(TenantEdition.Pro, before);
+        Assert.Equal(TenantEdition.Pro, after);
+        Assert.Null(config.ProDowngradedUtc);
+        Assert.False(changes.ContainsKey("ProDowngradedUtc"));
+        Assert.Equal("community", config.PlanTier);
+    }
+
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    public void ApplyPayingCustomerChange_RecordsOnlyRealChanges(bool stored, bool requested, bool expectChange)
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PayingCustomer = stored };
+        var changes = new Dictionary<string, string>();
+
+        PlanManagementFunction.ApplyPayingCustomerChange(config, provided: true, requested, changes);
+
+        Assert.Equal(requested, config.PayingCustomer);
+        Assert.Equal(expectChange, changes.ContainsKey("PayingCustomer"));
+    }
+
+    [Fact]
+    public void ApplyPayingCustomerChange_NotProvided_IsNoOp()
+    {
+        var config = new TenantConfiguration { TenantId = "t1", PayingCustomer = true };
+        var changes = new Dictionary<string, string>();
+
+        PlanManagementFunction.ApplyPayingCustomerChange(config, provided: false, payingCustomer: false, changes);
+
+        Assert.True(config.PayingCustomer);
+        Assert.Empty(changes);
+    }
+
+    [Fact]
     public void Upgrade_CommunityToPro_ClearsAnchor()
     {
         var config = new TenantConfiguration

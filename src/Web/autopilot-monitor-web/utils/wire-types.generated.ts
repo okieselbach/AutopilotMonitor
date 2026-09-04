@@ -3471,6 +3471,8 @@ export interface SetTenantPlanTierResponse {
   trialConsumed: boolean;
   /** Effective edition after the change, lowercase ("community" | "pro"). */
   effectiveEdition: string;
+  /** Source of the effective edition: "community" | "plan" | "trial" | "msp" (conferred by the managing tenant). */
+  editionSource: string;
   /** End of the retention downgrade grace window, or null — the key is omitted when null. */
   retentionGraceEndsUtc?: string;
   /** Effective delegated (MSP) tenant slot limit after the change (override or plan entitlement). */
@@ -3481,6 +3483,8 @@ export interface SetTenantPlanTierResponse {
   mcpUsagePlan: string;
   /** The Global Admin MCP usage-plan override (a SectionUsagePlans plan name); omitted when the edition default applies. */
   mcpUsagePlanOverride?: string;
+  /** Sales bookkeeping: whether the tenant pays for its plan. No entitlement effect. */
+  payingCustomer: boolean;
 }
 
 /** Distinct-CVE counts grouped by their highest CVSS severity band. */
@@ -3761,6 +3765,10 @@ export interface TenantConfiguration {
   maxDelegatedTenantsOverride?: number;
   /** Global-Admin override of the tenant's MCP usage plan — the NAME of a SectionUsagePlans plan (AdminConfiguration.PlanTierDefinitionsJson), e.g. "msp". Applies to the WHOLE tenant: every member's default user plan (a per-user McpUsers override still wins) AND the organization-wide windows. Null/blank = the edition default (community/pro). Does NOT change the edition — Pro feature gates stay on PlanTier. Mutable only via the plan endpoint (validated against the plan definitions there). Backend-only: not delivered to the agent (no ConfigVersion impact). */
   mcpUsagePlanOverride?: string;
+  /** Sales/support bookkeeping: whether this tenant PAYS for its plan (as opposed to a Pro tier assigned by support, a trial, or Pro conferred by a managing tenant). Carries NO entitlement — the effective edition is resolved from PlanTier/TrialExpiresUtc/ManagedByProTenantId only. Mutable only via the plan endpoint (Global Admin); shown in the operator tenant list, never in feature flags or any customer-facing surface. Backend-only: not delivered to the agent (no ConfigVersion impact). */
+  payingCustomer: boolean;
+  /** READ-TIME PROJECTION, NEVER STORED: the permanent-Pro tenant that currently manages this tenant through a self-service delegation (member of that tenant's owned msp-{tid} Tenant Group), or null. Populated by the backend's configuration loader on every read path from the Tenant Groups index; the table repository has no column for it and the patch endpoint denies it. While set, the tenant's effective edition is Pro with source "msp" (no delegation right of its own) — the delegation ending, the managing tenant losing its permanent Pro tier, or its offboarding all revert this automatically because nothing is written here. Not delivered to the agent (no ConfigVersion impact). */
+  managedByProTenantId?: string;
   /** Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*") Comma-separated list */
   manufacturerWhitelist: string;
   /** Hardware whitelist: Allowed models (supports wildcards like "Latitude*") Comma-separated list Default: "*" (all models allowed) */
@@ -3956,6 +3964,8 @@ export interface TenantFeatureFlagsResponse {
   unrestrictedMode: boolean;
   /** Resolved edition, lowercase ("community" / "pro"). */
   edition: string;
+  /** Why: "community" | "plan" (own Pro tier) | "trial" | "msp" (Pro conferred by the managing tenant — shown as "Pro (MSP)"). */
+  editionSource: string;
   isTrial: boolean;
   /** Absent unless the tenant is on an active trial. */
   trialExpiresUtc?: string;

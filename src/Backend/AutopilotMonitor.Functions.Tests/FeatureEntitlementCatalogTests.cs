@@ -27,7 +27,10 @@ public class FeatureEntitlementCatalogTests
     [InlineData(" enterprise ")]
     public void ResolveEdition_ProOrLegacyEnterpriseTier_IsPro(string tier)
     {
-        Assert.Equal(TenantEdition.Pro, FeatureEntitlementCatalog.ResolveEdition(tier, null, Now));
+        var r = FeatureEntitlementCatalog.Resolve(tier, null, null, Now);
+        Assert.Equal(TenantEdition.Pro, r.Edition);
+        Assert.Equal(EditionSource.Plan, r.Source);
+        Assert.True(r.OwnPro);
     }
 
     [Theory]
@@ -38,14 +41,20 @@ public class FeatureEntitlementCatalogTests
     [InlineData("premium")] // unknown value → fail-closed
     public void ResolveEdition_NonProTier_IsCommunity(string? tier)
     {
-        Assert.Equal(TenantEdition.Community, FeatureEntitlementCatalog.ResolveEdition(tier, null, Now));
+        var r = FeatureEntitlementCatalog.Resolve(tier, null, null, Now);
+        Assert.Equal(TenantEdition.Community, r.Edition);
+        Assert.Equal(EditionSource.Community, r.Source);
+        Assert.False(r.OwnPro);
     }
 
     [Fact]
     public void ResolveEdition_ActiveTrial_IsPro_EvenOnFreeTier()
     {
-        Assert.Equal(TenantEdition.Pro,
-            FeatureEntitlementCatalog.ResolveEdition("free", Now.AddSeconds(1), Now));
+        var r = FeatureEntitlementCatalog.Resolve("free", Now.AddSeconds(1), null, Now);
+        Assert.Equal(TenantEdition.Pro, r.Edition);
+        Assert.Equal(EditionSource.Trial, r.Source);
+        Assert.True(r.IsTrial);
+        Assert.True(r.OwnPro);
     }
 
     [Fact]
@@ -53,14 +62,14 @@ public class FeatureEntitlementCatalogTests
     {
         // Strict '>' — a trial ending exactly now is already over.
         Assert.Equal(TenantEdition.Community,
-            FeatureEntitlementCatalog.ResolveEdition("free", Now, Now));
+            FeatureEntitlementCatalog.Resolve("free", Now, null, Now).Edition);
     }
 
     [Fact]
     public void ResolveEdition_ExpiredTrial_IsCommunity()
     {
         Assert.Equal(TenantEdition.Community,
-            FeatureEntitlementCatalog.ResolveEdition(null, Now.AddDays(-1), Now));
+            FeatureEntitlementCatalog.Resolve(null, Now.AddDays(-1), null, Now).Edition);
     }
 
     [Theory]
@@ -68,8 +77,102 @@ public class FeatureEntitlementCatalogTests
     [InlineData("enterprise")]
     public void ResolveEdition_ExpiredTrial_ButPermanentProTier_StaysPro(string tier)
     {
-        Assert.Equal(TenantEdition.Pro,
-            FeatureEntitlementCatalog.ResolveEdition(tier, Now.AddDays(-1), Now));
+        var r = FeatureEntitlementCatalog.Resolve(tier, Now.AddDays(-1), null, Now);
+        Assert.Equal(TenantEdition.Pro, r.Edition);
+        Assert.Equal(EditionSource.Plan, r.Source); // permanent tier beats the stale trial timestamp
+    }
+
+    // ── Conferred Pro ("Pro (MSP)") ─────────────────────────────────────────────
+
+    private const string ManagingTenant = "11111111-1111-1111-1111-111111111111";
+
+    [Theory]
+    [InlineData("free")]
+    [InlineData("community")]
+    [InlineData(null)]
+    public void Resolve_ManagedByProTenant_IsPro_SourceMsp_NotOwnPro(string? tier)
+    {
+        var r = FeatureEntitlementCatalog.Resolve(tier, null, ManagingTenant, Now);
+        Assert.Equal(TenantEdition.Pro, r.Edition);
+        Assert.Equal(EditionSource.Msp, r.Source);
+        Assert.True(r.IsViaMsp);
+        Assert.False(r.IsTrial);
+        Assert.False(r.OwnPro);
+        Assert.Equal("msp", r.SourceName);
+        Assert.Equal("pro", r.EditionName);
+    }
+
+    [Theory]
+    [InlineData("pro", null)]
+    [InlineData("enterprise", null)]
+    [InlineData("community", 1)] // active trial
+    public void Resolve_ManagedTenant_ThatIsProItself_ShowsMsp_KeepsOwnPro(string tier, int? trialDaysLeft)
+    {
+        // Display precedence: MSP wins even over the tenant's own Pro (badge "Pro (MSP)"); the own
+        // standing survives in OwnPro so the entitlement union keeps the delegation right.
+        var r = FeatureEntitlementCatalog.Resolve(tier, trialDaysLeft is int d ? Now.AddDays(d) : null, ManagingTenant, Now);
+        Assert.Equal(TenantEdition.Pro, r.Edition);
+        Assert.Equal(EditionSource.Msp, r.Source);
+        Assert.True(r.OwnPro);
+        Assert.False(r.IsTrial);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Resolve_BlankManagedBy_IsNotManaged(string managedBy)
+    {
+        var r = FeatureEntitlementCatalog.Resolve("community", null, managedBy, Now);
+        Assert.Equal(TenantEdition.Community, r.Edition);
+        Assert.Equal(EditionSource.Community, r.Source);
+    }
+
+    [Fact]
+    public void Resolve_FromConfig_ReadsTheProjection()
+    {
+        var config = new AutopilotMonitor.Shared.Models.TenantConfiguration
+        {
+            TenantId = "t", PlanTier = "community", ManagedByProTenantId = ManagingTenant,
+        };
+        Assert.Equal(EditionSource.Msp, FeatureEntitlementCatalog.Resolve(config, Now).Source);
+        Assert.Equal(TenantEdition.Pro, FeatureEntitlementCatalog.ResolveEdition(config, Now));
+    }
+
+    [Fact]
+    public void Get_ConferredPro_IsProWithoutTheDelegationRight()
+    {
+        var conferred = FeatureEntitlementCatalog.Get(new EditionResolution(TenantEdition.Pro, EditionSource.Msp, OwnPro: false));
+        var pro = FeatureEntitlementCatalog.Get(TenantEdition.Pro);
+
+        Assert.Equal(TenantEdition.Pro, conferred.Edition);
+        Assert.False(conferred.DelegatedAdminAllowed);
+        Assert.Equal(0, conferred.MaxDelegatedTenants);
+        // Everything else is the Pro value.
+        Assert.Equal(pro.RetentionCapDays, conferred.RetentionCapDays);
+        Assert.Equal(pro.UserRateLimitPerMinute, conferred.UserRateLimitPerMinute);
+        Assert.Equal(pro.DeviceRateLimitPerMinute, conferred.DeviceRateLimitPerMinute);
+        Assert.Equal(pro.BootstrapIncluded, conferred.BootstrapIncluded);
+        Assert.Equal(pro.UnrestrictedModeAvailable, conferred.UnrestrictedModeAvailable);
+        Assert.Equal(pro.McpUsagePlanName, conferred.McpUsagePlanName);
+        Assert.Equal(pro.McpDailyRequestLimit, conferred.McpDailyRequestLimit);
+        Assert.Equal(pro.McpMonthlyRequestLimit, conferred.McpMonthlyRequestLimit);
+        Assert.Equal(pro.McpTenantDailyRequestLimit, conferred.McpTenantDailyRequestLimit);
+        Assert.Equal(pro.McpTenantMonthlyRequestLimit, conferred.McpTenantMonthlyRequestLimit);
+    }
+
+    [Fact]
+    public void Get_ManagedTenantThatIsProItself_KeepsTheFullProSet()
+    {
+        var e = FeatureEntitlementCatalog.Get(new EditionResolution(TenantEdition.Pro, EditionSource.Msp, OwnPro: true));
+        Assert.True(e.DelegatedAdminAllowed);
+        Assert.Equal(2, e.MaxDelegatedTenants);
+    }
+
+    [Fact]
+    public void Get_CommunityResolution_IsCommunity_RegardlessOfOwnProFlag()
+    {
+        var e = FeatureEntitlementCatalog.Get(new EditionResolution(TenantEdition.Community, EditionSource.Community, OwnPro: true));
+        Assert.Equal(TenantEdition.Community, e.Edition);
     }
 
     // ── IsPermanentProTier ───────────────────────────────────────────────────────

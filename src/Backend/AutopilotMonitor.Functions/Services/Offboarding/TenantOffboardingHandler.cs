@@ -203,6 +203,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         private readonly ITenantCustomsArchiveRepository _customsArchive;
         private readonly IConfigRepository _configRepo;
         private readonly IOffboardFarewellEmailSender _farewellEmail;
+        private readonly ProConferralService _proConferral;
         private readonly ILogger<TenantOffboardingHandler> _logger;
 
         public TenantOffboardingHandler(
@@ -219,6 +220,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             ITenantCustomsArchiveRepository customsArchive,
             IConfigRepository configRepo,
             IOffboardFarewellEmailSender farewellEmail,
+            ProConferralService proConferral,
             ILogger<TenantOffboardingHandler> logger)
         {
             _auditRepo = auditRepo;
@@ -234,6 +236,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             _customsArchive = customsArchive;
             _configRepo = configRepo;
             _farewellEmail = farewellEmail;
+            _proConferral = proConferral;
             _logger = logger;
         }
 
@@ -652,6 +655,15 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             {
                 await FailAsync(history, tenantId, "customs_arrival_race", ex.Message, ct);
                 throw; // worker dequeues + eventually poisons
+            }
+
+            // Conferred Pro: a permanent-Pro managing tenant leaves its customers behind. Their grace anchor
+            // must be stamped BEFORE the owned group (the only record of who was managed) is wiped below.
+            if (currentConfig != null && Security.FeatureEntitlementCatalog.IsPermanentProTier(currentConfig.PlanTier))
+            {
+                var stamped = await _proConferral.RecordLossForOwnedGroupAsync(tenantId, "manager-offboarded");
+                if (stamped > 0)
+                    _logger.LogInformation("Offboarding tenant={Tenant}: conferred Pro ended for {Count} managed tenant(s)", tenantId, stamped);
             }
 
             // 2.D-pass-1 — SafeWipe all tenant-scoped tables, including AuditLogs.

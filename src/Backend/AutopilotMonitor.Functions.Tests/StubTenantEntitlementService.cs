@@ -11,30 +11,39 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 internal sealed class StubTenantEntitlementService : TenantEntitlementService
 {
-    private readonly Func<string?, TenantEdition> _resolver;
+    private readonly Func<string?, EditionResolution> _resolver;
     private readonly Func<string?, string?> _planOverrideResolver;
 
     public StubTenantEntitlementService(TenantEdition edition) : this(_ => edition)
     {
     }
 
-    /// <param name="resolver">Edition per tenant id.</param>
+    /// <param name="resolver">Edition per tenant id — Pro means Pro in the tenant's OWN right (plan).</param>
     /// <param name="planOverrideResolver">
     /// The tenant-wide MCP usage-plan override (TenantConfiguration.McpUsagePlanOverride) per tenant id;
     /// null = no override (the edition's plan name applies). Defaults to "no override anywhere".
     /// </param>
     public StubTenantEntitlementService(Func<string?, TenantEdition> resolver, Func<string?, string?>? planOverrideResolver = null)
+        : this(tenantId => AsOwnResolution(resolver(tenantId)), planOverrideResolver)
+    {
+    }
+
+    /// <param name="resolver">Full resolution per tenant id (edition, source, own standing) — for conferred-Pro cases.</param>
+    /// <param name="planOverrideResolver">See the edition-based constructor.</param>
+    public StubTenantEntitlementService(Func<string?, EditionResolution> resolver, Func<string?, string?>? planOverrideResolver)
         : base(configService: null!, logger: NullLogger<TenantEntitlementService>.Instance)
     {
         _resolver = resolver;
         _planOverrideResolver = planOverrideResolver ?? (_ => null);
     }
 
-    public override Task<TenantEdition> GetEditionAsync(string? tenantId)
-        => Task.FromResult(_resolver(tenantId));
+    private static EditionResolution AsOwnResolution(TenantEdition edition) => edition == TenantEdition.Pro
+        ? new EditionResolution(TenantEdition.Pro, EditionSource.Plan, OwnPro: true)
+        : new EditionResolution(TenantEdition.Community, EditionSource.Community, OwnPro: false);
 
-    public override Task<EditionEntitlements> GetEntitlementsAsync(string? tenantId)
-        => Task.FromResult(FeatureEntitlementCatalog.Get(_resolver(tenantId)));
+    // GetEditionAsync / GetEntitlementsAsync derive from this in the base class.
+    public override Task<EditionResolution> GetResolutionAsync(string? tenantId)
+        => Task.FromResult(_resolver(tenantId));
 
     public override Task<string> GetMcpUsagePlanNameAsync(string? tenantId)
         => Task.FromResult(

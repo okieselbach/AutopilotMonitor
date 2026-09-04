@@ -38,41 +38,55 @@ namespace AutopilotMonitor.Functions.Services
             _time = time;
         }
 
+        private static readonly EditionResolution CommunityResolution =
+            new(TenantEdition.Community, EditionSource.Community, OwnPro: false);
+
         /// <summary>
-        /// Resolves the tenant's effective edition. Uses the strict point-read
-        /// (<see cref="TenantConfigurationService.GetConfigurationIfExistsAsync"/>) so an
+        /// Resolves the tenant's effective edition, its source and its own standing. Uses the strict
+        /// point-read (<see cref="TenantConfigurationService.GetConfigurationIfExistsAsync"/>) so an
         /// entitlement check can never materialize a tenant-config row. No row / any error →
         /// Community (fail-closed).
         /// </summary>
-        public virtual async Task<TenantEdition> GetEditionAsync(string? tenantId)
+        public virtual async Task<EditionResolution> GetResolutionAsync(string? tenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId))
-                return TenantEdition.Community;
+                return CommunityResolution;
 
             try
             {
                 var config = await _configService.GetConfigurationIfExistsAsync(tenantId);
                 if (config == null)
-                    return TenantEdition.Community;
+                    return CommunityResolution;
 
-                return ResolveEdition(config, _time.GetUtcNow().UtcDateTime);
+                return Resolve(config, _time.GetUtcNow().UtcDateTime);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
                     "[Entitlement] Edition resolution failed for tenant {TenantId} — treating as Community (fail-closed)",
                     tenantId);
-                return TenantEdition.Community;
+                return CommunityResolution;
             }
         }
 
-        /// <summary>Resolves the tenant's effective entitlement set (fail-closed → Community values).</summary>
+        /// <summary>The effective edition only — see <see cref="GetResolutionAsync"/>.</summary>
+        public virtual async Task<TenantEdition> GetEditionAsync(string? tenantId)
+            => (await GetResolutionAsync(tenantId)).Edition;
+
+        /// <summary>
+        /// Resolves the tenant's effective entitlement set (fail-closed → Community values). Conferred Pro
+        /// yields the Pro set WITHOUT the delegation right (see <see cref="FeatureEntitlementCatalog.Get(EditionResolution)"/>).
+        /// </summary>
         public virtual async Task<EditionEntitlements> GetEntitlementsAsync(string? tenantId)
-            => FeatureEntitlementCatalog.Get(await GetEditionAsync(tenantId));
+            => FeatureEntitlementCatalog.Get(await GetResolutionAsync(tenantId));
+
+        /// <summary>Pure resolution (edition + source + own standing) for callers that already hold the config.</summary>
+        public static EditionResolution Resolve(TenantConfiguration config, DateTime nowUtc)
+            => FeatureEntitlementCatalog.Resolve(config, nowUtc);
 
         /// <summary>Pure edition resolution for callers that already hold the config.</summary>
         public static TenantEdition ResolveEdition(TenantConfiguration config, DateTime nowUtc)
-            => FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+            => FeatureEntitlementCatalog.ResolveEdition(config, nowUtc);
 
         /// <summary>
         /// Whether the OOBE bootstrap feature is effectively enabled for this config: included in
@@ -82,17 +96,18 @@ namespace AutopilotMonitor.Functions.Services
         /// the feature off automatically.
         /// </summary>
         public static bool IsBootstrapEnabled(TenantConfiguration config, DateTime nowUtc)
-            => FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).BootstrapIncluded
+            => FeatureEntitlementCatalog.Get(Resolve(config, nowUtc)).BootstrapIncluded
                || config.BootstrapTokenEnabled;
 
         /// <summary>
         /// The effective delegated ("MSP") tenant slot limit: the Global Admin override when set (it applies
         /// regardless of edition — a package can be provisioned ahead of the plan flip; USING delegation still
-        /// needs Pro via DelegatedAdminAllowed), else the edition's catalog value (Community 0, Pro 2).
+        /// needs Pro via DelegatedAdminAllowed), else the catalog value of the tenant's OWN standing
+        /// (Community 0, Pro 2; conferred Pro 0 — a managed tenant gets no slots from its manager).
         /// </summary>
         public static int GetMaxDelegatedTenants(TenantConfiguration config, DateTime nowUtc)
             => config.MaxDelegatedTenantsOverride
-               ?? FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).MaxDelegatedTenants;
+               ?? FeatureEntitlementCatalog.Get(Resolve(config, nowUtc)).MaxDelegatedTenants;
 
         /// <summary>Cached read-time variant of <see cref="GetMaxDelegatedTenants"/>. No row / any error ⇒ 0 (fail-closed).</summary>
         public virtual async Task<int> GetMaxDelegatedTenantsAsync(string? homeTenantId)
@@ -122,7 +137,7 @@ namespace AutopilotMonitor.Functions.Services
         public static string GetMcpUsagePlanName(TenantConfiguration config, DateTime nowUtc)
         {
             var overridePlan = NormalizePlanName(config.McpUsagePlanOverride);
-            return overridePlan ?? FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).McpUsagePlanName;
+            return overridePlan ?? FeatureEntitlementCatalog.Get(Resolve(config, nowUtc)).McpUsagePlanName;
         }
 
         /// <summary>Trimmed lower-case plan name, or null for blank input.</summary>
@@ -159,7 +174,7 @@ namespace AutopilotMonitor.Functions.Services
         /// opt-in toggle (<see cref="TenantConfiguration.UnrestrictedMode"/>).
         /// </summary>
         public static bool IsUnrestrictedModeActive(TenantConfiguration config, DateTime nowUtc)
-            => FeatureEntitlementCatalog.Get(ResolveEdition(config, nowUtc)).UnrestrictedModeAvailable
+            => FeatureEntitlementCatalog.Get(Resolve(config, nowUtc)).UnrestrictedModeAvailable
                && config.UnrestrictedModeEnabled
                && config.UnrestrictedMode;
 

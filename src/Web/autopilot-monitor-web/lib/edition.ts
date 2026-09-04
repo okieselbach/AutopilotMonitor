@@ -7,9 +7,16 @@
 
 export type TenantEditionName = "community" | "pro";
 
+/**
+ * Why the edition applies: the tenant's own plan, an active trial, or Pro conferred by the
+ * organization that manages the tenant through a delegation ("msp" — shown as "Pro (MSP)").
+ */
+export type EditionSourceName = "community" | "plan" | "trial" | "msp";
+
 /** Edition/trial surface returned by GET /api/config/{tenantId}/feature-flags. */
 export interface EditionInfo {
   edition: TenantEditionName;
+  editionSource: EditionSourceName;
   isTrial: boolean;
   trialExpiresUtc: string | null;
   trialAvailable: boolean;
@@ -33,6 +40,7 @@ export interface EditionInfo {
 /** Fail-closed default while flags are loading or on error: Community, no trial CTA. */
 export const COMMUNITY_DEFAULT: EditionInfo = {
   edition: "community",
+  editionSource: "community",
   isTrial: false,
   trialExpiresUtc: null,
   trialAvailable: false,
@@ -64,6 +72,7 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
     : {}) as Record<string, unknown>;
   return {
     edition,
+    editionSource: parseEditionSource(f.editionSource, edition, f.isTrial === true),
     isTrial: f.isTrial === true,
     trialExpiresUtc: typeof f.trialExpiresUtc === "string" ? f.trialExpiresUtc : null,
     trialAvailable: f.trialAvailable === true,
@@ -80,6 +89,25 @@ export function parseEditionInfo(flags: unknown): EditionInfo {
       maxDelegatedTenants: typeof ent.maxDelegatedTenants === "number" ? ent.maxDelegatedTenants : 0,
     },
   };
+}
+
+/**
+ * The edition source, or — against an older backend without the field — the value the old
+ * payload implied (Pro + isTrial ⇒ trial, Pro ⇒ plan, else community). Unknown strings fall
+ * back the same way, so a bad value can never render an "(MSP)" badge.
+ */
+function parseEditionSource(raw: unknown, edition: TenantEditionName, isTrial: boolean): EditionSourceName {
+  if (raw === "msp" || raw === "plan" || raw === "trial" || raw === "community") {
+    // Consistency guard: a non-Pro edition can only be "community".
+    return edition === "pro" ? raw : "community";
+  }
+  if (edition !== "pro") return "community";
+  return isTrial ? "trial" : "plan";
+}
+
+/** Whether Pro is conferred by the organization managing this tenant (badge "Pro (MSP)"). */
+export function isProViaMsp(info: Pick<EditionInfo, "edition" | "editionSource">): boolean {
+  return info.edition === "pro" && info.editionSource === "msp";
 }
 
 /**
@@ -108,9 +136,10 @@ export function trialDaysLeft(trialExpiresUtc: string | null | undefined, now: D
   return ms <= 0 ? 0 : Math.ceil(ms / 86_400_000);
 }
 
-/** Badge label: "Pro", "Pro Trial — X days left", or "Community". */
+/** Badge label: "Pro", "Pro (MSP)", "Pro Trial — X days left", or "Community". */
 export function editionLabel(info: EditionInfo, now: Date = new Date()): string {
   if (info.edition !== "pro") return "Community";
+  if (isProViaMsp(info)) return "Pro (MSP)";
   if (!info.isTrial) return "Pro";
   const days = trialDaysLeft(info.trialExpiresUtc, now);
   return `Pro Trial — ${days} day${days === 1 ? "" : "s"} left`;

@@ -46,6 +46,9 @@ public class GetTenantFeatureFlagsPayloadTests
             "contactEmailSet",
             "diagnosticsUploadConfigured",
             "edition",
+            // Non-sensitive by review: one of "community" | "plan" | "trial" | "msp" — says WHY the
+            // edition applies (the "Pro (MSP)" badge), never who the managing tenant is.
+            "editionSource",
             "enableIntegrityBypassAnalyzer",
             "enableSoftwareInventoryAnalyzer",
             "entitlements",
@@ -266,9 +269,57 @@ public class GetTenantFeatureFlagsPayloadTests
         var element = Serialize(new TenantConfiguration { TrialExpiresUtc = expiry, TrialConsumed = true });
 
         Assert.Equal("pro", element.GetProperty("edition").GetString());
+        Assert.Equal("trial", element.GetProperty("editionSource").GetString());
         Assert.True(element.GetProperty("isTrial").GetBoolean());
         Assert.False(element.GetProperty("trialAvailable").GetBoolean());
         Assert.Equal(expiry, element.GetProperty("trialExpiresUtc").GetDateTime());
+    }
+
+    [Fact]
+    public void Payload_EditionSource_Plan_And_Community()
+    {
+        Assert.Equal("plan", Serialize(new TenantConfiguration { PlanTier = "pro" }).GetProperty("editionSource").GetString());
+        Assert.Equal("community", Serialize(new TenantConfiguration()).GetProperty("editionSource").GetString());
+    }
+
+    [Fact]
+    public void Payload_ManagedByProTenant_IsProViaMsp_WithoutDelegationRight_NoTrialCta()
+    {
+        // The projection (set by the configuration loader) turns a Community tenant into "Pro (MSP)":
+        // Pro entitlements minus delegation, no trial CTA, never "isTrial", no expiry key — and the
+        // managing tenant's id itself is NOT part of this member-readable payload.
+        var element = Serialize(new TenantConfiguration
+        {
+            PlanTier = "community",
+            ManagedByProTenantId = "11111111-1111-1111-1111-111111111111",
+        });
+
+        Assert.Equal("pro", element.GetProperty("edition").GetString());
+        Assert.Equal("msp", element.GetProperty("editionSource").GetString());
+        Assert.False(element.GetProperty("isTrial").GetBoolean());
+        Assert.False(element.GetProperty("trialAvailable").GetBoolean());
+        Assert.False(element.TryGetProperty("trialExpiresUtc", out _));
+        Assert.True(element.GetProperty("bootstrapTokenEnabled").GetBoolean());
+        var entitlements = element.GetProperty("entitlements");
+        Assert.Equal(365, entitlements.GetProperty("retentionCapDays").GetInt32());
+        Assert.False(entitlements.GetProperty("delegatedAdminAllowed").GetBoolean());
+        Assert.Equal(0, entitlements.GetProperty("maxDelegatedTenants").GetInt32());
+        Assert.Equal("pro", entitlements.GetProperty("mcpUsagePlan").GetString());
+        Assert.DoesNotContain("11111111-1111-1111-1111-111111111111", element.GetRawText());
+    }
+
+    [Fact]
+    public void Payload_ManagedTenant_ThatIsProItself_ShowsMsp_KeepsDelegationRight()
+    {
+        var element = Serialize(new TenantConfiguration
+        {
+            PlanTier = "pro",
+            ManagedByProTenantId = "11111111-1111-1111-1111-111111111111",
+        });
+
+        Assert.Equal("msp", element.GetProperty("editionSource").GetString());
+        Assert.True(element.GetProperty("entitlements").GetProperty("delegatedAdminAllowed").GetBoolean());
+        Assert.Equal(2, element.GetProperty("entitlements").GetProperty("maxDelegatedTenants").GetInt32());
     }
 
     [Fact]

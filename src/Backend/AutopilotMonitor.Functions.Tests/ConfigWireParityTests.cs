@@ -476,11 +476,13 @@ public class ConfigWireParityTests
                 trialExpiresUtc,
                 trialConsumed = true,
                 effectiveEdition = "pro",
+                editionSource = "plan",
                 retentionGraceEndsUtc,
                 maxDelegatedTenants = 5,
                 maxDelegatedTenantsOverride = 5,
                 mcpUsagePlan = "msp",
-                mcpUsagePlanOverride = "msp"
+                mcpUsagePlanOverride = "msp",
+                payingCustomer = true
             },
             new SetTenantPlanTierResponse
             {
@@ -489,11 +491,13 @@ public class ConfigWireParityTests
                 TrialExpiresUtc = trialExpiresUtc,
                 TrialConsumed = true,
                 EffectiveEdition = "pro",
+                EditionSource = "plan",
                 RetentionGraceEndsUtc = retentionGraceEndsUtc,
                 MaxDelegatedTenants = 5,
                 MaxDelegatedTenantsOverride = 5,
                 McpUsagePlan = "msp",
-                McpUsagePlanOverride = "msp"
+                McpUsagePlanOverride = "msp",
+                PayingCustomer = true
             });
     }
 
@@ -514,11 +518,13 @@ public class ConfigWireParityTests
                 trialExpiresUtc,
                 trialConsumed = false,
                 effectiveEdition = "community",
+                editionSource = "community",
                 retentionGraceEndsUtc,
                 maxDelegatedTenants = 0,
                 maxDelegatedTenantsOverride,
                 mcpUsagePlan = "community",
-                mcpUsagePlanOverride
+                mcpUsagePlanOverride,
+                payingCustomer = false
             },
             new SetTenantPlanTierResponse
             {
@@ -527,11 +533,13 @@ public class ConfigWireParityTests
                 TrialExpiresUtc = null,
                 TrialConsumed = false,
                 EffectiveEdition = "community",
+                EditionSource = "community",
                 RetentionGraceEndsUtc = null,
                 MaxDelegatedTenants = 0,
                 MaxDelegatedTenantsOverride = null,
                 McpUsagePlan = "community",
-                McpUsagePlanOverride = null
+                McpUsagePlanOverride = null,
+                PayingCustomer = false
             });
     }
 

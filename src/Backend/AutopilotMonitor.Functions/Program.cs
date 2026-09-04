@@ -234,7 +234,11 @@ builder.Services.AddHostedService<StartupTelemetryService>();  // BackendStartup
 // To switch to Cosmos DB: replace AddTableStorageDataAccess() with AddCosmosDataAccess().
 // To add event streaming: chain .AddEventStreaming<EventHubPublisher>() after this call.
 builder.Services.AddTableStorageDataAccess();
+// Conferred Pro ("Pro (MSP)"): the read-time index the configuration loader projects from, and the
+// write side that stamps the retention grace anchor when a conferring delegation ends.
+builder.Services.AddSingleton<ManagedTenantProIndex>();
 builder.Services.AddSingleton<TenantConfigurationService>();
+builder.Services.AddSingleton<ProConferralService>();
 builder.Services.AddSingleton<TenantConfigPatchService>();
 builder.Services.AddSingleton<AdminConfigurationService>();
 builder.Services.AddSingleton<AppHomingService>();

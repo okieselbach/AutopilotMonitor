@@ -614,7 +614,7 @@ public class AuthFunction
             // included in Pro, Unrestricted Mode requires Pro + the GA on-request gate.
             BootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),
             UnrestrictedModeEnabled =
-                FeatureEntitlementCatalog.Get(TenantEntitlementService.ResolveEdition(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
+                FeatureEntitlementCatalog.Get(TenantEntitlementService.Resolve(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
                 && tenantConfig.UnrestrictedModeEnabled
         }, needsAutoAdmin);
     }

@@ -44,6 +44,7 @@ public sealed class TenantCustomsArchiveContractTests
             customsArchive: archive,
             configRepo: null!,
             farewellEmail: new FakeOffboardFarewellEmailSender(),
+            proConferral: null!,
             logger: NullLogger<TenantOffboardingHandler>.Instance);
     }
 

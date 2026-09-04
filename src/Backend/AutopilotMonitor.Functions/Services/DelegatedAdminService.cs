@@ -163,7 +163,9 @@ public class DelegatedAdminService
     /// </summary>
     private async Task<DelegatedScope> ApplyHomeTenantGateAsync(DelegatedScope scope, string upn, string callerHomeTenantId)
     {
-        if (await _entitlementService.GetEditionAsync(callerHomeTenantId) == Security.TenantEdition.Pro)
+        // The ENTITLEMENT, not the edition: a tenant whose Pro is conferred by its own managing tenant
+        // is Pro without the delegation right (no transitive delegation).
+        if ((await _entitlementService.GetEntitlementsAsync(callerHomeTenantId)).DelegatedAdminAllowed)
             return scope;
 
         _logger.LogInformation(

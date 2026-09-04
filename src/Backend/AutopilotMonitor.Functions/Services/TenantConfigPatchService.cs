@@ -112,7 +112,8 @@ namespace AutopilotMonitor.Functions.Services
             "LastUpdated", "UpdatedBy", "OnboardedAt", "OnboardedBy",
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
-            "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride",
+            "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
+            "ManagedByProTenantId",
         };
 
         /// <summary>
@@ -159,7 +160,7 @@ namespace AutopilotMonitor.Functions.Services
             "HomedAppClientId", "LastAuthClientId", "LastAuthClientIdSince",
             "OnboardedBy", "OnboardedAt",
             "PlanTier", "TrialExpiresUtc", "TrialStartedUtc", "TrialConsumed", "TrialGrantedBy",
-            "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride",
+            "ProDowngradedUtc", "MaxDelegatedTenantsOverride", "McpUsagePlanOverride", "PayingCustomer",
         };
 
         private static readonly Dictionary<string, PropertyInfo> ModelProperties =
@@ -507,8 +508,9 @@ namespace AutopilotMonitor.Functions.Services
             "HomedAppClientId" => "system-owned — written only by the app-homing flow",
             "LastAuthClientId" or "LastAuthClientIdSince" => "system-owned auth provenance",
             "PlanTier" or "TrialExpiresUtc" or "TrialStartedUtc" or "TrialConsumed" or "TrialGrantedBy"
-            or "MaxDelegatedTenantsOverride" or "McpUsagePlanOverride"
+            or "MaxDelegatedTenantsOverride" or "McpUsagePlanOverride" or "PayingCustomer"
                 => "mutable only via the dedicated plan/trial endpoints",
+            "ManagedByProTenantId" => "read-time projection of the delegation state — never stored",
             _ => "not writable via the field patch",
         };
 

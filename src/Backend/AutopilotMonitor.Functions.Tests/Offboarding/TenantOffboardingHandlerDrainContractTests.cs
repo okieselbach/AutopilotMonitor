@@ -670,7 +670,8 @@ public class TenantOffboardingHandlerDrainContractTests
             IOffboardFarewellEmailSender farewellEmail,
             ILogger<TenantOffboardingHandler> logger)
             : base(auditRepo, enumerator, cascadeEnqueuer, expectations, drainProbe, safeWipe,
-                   storage, maintenance, reEnqueuer, opsEvents, customsArchive, configRepo, farewellEmail, logger)
+                   storage, maintenance, reEnqueuer, opsEvents, customsArchive, configRepo, farewellEmail,
+                   TestProConferral.Inert(), logger)
         {
         }
 

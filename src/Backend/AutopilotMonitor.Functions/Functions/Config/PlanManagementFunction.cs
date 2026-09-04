@@ -28,6 +28,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly AdminConfigurationService _adminConfigService;
         private readonly IMaintenanceRepository _maintenanceRepo;
         private readonly OpsEventService _opsEvents;
+        private readonly ProConferralService _proConferral;
         private readonly TimeProvider _time;
 
         public PlanManagementFunction(
@@ -35,8 +36,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
             TenantConfigurationService configService,
             AdminConfigurationService adminConfigService,
             IMaintenanceRepository maintenanceRepo,
-            OpsEventService opsEvents)
-            : this(logger, configService, adminConfigService, maintenanceRepo, opsEvents, TimeProvider.System)
+            OpsEventService opsEvents,
+            ProConferralService proConferral)
+            : this(logger, configService, adminConfigService, maintenanceRepo, opsEvents, proConferral, TimeProvider.System)
         {
         }
 
@@ -47,6 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             AdminConfigurationService adminConfigService,
             IMaintenanceRepository maintenanceRepo,
             OpsEventService opsEvents,
+            ProConferralService proConferral,
             TimeProvider time)
         {
             _logger = logger;
@@ -54,13 +57,17 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _adminConfigService = adminConfigService;
             _maintenanceRepo = maintenanceRepo;
             _opsEvents = opsEvents;
+            _proConferral = proConferral;
             _time = time;
         }
 
         /// <summary>
         /// PATCH /api/config/{tenantId}/plan — GlobalAdminOnly (catalog-enforced).
         /// Body: { "planTier"?: "community"|"pro", "trialExpiresUtc"?: ISO-8601 | null, "maxDelegatedTenants"?: int | null,
-        ///         "mcpUsagePlan"?: string | null }.
+        ///         "mcpUsagePlan"?: string | null, "payingCustomer"?: bool }.
+        /// payingCustomer is sales bookkeeping only (no entitlement effect). A permanent-Pro tenant that drops to
+        /// Community here takes conferred Pro away from every tenant it manages — their retention grace anchor
+        /// is stamped in the same request (ProConferralService).
         /// maxDelegatedTenants sets the delegated (MSP) slot override (null clears it — the plan entitlement applies).
         /// mcpUsagePlan sets the tenant-wide MCP usage-plan override — the name of a SectionUsagePlans plan, validated
         /// against the current definitions (400 for an unknown name, so a typo can never silently drop the tenant
@@ -99,6 +106,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 int? newMaxDelegatedTenants = null;
                 bool mcpPlanProvided = false;
                 string? newMcpUsagePlan = null;
+                bool payingProvided = false;
+                bool newPayingCustomer = false;
 
                 using (doc)
                 {
@@ -171,10 +180,18 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             return await BadRequestAsync(req, "mcpUsagePlan must be a plan name or null");
                         }
                     }
+
+                    if (doc.RootElement.TryGetProperty("payingCustomer", out var payingProp))
+                    {
+                        if (payingProp.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                            return await BadRequestAsync(req, "payingCustomer must be a boolean");
+                        payingProvided = true;
+                        newPayingCustomer = payingProp.GetBoolean();
+                    }
                 }
 
-                if (newPlanTier == null && !trialProvided && !slotsProvided && !mcpPlanProvided)
-                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc, maxDelegatedTenants and/or mcpUsagePlan");
+                if (newPlanTier == null && !trialProvided && !slotsProvided && !mcpPlanProvided && !payingProvided)
+                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc, maxDelegatedTenants, mcpUsagePlan and/or payingCustomer");
 
                 if (newMcpUsagePlan != null)
                 {
@@ -200,10 +217,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
                 var changes = new Dictionary<string, string>();
 
+                // Conferred Pro follows the PERMANENT tier of the managing tenant (a trial confers nothing):
+                // remember the standing before the mutation so a permanent-Pro → non-permanent drop can
+                // stamp the managed tenants' grace anchors below.
+                var wasPermanentPro = FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier);
                 var (editionBefore, editionAfter) =
                     ApplyPlanChanges(config, newPlanTier, trialProvided, newTrialExpiresUtc, caller, nowUtc, changes);
                 ApplyDelegatedSlotChange(config, slotsProvided, newMaxDelegatedTenants, changes);
                 ApplyMcpUsagePlanChange(config, mcpPlanProvided, newMcpUsagePlan, changes);
+                ApplyPayingCustomerChange(config, payingProvided, newPayingCustomer, changes);
 
                 if (changes.Count > 0)
                 {
@@ -231,6 +253,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             config.DataRetentionDays);
                     }
 
+                    if (wasPermanentPro && !FeatureEntitlementCatalog.IsPermanentProTier(config.PlanTier))
+                    {
+                        // After the save, so the managed tenants' index rebuild already sees the new tier.
+                        var stamped = await _proConferral.RecordLossForOwnedGroupAsync(
+                            requestCtx.TargetTenantId, "manager-lost-permanent-pro");
+                        if (stamped > 0)
+                            changes["ConferredProEndedForManagedTenants"] = stamped.ToString();
+                    }
+
                     // The mirror image of the downgrade event: a GA granting or extending a trial
                     // is the same conversion moment as the self-service start, and sales/support
                     // channels bind to one event type, not two. Keyed off the recorded change so
@@ -250,6 +281,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     }
                 }
 
+                var resolution = FeatureEntitlementCatalog.Resolve(config, nowUtc);
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new SetTenantPlanTierResponse
                 {
@@ -257,12 +289,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     PlanTier = config.PlanTier,
                     TrialExpiresUtc = config.TrialExpiresUtc,
                     TrialConsumed = config.TrialConsumed,
-                    EffectiveEdition = editionAfter.ToString().ToLowerInvariant(),
+                    EffectiveEdition = resolution.EditionName,
+                    EditionSource = resolution.SourceName,
                     RetentionGraceEndsUtc = TenantEntitlementService.GetRetentionGraceEndUtc(config, nowUtc),
                     MaxDelegatedTenants = TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc),
                     MaxDelegatedTenantsOverride = config.MaxDelegatedTenantsOverride,
                     McpUsagePlan = TenantEntitlementService.GetMcpUsagePlanName(config, nowUtc),
                     McpUsagePlanOverride = config.McpUsagePlanOverride,
+                    PayingCustomer = config.PayingCustomer,
                 });
                 return response;
             }
@@ -295,7 +329,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             DateTime nowUtc,
             Dictionary<string, string> changes)
         {
-            var before = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+            var before = FeatureEntitlementCatalog.ResolveEdition(config, nowUtc);
 
             if (newPlanTier != null && !string.Equals(config.PlanTier, newPlanTier, StringComparison.Ordinal))
             {
@@ -314,7 +348,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
             }
 
-            var after = FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc);
+            var after = FeatureEntitlementCatalog.ResolveEdition(config, nowUtc);
 
             if (before == TenantEdition.Pro && after == TenantEdition.Community)
             {
@@ -361,6 +395,19 @@ namespace AutopilotMonitor.Functions.Functions.Config
             config.McpUsagePlanOverride = normalized;
         }
 
+        /// <summary>
+        /// Pure mutation core for the sales bookkeeping flag: records and applies the change only when a value
+        /// was provided AND differs. No entitlement effect — see <see cref="TenantConfiguration.PayingCustomer"/>.
+        /// </summary>
+        internal static void ApplyPayingCustomerChange(
+            TenantConfiguration config, bool provided, bool payingCustomer, Dictionary<string, string> changes)
+        {
+            if (!provided || config.PayingCustomer == payingCustomer)
+                return;
+            changes["PayingCustomer"] = $"{config.PayingCustomer} -> {payingCustomer}";
+            config.PayingCustomer = payingCustomer;
+        }
+
         /// <summary>Pure: whether <paramref name="planName"/> (normalized) names a SectionUsagePlans definition.</summary>
         internal static bool IsKnownUsagePlan(string planName, IEnumerable<PlanTierDefinition> definitions)
             => definitions.Any(d => string.Equals(TenantEntitlementService.NormalizePlanName(d.Name), planName, StringComparison.OrdinalIgnoreCase));
@@ -391,7 +438,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     "This tenant has already used its one self-service Pro trial. Contact support to extend.");
             }
 
-            if (FeatureEntitlementCatalog.ResolveEdition(config.PlanTier, config.TrialExpiresUtc, nowUtc) == TenantEdition.Pro)
+            // Effective edition, conferred Pro included: a tenant managed by a Pro tenant needs no trial.
+            if (FeatureEntitlementCatalog.ResolveEdition(config, nowUtc) == TenantEdition.Pro)
             {
                 return ("AlreadyPro", "This tenant is already on the Pro plan.");
             }

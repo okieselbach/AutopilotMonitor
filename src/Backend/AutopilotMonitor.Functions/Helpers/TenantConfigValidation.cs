@@ -218,7 +218,7 @@ namespace AutopilotMonitor.Functions.Helpers
             if (!isGlobalAdmin && candidate.DataRetentionDays != existing.DataRetentionDays)
             {
                 var cap = FeatureEntitlementCatalog
-                    .Get(TenantEntitlementService.ResolveEdition(existing, DateTime.UtcNow))
+                    .Get(TenantEntitlementService.Resolve(existing, DateTime.UtcNow))
                     .RetentionCapDays;
                 if (candidate.DataRetentionDays < 7 || candidate.DataRetentionDays > cap)
                     return $"Data retention must be between 7 and {cap} days for your plan. Upgrade to Pro for up to 365 days.";

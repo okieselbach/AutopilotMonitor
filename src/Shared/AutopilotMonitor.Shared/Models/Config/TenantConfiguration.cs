@@ -214,6 +214,28 @@ namespace AutopilotMonitor.Shared.Models
         public string? McpUsagePlanOverride { get; set; }
 
         /// <summary>
+        /// Sales/support bookkeeping: whether this tenant PAYS for its plan (as opposed to a Pro tier
+        /// assigned by support, a trial, or Pro conferred by a managing tenant). Carries NO entitlement
+        /// — the effective edition is resolved from PlanTier/TrialExpiresUtc/ManagedByProTenantId
+        /// only. Mutable only via the plan endpoint (Global Admin); shown in the operator tenant list,
+        /// never in feature flags or any customer-facing surface. Backend-only: not delivered to the
+        /// agent (no ConfigVersion impact).
+        /// </summary>
+        public bool PayingCustomer { get; set; }
+
+        /// <summary>
+        /// READ-TIME PROJECTION, NEVER STORED: the permanent-Pro tenant that currently manages this
+        /// tenant through a self-service delegation (member of that tenant's owned <c>msp-{tid}</c>
+        /// Tenant Group), or null. Populated by the backend's configuration loader on every read path
+        /// from the Tenant Groups index; the table repository has no column for it and the patch
+        /// endpoint denies it. While set, the tenant's effective edition is Pro with source "msp"
+        /// (no delegation right of its own) — the delegation ending, the managing tenant losing its
+        /// permanent Pro tier, or its offboarding all revert this automatically because nothing is
+        /// written here. Not delivered to the agent (no ConfigVersion impact).
+        /// </summary>
+        public string? ManagedByProTenantId { get; set; }
+
+        /// <summary>
         /// Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*")
         /// Comma-separated list
         /// </summary>

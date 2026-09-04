@@ -116,7 +116,7 @@ namespace AutopilotMonitor.Functions.Security
             // Edition resolves purely from the config already in hand — no extra I/O on the
             // agent hot path. Fail-closed by construction (unknown tier → Community → null floor).
             var entitlementFloor = FeatureEntitlementCatalog
-                .Get(Services.TenantEntitlementService.ResolveEdition(config, DateTime.UtcNow))
+                .Get(Services.TenantEntitlementService.Resolve(config, DateTime.UtcNow))
                 .DeviceRateLimitPerMinute;
             return RateLimitResolver.ResolveDeviceLimit(
                 config.CustomRateLimitRequestsPerMinute,

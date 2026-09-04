@@ -304,7 +304,9 @@ public class DelegatedSlotService
             var config = await _configRepo.GetTenantConfigurationAsync(homeTenantId);
             if (config == null)
                 return (0, 0, null, null);
-            var catalog = Security.FeatureEntitlementCatalog.Get(TenantEntitlementService.ResolveEdition(config, nowUtc)).MaxDelegatedTenants;
+            // Raw repository row: no ManagedByProTenantId projection, so this is the home tenant's OWN standing —
+            // exactly right for slots (conferred Pro carries none).
+            var catalog = Security.FeatureEntitlementCatalog.Get(TenantEntitlementService.Resolve(config, nowUtc)).MaxDelegatedTenants;
             return (TenantEntitlementService.GetMaxDelegatedTenants(config, nowUtc), catalog, config.MaxDelegatedTenantsOverride,
                 string.IsNullOrWhiteSpace(config.DomainName) ? null : config.DomainName);
         }

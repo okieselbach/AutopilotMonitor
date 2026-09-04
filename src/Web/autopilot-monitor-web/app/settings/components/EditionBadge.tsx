@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { editionLabel } from "@/lib/edition";
+import { editionLabel, isProViaMsp } from "@/lib/edition";
 import { useTenantConfig } from "../TenantConfigContext";
 
 /**
  * Edition badge for the settings header.
- * - "Pro" / "Pro Trial — X days left" / "Community"
+ * - "Pro" / "Pro (MSP)" / "Pro Trial — X days left" / "Community"
  * - For Community tenants, an "Upgrade plan" link to the Plan section, where the full picture
  *   (what Pro adds) and the trial CTA live. The badge itself only reports status.
  */
@@ -26,9 +26,11 @@ export default function EditionBadge() {
         }`}
         title={
           isPro
-            ? editionInfo.isTrial
-              ? "Pro trial is active — all Pro features are unlocked."
-              : "This tenant is on the Pro plan."
+            ? isProViaMsp(editionInfo)
+              ? "Pro is included through the organization that manages this tenant. It ends with that delegation."
+              : editionInfo.isTrial
+                ? "Pro trial is active — all Pro features are unlocked."
+                : "This tenant is on the Pro plan."
             : "This tenant is on the Community plan."
         }
       >
