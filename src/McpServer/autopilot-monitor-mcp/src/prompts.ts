@@ -14,7 +14,7 @@ import { z } from 'zod';
  * with Zod but keep types as strings; numeric/optional semantics are described
  * in the argument text for the model.
  */
-export function registerPrompts(server: McpServer, ga: boolean): void {
+export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolean): void {
   server.registerPrompt(
     'investigate-failed-session',
     {
@@ -89,7 +89,9 @@ export function registerPrompts(server: McpServer, ga: boolean): void {
               'Use get_session_events / query_raw_events for the raw stream around the first error; gaps ' +
               'between agent log and Events reveal upload/network issues. Use search_knowledge to look up ' +
               'rules / IME patterns / error codes you encounter.\n' +
-              (ga
+              // strictGa, not ga: query_backend_logs / query_table are registered for a real Global
+              // Admin only — a Global Reader must not be pointed at tools it cannot see.
+              (strictGa
                 ? '4. If the problem looks like a backend ingest/upload issue (events the agent logged as sent ' +
                   'are missing, or status disagrees with events), use query_backend_logs (App Insights KQL) and ' +
                   'query_table (e.g. RuleResults, AppInstallSummaries) to trace it.\n'

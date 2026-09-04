@@ -275,6 +275,7 @@ export const SHARED_MANIFEST = {
     "PoisonQueueBacklogHigh",
     "PoisonQueueBacklogCritical",
     "ExcessiveSessionEventsAutoActioned",
+    "PrivilegedRouteDenied",
     "OffboardingFeedbackReceived",
     "TenantOffboarded",
     "TenantOffboardingFailed",

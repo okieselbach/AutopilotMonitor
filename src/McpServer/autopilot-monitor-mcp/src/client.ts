@@ -167,6 +167,11 @@ export function getHomeTenantId(): string | undefined {
  * when no context is active / no UPN was captured. Display label for the synthesized home-tenant entry
  * in list_tenants — see CallerContext.upn.
  */
+/** The current caller's UPN (lowercase) as the access check recorded it, or undefined without a context. */
+export function getCallerUpn(): string | undefined {
+  return callerStore.getStore()?.upn;
+}
+
 export function getCallerUpnDomain(): string | undefined {
   const upn = callerStore.getStore()?.upn ?? '';
   const at = upn.indexOf('@');

@@ -120,8 +120,10 @@ export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean
   registerTools(s, deps.knowledgeBase, deps.eventTypeIndex, deps.docs, ga, strictGa, delegated);
   registerResources(s);
   // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
-  // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user.
-  registerPrompts(s, ga);
+  // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user. strictGa
+  // gates the prompt steps that name the strictGa-only raw tools (a Reader must not be told to
+  // call tools it cannot see).
+  registerPrompts(s, ga, strictGa);
   return s;
 }
 

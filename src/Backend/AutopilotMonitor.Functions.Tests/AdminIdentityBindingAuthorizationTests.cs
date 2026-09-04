@@ -80,7 +80,8 @@ public class AdminIdentityBindingAuthorizationTests
         {
             Middleware = new PolicyEnforcementMiddleware(
                 NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin,
-                new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig),
+                new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig,
+                new RecordingDenialReporter()),
             Repo = repo,
         };
     }

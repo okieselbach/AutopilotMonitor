@@ -1,4 +1,4 @@
-import { runWithToolName, hasGlobalScope, isDelegated } from './client.js';
+import { runWithToolName, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
 
 export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 
@@ -63,7 +63,7 @@ export function summarizeArgs(
 }
 
 /** Caller scope for usage analysis — which audience a tool struggle belongs to. */
-function callerScope(): 'ga' | 'delegated' | 'tenant' {
+export function callerScope(): 'ga' | 'delegated' | 'tenant' {
   if (hasGlobalScope()) return 'ga';
   if (isDelegated()) return 'delegated';
   return 'tenant';
@@ -175,6 +175,11 @@ export function logToolCallRejection(toolName: string, errorCode: number, messag
       tool: toolName,
       errorCode,
       message: cap(message, 500),
+      // Who was refused: without scope + upn a "tool not found" from a caller probing a
+      // GA-only tool is indistinguishable from a typo (the security line in ga-tool-probe.ts
+      // is the unconditional counterpart; this one is the usage-analysis view).
+      scope: callerScope(),
+      upn: getCallerUpn(),
       timestamp: new Date().toISOString(),
     }));
   } catch {

@@ -422,6 +422,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/raw/tables",                    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/tables/{tableName}",        EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/raw/logs",                      EndpointPolicy.GlobalAdminOnly),
+        // No-op GA-only route the MCP fires when a NON-GA caller attempts a GA-only tool: the deny
+        // path here (PolicyEnforcementMiddleware → PrivilegedRouteDenied) is the assume-breach alarm.
+        new("GET",    "global/raw/access-probe",              EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/search/sessions",              EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/search/sessions-by-event",   EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/search/sessions-by-cve",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

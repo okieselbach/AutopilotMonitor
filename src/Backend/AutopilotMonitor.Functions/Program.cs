@@ -283,6 +283,8 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Monitoring.AzurePoisonQueueProbe>();
 builder.Services.AddSingleton<OpsAlertDispatchService>();
 builder.Services.AddSingleton<OpsEventService>();
+// Assume-breach observer on the policy middleware's deny path (GlobalAdminOnly 403 → Critical ops event).
+builder.Services.AddSingleton<IPrivilegedDenialReporter, PrivilegedDenialReporter>();
 // IME pattern-drift loop: folds ime_pattern_hits into ImePatternStats and raises
 // ImePatternDriftSuspected; singleton because it caches the stats snapshot for evaluation.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Ime.ImePatternHealthService>();

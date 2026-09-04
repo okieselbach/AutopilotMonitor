@@ -32,8 +32,14 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         /// </summary>
         [Function("QueryBackendLogs")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "global/raw/logs")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "global/raw/logs")] HttpRequestData req,
+            FunctionContext context)
         {
+            // Authorization is the catalog (GlobalAdminOnly) + PolicyEnforcementMiddleware; this is the
+            // in-body re-check so a middleware regression can never expose the KQL proxy.
+            if (await RawGlobalAdminGate.DenyUnlessGlobalAdminAsync(req, context) is { } denied)
+                return denied;
+
             try
             {
                 var appId = Environment.GetEnvironmentVariable("APPINSIGHTS_APP_ID");

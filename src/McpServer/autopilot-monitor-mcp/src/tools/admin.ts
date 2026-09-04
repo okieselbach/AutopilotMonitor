@@ -6,6 +6,25 @@ import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../res
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 
+/**
+ * The tools registered ONLY for a real Global Admin (`strictGa`), by name. Static on purpose: the
+ * per-request registration below only runs for callers who pass the gate, so a non-GA request could
+ * never discover the set at runtime — yet that request is exactly the one the assume-breach probe
+ * (ga-tool-probe.ts) must classify. tools-catalog-order.test.ts pins this set against the registered
+ * catalog difference (GA minus Global Reader), so a new `if (strictGa)` site cannot drift from it.
+ */
+export const GA_STRICT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'annotate_session',
+  'list_tables',
+  'query_table',
+  'query_backend_logs',
+  'get_tenant_config',
+  'get_tenant_config_schema',
+  'update_tenant_config',
+  'list_tenant_config_backups',
+  'revert_tenant_config',
+]);
+
 /** Default first-page size of get_fleet_overview's session list (a fleet snapshot, not a sweep). */
 const FLEET_OVERVIEW_PAGE_SIZE = 25;
 
@@ -1438,10 +1457,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   );
 
   // ── Tenant-config write surface (transactional) ───────────────────────
-  // Security note: all four tools are strictGa (real Global Admin only) — the backend
-  // routes (PATCH config/{tenantId}/fields, GET .../backups, POST .../revert) are
-  // GlobalAdminOnly to match. get_tenant_config is read-only but ALSO strictGa: its
-  // full-config view (even redacted) exposes operational settings no Reader needs.
+  // Security note: all five tools are strictGa (real Global Admin only). Backend backing per
+  // route (EndpointAccessPolicyCatalog): GET .../backups and POST .../revert are GlobalAdminOnly;
+  // PATCH config/{tenantId}/fields is TenantAdminOrGA and GET config/{tenantId} is MemberRead
+  // (secrets redacted for non-admins) — for those two the strictGa registration is the MCP-side
+  // decision to keep the operator config surface off the Reader/tenant catalog, NOT a claim that
+  // the backend would refuse a tenant admin on the same URL with their own token.
+  // get_tenant_config is read-only but ALSO strictGa: its full-config view (even redacted)
+  // exposes operational settings no Reader needs.
   // The write flow is transactional server-side: fail-closed pre-write snapshot →
   // ETag-conditional write → re-read → verify that EXACTLY the intended fields
   // changed → automatic rollback on drift. Every change is revertible.

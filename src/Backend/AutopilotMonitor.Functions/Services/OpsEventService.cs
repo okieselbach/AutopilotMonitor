@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Extensions.Logging;
@@ -320,6 +321,33 @@ namespace AutopilotMonitor.Functions.Services
                 $"Session owner mismatch ({outcome}) on {endpoint}: {callerKind} caller vs {ownerKind}-owned session {sessionId} (serialMatch={serialMatch.ToString().ToLowerInvariant()}, shadow - allowed)",
                 tenantId, "System.SessionOwnerBinding",
                 new { sessionId, outcome, callerKind, ownerKind, serialMatch, agentVersion, endpoint, enforced = false });
+
+        /// <summary>
+        /// Assume-breach signal for the Global-Admin-only surface: an authenticated caller was refused
+        /// (403) on a <c>GlobalAdminOnly</c> route. Fired from the policy middleware's deny path via
+        /// <see cref="PrivilegedDenialReporter"/> (throttled 1h per caller+path, per instance). The MCP
+        /// routes a non-GA attempt at a GA-only tool through the same path (access-probe route), so
+        /// one event type covers both the direct-HTTP probe and the tool-catalog probe.
+        /// Critical unless the caller is a Global Reader (a known operator, not an intruder) — the
+        /// severity split lets one rule push Critical to Telegram while Reader slips stay on the page.
+        /// Recorded against the caller's HOME tenant (JWT tid); the identity is in the details.
+        /// </summary>
+        public Task RecordPrivilegedRouteDeniedAsync(PrivilegedDenial d)
+        {
+            var isReader = d.CallerRole == Constants.GlobalRoles.GlobalReader;
+            var severity = isReader ? OpsEventSeverity.Warning : OpsEventSeverity.Critical;
+            var via = d.ClientSource ?? "direct";
+            var tool = string.IsNullOrEmpty(d.McpToolName) ? string.Empty : $", tool {d.McpToolName}";
+            return WriteAsync(OpsEventCategory.Security, OpsEventTypes.PrivilegedRouteDenied, severity,
+                $"Privileged route denied: {d.Method} {d.Path} for {d.Upn ?? "(no upn)"} (role={d.CallerRole}, via {via}{tool})",
+                d.TenantId, d.Upn ?? "System.PolicyEnforcement",
+                new
+                {
+                    method = d.Method, path = d.Path, statusCode = d.StatusCode, reason = d.Reason, policy = d.Policy,
+                    upn = d.Upn, oid = d.ObjectId, tid = d.TenantId, callerRole = d.CallerRole,
+                    clientSource = d.ClientSource, mcpToolName = d.McpToolName, correlationId = d.CorrelationId,
+                });
+        }
 
         /// <summary>
         /// Fired by <see cref="KillSwitchEvaluator"/> when a Kill signal was actually SERVED to

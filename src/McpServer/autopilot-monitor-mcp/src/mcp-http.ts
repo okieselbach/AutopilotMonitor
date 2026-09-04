@@ -29,6 +29,7 @@ import type { Request, Response } from 'express';
 import { createMcpHandler, isLegacyRequest } from '@modelcontextprotocol/server';
 import type { McpServer, McpRequestContext } from '@modelcontextprotocol/server';
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
+import { observeGaToolProbe } from './ga-tool-probe.js';
 
 /** Builds the per-request server. Runs inside the caller's async context (see access-guard runWithCaller). */
 export type PerRequestServerFactory = (ctx: McpRequestContext) => McpServer;
@@ -67,6 +68,11 @@ export function createMcpRequestHandler(
   const modernNode = toNodeHandler(modern, { onerror });
 
   return async (req, res) => {
+    // Assume-breach signal BEFORE dispatch: a non-GA caller naming a GA-only tool is refused by
+    // the SDK as "not found" and would otherwise leave no trace with an identity. Runs inside the
+    // caller's async context (both eras share this entry). Never throws, never alters the response.
+    observeGaToolProbe(req.body);
+
     // Classification needs the method + headers of the request and the
     // (already parsed) body. Passing `parsedBody` means nothing is read from
     // the Node stream — express.json() already drained it.

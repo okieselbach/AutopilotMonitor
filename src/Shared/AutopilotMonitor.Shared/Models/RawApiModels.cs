@@ -58,6 +58,19 @@ namespace AutopilotMonitor.Shared.Models
 
     // Declaration order == wire order.
     /// <summary>
+    /// Success body of GET /api/global/raw/access-probe (GlobalAccessProbe): the no-op GlobalAdminOnly
+    /// route the MCP fires when a non-GA caller attempts a GA-only tool, so the backend's deny path
+    /// records the probe. A Global Admin gets this body; everyone else gets the middleware's 403.
+    /// </summary>
+    public class AccessProbeResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>Always "GlobalAdmin" — the only role that reaches the body.</summary>
+        public string Role { get; set; } = default!;
+    }
+
+    // Declaration order == wire order.
+    /// <summary>
     /// Success body of GET /api/global/raw/tables/{tableName} (QueryRawTable): raw table rows,
     /// PascalCase-verbatim stored columns.
     /// </summary>

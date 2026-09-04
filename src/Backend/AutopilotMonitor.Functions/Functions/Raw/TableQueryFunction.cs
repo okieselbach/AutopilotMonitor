@@ -39,8 +39,14 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         /// </summary>
         [Function("ListRawTables")]
         public async Task<HttpResponseData> ListTables(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/raw/tables")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/raw/tables")] HttpRequestData req,
+            FunctionContext context)
         {
+            // Authorization is the catalog (GlobalAdminOnly) + PolicyEnforcementMiddleware; in-body re-check
+            // so a middleware regression can never expose the raw table surface.
+            if (await RawGlobalAdminGate.DenyUnlessGlobalAdminAsync(req, context) is { } denied)
+                return denied;
+
             try
             {
                 var tables = Constants.TableNames.All
@@ -65,8 +71,14 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         [Function("QueryRawTable")]
         public async Task<HttpResponseData> QueryTable(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/raw/tables/{tableName}")] HttpRequestData req,
-            string tableName)
+            string tableName,
+            FunctionContext context)
         {
+            // Authorization is the catalog (GlobalAdminOnly) + PolicyEnforcementMiddleware; in-body re-check
+            // so a middleware regression can never turn this into a secret-bearing table dump.
+            if (await RawGlobalAdminGate.DenyUnlessGlobalAdminAsync(req, context) is { } denied)
+                return denied;
+
             try
             {
                 // Validate table name

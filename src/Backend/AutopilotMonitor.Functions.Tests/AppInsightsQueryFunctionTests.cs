@@ -51,6 +51,8 @@ public class AppInsightsQueryFunctionTests
     [InlineData("POST", "/api/global/raw/logs")]
     [InlineData("GET", "/api/global/raw/tables")]
     [InlineData("GET", "/api/global/raw/tables/TenantConfiguration")]
+    // The MCP's assume-breach probe: its whole value is that a non-GA caller is DENIED here.
+    [InlineData("GET", "/api/global/raw/access-probe")]
     public void Raw_family_endpoints_are_GlobalAdminOnly_not_global_reader(string method, string path)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);
@@ -68,6 +70,14 @@ public class AppInsightsQueryFunctionTests
     public void RawLogs_post_requires_jwt_and_is_not_exempt()
     {
         Assert.False(AuthenticationMiddleware.SkipsJwtValidation("POST", LogsRoute));
+    }
+
+    // ── The access probe must sit behind the SAME JWT gate: an anonymous hit is a 401 (no probe
+    //    event), only an authenticated non-GA caller reaches the 403 that raises PrivilegedRouteDenied. ──
+    [Fact]
+    public void AccessProbe_requires_jwt_and_is_not_exempt()
+    {
+        Assert.False(AuthenticationMiddleware.SkipsJwtValidation("GET", "/api/global/raw/access-probe"));
     }
 
     // ── Verb binding: the KQL proxy is POST-only. A GET to the same path is unregistered and therefore

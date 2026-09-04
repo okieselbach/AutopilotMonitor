@@ -70,6 +70,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string PoisonQueueBacklogHigh             = "PoisonQueueBacklogHigh";
         public const string PoisonQueueBacklogCritical         = "PoisonQueueBacklogCritical";
         public const string ExcessiveSessionEventsAutoActioned = "ExcessiveSessionEventsAutoActioned";
+        /// <summary>
+        /// An authenticated caller without the GlobalAdmin role was refused (403) on a
+        /// <c>GlobalAdminOnly</c> route — including the MCP probe a non-GA tool call triggers.
+        /// Critical for callers without any platform role, Warning for a Global Reader.
+        /// </summary>
+        public const string PrivilegedRouteDenied               = "PrivilegedRouteDenied";
 
         // ── Tenant ── Tenant lifecycle: offboarding, trials, plan changes, regression radars, config toggles.
         public const string OffboardingFeedbackReceived   = "OffboardingFeedbackReceived";
@@ -116,7 +122,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         {
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift,
-            DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned,
+            DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied,
             OffboardingFeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,

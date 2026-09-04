@@ -271,6 +271,7 @@
     "PoisonQueueBacklogHigh",
     "PoisonQueueBacklogCritical",
     "ExcessiveSessionEventsAutoActioned",
+    "PrivilegedRouteDenied",
     "OffboardingFeedbackReceived",
     "TenantOffboarded",
     "TenantOffboardingFailed",
@@ -574,6 +575,27 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "AccessProbeResponse": {
+      "kind": "object",
+      "doc": "Success body of GET /api/global/raw/access-probe (GlobalAccessProbe): the no-op GlobalAdminOnly route the MCP fires when a non-GA caller attempts a GA-only tool, so the backend's deny path records the probe. A Global Admin gets this body; everyone else gets the middleware's 403.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Always \"GlobalAdmin\" — the only role that reaches the body."
         }
       ]
     },

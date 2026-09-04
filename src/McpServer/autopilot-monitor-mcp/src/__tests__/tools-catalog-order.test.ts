@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/server';
 import { registerTools } from '../tools.js';
+import { GA_STRICT_TOOL_NAMES } from '../tools/admin.js';
 import type { SearchProvider } from '../search-provider.js';
 
 function registeredToolNames(ga: boolean, strictGa: boolean = ga, delegated: boolean = false): string[] {
@@ -262,6 +263,17 @@ describe('role catalog snapshot — privilege-leak guard', () => {
       const stale = list.filter((n) => !GA_FULL.includes(n));
       expect(stale, `${label} lists tools not present in the GA master set`).toEqual([]);
     }
+  });
+
+  // The static set the assume-breach probe (ga-tool-probe.ts) classifies against must equal the
+  // REGISTERED strictGa difference — a new `if (strictGa)` site that forgets the set would leave
+  // that tool's probes unreported; a stale entry would report a tool Readers legitimately see.
+  it('GA_STRICT_TOOL_NAMES equals the registered strictGa difference (GA minus Global Reader)', () => {
+    const readerNames = registeredToolNames(true, false);
+    const registeredDiff = registeredToolNames(true, true).filter((n) => !readerNames.includes(n)).sort();
+    expect([...GA_STRICT_TOOL_NAMES].sort()).toEqual(registeredDiff);
+    expect([...GA_STRICT_TOOL_NAMES].sort()).toEqual(
+      [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT].sort());
   });
 
   it('the secret-bearing raw tools are a subset of the platform-only tools', () => {

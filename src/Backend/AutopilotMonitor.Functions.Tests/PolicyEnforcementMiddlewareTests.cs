@@ -119,9 +119,127 @@ public class PolicyEnforcementMiddlewareTests
 
         var mw = new PolicyEnforcementMiddleware(
             NullLogger<PolicyEnforcementMiddleware>.Instance, globalAdmin, delegatedAdmin,
-            new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig);
+            new TenantMemberRoleResolver(tenantAdmins, tenantConfig), tenantConfig,
+            new RecordingDenialReporter());
 
         return new Harness { Middleware = mw, Repo = repo, ConfigRepo = configRepo };
+    }
+
+    // ── ASSUME-BREACH: which denials are reported as PrivilegedRouteDenied ──────────────────
+    // The deny path in Invoke reports iff the decision denied a GlobalAdminOnly route with 403 by an
+    // authenticated caller. DecideAsync is the seam: it must surface the denied tier on the result.
+
+    [Fact]
+    public async Task GlobalAdminOnly_denial_of_tenant_user_carries_the_policy_and_is_privileged()
+    {
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, "admin@contoso.com");
+
+        var r = await h.Middleware.DecideAsync("POST", "/api/global/raw/logs", null, AuthedPrincipal(TenantA, "admin@contoso.com"));
+
+        Assert.False(r.Allowed);
+        Assert.Equal(403, r.StatusCode);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, r.Policy);
+        Assert.Equal("NotGlobalAdmin", r.LogReason);
+        Assert.True(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task GlobalReader_on_raw_table_is_denied_and_privileged()
+    {
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalReader);
+
+        var r = await h.Middleware.DecideAsync("GET", "/api/global/raw/tables/TenantConfiguration", null, AuthedPrincipal(TenantA, "reader@contoso.com"));
+
+        Assert.False(r.Allowed);
+        Assert.Equal(403, r.StatusCode);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, r.Policy);
+        Assert.True(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task GlobalAdmin_on_access_probe_is_allowed_and_not_privileged()
+    {
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+
+        var r = await h.Middleware.DecideAsync("GET", "/api/global/raw/access-probe", null, AuthedPrincipal(TenantA, "ga@contoso.com"));
+
+        Assert.True(r.Allowed);
+        Assert.True(r.Context!.IsGlobalAdmin);
+        Assert.False(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task Anonymous_on_GlobalAdminOnly_route_is_401_not_a_privileged_denial()
+    {
+        var h = BuildHarness();
+
+        var r = await h.Middleware.DecideAsync("GET", "/api/global/raw/access-probe", null, principal: null);
+
+        Assert.False(r.Allowed);
+        Assert.Equal(401, r.StatusCode);
+        Assert.Equal(EndpointPolicy.GlobalAdminOnly, r.Policy);
+        Assert.False(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task Unregistered_route_has_no_policy_and_is_not_privileged()
+    {
+        var h = BuildHarness();
+
+        var r = await h.Middleware.DecideAsync("GET", "/api/global/raw/does-not-exist", null, AuthedPrincipal(TenantA, "x@contoso.com"));
+
+        Assert.False(r.Allowed);
+        Assert.Null(r.Policy);
+        Assert.False(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task Member_route_denial_is_not_privileged()
+    {
+        var h = BuildHarness();
+        // No membership anywhere → MemberRead route denies with 403, but it is not the GA-only surface.
+        var r = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantA}", null, AuthedPrincipal(TenantA, "nobody@contoso.com"));
+
+        Assert.False(r.Allowed);
+        Assert.NotEqual(EndpointPolicy.GlobalAdminOnly, r.Policy);
+        Assert.False(PolicyEnforcementMiddleware.IsPrivilegedDenial(r));
+    }
+
+    [Fact]
+    public async Task BuildPrivilegedDenial_projects_claims_headers_role_and_correlation()
+    {
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, "admin@contoso.com");
+        var principal = AuthedPrincipal(TenantA, "admin@contoso.com");
+        var r = await h.Middleware.DecideAsync("POST", "/api/global/raw/logs", null, principal);
+
+        var d = PolicyEnforcementMiddleware.BuildPrivilegedDenial(
+            r, "POST", "/api/global/raw/logs", principal, globalRole: null,
+            clientSource: "mcp", mcpToolName: "query_backend_logs", correlationId: "corr-42");
+
+        Assert.Equal("POST", d.Method);
+        Assert.Equal("/api/global/raw/logs", d.Path);
+        Assert.Equal(403, d.StatusCode);
+        Assert.Equal("NotGlobalAdmin", d.Reason);
+        Assert.Equal("GlobalAdminOnly", d.Policy);
+        Assert.Equal("admin@contoso.com", d.Upn);
+        Assert.Equal(TestOid, d.ObjectId);
+        Assert.Equal(TenantA, d.TenantId);
+        Assert.Equal("None", d.CallerRole);
+        Assert.Equal("mcp", d.ClientSource);
+        Assert.Equal("query_backend_logs", d.McpToolName);
+        Assert.Equal("corr-42", d.CorrelationId);
+        Assert.False(string.IsNullOrEmpty(d.CallerId));
+
+        var reader = PolicyEnforcementMiddleware.BuildPrivilegedDenial(
+            r, "POST", "/api/global/raw/logs", principal, globalRole: Constants.GlobalRoles.GlobalReader,
+            clientSource: null, mcpToolName: null, correlationId: "");
+        Assert.Equal(Constants.GlobalRoles.GlobalReader, reader.CallerRole);
+        Assert.Null(reader.ClientSource);
+        Assert.Null(reader.CorrelationId);
     }
 
     private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn, string objectId = TestOid)

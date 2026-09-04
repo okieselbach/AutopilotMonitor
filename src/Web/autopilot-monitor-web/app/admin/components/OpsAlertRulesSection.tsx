@@ -97,6 +97,11 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // per memory feedback_ops_event_types_dual_register so operators can wire a
     // dedicated Telegram rule independent of the warn-tier ExcessiveSessionEvents.
     "ExcessiveSessionEventsAutoActioned",
+    // Assume-breach layer for the Global-Admin-only surface: an authenticated caller without the
+    // GlobalAdmin role hit a GlobalAdminOnly route (or, via the MCP probe, a GA-only tool).
+    // Critical for callers without any platform role, Warning for a Global Reader; throttled 1h
+    // per caller+path (PrivilegedDenialReporter). Route it to Telegram at MinSeverity Critical.
+    "PrivilegedRouteDenied",
     "VersionBlocked",
     // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or
     // telemetry channel) — as opposed to DeviceBlocked/VersionBlocked which fire on rule

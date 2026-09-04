@@ -38,19 +38,25 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly TenantMemberRoleResolver _memberRoleResolver;
     private readonly TenantConfigurationService _tenantConfigService;
+    private readonly IPrivilegedDenialReporter _denialReporter;
+
+    /// <summary>Longest header value that lands in a denial record; anything beyond is caller noise.</summary>
+    private const int MaxDenialHeaderLength = 64;
 
     public PolicyEnforcementMiddleware(
         ILogger<PolicyEnforcementMiddleware> logger,
         GlobalAdminService globalAdminService,
         DelegatedAdminService delegatedAdminService,
         TenantMemberRoleResolver memberRoleResolver,
-        TenantConfigurationService tenantConfigService)
+        TenantConfigurationService tenantConfigService,
+        IPrivilegedDenialReporter denialReporter)
     {
         _logger = logger;
         _globalAdminService = globalAdminService;
         _delegatedAdminService = delegatedAdminService;
         _memberRoleResolver = memberRoleResolver;
         _tenantConfigService = tenantConfigService;
+        _denialReporter = denialReporter;
     }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
@@ -111,12 +117,78 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             return;
         }
 
-        _logger.LogWarning("[PolicyEnforcement] DENIED {Method} {Path} status={Status} user={User} role={Role} reason={Reason}",
-            logMethod, logPath, result.StatusCode, LogSanitizer.Clean(result.UserIdentifier), result.UserRole, result.LogReason);
+        // Caller-supplied headers: sanitized + truncated before they reach a log line or a table row.
+        var clientSource = DenialHeader(httpContext, "X-Client-Source");
+        var mcpToolName = DenialHeader(httpContext, "X-MCP-Tool-Name");
+        _logger.LogWarning("[PolicyEnforcement] DENIED {Method} {Path} status={Status} user={User} role={Role} reason={Reason} oid={Oid} tid={Tid} clientSource={ClientSource} mcpTool={McpTool}",
+            logMethod, logPath, result.StatusCode, LogSanitizer.Clean(result.UserIdentifier), result.UserRole, result.LogReason,
+            LogSanitizer.Clean(principal?.GetObjectId()), LogSanitizer.Clean(principal?.GetTenantId()), clientSource, mcpToolName);
+        await ReportPrivilegedDenialAsync(context, result, httpMethod, requestPath, principal, clientSource, mcpToolName);
         httpContext.Response.StatusCode = result.StatusCode;
         httpContext.Response.ContentType = "application/json";
         await httpContext.Response.WriteAsJsonAsync(new { error = result.ErrorCode, message = result.ErrorMessage });
     }
+
+    private static string? DenialHeader(HttpContext httpContext, string name)
+    {
+        var raw = LogSanitizer.Clean(httpContext.Request.Headers[name].FirstOrDefault());
+        if (string.IsNullOrEmpty(raw))
+            return null;
+        return raw.Length <= MaxDenialHeaderLength ? raw : raw[..MaxDenialHeaderLength];
+    }
+
+    /// <summary>
+    /// ASSUME-BREACH layer for the Global-Admin-only surface. A 403 on a <c>GlobalAdminOnly</c> route by
+    /// an authenticated caller is the one denial that must never pass silently: it is either an operator
+    /// on the wrong account, a Global Reader overreaching, or someone probing the raw table/log proxies.
+    /// The event carries the backend's own view of the JWT (upn/oid/tid) plus the MCP tool name when the
+    /// call came through the MCP's access probe. 401s (no JWT / no upn) are not probes and stay log-only,
+    /// as do unregistered routes (anonymous scanner noise). The role lookup here is cached and only runs
+    /// on this rare path; it distinguishes a known Global Reader (Warning) from an outsider (Critical).
+    /// </summary>
+    private async Task ReportPrivilegedDenialAsync(
+        FunctionContext context, PolicyResult result, string httpMethod, string requestPath,
+        ClaimsPrincipal? principal, string? clientSource, string? mcpToolName)
+    {
+        if (!IsPrivilegedDenial(result) || principal == null)
+            return;
+        try
+        {
+            var globalRole = await _globalAdminService.GetGlobalRoleAsync(AdminIdentity.FromPrincipal(principal));
+            var denial = BuildPrivilegedDenial(result, httpMethod, requestPath, principal, globalRole,
+                clientSource, mcpToolName, context.GetCorrelationId());
+            _denialReporter.Report(denial);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PolicyEnforcement] privileged-denial reporting failed");
+        }
+    }
+
+    /// <summary>A 403 by an authenticated caller on a GlobalAdminOnly route — the only denial that is reported.</summary>
+    internal static bool IsPrivilegedDenial(PolicyResult result)
+        => !result.Allowed
+            && result.Policy == EndpointPolicy.GlobalAdminOnly
+            && result.StatusCode == (int)HttpStatusCode.Forbidden;
+
+    /// <summary>Pure projection of a denial into the record the reporter writes; separated so tests can pin it without an HttpContext.</summary>
+    internal static PrivilegedDenial BuildPrivilegedDenial(
+        PolicyResult result, string httpMethod, string requestPath, ClaimsPrincipal principal, string? globalRole,
+        string? clientSource, string? mcpToolName, string? correlationId)
+        => new(
+            Method: httpMethod,
+            Path: requestPath,
+            StatusCode: result.StatusCode,
+            Reason: result.LogReason,
+            Policy: result.Policy?.ToString() ?? string.Empty,
+            CallerId: principal.GetCallerId() ?? UnidentifiedCallerBucket,
+            Upn: principal.GetUserPrincipalName(),
+            ObjectId: principal.GetObjectId(),
+            TenantId: principal.GetTenantId(),
+            CallerRole: globalRole ?? "None",
+            ClientSource: clientSource,
+            McpToolName: mcpToolName,
+            CorrelationId: string.IsNullOrEmpty(correlationId) ? null : correlationId);
 
     /// <summary>
     /// Transport-agnostic authorization decision: catalog lookup → policy evaluation → cross-tenant
@@ -204,7 +276,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 var (code, message) = status == HttpStatusCode.Unauthorized
                     ? ("AuthenticationRequired", "Authentication required. Please provide a valid JWT token.")
                     : ("InsufficientPermissions", "Access denied. You do not have permission to access this resource.");
-                return PolicyResult.Deny((int)status, code, message, decision.UserIdentifier, decision.UserRole, decision.Reason);
+                return PolicyResult.Deny((int)status, code, message, decision.UserIdentifier, decision.UserRole, decision.Reason, catalogEntry.Policy);
             }
         }
 
@@ -216,7 +288,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 LogSanitizer.Clean(decision.UserIdentifier), LogSanitizer.Clean(jwtTenantId), LogSanitizer.Clean(namedTarget), catalogEntry.TenantScoping, logPath);
             return PolicyResult.Deny((int)HttpStatusCode.Forbidden, "CrossTenantAccessDenied",
                 "Access denied. You can only access your own tenant's resources.",
-                decision.UserIdentifier, decision.UserRole, "CrossTenant");
+                decision.UserIdentifier, decision.UserRole, "CrossTenant", catalogEntry.Policy);
         }
 
         // Tenant suspension gate — the operator kill-switch (TenantConfiguration.Disabled/DisabledUntil) and
@@ -238,7 +310,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                     !string.IsNullOrEmpty(suspended.DisabledReason)
                         ? suspended.DisabledReason
                         : "Your tenant has been suspended. Please contact support for more information.",
-                    decision.UserIdentifier, decision.UserRole, "TenantSuspended");
+                    decision.UserIdentifier, decision.UserRole, "TenantSuspended", catalogEntry.Policy);
             }
         }
 
@@ -656,12 +728,17 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         public string UserIdentifier { get; private init; } = "anonymous";
         public string UserRole { get; private init; } = "N/A";
         public string LogReason { get; private init; } = "";
+        /// <summary>
+        /// Policy tier of the denied catalog entry; null when the route is unregistered (fail-closed deny).
+        /// Lets <see cref="Invoke"/> single out GlobalAdminOnly denials for the assume-breach report.
+        /// </summary>
+        public EndpointPolicy? Policy { get; private init; }
 
         public static PolicyResult Allow(RequestContext context, string user, string role)
             => new() { Allowed = true, Context = context, UserIdentifier = user, UserRole = role, LogReason = "Allow" };
 
         public static PolicyResult Deny(int statusCode, string errorCode, string errorMessage,
-            string user, string role, string logReason)
+            string user, string role, string logReason, EndpointPolicy? policy = null)
             => new()
             {
                 Allowed = false,
@@ -671,6 +748,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                 UserIdentifier = user,
                 UserRole = role,
                 LogReason = logReason,
+                Policy = policy,
             };
     }
 

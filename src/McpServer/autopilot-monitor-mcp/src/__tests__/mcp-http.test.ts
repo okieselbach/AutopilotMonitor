@@ -16,7 +16,7 @@
  * No backend token needed: validate_rule is MCP-local, and catalogs are built
  * without search providers.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import { Client } from '@modelcontextprotocol/client';
@@ -29,6 +29,8 @@ const DEPS: ServerDeps = { serverVersion: '0.0.0-test', knowledgeBase: undefined
 
 /** Flipped per test: what accessGuard would have resolved for the caller. */
 let callerIsGlobalAdmin = true;
+/** Read-only Global Reader: platform scope without the strictGa surface. */
+let callerIsGlobalReader = false;
 
 let httpServer: Server;
 let url: URL;
@@ -43,7 +45,7 @@ beforeAll(async () => {
   // Mirrors index.ts: the guard scopes the caller via AsyncLocalStorage around
   // the dispatch; the factory must observe it through the SDK entry.
   app.post('/mcp', (req, res) =>
-    runWithCaller({ token: 'test-token', isGlobalAdmin: callerIsGlobalAdmin }, () => handler(req, res)),
+    runWithCaller({ token: 'test-token', isGlobalAdmin: callerIsGlobalAdmin, isGlobalReader: callerIsGlobalReader, upn: 'caller@contoso.com' }, () => handler(req, res)),
   );
   await new Promise<void>((resolve) => {
     httpServer = app.listen(0, '127.0.0.1', () => resolve());
@@ -204,6 +206,85 @@ describe('role tailoring is identical across eras (privilege-leak guard)', () =>
     expect(modern).toEqual(legacy);
     expect(modern).toContain('list_tenants');
     expect(modern).toContain('update_tenant_config');
+  });
+
+  it('a Global Reader sees the platform reads but none of the strictGa tools on either path', async () => {
+    callerIsGlobalAdmin = false;
+    callerIsGlobalReader = true;
+    try {
+      const modern = await toolNames('auto');
+      const legacy = await toolNames('legacy');
+      expect(modern).toEqual(legacy);
+      expect(modern).toContain('list_tenants');
+      expect(modern).toContain('get_ops_events');
+      for (const name of ['query_backend_logs', 'query_table', 'list_tables', 'update_tenant_config', 'get_tenant_config', 'annotate_session']) {
+        expect(modern, `${name} leaked to a Global Reader`).not.toContain(name);
+      }
+      const { client } = await connect('auto');
+      try {
+        // The debug prompt must not point a Reader at tools it cannot see.
+        const prompt = await client.getPrompt({ name: 'debug-session', arguments: { sessionId: 'e259c121-1234-4abc-9def-0123456789ab' } });
+        const text = prompt.messages.map((m) => (m.content as { text?: string }).text ?? '').join(' ');
+        expect(text).not.toContain('query_backend_logs');
+      } finally {
+        await client.close();
+      }
+    } finally {
+      callerIsGlobalAdmin = true;
+      callerIsGlobalReader = false;
+    }
+  });
+
+  it('a Global Admin is pointed at the raw tools by the debug prompt', async () => {
+    callerIsGlobalAdmin = true;
+    const { client } = await connect('auto');
+    try {
+      const prompt = await client.getPrompt({ name: 'debug-session', arguments: { sessionId: 'e259c121-1234-4abc-9def-0123456789ab' } });
+      const text = prompt.messages.map((m) => (m.content as { text?: string }).text ?? '').join(' ');
+      expect(text).toContain('query_backend_logs');
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+describe('assume-breach: a non-GA call to a GA-only tool', () => {
+  it('is refused as not-found AND fires the backend access probe with the tool name', async () => {
+    callerIsGlobalAdmin = false;
+    const realFetch = globalThis.fetch;
+    // The MCP client transport and the server-side probe share globalThis.fetch: pass the client's
+    // own POSTs to the loopback server through untouched and answer only the backend probe.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/global/raw/access-probe')) {
+        return new Response('{"error":"Forbidden"}', { status: 403 });
+      }
+      return realFetch(input, init);
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { client } = await connect('auto');
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      try {
+        // The SDK refuses before any handler: the 2026 client surfaces that as a thrown protocol error.
+        await expect(client.callTool({ name: 'query_backend_logs', arguments: { query: 'traces | take 1' } }))
+          .rejects.toThrow(/query_backend_logs not found/);
+      } finally {
+        globalThis.fetch = realFetch;
+        await client.close();
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      const probe = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/api/global/raw/access-probe'));
+      expect(probe, 'access probe was not fired').toBeDefined();
+      const headers = (probe![1] as RequestInit).headers as Record<string, string>;
+      expect(headers['X-MCP-Tool-Name']).toBe('query_backend_logs');
+      expect(headers['Authorization']).toBe('Bearer test-token');
+      const line = errorSpy.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[mcp-security] ga-tool-denied'));
+      expect(line).toContain('tool=query_backend_logs');
+      expect(line).toContain('upn=caller@contoso.com');
+    } finally {
+      errorSpy.mockRestore();
+      callerIsGlobalAdmin = true;
+    }
   });
 });
 

@@ -140,6 +140,18 @@ public class RawWireParityTests
             new ListRawTablesResponse { Count = tables.Count, Tables = tables });
     }
 
+    // ── AccessProbeFunction — GET /api/global/raw/access-probe ───────────────────────────
+    // New route (no anonymous predecessor): the wire shape is pinned as fixed JSON.
+
+    [Fact]
+    public void AccessProbe_wire_shape()
+    {
+        var json = JsonSerializer.Serialize(
+            new AccessProbeResponse { Success = true, Role = "GlobalAdmin" }, WireOptions);
+
+        Assert.Equal("{\"success\":true,\"role\":\"GlobalAdmin\"}", json);
+    }
+
     // ── TableQueryFunction.QueryTable — GET /api/global/raw/tables/{tableName} ───────────
     // Old literal: new { table = actualTableName, count = entities.Count, entities, nextLink }
     // (entities is List<Dictionary<string, object?>> at the call site.)

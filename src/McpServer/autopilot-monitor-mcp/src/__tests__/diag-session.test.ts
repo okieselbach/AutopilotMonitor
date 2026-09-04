@@ -33,7 +33,7 @@ function captureToolHandlers(ga: boolean): Record<string, Handler> {
 function capturePromptNames(ga: boolean): string[] {
   const names: string[] = [];
   const fake = { registerPrompt: (name: string) => { names.push(name); } };
-  registerPrompts(fake as never, ga);
+  registerPrompts(fake as never, ga, ga);
   return names;
 }
 

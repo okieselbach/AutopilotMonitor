@@ -14,6 +14,13 @@ export interface AcceptDelegationInvitationResponse {
   managedTenantId: string;
 }
 
+/** Success body of GET /api/global/raw/access-probe (GlobalAccessProbe): the no-op GlobalAdminOnly route the MCP fires when a non-GA caller attempts a GA-only tool, so the backend's deny path records the probe. A Global Admin gets this body; everyone else gets the middleware's 403. */
+export interface AccessProbeResponse {
+  success: boolean;
+  /** Always "GlobalAdmin" — the only role that reaches the body. */
+  role: string;
+}
+
 /** One currently active web user as listed by GET global/presence. */
 export interface ActiveUserItem {
   tenantId: string;
