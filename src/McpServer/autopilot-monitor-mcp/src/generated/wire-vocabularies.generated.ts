@@ -152,3 +152,11 @@ export const ANNOTATION_VERDICTS = [
   "inconclusive",
 ] as const;
 export type AnnotationVerdict = (typeof ANNOTATION_VERDICTS)[number];
+
+/** Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources). */
+export const LOG_SOURCES = [
+  "backend",
+  "web",
+  "mcp",
+] as const;
+export type LogSourceName = (typeof LOG_SOURCES)[number];

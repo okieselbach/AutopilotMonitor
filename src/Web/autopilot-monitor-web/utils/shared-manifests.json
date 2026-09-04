@@ -305,6 +305,11 @@
     "SlaEvaluationCompleted",
     "AzureMonitorAlert"
   ],
+  "logSources": [
+    "backend",
+    "web",
+    "mcp"
+  ],
   "tenantRoles": [
     "Admin",
     "Operator",
@@ -9905,6 +9910,63 @@
         }
       ]
     },
+    "KqlColumn": {
+      "kind": "object",
+      "doc": "A Kusto column header: name plus the store's scalar type name (string, long, real, datetime, dynamic, bool).",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "KqlTable": {
+      "kind": "object",
+      "doc": "One Kusto result table: column headers once, then rows as positional cell arrays.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "columns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "KqlColumn"
+            }
+          }
+        },
+        {
+          "name": "rows",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "array",
+              "element": {
+                "kind": "primitive",
+                "name": "unknown"
+              }
+            }
+          },
+          "doc": "Positional cells, one list per row, aligned with Columns. Cells are forwarded as the JSON the store produced (numbers stay numbers, customDimensions stays the JSON string App Insights emits, nulls stay null) — JsonElement is the honest \"unknown\" in the wire manifest."
+        }
+      ]
+    },
     "ListBackupsResponse": {
       "kind": "object",
       "doc": "Response of GET global/backups: every backupId in the critical-table-backups container, newest first. Serialized with SerializerOptions (the backup surface's own options), not the ApiJsonOptions pipeline.",
@@ -12362,6 +12424,79 @@
           },
           "optional": true,
           "doc": "The matched session; null (key omitted on the wire) when nothing matched."
+        }
+      ]
+    },
+    "QueryBackendLogsResponse": {
+      "kind": "object",
+      "doc": "Success body of POST /api/global/raw/logs (QueryBackendLogs): the KQL result of one telemetry store in the Kusto REST shape (tables[].columns/rows), wrapped with the source it came from and the proxy's own observations. The table shape is kept verbatim so every consumer that parsed the raw App Insights body keeps working.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The store the query ran against — one of LogQuerySources.All."
+        },
+        {
+          "name": "timespan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "ISO 8601 duration the query was bounded to (echo of the request, defaulted)."
+        },
+        {
+          "name": "budgetSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Server-side budget the upstream call ran under (clamped request value)."
+        },
+        {
+          "name": "elapsedMs",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Wall-clock time of the upstream call."
+        },
+        {
+          "name": "partial",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "True when the store answered 200 but flagged the result as incomplete (Kusto PartialError: result-size cap, shard timeout). Absent on a complete result — never silent, because a truncated aggregate reads like a smaller number."
+        },
+        {
+          "name": "partialReason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The store's own explanation when Partial is true."
+        },
+        {
+          "name": "tables",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "KqlTable"
+            }
+          }
         }
       ]
     },

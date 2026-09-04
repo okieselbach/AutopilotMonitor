@@ -285,6 +285,12 @@ builder.Services.AddSingleton<OpsAlertDispatchService>();
 builder.Services.AddSingleton<OpsEventService>();
 // Assume-breach observer on the policy middleware's deny path (GlobalAdminOnly 403 → Critical ops event).
 builder.Services.AddSingleton<IPrivilegedDenialReporter, PrivilegedDenialReporter>();
+// Operator KQL proxy (global/raw/logs): the three telemetry stores it can reach, the managed-identity
+// credential as an injectable seam, and a client WITHOUT its own timeout — the per-request budget
+// (CancellationTokenSource + Prefer: wait) is the only clock.
+builder.Services.AddSingleton<LogQuerySourceCatalog>();
+builder.Services.AddSingleton<Azure.Core.TokenCredential>(_ => new Azure.Identity.DefaultAzureCredential());
+builder.Services.AddHttpClient(LogQuerySourceCatalog.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan);
 // IME pattern-drift loop: folds ime_pattern_hits into ImePatternStats and raises
 // ImePatternDriftSuspected; singleton because it caches the stats snapshot for evaluation.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Ime.ImePatternHealthService>();

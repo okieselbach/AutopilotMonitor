@@ -418,7 +418,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/raw/events",                    EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         // Raw table/log access stays GlobalAdminOnly: query_table can dump arbitrary tables
         // (incl. TenantConfiguration secrets), which would bypass the GlobalReader config-secret
-        // redaction. A read-only GlobalReader uses the curated read endpoints instead.
+        // redaction, and the KQL proxy reaches three telemetry stores (backend traces, portal user
+        // telemetry, MCP container logs). A read-only GlobalReader uses the curated read endpoints.
         new("GET",    "global/raw/tables",                    EndpointPolicy.GlobalAdminOnly),
         new("GET",    "global/raw/tables/{tableName}",        EndpointPolicy.GlobalAdminOnly),
         new("POST",   "global/raw/logs",                      EndpointPolicy.GlobalAdminOnly),

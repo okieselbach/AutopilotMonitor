@@ -71,14 +71,11 @@ public class TypedResponseGuardTests
     private static readonly Dictionary<string, int> IdentifierBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// JsonSerializer.Serialize(new { ... }) sites that are NOT responses. The single entry is
-    /// an outgoing HTTP CLIENT request body (App Insights query POST) — not response debt.
-    /// Everything else must be a typed DTO (error shapes are tolerated by the shape check).
+    /// JsonSerializer.Serialize(new { ... }) sites that are NOT responses. EMPTY: the last entry (the
+    /// App Insights query POST body) became a typed request record when the proxy learned sources.
+    /// Everything must be a typed DTO (error shapes are tolerated by the shape check).
     /// </summary>
-    private static readonly Dictionary<string, int> SerializeBaseline = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Functions/Raw/AppInsightsQueryFunction.cs"] = 1,
-    };
+    private static readonly Dictionary<string, int> SerializeBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// A Build*/Compute*/*Payload/*Response method declared object hides its wire shape from

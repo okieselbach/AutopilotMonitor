@@ -93,6 +93,8 @@ const MCP_VOCABULARIES = [
     doc: "Session-annotation lanes (C# AnnotationLanes)." },
   { section: "annotationVerdicts", constName: "ANNOTATION_VERDICTS", typeName: "AnnotationVerdict",
     doc: "Session-annotation verdicts (C# AnnotationVerdicts)." },
+  { section: "logSources", constName: "LOG_SOURCES", typeName: "LogSourceName",
+    doc: "Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources)." },
 ];
 
 /**

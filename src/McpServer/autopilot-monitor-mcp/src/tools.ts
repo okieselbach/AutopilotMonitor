@@ -13,7 +13,8 @@ import type { DocsSearchBundle } from './search-provider.js';
  * cross-tenant read tools. `strictGa` is true ONLY for a real Global Admin and gates two groups whose
  * backend endpoints stay GlobalAdminOnly: the raw tools (list_tables / query_table /
  * query_backend_logs — they can dump secret-bearing tables that the GlobalReader config redaction
- * would otherwise hide) and the tenant-config write surface (get_tenant_config /
+ * would otherwise hide, and the KQL proxy reaches three telemetry stores incl. portal user
+ * telemetry and the MCP container logs) and the tenant-config write surface (get_tenant_config /
  * get_tenant_config_schema / update_tenant_config / list_tenant_config_backups /
  * revert_tenant_config — the server's only mutating tools; every write is snapshot-backed
  * and verified server-side). When `ga` is false

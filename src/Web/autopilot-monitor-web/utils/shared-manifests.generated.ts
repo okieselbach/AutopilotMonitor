@@ -309,6 +309,11 @@ export const SHARED_MANIFEST = {
     "SlaEvaluationCompleted",
     "AzureMonitorAlert"
   ],
+  "logSources": [
+    "backend",
+    "web",
+    "mcp"
+  ],
   "tenantRoles": [
     "Admin",
     "Operator",

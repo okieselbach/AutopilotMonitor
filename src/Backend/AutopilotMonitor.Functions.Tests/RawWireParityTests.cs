@@ -140,6 +140,65 @@ public class RawWireParityTests
             new ListRawTablesResponse { Count = tables.Count, Tables = tables });
     }
 
+    // ── AppInsightsQueryFunction — POST /api/global/raw/logs ─────────────────────────────
+    // The proxy used to forward the App Insights body byte for byte (no DTO). The typed wrapper keeps
+    // the Kusto `tables[].columns/rows` shape verbatim inside and adds source/budget/partial around it.
+
+    [Fact]
+    public void QueryBackendLogs_wire_shape_keeps_kusto_tables_verbatim_and_drops_absent_partial()
+    {
+        using var cells = JsonDocument.Parse("[\"2026-09-04T10:00:00Z\",42,\"{\\\"TenantId\\\":\\\"t1\\\"}\",null]");
+        var row = cells.RootElement.EnumerateArray().Select(c => c.Clone()).ToList();
+        var response = new QueryBackendLogsResponse
+        {
+            Success = true,
+            Source = "backend",
+            Timespan = "PT1H",
+            BudgetSeconds = 30,
+            ElapsedMs = 812,
+            Partial = null,
+            PartialReason = null,
+            Tables = new[]
+            {
+                new KqlTable
+                {
+                    Name = "PrimaryResult",
+                    Columns = new[] { new KqlColumn { Name = "timestamp", Type = "datetime" }, new KqlColumn { Name = "count_", Type = "long" }, new KqlColumn { Name = "customDimensions", Type = "dynamic" }, new KqlColumn { Name = "note", Type = "string" } },
+                    Rows = new[] { row },
+                },
+            },
+        };
+
+        var json = JsonSerializer.Serialize(response, WireOptions);
+
+        // The dynamic cell is the JSON STRING App Insights emits; the wire serializer escapes its inner
+        // quotes as " (default encoder) — the same string after decoding, so consumers that
+        // parse(customDimensions) are unaffected.
+        Assert.Equal(
+            "{\"success\":true,\"source\":\"backend\",\"timespan\":\"PT1H\",\"budgetSeconds\":30,\"elapsedMs\":812," +
+            "\"tables\":[{\"name\":\"PrimaryResult\",\"columns\":[{\"name\":\"timestamp\",\"type\":\"datetime\"},{\"name\":\"count_\",\"type\":\"long\"},{\"name\":\"customDimensions\",\"type\":\"dynamic\"},{\"name\":\"note\",\"type\":\"string\"}]," +
+            "\"rows\":[[\"2026-09-04T10:00:00Z\",42,\"{\\u0022TenantId\\u0022:\\u0022t1\\u0022}\",null]]}]}",
+            json);
+        using var roundTrip = JsonDocument.Parse(json);
+        var cell = roundTrip.RootElement.GetProperty("tables")[0].GetProperty("rows")[0][2].GetString();
+        Assert.Equal("{\"TenantId\":\"t1\"}", cell);
+    }
+
+    [Fact]
+    public void QueryBackendLogs_partial_result_carries_flag_and_reason()
+    {
+        var response = new QueryBackendLogsResponse
+        {
+            Success = true, Source = "mcp", Timespan = "P7D", BudgetSeconds = 120, ElapsedMs = 95000,
+            Partial = true, PartialReason = "E_QUERY_RESULT_SET_TOO_LARGE: too many rows",
+            Tables = new List<KqlTable>(),
+        };
+
+        var json = JsonSerializer.Serialize(response, WireOptions);
+
+        Assert.Contains("\"partial\":true,\"partialReason\":\"E_QUERY_RESULT_SET_TOO_LARGE: too many rows\",\"tables\":[]", json);
+    }
+
     // ── AccessProbeFunction — GET /api/global/raw/access-probe ───────────────────────────
     // New route (no anonymous predecessor): the wire shape is pinned as fixed JSON.
 

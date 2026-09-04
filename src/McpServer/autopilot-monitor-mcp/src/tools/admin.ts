@@ -88,6 +88,7 @@ import {
   ANNOTATION_LANES,
   ANNOTATION_VERDICTS,
   EVENT_SEVERITIES,
+  LOG_SOURCES,
   OPS_EVENT_CATEGORIES,
   OPS_EVENT_SEVERITIES,
   SESSION_STATUSES,
@@ -1433,23 +1434,41 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   if (strictGa) server.registerTool(
     'query_backend_logs',
     {
-      title: 'Query Backend Logs',
+      title: 'Query Platform Logs (KQL)',
       description:
-        'Query backend Application Insights logs using KQL. Global Admin only. ' +
-        'Use for debugging backend issues, tracing requests by correlation ID, and platform diagnostics.',
+        'Run a KQL query against one of the platform telemetry stores. Global Admin only. ' +
+        'The query is forwarded VERBATIM (same REST API as az monitor app-insights/log-analytics query); ' +
+        'the result is the Kusto shape `tables[].columns/rows` plus `source`, `budgetSeconds`, `elapsedMs` and — ' +
+        'when the store cut the result (size cap, shard timeout) — `partial: true` with `partialReason`. ' +
+        'Sources: "backend" (default) = the API\'s Application Insights: requests (one canonical row per HTTP call, ' +
+        'customDimensions.Source == \'WorkerMiddleware\'), traces, exceptions, customEvents, dependencies; ' +
+        '"web" = the portal\'s Application Insights: pageViews, browser customEvents, browserTimings, client dependencies; ' +
+        '"mcp" = the MCP Container App\'s Log Analytics workspace: ContainerAppConsoleLogs_CL (column Log_s is the ' +
+        'raw JSON line — parse_json(Log_s)) and ContainerAppSystemLogs_CL. ' +
+        'Budget: the backend runs the query for at most budgetSeconds (default 30, max 180) and answers 504 with a ' +
+        'hint when exceeded — there is no continuation (Kusto has none): narrow the timespan, aggregate with ' +
+        'summarize, cap rows with take. Both `timespan` and any ago() in the query bound the window; keep them ' +
+        'consistent. Write string literals in single quotes (the call is JSON) and project only the columns you need.',
       inputSchema: {
         query: z.string().describe('KQL query (e.g. "traces | where message contains \'error\' | take 50")'),
-        timespan: z.string().optional().default('PT1H').describe('ISO 8601 duration (default: PT1H = last 1 hour). Examples: PT30M, PT6H, P1D'),
+        timespan: z.string().optional().default('PT1H').describe('ISO 8601 duration (default: PT1H = last 1 hour). Examples: PT30M, PT6H, P1D, P7D'),
+        source: z.enum(LOG_SOURCES).optional().default('backend')
+          .describe('Telemetry store: backend (API App Insights, default), web (portal App Insights), mcp (MCP Container App Log Analytics).'),
+        budgetSeconds: z.coerce.number().int().min(5).max(180).optional().default(30)
+          .describe('Server-side wall-clock budget for the query (5-180, default 30). Raise it for multi-day summarize scans instead of retrying a timeout.'),
       },
       annotations: READ_ONLY_OPEN,
     },
     async (args) => withToolTelemetry('query_backend_logs', args, async () => {
       try {
+        const budget = args.budgetSeconds ?? 30;
         const data = await apiFetch('/api/global/raw/logs', {
           method: 'POST',
-          body: JSON.stringify({ query: args.query, timespan: args.timespan }),
+          body: JSON.stringify({ query: args.query, timespan: args.timespan, source: args.source, budgetSeconds: budget }),
+          // The backend enforces the budget; the client only needs to outlast it (token mint + transfer margin).
+          signal: AbortSignal.timeout((budget + 15) * 1000),
         });
-        return toolResultText(data, MAX_RESULT_SIZE_CHARS.events);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.rawTable);
       } catch (error: unknown) {
         return toolError('query_backend_logs', args, error);
       }

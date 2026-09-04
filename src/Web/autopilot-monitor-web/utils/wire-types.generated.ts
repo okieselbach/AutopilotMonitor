@@ -2129,6 +2129,20 @@ export interface IsGlobalAdminResponse {
   upn?: string;
 }
 
+/** A Kusto column header: name plus the store's scalar type name (string, long, real, datetime, dynamic, bool). */
+export interface KqlColumn {
+  name: string;
+  type: string;
+}
+
+/** One Kusto result table: column headers once, then rows as positional cell arrays. */
+export interface KqlTable {
+  name: string;
+  columns: KqlColumn[];
+  /** Positional cells, one list per row, aligned with Columns. Cells are forwarded as the JSON the store produced (numbers stay numbers, customDimensions stays the JSON string App Insights emits, nulls stay null) — JsonElement is the honest "unknown" in the wire manifest. */
+  rows: unknown[][];
+}
+
 /** Response of GET global/backups: every backupId in the critical-table-backups container, newest first. Serialized with SerializerOptions (the backup surface's own options), not the ApiJsonOptions pipeline. */
 export interface ListBackupsResponse {
   backupIds: string[];
@@ -2636,6 +2650,24 @@ export interface ProgressLookupSessionResponse {
   found: boolean;
   /** The matched session; null (key omitted on the wire) when nothing matched. */
   session?: SessionSummary;
+}
+
+/** Success body of POST /api/global/raw/logs (QueryBackendLogs): the KQL result of one telemetry store in the Kusto REST shape (tables[].columns/rows), wrapped with the source it came from and the proxy's own observations. The table shape is kept verbatim so every consumer that parsed the raw App Insights body keeps working. */
+export interface QueryBackendLogsResponse {
+  success: boolean;
+  /** The store the query ran against — one of LogQuerySources.All. */
+  source: string;
+  /** ISO 8601 duration the query was bounded to (echo of the request, defaulted). */
+  timespan: string;
+  /** Server-side budget the upstream call ran under (clamped request value). */
+  budgetSeconds: number;
+  /** Wall-clock time of the upstream call. */
+  elapsedMs: number;
+  /** True when the store answered 200 but flagged the result as incomplete (Kusto PartialError: result-size cap, shard timeout). Absent on a complete result — never silent, because a truncated aggregate reads like a smaller number. */
+  partial?: boolean;
+  /** The store's own explanation when Partial is true. */
+  partialReason?: string;
+  tables: KqlTable[];
 }
 
 /** Success body of GET /api/raw/events and /api/global/raw/events (QueryRawEvents / QueryRawEventsGlobal): raw event rows, PascalCase-verbatim stored columns. */

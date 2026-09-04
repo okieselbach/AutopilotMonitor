@@ -1,7 +1,60 @@
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace AutopilotMonitor.Shared.Models
 {
+    // Declaration order == wire order.
+    /// <summary>
+    /// Success body of POST /api/global/raw/logs (QueryBackendLogs): the KQL result of one
+    /// telemetry store in the Kusto REST shape (<c>tables[].columns/rows</c>), wrapped with the
+    /// source it came from and the proxy's own observations. The table shape is kept verbatim so
+    /// every consumer that parsed the raw App Insights body keeps working.
+    /// </summary>
+    public class QueryBackendLogsResponse : IApiResponse
+    {
+        public bool Success { get; set; }
+        /// <summary>The store the query ran against — one of <c>LogQuerySources.All</c>.</summary>
+        public string Source { get; set; } = default!;
+        /// <summary>ISO 8601 duration the query was bounded to (echo of the request, defaulted).</summary>
+        public string Timespan { get; set; } = default!;
+        /// <summary>Server-side budget the upstream call ran under (clamped request value).</summary>
+        public int BudgetSeconds { get; set; }
+        /// <summary>Wall-clock time of the upstream call.</summary>
+        public long ElapsedMs { get; set; }
+        /// <summary>
+        /// True when the store answered 200 but flagged the result as incomplete (Kusto
+        /// <c>PartialError</c>: result-size cap, shard timeout). Absent on a complete result —
+        /// never silent, because a truncated aggregate reads like a smaller number.
+        /// </summary>
+        public bool? Partial { get; set; }
+        /// <summary>The store's own explanation when <see cref="Partial"/> is true.</summary>
+        public string? PartialReason { get; set; }
+        public IReadOnlyList<KqlTable> Tables { get; set; } = default!;
+    }
+
+    // Declaration order == wire order.
+    /// <summary>One Kusto result table: column headers once, then rows as positional cell arrays.</summary>
+    public class KqlTable
+    {
+        public string Name { get; set; } = default!;
+        public IReadOnlyList<KqlColumn> Columns { get; set; } = default!;
+        /// <summary>
+        /// Positional cells, one list per row, aligned with <see cref="Columns"/>. Cells are
+        /// forwarded as the JSON the store produced (numbers stay numbers, <c>customDimensions</c>
+        /// stays the JSON string App Insights emits, nulls stay null) — <see cref="JsonElement"/>
+        /// is the honest "unknown" in the wire manifest.
+        /// </summary>
+        public IReadOnlyList<IReadOnlyList<JsonElement>> Rows { get; set; } = default!;
+    }
+
+    // Declaration order == wire order.
+    /// <summary>A Kusto column header: name plus the store's scalar type name (string, long, real, datetime, dynamic, bool).</summary>
+    public class KqlColumn
+    {
+        public string Name { get; set; } = default!;
+        public string Type { get; set; } = default!;
+    }
+
     // Raw endpoints return the literal stored table columns as dictionary rows
     // (PascalCase-verbatim, e.g. "PartitionKey", "EventType"). This is wire-safe because
     // System.Text.Json only renames PROPERTY names via PropertyNamingPolicy — dictionary

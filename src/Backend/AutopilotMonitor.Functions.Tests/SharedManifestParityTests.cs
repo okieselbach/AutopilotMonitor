@@ -81,6 +81,8 @@ public sealed class SharedManifestParityTests
             ["opsEventSeverities"] = ConstStrings(typeof(OpsEventSeverity)),
             // Declaration order (grouped by category) — the MCP renders this catalog verbatim.
             ["opsEventTypes"] = OpsEventTypes.All,
+            // Telemetry stores behind the operator KQL proxy (query_backend_logs `source`).
+            ["logSources"] = LogQuerySources.All,
             ["tenantRoles"] = ConstStrings(typeof(Constants.TenantRoles)),
             ["globalRoles"] = ConstStrings(typeof(Constants.GlobalRoles)),
             ["delegatedRoles"] = ConstStrings(typeof(Constants.DelegatedRoles)),
