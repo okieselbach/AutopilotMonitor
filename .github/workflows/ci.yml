@@ -9,8 +9,8 @@ name: CI
 # red run reports rather than blocks. Read the result and follow up.
 #
 # Path filters: commits that only bump a private submodule gitlink (internal/, infra/,
-# .claude/commands) or touch prose cannot change anything the suites cover, so they are
-# skipped instead of burning ~15 runner-minutes each. A gitlink bump reports the bare
+# .claude/commands), touch prose or edit another workflow cannot change anything the
+# suites cover, so they are skipped instead of burning ~15 runner-minutes each. A gitlink bump reports the bare
 # path ('internal', no trailing slash), which 'internal/**' does NOT match — both forms
 # are listed. GitHub skips only when EVERY changed path matches; a commit that touches
 # docs AND code still runs.
@@ -30,6 +30,23 @@ on:
       - '.github/FUNDING.yml'
       - '.github/dependabot.yml'
       - '.github/assets/**'
+      - '.github/codeql/**'
+      - '.github/scripts/**'
+      # Every other workflow: nothing here builds or tests anything CI covers. paths-ignore
+      # cannot negate, so they are listed one by one; ci.yml itself stays out of the list
+      # so a change to CI runs CI. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/bootstrap-script-gates.yml'
+      - '.github/workflows/build-agent.yml'
+      - '.github/workflows/build-msi.yml'
+      - '.github/workflows/codeql.yml'
+      - '.github/workflows/combine-rules.yml'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/deploy-mcp.yml'
+      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/indexnow-notify.yml'
+      - '.github/workflows/oidc-login-test.yml'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/publish-scripts.yml'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -45,6 +62,23 @@ on:
       - '.github/FUNDING.yml'
       - '.github/dependabot.yml'
       - '.github/assets/**'
+      - '.github/codeql/**'
+      - '.github/scripts/**'
+      # Every other workflow: nothing here builds or tests anything CI covers. paths-ignore
+      # cannot negate, so they are listed one by one; ci.yml itself stays out of the list
+      # so a change to CI runs CI. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/bootstrap-script-gates.yml'
+      - '.github/workflows/build-agent.yml'
+      - '.github/workflows/build-msi.yml'
+      - '.github/workflows/codeql.yml'
+      - '.github/workflows/combine-rules.yml'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/deploy-mcp.yml'
+      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/indexnow-notify.yml'
+      - '.github/workflows/oidc-login-test.yml'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/publish-scripts.yml'
   workflow_dispatch:
 
 permissions:

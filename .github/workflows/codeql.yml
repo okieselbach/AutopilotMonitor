@@ -6,7 +6,7 @@ name: CodeQL
 # A gitlink bump reports the bare path ('internal', no trailing slash), which
 # 'internal/**' does NOT match — both forms are listed. A commit that touches docs
 # AND code still runs: GitHub skips only when EVERY changed path matches the filter.
-# Same list as ci.yml; keep them in step.
+# Same list as ci.yml except that each file leaves itself out; keep them in step.
 on:
   push:
     branches: [main]
@@ -23,6 +23,22 @@ on:
       - '.github/FUNDING.yml'
       - '.github/dependabot.yml'
       - '.github/assets/**'
+      - '.github/scripts/**'
+      # Every other workflow: none of them changes the C# or TypeScript CodeQL analyzes.
+      # paths-ignore cannot negate, so they are listed one by one; codeql.yml itself and
+      # .github/codeql/ stay out of the list. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/bootstrap-script-gates.yml'
+      - '.github/workflows/build-agent.yml'
+      - '.github/workflows/build-msi.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/combine-rules.yml'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/deploy-mcp.yml'
+      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/indexnow-notify.yml'
+      - '.github/workflows/oidc-login-test.yml'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/publish-scripts.yml'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -38,6 +54,22 @@ on:
       - '.github/FUNDING.yml'
       - '.github/dependabot.yml'
       - '.github/assets/**'
+      - '.github/scripts/**'
+      # Every other workflow: none of them changes the C# or TypeScript CodeQL analyzes.
+      # paths-ignore cannot negate, so they are listed one by one; codeql.yml itself and
+      # .github/codeql/ stay out of the list. A new workflow file is opt-in — add it here too.
+      - '.github/workflows/bootstrap-script-gates.yml'
+      - '.github/workflows/build-agent.yml'
+      - '.github/workflows/build-msi.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/combine-rules.yml'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/deploy-mcp.yml'
+      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/indexnow-notify.yml'
+      - '.github/workflows/oidc-login-test.yml'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/publish-scripts.yml'
   schedule:
     # Weekly, so advisories published after a merge still surface. Deliberately
     # unfiltered — it re-analyzes the whole tree regardless of what changed, which
