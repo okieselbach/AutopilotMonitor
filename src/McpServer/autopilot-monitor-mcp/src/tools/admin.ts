@@ -6,6 +6,7 @@ import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../res
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
+import { collectDeploymentState } from '../deployment-state.js';
 
 /**
  * The tools registered ONLY for a real Global Admin (`strictGa`), by name. Static on purpose: the
@@ -1084,6 +1085,35 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_session_reports', args, error);
+      }
+    })
+  );
+
+  // Tool 18a: get_deployment_state — platform scope; every source is a public endpoint, the
+  // tool only saves the operator six fetches and the drift arithmetic.
+  if (ga) server.registerTool(
+    'get_deployment_state',
+    {
+      title: 'Get Deployment State',
+      description:
+        'What is live vs. what CI verified as deployed, for all four components in one call: backend ' +
+        '(/api/health vs versions/backend.json), web (portal /version.json vs versions/web.json), mcp (this ' +
+        'server\'s own build vs versions/mcp.json) and agent (release manifest only — it runs on devices). ' +
+        'A manifest is written by the deploy workflow only AFTER the live endpoint answered with exactly that ' +
+        'version + commit, so drift="drifted" means the running instance changed after a verified deploy ' +
+        '(rollback, stale revision, failed restart) — the case a live-vs-git comparison cannot see. ' +
+        'drift="unknown" carries a note saying which half is missing; a manifest 404 means "never deployed since ' +
+        'manifests exist", not an outage. Failed fetches are listed under partialErrors. Commits are 7-char short ' +
+        'SHAs; compare them against your local git HEAD yourself (git merge-base --is-ancestor <commit> HEAD).',
+      inputSchema: {},
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_deployment_state', args, async () => {
+      try {
+        const state = await collectDeploymentState();
+        return toolResultText(state, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_deployment_state', args, error);
       }
     })
   );

@@ -114,6 +114,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_api_usage',
     'get_app_install_metrics',
     'get_audit_logs',
+    // Platform scope (GA + Global Reader): public endpoints only (health, manifests), operator view.
+    'get_deployment_state',
     // Available to every role: backed by MemberRead endpoints with TenantScoping.QueryParam /
     // role-aware routing to the GlobalReadOrAdmin fleet variant — same placement as
     // get_time_attribution (F2 counterpart).
@@ -204,6 +206,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'annotate_session',
     'get_agent_efficiency_metrics',
     'get_api_usage',
+    'get_deployment_state',
     'get_fleet_overview',
     'get_ime_pattern_health',
     'get_ops_events',

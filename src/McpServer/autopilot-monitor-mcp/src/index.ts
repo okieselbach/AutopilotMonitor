@@ -16,25 +16,12 @@ import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
 import { toolLoggingEnabled, attachToolCallRejectionSniffer } from './telemetry.js';
 import { API_BASE_URL } from './config.js';
+import { SERVER_VERSION, BUILD_COMMIT, BUILD_UTC, DOCS_COMMIT } from './build-info.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
-
-// Version contract shared with the agent and the backend: <major>.<minor>.<build>,
-// where major.minor is curated in package.json and <build> is reserved per build
-// from the counter blob versions/mcp.txt and baked in by deploy-mcp.yml. Without
-// the env var (any local run) the package.json version stands as-is, which is how
-// /health and the MCP handshake tell a workstation from a deployed image.
-const BUILD_NUMBER = process.env.BUILD_NUMBER ?? '';
-const SERVER_VERSION: string = BUILD_NUMBER
-  ? `${pkg.version.split('.').slice(0, 2).join('.')}.${BUILD_NUMBER}`
-  : pkg.version;
-
-// Commit of THIS repo the image was built from. Counterpart to DOCS_COMMIT below:
-// that one tracks the documentation bundle, this one the server itself.
-const BUILD_COMMIT = process.env.BUILD_COMMIT ?? 'unknown';
-const BUILD_UTC = process.env.BUILD_UTC ?? 'unknown';
+// Build identity (version contract, commits) lives in build-info.ts so the deployment-state
+// tool reports the same values /health does.
 
 /**
  * Boot stopwatch. minReplicas=0 means every idle period ends in a cold start a user
@@ -58,11 +45,6 @@ const RULES_DIR = process.env.RULES_DIR ?? resolve(__dirname, '..', '..', '..', 
 // registered. Point DOCS_DIR at a local clone to develop against it.
 const DOCS_DIR = process.env.DOCS_DIR ?? '';
 
-// Commit of the docs bundle this image was built from. The docs repo changes
-// independently of this one, so a deployed image can silently serve stale
-// documentation; surfacing the SHA on /health makes that checkable instead of a
-// thing to remember.
-const DOCS_COMMIT = process.env.DOCS_COMMIT ?? 'unknown';
 
 // Surface the MCP_PUBLIC_URL state at boot. In production a missing pin is a
 // hard boot failure (config.ts throws — host-spoofing defense); this dev-only
