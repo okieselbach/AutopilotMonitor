@@ -382,7 +382,7 @@ jobs:
             $compare = "`n`n**Full changelog:** https://github.com/$env:GITHUB_REPOSITORY/compare/$prevTag...$env:RELEASE_TAG`n"
           }
 
-          $body = "## $env:RELEASE_NAME`n`n### What's new`n$notes`n`n" + "$env:RELEASE_BODY_TAIL".TrimEnd() + $compare
+          $body = "### What's new`n$notes`n`n" + "$env:RELEASE_BODY_TAIL".TrimEnd() + $compare
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           Set-Content -Path $notesFile -Value $body -Encoding utf8 -NoNewline
 
