@@ -163,9 +163,31 @@ namespace AutopilotMonitor.Functions.Services
             return (true, existsEvidence);
         }
 
+        /// <summary>
+        /// Optional same-event value filter (FilterField/FilterOperator/FilterValue): keeps only
+        /// events whose filter field satisfies the operator. Shared by <c>event_count</c> (which
+        /// events are counted) and <c>event_data</c>/<c>event_data_array</c> (which event
+        /// instances the main dataField/operator may match). The filter and the main test are
+        /// evaluated on the SAME event, which independent conditions cannot express — each
+        /// condition scans all events on its own, so "durationSeconds ≥ 300" and
+        /// "backfilled = false" as two conditions would match two different episodes
+        /// (ANALYZE-DEV-012 firing on a pre-session backfilled hibernate, backlog q8n).
+        /// A missing filter field stringifies to empty, so <c>equals</c> excludes the event
+        /// and <c>not_equals</c> keeps it. No filter configured = unchanged behaviour.
+        /// </summary>
+        private List<EnrollmentEvent> ApplyValueFilter(RuleCondition condition, List<EnrollmentEvent> matchingEvents)
+        {
+            if (string.IsNullOrEmpty(condition.FilterField) || string.IsNullOrEmpty(condition.FilterOperator))
+                return matchingEvents;
+
+            return matchingEvents
+                .Where(e => MatchesOperator(GetDataFieldValue(e, condition.FilterField) ?? string.Empty, condition.FilterOperator, condition.FilterValue))
+                .ToList();
+        }
+
         private (bool matched, object evidence) EvaluateEventDataCondition(RuleCondition condition, List<EnrollmentEvent> events)
         {
-            var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
 
             foreach (var evt in matchingEvents)
             {
@@ -214,7 +236,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         private (bool matched, object evidence) EvaluateEventDataArrayCondition(RuleCondition condition, List<EnrollmentEvent> events)
         {
-            var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
 
             foreach (var evt in matchingEvents)
             {
@@ -362,16 +384,9 @@ namespace AutopilotMonitor.Functions.Services
 
         private (bool matched, object evidence) EvaluateEventCountCondition(RuleCondition condition, List<EnrollmentEvent> events)
         {
-            var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
-
             // Optional value filter: count only events whose FilterField satisfies FilterOperator/FilterValue
             // (e.g. only performance_snapshot events with memory_used_percent > 90).
-            if (!string.IsNullOrEmpty(condition.FilterField) && !string.IsNullOrEmpty(condition.FilterOperator))
-            {
-                matchingEvents = matchingEvents
-                    .Where(e => MatchesOperator(GetDataFieldValue(e, condition.FilterField) ?? string.Empty, condition.FilterOperator, condition.FilterValue))
-                    .ToList();
-            }
+            var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
 
             // count_per_group_gte: group by DataField value (e.g. appId), fire if any group >= threshold
             if (condition.Operator == "count_per_group_gte" && !string.IsNullOrEmpty(condition.DataField) && int.TryParse(condition.Value, out var groupThreshold))

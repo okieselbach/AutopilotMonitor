@@ -496,11 +496,11 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
         },
         "filterField": {
           "type": "string",
-          "description": "For event_count only: optional value filter — only events whose filterField satisfies filterOperator/filterValue are counted (e.g. count only performance_snapshot events with memory_used_percent > 90). Applies before counting for both count_gte and count_per_group_gte."
+          "description": "Optional same-event value filter for event_count, event_data and event_data_array: only events whose filterField satisfies filterOperator/filterValue are considered. For event_count it applies before counting (both count_gte and count_per_group_gte, e.g. count only performance_snapshot events with memory_used_percent > 90). For event_data/event_data_array the filter and the main dataField/operator test are evaluated on the SAME event instance — the only way to pin two fields of one event together, since separate conditions each scan all events independently (e.g. system_sleep_episode with durationSeconds gte 300 AND backfilled equals false)."
         },
         "filterOperator": {
           "type": "string",
-          "description": "Operator for the event_count value filter.",
+          "description": "Operator for the same-event value filter. Same vocabulary as operator.",
           "enum": [
             "equals",
             "not_equals",
@@ -520,7 +520,7 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
         },
         "filterValue": {
           "type": "string",
-          "description": "Value for the event_count value filter."
+          "description": "Value for the same-event value filter. Boolean values are stringified (\"true\"/\"false\")."
         },
         "correlateEventType": {
           "type": "string",

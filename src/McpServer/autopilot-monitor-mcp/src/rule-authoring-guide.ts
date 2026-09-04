@@ -145,7 +145,10 @@ export const RULE_AUTHORING_GUIDE = {
         'on a field inside those events. Most common source.',
       event_data:
         'Compare a data field inside events of eventType (dataField + operator + value). Supports ' +
-        'dot-paths into nested objects; "message" resolves to the event message.',
+        'dot-paths into nested objects; "message" resolves to the event message. Optional ' +
+        'filterField/filterOperator/filterValue pin a second field of the SAME event (e.g. ' +
+        'durationSeconds gte 300 with filter backfilled equals false) — two separate conditions ' +
+        'would match two different events.',
       event_data_array:
         'Iterate an ARRAY field (dataField) inside ONE event and test a sub-field of each element ' +
         '(itemField; empty = element itself). Matches if ANY element passes. Allow-list pattern: ' +

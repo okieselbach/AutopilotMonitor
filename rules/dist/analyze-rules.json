@@ -1772,10 +1772,10 @@
     {
       "ruleId": "ANALYZE-DEV-012",
       "title": "Device Entered Standby During Enrollment",
-      "description": "Detects that the device completed a sleep, hibernate or Modern Standby episode of at least 5 minutes while the enrollment was running (system_sleep_episode event from the agent's system timeline watcher, recorded retroactively at wake from the Windows event log — pre-agent episodes are backfilled). Uses a single required condition on the episode's durationSeconds so the match is pinned to one event instance and the interpolated duration is the matched value. Short Modern Standby screen-off scenarios (under 60 s of real sleep) never emit the event, and this rule adds a 5-minute floor so brief lid-close moments do not fire it.",
+      "description": "Detects that the device completed a sleep, hibernate or Modern Standby episode of at least 5 minutes while the enrollment was running (system_sleep_episode event from the agent's system timeline watcher, recorded retroactively at wake from the Windows event log). The watcher also backfills pre-agent episodes from the last 24 h for timeline context (backfilled=true); those ended before the enrollment started and are excluded via the same-event filter backfilled equals false — a separate condition could not do that, because each condition scans all events on its own and a pre-session hibernate would still satisfy the duration test. A single required condition keeps the match pinned to one event instance so the interpolated duration is the matched value. Short Modern Standby screen-off scenarios (under 60 s of real sleep) never emit the event, and this rule adds a 5-minute floor so brief lid-close moments do not fire it.",
       "severity": "info",
       "category": "device",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
@@ -1793,6 +1793,9 @@
           "dataField": "durationSeconds",
           "operator": "gte",
           "value": "300",
+          "filterField": "backfilled",
+          "filterOperator": "equals",
+          "filterValue": "false",
           "required": true
         }
       ],

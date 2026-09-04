@@ -279,24 +279,28 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public bool Required { get; set; } = false;
 
-        // ===== Event Count Filter Properties =====
-        // Used only when Source = "event_count"
+        // ===== Same-Event Value Filter Properties =====
+        // Used when Source = "event_count", "event_data" or "event_data_array"
 
         /// <summary>
-        /// Optional value filter for "event_count": only events whose FilterField
-        /// satisfies FilterOperator/FilterValue are counted (e.g. count only
-        /// performance_snapshot events with memory_used_percent > 90).
-        /// Applies before counting for both count_gte and count_per_group_gte.
+        /// Optional same-event value filter: only events whose FilterField satisfies
+        /// FilterOperator/FilterValue are considered by the condition.
+        /// For "event_count": applies before counting (both count_gte and count_per_group_gte),
+        /// e.g. count only performance_snapshot events with memory_used_percent > 90.
+        /// For "event_data"/"event_data_array": the filter and the main DataField/Operator test
+        /// are evaluated on the SAME event instance — the only way to pin two fields of one
+        /// event together, since separate conditions each scan all events independently
+        /// (e.g. system_sleep_episode with durationSeconds >= 300 AND backfilled = false).
         /// </summary>
         public string FilterField { get; set; } = default!;
 
         /// <summary>
-        /// Operator for the count filter. Uses same operators as the main Operator field.
+        /// Operator for the same-event filter. Uses the same operators as the main Operator field.
         /// </summary>
         public string FilterOperator { get; set; } = default!;
 
         /// <summary>
-        /// Value for the count filter.
+        /// Value for the same-event filter.
         /// </summary>
         public string FilterValue { get; set; } = default!;
 

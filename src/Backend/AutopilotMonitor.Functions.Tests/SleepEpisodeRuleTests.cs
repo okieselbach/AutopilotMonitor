@@ -90,9 +90,62 @@ public class SleepEpisodeRuleTests
         Assert.Empty(outcome.Results);
     }
 
+    [Fact]
+    public async Task ANALYZE_DEV_012_does_not_fire_on_a_backfilled_pre_session_episode()
+    {
+        // Backlog q8n: the watcher backfills pre-agent episodes for timeline context. A 91 h
+        // hibernate that ended before the enrollment started (session a2256107) satisfied the
+        // duration test and fired the rule although the device never slept while enrolling.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-012");
+
+        var events = new List<EnrollmentEvent>
+        {
+            SleepEpisode(durationSeconds: 329_140, kind: "hibernate", backfilled: true),
+        };
+
+        var outcome = await RunAsync(rule, events);
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_012_pins_duration_and_backfilled_to_the_same_episode()
+    {
+        // The adversarial mix from a2256107: a long backfilled episode plus a short live one.
+        // Two independent conditions (duration >= 300, backfilled = false) would each find a
+        // match on a different event and fire; the same-event filter must not.
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-012");
+
+        var events = new List<EnrollmentEvent>
+        {
+            SleepEpisode(durationSeconds: 329_140, kind: "hibernate", backfilled: true),
+            SleepEpisode(durationSeconds: 89, kind: "modern_standby", backfilled: false),
+        };
+
+        var outcome = await RunAsync(rule, events);
+        Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task ANALYZE_DEV_012_fires_on_a_live_episode_next_to_a_backfilled_one()
+    {
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-DEV-012");
+
+        var events = new List<EnrollmentEvent>
+        {
+            SleepEpisode(durationSeconds: 329_140, kind: "hibernate", backfilled: true),
+            SleepEpisode(durationSeconds: 600, kind: "modern_standby", backfilled: false),
+        };
+
+        var outcome = await RunAsync(rule, events);
+
+        var result = Assert.Single(outcome.Results);
+        var matched = AsDict(result.MatchedConditions["slept_during_enrollment"]);
+        Assert.Equal("600", AsString(matched["value"])); // the live episode, not the backfilled one
+    }
+
     // ===== Event builder — mirrors the SystemTimelineTracker emit shape =====
 
-    private static EnrollmentEvent SleepEpisode(long durationSeconds, string kind) => new()
+    private static EnrollmentEvent SleepEpisode(long durationSeconds, string kind, bool backfilled = false) => new()
     {
         EventId = Guid.NewGuid().ToString(),
         TenantId = TenantId,
@@ -106,7 +159,7 @@ public class SleepEpisodeRuleTests
             ["enteredAt"] = DateTime.UtcNow.AddSeconds(-durationSeconds).ToString("o"),
             ["exitedAt"] = DateTime.UtcNow.ToString("o"),
             ["durationSeconds"] = durationSeconds,
-            ["backfilled"] = false,
+            ["backfilled"] = backfilled,
         }
     };
 

@@ -201,7 +201,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public bool DeviceSetupCategorySucceeded => _provisioningTracker?.DeviceSetupCategorySucceeded ?? false;
 
         /// <summary>
-        /// True when any AccountSetup subcategory has been tracked (resolved or in progress).
+        /// True once an AccountSetup subcategory has left <c>notStarted</c> (observed progress, not
+        /// registry presence — see <see cref="ProvisioningStatusTracker.HasAccountSetupActivity"/>).
         /// </summary>
         public bool HasAccountSetupActivity => _provisioningTracker?.HasAccountSetupActivity ?? false;
 
@@ -558,9 +559,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <list type="bullet">
         ///   <item>SkipUser is unknown or explicitly <c>true</c> (device-only / SkipUser flow —
         ///         AwaitingHello is legitimately reachable directly after Device-ESP).</item>
-        ///   <item>The provisioning tracker has observed AccountSetup activity (registry JSON
-        ///         under <c>AccountSetupCategory.Status</c> has surfaced at least one subcategory),
-        ///         i.e. the current exit is the final post-Account-ESP one.</item>
+        ///   <item>The provisioning tracker has observed AccountSetup progress (at least one
+        ///         subcategory under <c>AccountSetupCategory.Status</c> has left <c>notStarted</c>),
+        ///         i.e. the current exit is the final post-Account-ESP one. Presence of the JSON
+        ///         alone is not evidence — Windows writes it all-<c>notStarted</c> before the
+        ///         Device-ESP exit (q8n).</item>
         /// </list>
         /// </summary>
         private bool IsIntermediateDeviceEspExit()
@@ -593,8 +596,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// it back. So this one demands positive evidence and treats "unknown" as "not confirmed":
         /// </para>
         /// <list type="bullet">
-        ///   <item>the provisioning tracker has seen AccountSetup activity — the page that just
-        ///         tore down is demonstrably the AccountSetup one; or</item>
+        ///   <item>the provisioning tracker has seen AccountSetup progress (a subcategory past
+        ///         <c>notStarted</c>) — the page that just tore down is demonstrably the
+        ///         AccountSetup one; or</item>
         ///   <item>SkipUser is explicitly <c>true</c> — the profile has no user ESP at all, so the
         ///         Device-ESP exit IS the final one and no second exit is coming.</item>
         /// </list>
