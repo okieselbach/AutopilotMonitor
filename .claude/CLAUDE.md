@@ -1,6 +1,6 @@
 # Agent Directives
 
-- **Plan first.** Enter plan mode for any non-trivial task (3+ steps or an architectural decision) and write the spec before building. If something goes sideways, stop and re-plan instead of pushing on.
+- **Plan first.** Enter plan mode for any non-trivial task (3+ steps or an architectural decision) and write the spec before building. The plan file is `internal/work/plans/<slug>.md` from the first draft; the harness plan folder outside the repo is never the storage place, at most a copy for the approval dialog. If something goes sideways, stop and re-plan instead of pushing on.
 - **Use subagents liberally** for research, exploration, and parallel analysis — one focus each — to keep the main context clean.
 - **Verify before claiming done.** Run the tests, check the logs, show the evidence. Diff against `main` where behaviour could regress.
 - **Fix bugs autonomously.** Given a report, a failing test, or an error, resolve it — no hand-holding.

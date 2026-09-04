@@ -27,6 +27,10 @@ on:
         required: false
         type: boolean
         default: false
+      release_notes:
+        description: 'Customer-facing notes for the GitHub Release (Markdown bullets). Empty = generic fallback linking to the docs changelog'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -326,7 +330,13 @@ jobs:
 
       # First-party `gh` instead of a third-party action: this job holds contents:write,
       # id-token:write and attestations:write, so no code we do not control runs here.
-      # --generate-notes appends the auto-generated notes below the body.
+      # The "What's new" section comes ONLY from the release_notes input -- CI never
+      # composes customer-facing text from commits. An empty input writes a generic
+      # fallback that links to the docs changelog and carries the HTML-comment marker
+      # below; the operator tooling scans release bodies for that marker to find the
+      # last release with real notes, so the next noted release covers the gap.
+      # Never rename the marker. --generate-notes is not used: it lists pull requests
+      # only (Dependabot noise); the compare link to the previous tag replaces it.
       - name: Create GitHub Release
         if: inputs.create_release
         shell: pwsh
@@ -336,9 +346,8 @@ jobs:
           RELEASE_NAME: Autopilot Monitor Agent ${{ steps.version.outputs.version }}
           RELEASE_PRERELEASE: ${{ inputs.prerelease }}
           RELEASE_ZIP: ${{ steps.artifact.outputs.versioned_zip_release }}
-          RELEASE_BODY: |
-            ## Autopilot Monitor Agent ${{ steps.version.outputs.version }}
-
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          RELEASE_BODY_TAIL: |
             ### Installation
             1. Download `AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip`
             2. Extract to `C:\ProgramData\AutopilotMonitor\Agent\`
@@ -363,8 +372,29 @@ jobs:
             ```
         run: |
           $ErrorActionPreference = 'Stop'
+
+          $notes = "$env:RELEASE_NOTES".Trim()
+          if ($notes -eq '') {
+            $notes = "Minor enhancements and bug fixes. See the [Agent Changelog](https://docs.autopilotmonitor.com/changelog/agent-changelog) for details.`n<!-- release-notes: none -->"
+          }
+
+          # Previous release for the compare link. Fail-soft: the first release has none,
+          # and a listing hiccup must never fail a release.
+          $prevTag = ''
+          $eap = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            $prevTag = "$(gh release list --repo $env:GITHUB_REPOSITORY --limit 1 --exclude-drafts --json tagName -q '.[0].tagName' 2>$null)".Trim()
+          } catch { $prevTag = '' }
+          $ErrorActionPreference = $eap
+          $compare = ''
+          if ($prevTag -ne '' -and $prevTag -ne $env:RELEASE_TAG) {
+            $compare = "`n`n**Full changelog:** https://github.com/$env:GITHUB_REPOSITORY/compare/$prevTag...$env:RELEASE_TAG`n"
+          }
+
+          $body = "## $env:RELEASE_NAME`n`n### What's new`n$notes`n`n" + "$env:RELEASE_BODY_TAIL".TrimEnd() + $compare
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
-          Set-Content -Path $notesFile -Value $env:RELEASE_BODY -Encoding utf8 -NoNewline
+          Set-Content -Path $notesFile -Value $body -Encoding utf8 -NoNewline
 
           $ghArgs = @(
             'release', 'create', $env:RELEASE_TAG,
@@ -372,8 +402,7 @@ jobs:
             '--repo', $env:GITHUB_REPOSITORY,
             '--target', $env:GITHUB_SHA,
             '--title', $env:RELEASE_NAME,
-            '--notes-file', $notesFile,
-            '--generate-notes'
+            '--notes-file', $notesFile
           )
           if ($env:RELEASE_PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
 
