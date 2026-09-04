@@ -48,7 +48,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         }
 
         // Same container as the report ZIPs themselves (flat namespace, never pruned).
-        private const string ReportsContainerName = "session-reports";
+        private const string ReportsContainerName = AutopilotMonitor.Shared.Constants.BlobContainers.SessionReports;
 
         private readonly TenantConfigurationService _configService;
         private readonly AdminConfigurationService _adminConfigService;

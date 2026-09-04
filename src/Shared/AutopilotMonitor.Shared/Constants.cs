@@ -1408,6 +1408,15 @@ namespace AutopilotMonitor.Shared
             public const string HostedDiagnostics = "diagnostics";
 
             /// <summary>
+            /// Operator-side session reports: the report ZIP a tenant admin submitted
+            /// (<c>{tenantId}_{sessionId}_diag_request_{ts}.zip</c>), the preserved copy of the
+            /// session's diagnostics archive (<c>…_diag_archive_{ts}.zip</c>) and diag-files
+            /// reports (<c>{tenantId}_diag_files_{ts}.zip</c>). Flat namespace, never pruned.
+            /// Read by the portal (SAS URL) and the MCP (HMAC ticket, proxied stream).
+            /// </summary>
+            public const string SessionReports = "session-reports";
+
+            /// <summary>
             /// Critical-table backup destination. Daily timer + manual GA trigger write
             /// per-table NDJSON dumps under <c>{backupId}/{tableName}.ndjson</c> plus a
             /// final <c>{backupId}/manifest.json</c>. Maintenance lease sentinel lives

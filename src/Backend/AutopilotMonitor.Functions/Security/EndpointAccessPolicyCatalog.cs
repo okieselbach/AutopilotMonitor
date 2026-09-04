@@ -173,6 +173,9 @@ public static class EndpointAccessPolicyCatalog
         // ticket is the sole authority — authz happened at mint time (diagnostics/download-ticket,
         // MemberRead). See DiagnosticsTicketDownloadFunction.
         new("GET",    "diagnostics/download",       EndpointPolicy.PublicAnonymous),
+        // Ticket-gated session-report download (MCP/AI clients with no JWT) — same model, its
+        // own ticket purpose; minted at global/session-reports/download-ticket (GlobalReadOrAdmin).
+        new("GET",    "global/session-reports/download", EndpointPolicy.PublicAnonymous),
         // Azure Monitor action-group webhook (Common Alert Schema → ops event). Action groups
         // cannot send custom headers, so the shared secret travels as ?secret= and is compared
         // in constant time against the OpsAlertWebhookSecret app setting (fail-closed while
@@ -495,6 +498,8 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // Mints the HMAC ticket for the anonymous proxied stream above (the MCP's report download).
+        new("POST",   "global/session-reports/download-ticket", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/session-reports/download-url", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
         // Flywheel evaluation stream: all annotation lanes across tenants (verdict/rule filters).

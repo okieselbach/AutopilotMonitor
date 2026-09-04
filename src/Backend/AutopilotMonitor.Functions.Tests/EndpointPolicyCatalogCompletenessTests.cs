@@ -366,6 +366,8 @@ public class EndpointPolicyCatalogCompletenessTests
     [InlineData("GET",  "/api/diagnostics/download",      true)]   // PublicAnonymous (ticket-gated)
     [InlineData("GET",  "/api/diagnostics/download-url",  false)]  // MemberRead (JWT)
     [InlineData("POST", "/api/diagnostics/download-ticket", false)]// MemberRead (JWT) — mints the ticket
+    [InlineData("GET",  "/api/global/session-reports/download", true)]         // PublicAnonymous (ticket-gated report stream)
+    [InlineData("POST", "/api/global/session-reports/download-ticket", false)] // GlobalReadOrAdmin (JWT) — mints the ticket
     [InlineData("GET",  "/api/health",                   true)]   // PublicAnonymous
     [InlineData("POST", "/api/agent/telemetry",          true)]   // DeviceOrBootstrapAuth
     [InlineData("GET",  "/api/bootstrap/validate/ABC123", true)]  // PublicAnonymous (param route)

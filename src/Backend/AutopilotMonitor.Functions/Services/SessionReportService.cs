@@ -31,7 +31,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly TenantConfigurationService _configService;
         private readonly IRuleRepository _ruleRepo;
         private readonly ISessionAnnotationRepository _annotationRepo;
-        private const string ContainerName = "session-reports";
+        private const string ContainerName = AutopilotMonitor.Shared.Constants.BlobContainers.SessionReports;
 
         public SessionReportService(
             INotificationRepository notificationRepo,

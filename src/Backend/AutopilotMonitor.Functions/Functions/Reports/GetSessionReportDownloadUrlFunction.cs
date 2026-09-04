@@ -11,13 +11,14 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 {
     /// <summary>
     /// Returns a short-lived SAS download URL for a session report blob stored in central blob storage.
-    /// Global Admin only.
+    /// Portal path (GlobalReadOrAdmin); the MCP uses the ticket-gated proxy instead
+    /// (<see cref="SessionReportDownloadTicketFunction"/>) so a raw SAS never leaves the backend there.
     /// </summary>
     public class GetSessionReportDownloadUrlFunction
     {
         private readonly ILogger<GetSessionReportDownloadUrlFunction> _logger;
         private readonly BlobStorageService _blobStorage;
-        private const string ContainerName = "session-reports";
+        private const string ContainerName = AutopilotMonitor.Shared.Constants.BlobContainers.SessionReports;
 
         public GetSessionReportDownloadUrlFunction(
             ILogger<GetSessionReportDownloadUrlFunction> logger,

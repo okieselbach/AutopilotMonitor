@@ -40,6 +40,7 @@ public class AuthenticationMiddlewareTests
     [InlineData("GET", "/api/bootstrap/validate/ABC123")]
     [InlineData("POST", "/api/agent/distress")]
     [InlineData("GET", "/api/diagnostics/download")]
+    [InlineData("GET", "/api/global/session-reports/download")]
     // DeviceOrBootstrapAuth
     [InlineData("POST", "/api/agent/register-session")]
     [InlineData("POST", "/api/agent/telemetry")]

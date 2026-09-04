@@ -1,6 +1,5 @@
 using System.Net;
-using System.Web;
-using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Diagnostics;
@@ -20,16 +19,11 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
     /// <para>
     /// Replay is bounded by the 10-min ticket TTL, the admin size cap, and the fact that the ticket
     /// only ever points at the minting caller's own authorized blob; HMAC forgery is infeasible. On top
-    /// of that the route carries a per-client-IP limit as defense in depth — it is unauthenticated and
-    /// streams whole blobs, so a valid ticket replayed in a loop would otherwise be unbounded egress.
+    /// of that the route carries a per-client-IP limit as defense in depth (<see cref="TicketDownloadPrelude"/>).
     /// </para>
     /// </summary>
     public class DiagnosticsTicketDownloadFunction
     {
-        // Bounds replay of a still-valid ticket. A real client downloads a package once; the ceiling
-        // only has to stay clear of a legitimate retry-after-timeout.
-        private const int MaxRequestsPerMinutePerIp = 30;
-
         private readonly ILogger<DiagnosticsTicketDownloadFunction> _logger;
         private readonly DiagnosticsBlobStreamer _streamer;
         private readonly RateLimitService _rateLimitService;
@@ -50,41 +44,13 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             try
             {
-                // Rightmost X-Forwarded-For hop only — leftmost entries are caller-controlled.
-                var clientIp = ClientIpExtractor.GetTrustedClientIp(req);
-                var rateLimitResult = _rateLimitService.CheckRateLimit(
-                    $"diag_ticket_download_{clientIp}", MaxRequestsPerMinutePerIp);
-
-                if (!rateLimitResult.IsAllowed)
-                {
-                    _logger.LogWarning("DiagnosticsTicketDownload rate limit exceeded for IP {ClientIp} ({Count} requests)",
-                        clientIp, rateLimitResult.RequestsInWindow);
-
-                    var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
-                    if (rateLimitResult.RetryAfter.HasValue)
-                        tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                    await tooMany.WriteAsJsonAsync(new { success = false, message = "Rate limit exceeded." });
-                    return tooMany;
-                }
-
-                var ticket = HttpUtility.ParseQueryString(req.Url.Query)["t"];
-                if (string.IsNullOrEmpty(ticket))
-                {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "Missing download ticket." });
-                    return bad;
-                }
-
-                if (!DiagnosticsDownloadTicket.TryDecode(ticket, out var tenantId, out var blobName, out _, out var reason))
-                {
-                    _logger.LogWarning("DiagnosticsTicketDownload: rejecting ticket ({Reason})", reason);
-                    var unauth = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await unauth.WriteAsJsonAsync(new { success = false, message = "Invalid or expired download ticket." });
-                    return unauth;
-                }
+                var (reject, ticket) = await TicketDownloadPrelude.RunAsync(
+                    req, _rateLimitService, _logger, "diag_ticket_download", DiagnosticsDownloadTicket.DiagnosticsPurpose);
+                if (reject != null)
+                    return reject;
 
                 return await _streamer.ProxyDownloadAsync(
-                    req, tenantId, blobName,
+                    req, ticket.TenantId, ticket.BlobName,
                     new Dictionary<string, string> { ["Source"] = "mcp-ticket" });
             }
             catch (ArgumentException)

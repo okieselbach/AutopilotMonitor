@@ -5,6 +5,7 @@ import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
+import { API_BASE_URL } from '../config.js';
 
 /**
  * The tools registered ONLY for a real Global Admin (`strictGa`), by name. Static on purpose: the
@@ -64,6 +65,7 @@ export function buildFleetOverview(
 }
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 import type {
+  DiagnosticsDownloadTicketResponse,
   GeographicLocationSessionsLeanResponse,
   GetAllTenantConfigurationsResponse,
   GetGlobalMcpUsageDailyResponse,
@@ -1082,6 +1084,70 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_session_reports', args, error);
+      }
+    })
+  );
+
+  // Tool 18b: get_session_report_download — platform scope; the report-ZIP counterpart of
+  // get_session_diagnostics (same ticket model, its own ticket purpose and container).
+  if (ga) server.registerTool(
+    'get_session_report_download',
+    {
+      title: 'Get Session Report Download (Report ZIP)',
+      description:
+        'Returns a short-lived, ready-to-use download URL for one blob of the operator session-reports store: ' +
+        'the report ZIP a tenant admin submitted (blobName from list_session_reports), the preserved copy of the ' +
+        'session\'s diagnostics archive (diagnosticsBlobName, when the reporter attached it), or a diag-files report. ' +
+        'Global Admin / Global Reader only.\n\n' +
+        'CLIENT REQUIREMENT: needs a client that can download files and run local file/shell tools (e.g. Claude ' +
+        'Code); a pure chat client only gets a link a human can open.\n\n' +
+        'HOW TO USE: download the ZIP from "downloadUrl" — NO auth header (short-lived signed ticket, ~10 min) — ' +
+        'unzip it locally and read report-metadata.json first (reporter, comment, what was attached, export ' +
+        'completeness), then session.csv / events.csv / ruleresults.csv / timeline.txt (what the reporter SAW), ' +
+        'screenshots (view them as images) and any attached logs; nested agent-logs.zip / screenshots.zip inside ' +
+        'must be unzipped too. A preserved diagnostics copy has the diag_zip_layout resource layout ' +
+        '(get_resource(name="diag_zip_layout")). The backend never unzips or parses the archive.',
+      inputSchema: {
+        blobName: z.string().min(1).describe(
+          'Flat blob name from list_session_reports: `blobName` (report ZIP, …_diag_request_….zip), ' +
+          '`diagnosticsBlobName` (preserved diagnostics copy, …_diag_archive_….zip) or a diag-files report (…_diag_files_….zip).'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_session_report_download', args, async () => {
+      try {
+        const { blobName } = args;
+        const ticket = await apiFetch('/api/global/session-reports/download-ticket', {
+          method: 'POST',
+          body: JSON.stringify({ blobName }),
+        }) as DiagnosticsDownloadTicketResponse;
+
+        if (!ticket?.url) {
+          return toolError('get_session_report_download', args,
+            new Error('Backend did not return a download URL for the report ticket.'));
+        }
+        const downloadUrl = ticket.url.startsWith('http') ? ticket.url : `${API_BASE_URL}${ticket.url}`;
+        const kind = /_diag_archive_/.test(blobName) ? 'preserved-diagnostics'
+          : /_diag_files_/.test(blobName) ? 'diag-files-report' : 'session-report';
+
+        return toolResultText({
+          available: true,
+          blobName: ticket.blobName ?? blobName,
+          kind,
+          destination: ticket.destination,
+          sizeBytes: ticket.sizeBytes ?? null,
+          downloadUrl,
+          expiresAt: ticket.expiresAt,
+          instructions:
+            'Download the ZIP from downloadUrl with NO auth header (short-lived signed ticket), unzip it locally ' +
+            '(including nested agent-logs.zip / screenshots.zip), read report-metadata.json first and view screenshots ' +
+            'as images. The reporter\'s comment there is the primary question; diff what they saw (session.csv, ' +
+            'timeline.txt) against the live session (get_session_summary / get_session_events). The URL expires at ' +
+            'expiresAt — re-call this tool for a fresh one.',
+          ...(kind === 'preserved-diagnostics' ? { zipLayoutResource: 'get_resource(name="diag_zip_layout")' } : {}),
+        }, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_session_report_download', args, error);
       }
     })
   );

@@ -78,6 +78,37 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Opens a read stream over a blob in an operator container. The caller owns the returned
+        /// response (it holds the network stream). 404 propagates as <see cref="Azure.RequestFailedException"/>.
+        /// Proxy alternative to <see cref="GetDownloadUrlAsync"/> for callers that must never receive a SAS.
+        /// </summary>
+        public virtual async Task<Azure.Response<Azure.Storage.Blobs.Models.BlobDownloadStreamingResult>> OpenReadAsync(
+            string containerName, string blobName, CancellationToken cancellationToken = default)
+        {
+            var blobClient = _blobServiceClient.GetBlobContainerClient(containerName).GetBlobClient(blobName);
+            return await blobClient.DownloadStreamingAsync(cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// Best-effort blob size via a HEAD request; null on 404 or any failure. Informational only —
+        /// a ticket mint must never fail because the probe did.
+        /// </summary>
+        public virtual async Task<long?> TryGetSizeAsync(string containerName, string blobName, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var blobClient = _blobServiceClient.GetBlobContainerClient(containerName).GetBlobClient(blobName);
+                var props = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
+                return props.Value.ContentLength;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Size probe failed for {Container}/{Blob}", containerName, blobName);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Generates a time-limited download URL for a blob.
         /// Uses User Delegation SAS for Managed Identity, or the connection string SAS for legacy.
         /// </summary>

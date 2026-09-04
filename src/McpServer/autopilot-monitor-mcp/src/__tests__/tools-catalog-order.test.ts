@@ -133,6 +133,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_session',
     'get_session_diagnostics',
     'get_session_events',
+    // Platform scope (GA + Global Reader): ticket-gated download of a submitted report ZIP /
+    // preserved diagnostics copy — the report counterpart of get_session_diagnostics.
+    'get_session_report_download',
     'get_session_summary',
     'get_software_inventory',
     'get_tenant_config',
@@ -205,6 +208,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_ime_pattern_health',
     'get_ops_events',
     'get_platform_metrics',
+    'get_session_report_download',
     'get_tenant_config',
     'get_tenant_config_schema',
     'get_verdict_calibration',

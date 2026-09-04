@@ -40,8 +40,14 @@ namespace AutopilotMonitor.Shared.Diagnostics
         /// <summary>Default 10-minute ticket expiry — long enough to download, short enough to bound replay.</summary>
         public static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(10);
 
-        /// <summary>Domain-separation tag baked into the signed payload.</summary>
-        private const string Purpose = "diag-dl-v1";
+        /// <summary>
+        /// Domain-separation tag baked into the signed payload — a ticket minted for one download
+        /// surface never opens another. Diagnostics packages (default) and session-report ZIPs
+        /// share the codec, the signing key and the TTL, but not the purpose.
+        /// </summary>
+        public const string DiagnosticsPurpose = "diag-dl-v1";
+        /// <summary>Purpose of a ticket for the operator <c>session-reports</c> container (report ZIPs, preserved diag copies).</summary>
+        public const string SessionReportPurpose = "report-dl-v1";
 
         private const string SigningKeyEnvVar = "PaginationTokenSigningKey";
 
@@ -86,14 +92,15 @@ namespace AutopilotMonitor.Shared.Diagnostics
             string tenantId,
             string blobName,
             string destination,
-            DateTimeOffset? issuedAt = null)
+            DateTimeOffset? issuedAt = null,
+            string? purpose = null)
         {
             if (string.IsNullOrWhiteSpace(tenantId)) throw new ArgumentException("tenantId required", nameof(tenantId));
             if (string.IsNullOrWhiteSpace(blobName)) throw new ArgumentException("blobName required", nameof(blobName));
 
             var payload = new TicketPayload
             {
-                P = Purpose,
+                P = purpose ?? DiagnosticsPurpose,
                 Tid = tenantId,
                 Blob = blobName,
                 Dst = destination ?? string.Empty,
@@ -120,7 +127,8 @@ namespace AutopilotMonitor.Shared.Diagnostics
             out string destination,
             out string? rejectReason,
             DateTimeOffset? now = null,
-            TimeSpan? ttl = null)
+            TimeSpan? ttl = null,
+            string? purpose = null)
         {
             tenantId = string.Empty;
             blobName = string.Empty;
@@ -175,8 +183,8 @@ namespace AutopilotMonitor.Shared.Diagnostics
                 return false;
             }
 
-            // Domain separation: reject anything not minted as a download ticket.
-            if (!FixedTimeEquals(payload.P ?? string.Empty, Purpose))
+            // Domain separation: reject anything not minted for THIS download surface.
+            if (!FixedTimeEquals(payload.P ?? string.Empty, purpose ?? DiagnosticsPurpose))
             {
                 rejectReason = "wrong_purpose";
                 return false;

@@ -31,6 +31,37 @@ public class DiagnosticsDownloadTicketTests
         Assert.Equal("CustomerSas", dst);
     }
 
+    // ── Purpose separation: a ticket for one download surface never opens another ──
+    [Fact]
+    public void Diagnostics_ticket_is_rejected_on_the_report_surface_and_vice_versa()
+    {
+        var diag = DiagnosticsDownloadTicket.Encode(TenantA, BlobA, "Hosted");
+        var report = DiagnosticsDownloadTicket.Encode(TenantA, "t_s_diag_request_20260904_120000.zip", "SessionReports",
+            purpose: DiagnosticsDownloadTicket.SessionReportPurpose);
+
+        // Each decodes on its own surface …
+        Assert.True(DiagnosticsDownloadTicket.TryDecode(diag, out _, out _, out _, out _));
+        Assert.True(DiagnosticsDownloadTicket.TryDecode(report, out _, out var reportBlob, out var reportDst, out _,
+            purpose: DiagnosticsDownloadTicket.SessionReportPurpose));
+        Assert.Equal("t_s_diag_request_20260904_120000.zip", reportBlob);
+        Assert.Equal("SessionReports", reportDst);
+
+        // … and is refused on the other, with the signature intact (purpose is signed, not filtered).
+        Assert.False(DiagnosticsDownloadTicket.TryDecode(diag, out _, out _, out _, out var r1,
+            purpose: DiagnosticsDownloadTicket.SessionReportPurpose));
+        Assert.Equal("wrong_purpose", r1);
+        Assert.False(DiagnosticsDownloadTicket.TryDecode(report, out _, out _, out _, out var r2));
+        Assert.Equal("wrong_purpose", r2);
+    }
+
+    [Fact]
+    public void Default_purpose_is_diagnostics()
+    {
+        var token = DiagnosticsDownloadTicket.Encode(TenantA, BlobA, "Hosted");
+        Assert.True(DiagnosticsDownloadTicket.TryDecode(token, out _, out _, out _, out _,
+            purpose: DiagnosticsDownloadTicket.DiagnosticsPurpose));
+    }
+
     [Fact]
     public void RoundTrip_HostedBlobName_Preserved()
     {
