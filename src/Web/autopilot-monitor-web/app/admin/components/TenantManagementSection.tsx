@@ -380,9 +380,11 @@ function TenantManagementSectionInner({
           tenantId: tenant.tenantId,
           target,
           force,
-          reason: data.reason ?? `http-${response.status}`,
+          reason: data.code ?? data.reason ?? `http-${response.status}`,
         });
-        throw new Error(appHomingErrorMessage(data.reason, response.statusText, data.probe?.missingRoles));
+        // `code` is the error-envelope field (AppHomingDeniedResponse); `reason` is the pre-envelope
+        // name, read until the backend deploy that precedes this web build is everywhere.
+        throw new Error(appHomingErrorMessage(data.code ?? data.reason, response.statusText, data.probe?.missingRoles));
       }
       trackEvent("app_homing_manual_flip", {
         tenantId: tenant.tenantId,

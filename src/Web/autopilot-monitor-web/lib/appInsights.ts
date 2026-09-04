@@ -1,6 +1,21 @@
-import { ApplicationInsights } from "@microsoft/applicationinsights-web";
+import { ApplicationInsights, DistributedTracingModes } from "@microsoft/applicationinsights-web";
+import { API_BASE_URL } from "@/utils/config";
 
 let appInsights: ApplicationInsights | null = null;
+
+/**
+ * Host of the backend API for the SDK's cross-origin correlation: the portal → API calls are
+ * cross-origin, and without an explicit allow-list the SDK attaches no W3C `traceparent` to
+ * them, so the portal's dependency rows and the backend's request rows never share an
+ * operation_Id. Only the API host — never the identity or blob hosts.
+ */
+function apiHost(): string | null {
+  try {
+    return new URL(API_BASE_URL).host;
+  } catch {
+    return null;
+  }
+}
 
 // Events fired before initAppInsights (module-init code like the MSAL redirect handling and
 // the dual app-reg login fallback runs before React mounts AppInsightsInit) are buffered and
@@ -20,6 +35,7 @@ const telemetryConfig = {
 export function initAppInsights(connectionString: string) {
   if (appInsights || !connectionString || typeof window === "undefined") return;
 
+  const host = apiHost();
   appInsights = new ApplicationInsights({
     config: {
       connectionString,
@@ -27,6 +43,12 @@ export function initAppInsights(connectionString: string) {
       enableAutoRouteTracking: true,
       disableFetchTracking: false,
       disablePageUnloadEvents: ["unload"],
+      // Distributed tracing to the backend: W3C traceparent on API calls (backend side:
+      // RequestTelemetryMiddleware reads Activity.Current), scoped to the API host so the
+      // preflight-triggering headers never reach login.microsoftonline.com or blob storage.
+      enableCorsCorrelation: host !== null,
+      correlationHeaderDomains: host ? [host] : undefined,
+      distributedTracingMode: DistributedTracingModes.W3C,
     },
   });
 

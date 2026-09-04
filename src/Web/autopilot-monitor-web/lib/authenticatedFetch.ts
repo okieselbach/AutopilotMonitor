@@ -11,8 +11,26 @@
  * by passing their own AbortSignal via init.signal.
  */
 
+import { trackEvent } from "./appInsights";
+import { CORRELATION_HEADER, newCorrelationId } from "./correlationId";
+
 /** Default request timeout in milliseconds */
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Every failed API call (final status >= 400) lands in App Insights with its correlation id,
+ * so a user report ("it said error") joins the backend request row by one KQL predicate.
+ * Path only — query strings can carry ids and filters that are not telemetry material.
+ */
+function trackFailure(url: string, method: string, status: number, correlationId: string) {
+  let path = url;
+  try {
+    path = new URL(url, "http://localhost").pathname;
+  } catch {
+    /* keep the raw url */
+  }
+  trackEvent("api_request_failed", { path, method, status, correlationId });
+}
 
 export class TokenExpiredError extends Error {
   constructor() {
@@ -33,8 +51,14 @@ export async function authenticatedFetch(
     throw new TokenExpiredError();
   }
 
+  // One id per logical call: the 401 retry below is the same call and carries the same id, so
+  // both backend request rows join on it. Minted here, never read back (see correlationId.ts).
+  const correlationId = newCorrelationId();
+  const method = (init?.method ?? 'GET').toUpperCase();
+
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
+  headers.set(CORRELATION_HEADER, correlationId);
 
   // Apply a default timeout unless the caller already provided an AbortSignal
   const signal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
@@ -50,14 +74,17 @@ export async function authenticatedFetch(
 
     const retryHeaders = new Headers(init?.headers);
     retryHeaders.set('Authorization', `Bearer ${freshToken}`);
+    retryHeaders.set(CORRELATION_HEADER, correlationId);
 
     const retrySignal = init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
     const retryResponse = await fetch(url, { ...init, headers: retryHeaders, signal: retrySignal });
     if (retryResponse.status === 401) {
       throw new TokenExpiredError();
     }
+    if (retryResponse.status >= 400) trackFailure(url, method, retryResponse.status, correlationId);
     return retryResponse;
   }
 
+  if (response.status >= 400) trackFailure(url, method, response.status, correlationId);
   return response;
 }

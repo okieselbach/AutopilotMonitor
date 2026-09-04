@@ -6,6 +6,7 @@
  * The hook itself runs the side-effects (toast, SignalR group join, row removal); these
  * helpers describe *what* should happen for a given backend response.
  */
+import type { ApiErrorCode } from "@/lib/apiErrorCodes";
 
 /**
  * Backend body shape for the V2 cascade 202 response.
@@ -18,18 +19,29 @@ export interface DeleteQueuedBody {
   message?: string;
 }
 
-/** Backend body shape for 4xx/5xx responses — same producer outcome contract. */
+/**
+ * Backend body shape for 4xx/5xx responses: the error envelope (`SessionDeletionRejectedResponse`
+ * — error, code, correlationId + the lock diagnostics). `message`/`hint` are the pre-envelope
+ * names, still read during the backend → web deploy window.
+ */
 export interface DeleteErrorBody {
-  success?: boolean;
-  message?: string;
+  error?: string;
+  code?: string;
+  correlationId?: string;
   deletionState?: string;
   manifestId?: string;
+  /** @deprecated pre-envelope name of `error` */
+  message?: string;
+  /** @deprecated pre-envelope name of `code` */
   hint?: string;
 }
 
+/** Envelope codes of the 409 arms (Constants.ApiErrorCodes) plus their pre-envelope `hint` spellings. */
+const POISONED_CODES: ReadonlySet<string> = new Set(["CascadePoisonedUseRestore" satisfies ApiErrorCode, "cascade_poisoned_use_restore"]);
+
 export type DeleteResponseAction =
   | { kind: "queued"; sessionId: string; tenantId: string; manifestId: string | null }
-  | { kind: "conflict"; sessionId: string; title: string; message: string; hint: string | null }
+  | { kind: "conflict"; sessionId: string; title: string; message: string; code: string | null }
   | { kind: "unavailable"; sessionId: string; message: string }
   | { kind: "notFound"; sessionId: string; message: string }
   | { kind: "error"; sessionId: string; message: string };
@@ -56,14 +68,14 @@ export async function classifyDeleteResponse(
   }
 
   const errorBody = await safeJson<DeleteErrorBody>(response);
-  const message = errorBody?.message ?? `HTTP ${response.status}`;
+  const message = errorBody?.error ?? errorBody?.message ?? `HTTP ${response.status}`;
 
   if (response.status === 409) {
-    const hint = errorBody?.hint ?? null;
-    const title = hint === "cascade_poisoned_use_restore"
+    const code = errorBody?.code ?? errorBody?.hint ?? null;
+    const title = code !== null && POISONED_CODES.has(code)
       ? "Cascade poisoned"
       : "Cascade already in flight";
-    return { kind: "conflict", sessionId, title, message, hint };
+    return { kind: "conflict", sessionId, title, message, code };
   }
 
   if (response.status === 503) {

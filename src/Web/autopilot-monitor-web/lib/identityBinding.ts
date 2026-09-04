@@ -1,3 +1,5 @@
+import type { ApiErrorCode } from "./apiErrorCodes";
+
 /**
  * The Entra identity (home tenant + object id) a cross-tenant-role UPN is bound to, as returned by
  * /api/global/identity-bindings (camelCase JSON). A grant is only usable from this identity: the backend
@@ -15,7 +17,7 @@ export interface IdentityBinding {
 }
 
 /** Error code the grant endpoints return (HTTP 422) when the person's home tenant could not be resolved. */
-export const HOME_TENANT_UNRESOLVED = "HomeTenantUnresolved";
+export const HOME_TENANT_UNRESOLVED = "HomeTenantUnresolved" satisfies ApiErrorCode;
 
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

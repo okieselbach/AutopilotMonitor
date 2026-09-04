@@ -71,7 +71,7 @@ describe("summarizeDeleteActions", () => {
   it("is a warning when some sessions could not be queued", () => {
     const s = summarizeDeleteActions([
       queued("a"),
-      { kind: "conflict", sessionId: "b", title: "Cascade already in flight", message: "m", hint: null },
+      { kind: "conflict", sessionId: "b", title: "Cascade already in flight", message: "m", code: null },
       { kind: "unavailable", sessionId: "c", message: "m" },
       { kind: "error", sessionId: "d", message: "m" },
     ]);

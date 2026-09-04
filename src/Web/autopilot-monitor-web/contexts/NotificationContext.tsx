@@ -13,12 +13,13 @@ export interface Notification {
   read: boolean;
   key?: string; // Optional unique key for deduplication
   href?: string; // Optional navigation link shown as "View" action
+  reference?: string; // Optional short correlation id (backend failures) rendered as "Ref …"
 }
 
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
-  addNotification: (type: NotificationType, title: string, message: string, key?: string, href?: string) => void;
+  addNotification: (type: NotificationType, title: string, message: string, key?: string, href?: string, reference?: string) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   removeNotification: (id: string) => void;
@@ -30,7 +31,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const addNotification = useCallback((type: NotificationType, title: string, message: string, key?: string, href?: string) => {
+  const addNotification = useCallback((type: NotificationType, title: string, message: string, key?: string, href?: string, reference?: string) => {
     // Check if a notification with this key already exists
     if (key) {
       setNotifications(prev => {
@@ -43,6 +44,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             ...existing,
             message,
             href,
+            reference,
             timestamp: new Date(),
             read: false, // Mark as unread to get user's attention again
           };
@@ -62,6 +64,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             read: false,
             key,
             href,
+            reference,
           };
 
           // Auto-remove success/info notifications after 10 seconds
@@ -84,6 +87,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         timestamp: new Date(),
         read: false,
         href,
+        reference,
       };
 
       setNotifications(prev => [notification, ...prev]);

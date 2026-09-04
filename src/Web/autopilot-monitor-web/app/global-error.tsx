@@ -9,6 +9,7 @@
  * it replaces the entire root layout when triggered.
  */
 export default function GlobalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
@@ -45,6 +46,11 @@ export default function GlobalError({
             <p style={{ color: "#6b7280", marginBottom: "1.5rem", lineHeight: 1.5 }}>
               Your session may have expired or the app encountered an unexpected error.
             </p>
+            {error?.digest && (
+              <p style={{ color: "#9ca3af", fontSize: "0.6875rem", fontFamily: "ui-monospace, monospace", marginBottom: "1rem" }}>
+                Ref {error.digest}
+              </p>
+            )}
             <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
               <button
                 onClick={() => {

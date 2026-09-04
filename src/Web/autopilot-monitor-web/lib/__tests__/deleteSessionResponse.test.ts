@@ -62,7 +62,7 @@ describe("classifyDeleteResponse", () => {
     expect(action.kind).toBe("conflict");
     if (action.kind !== "conflict") throw new Error("type narrowing");
     expect(action.title).toBe("Cascade already in flight");
-    expect(action.hint).toBe("cascade_already_in_flight");
+    expect(action.code).toBe("cascade_already_in_flight");
     expect(action.message).toContain("already in flight");
   });
 
@@ -79,7 +79,7 @@ describe("classifyDeleteResponse", () => {
     expect(action.kind).toBe("conflict");
     if (action.kind !== "conflict") throw new Error("type narrowing");
     expect(action.title).toBe("Cascade poisoned");
-    expect(action.hint).toBe("cascade_poisoned_use_restore");
+    expect(action.code).toBe("cascade_poisoned_use_restore");
     // The UI surfaces this verbatim → must mention the restore endpoint so the user knows where to go.
     expect(action.message).toContain("/restore");
   });
@@ -96,6 +96,22 @@ describe("classifyDeleteResponse", () => {
     expect(action.kind).toBe("unavailable");
     if (action.kind !== "unavailable") throw new Error("type narrowing");
     expect(action.message).toContain("kill-switch");
+  });
+
+  it("reads the error envelope (error + PascalCase code) and still maps the legacy hint", async () => {
+    const r = jsonResponse(409, {
+      error: "Cascade is poisoned; recover via POST /api/global/sessions/{id}/restore before retrying delete.",
+      code: "CascadePoisonedUseRestore",
+      correlationId: "cid-1",
+      deletionState: "Poisoned",
+      manifestId: "01J0123456789ABCDEFGHIJKLM",
+    });
+    const action = await classifyDeleteResponse(r, SESSION_ID, TENANT_ID);
+    expect(action.kind).toBe("conflict");
+    if (action.kind !== "conflict") throw new Error("unreachable");
+    expect(action.title).toBe("Cascade poisoned");
+    expect(action.code).toBe("CascadePoisonedUseRestore");
+    expect(action.message).toContain("/restore");
   });
 
   it("classifies 404 as notFound (idempotent: row already gone)", async () => {

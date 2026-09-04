@@ -8,6 +8,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorFromResponse, describeApiError } from "@/lib/scopedFetch";
 import { formatBytes, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "@/components/DoBreakdownBar";
 import { CalculatingInline } from "@/components/CalculatingCard";
@@ -119,7 +120,9 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
           setData((await listRes.json()) as AppsListResponse);
           succeeded = true;
         } else {
-          addNotification("error", "Backend Error", `Failed to load apps: ${listRes.statusText}`, "apps-list-error");
+          // Error envelope: the backend's message plus the correlation id as a quotable reference.
+          const { message, reference } = describeApiError(await apiErrorFromResponse(listRes));
+          addNotification("error", "Backend Error", `Failed to load apps: ${message}`, "apps-list-error", undefined, reference ?? undefined);
         }
         if (metricsRes.ok) {
           const m = (await metricsRes.json()) as AppMetricsResponse;

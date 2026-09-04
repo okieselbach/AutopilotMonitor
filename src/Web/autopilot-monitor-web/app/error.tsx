@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { isChunkLoadError, tryRecoverFromChunkError } from "@/utils/chunkReloadRecovery";
+import { trackEvent } from "@/lib/appInsights";
 
 /**
  * Route-level error boundary — catches unhandled exceptions within page
@@ -25,7 +26,11 @@ export default function Error({
   useEffect(() => {
     if (isChunkLoadError(error)) {
       tryRecoverFromChunkError("error-boundary");
+      return;
     }
+    // The digest is Next's stable hash of the error (also in the server log) — the only
+    // reference a user can quote for a client-side crash; the event makes it searchable.
+    trackEvent("client_error_boundary", { digest: error.digest ?? "", name: error.name });
   }, [error]);
 
   return (
@@ -36,6 +41,9 @@ export default function Error({
         <p className="text-gray-600 mb-6 leading-relaxed">
           Your session may have expired. Try reloading the page or signing in again.
         </p>
+        {error.digest && (
+          <p className="text-[11px] text-gray-400 mb-4 font-mono">Ref {error.digest}</p>
+        )}
         <div className="flex gap-3 justify-center flex-wrap">
           <button
             onClick={() => router.push("/")}

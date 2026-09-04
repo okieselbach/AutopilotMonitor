@@ -389,6 +389,9 @@ export default function Navbar() {
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-medium text-gray-900">{notification.title}</p>
                                   <p className="text-xs text-gray-600 mt-0.5">{notification.message}</p>
+                                  {notification.reference && (
+                                    <p className="text-[11px] text-gray-400 mt-0.5 font-mono">Ref {notification.reference}</p>
+                                  )}
                                   <div className="flex items-center gap-3 mt-1">
                                     <p className="text-[10px] text-gray-400">{formatTime(notification.timestamp)}</p>
                                     {notification.href && (
