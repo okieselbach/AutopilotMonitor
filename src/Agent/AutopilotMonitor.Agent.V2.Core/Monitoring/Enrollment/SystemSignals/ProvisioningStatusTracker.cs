@@ -208,16 +208,45 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// True when at least one AccountSetup subcategory has left <c>notStarted</c> — i.e. the
-        /// user ESP page has demonstrably started working (in progress, succeeded, failed or
-        /// notRequired). Mere presence of <c>AccountSetupCategory.Status</c> does NOT count:
-        /// Windows writes that JSON with every subcategory <c>notStarted</c> BEFORE the Device-ESP
-        /// page exits (observed on 25H2/26200 across tenants, session a2256107: JSON at 09:37:42,
-        /// intermediate Shell-Core 62407 at 09:37:53, first real progress at 09:38:25). A
-        /// presence check therefore mislabelled the Device→Account handoff exit as the final
-        /// exit, which released the User-ESP keep-awake minutes early (backlog q8n).
+        /// True when any AccountSetup subcategory has been tracked (resolved or in progress).
+        /// <para>
+        /// PRESENCE semantics, deliberately (backlog q8n, 2026-09-04): Windows writes
+        /// <c>AccountSetupCategory.Status</c> with every subcategory <c>notStarted</c> before the
+        /// Device-ESP page exits, so this is true at the Device→Account handoff 62407 already.
+        /// That is load-bearing for completion: about one in five Classic sessions sees only ONE
+        /// Shell-Core 62407 for the whole enrollment (no separate user-ESP page exit), and those
+        /// sessions resolve AccountSetup solely through the user-apps-settled synthesis, which
+        /// needs that single exit to be remembered as the edge. Tightening this to "progress"
+        /// would strand them. Callers that need "the user ESP page has demonstrably started"
+        /// use <see cref="HasAccountSetupProgress"/> instead.
+        /// </para>
         /// </summary>
         public bool HasAccountSetupActivity
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    if (_lastSubcategoryStates == null)
+                        return false;
+                    return _lastSubcategoryStates.TryGetValue("AccountSetupCategory.Status", out var subs)
+                        && subs != null
+                        && subs.Count > 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// True once at least one AccountSetup subcategory has left <c>notStarted</c> — the user
+        /// ESP page (or its background tracking) has demonstrably started working. Unlike
+        /// <see cref="HasAccountSetupActivity"/> this is NOT satisfied by the pre-written
+        /// all-<c>notStarted</c> JSON that precedes the Device-ESP exit (session a2256107: JSON at
+        /// 09:37:42, intermediate 62407 at 09:37:53, first progress at 09:38:25; fleet: progress
+        /// precedes the real user-ESP exit by at least ~1 min). Used by the User-ESP keep-awake
+        /// host to tell the real user-ESP page exit from the Device→Account handoff exit; not a
+        /// completion input.
+        /// </summary>
+        public bool HasAccountSetupProgress
         {
             get
             {

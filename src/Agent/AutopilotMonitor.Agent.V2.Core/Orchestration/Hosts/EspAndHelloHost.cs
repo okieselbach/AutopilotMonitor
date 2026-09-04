@@ -55,6 +55,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         public System.Collections.Generic.IReadOnlyCollection<string> StarvedAppsReported => _tracker.StarvedAppsReported;
 
+        /// <summary>
+        /// True once an AccountSetup subcategory has left <c>notStarted</c> — the probe the
+        /// User-ESP keep-awake host uses to tell the real user-ESP page exit from the
+        /// Device→Account handoff exit (see <see cref="EspAndHelloTracker.HasAccountSetupProgress"/>).
+        /// </summary>
+        public bool HasAccountSetupProgress => _tracker.HasAccountSetupProgress;
+
         /// <summary>L6 — atomic claim for the termination sweep (see EspAndHelloTracker.TryClaimStarvedAppReport).</summary>
         public bool TryClaimStarvedAppReport(string appId) => _tracker.TryClaimStarvedAppReport(appId);
 

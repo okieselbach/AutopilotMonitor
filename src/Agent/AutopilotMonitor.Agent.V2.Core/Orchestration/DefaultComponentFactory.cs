@@ -372,7 +372,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     tenantId: tenantId,
                     ingress: ingress,
                     clock: clock,
-                    logger: logger));
+                    logger: logger,
+                    // q8n: release on the user-ESP page exit, i.e. a Shell-Core 62407 that arrives
+                    // after the AccountSetup registry left notStarted — never on the handoff exit.
+                    accountSetupProgressProbe: () => espAndHelloHost.HasAccountSetupProgress));
             }
 
             // OOBE-console / Shift+F10 detection — opt-OUT per tenant (portal toggle →

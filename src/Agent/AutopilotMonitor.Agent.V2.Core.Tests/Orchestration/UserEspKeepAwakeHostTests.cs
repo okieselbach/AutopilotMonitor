@@ -114,14 +114,80 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             ing.Stop();
         }
 
+        private static void PostEspExiting(SignalIngress ing) =>
+            ing.Post(DecisionSignalKind.EspExiting, At, "EspAndHelloTracker", Raw("exit"));
+
         [Fact]
-        public void Releases_on_AccountSetupProvisioningComplete()
+        public void Releases_on_EspExiting_once_AccountSetup_shows_progress()
         {
+            // q8n: the real user-ESP page exit is a 62407 that arrives after the AccountSetup
+            // registry left notStarted (session a2256107: 09:47:12, progress since 09:38:25).
             var clock = new VirtualClock(At);
             using var ing = BuildIngress(clock);
             var api = new FakeKeepAwakeApi();
             var controller = new KeepAwakeController(NewLogger(), api);
-            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller, espTimeoutProvider: () => null);
+            var progress = false;
+            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+                espTimeoutProvider: () => null, accountSetupProgressProbe: () => Volatile.Read(ref progress));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+
+            Volatile.Write(ref progress, true);
+            PostEspExiting(ing);
+
+            Assert.True(WaitFor(() => api.AllowCount == 1), "AllowSleep should be called once on the user-ESP page exit");
+            Assert.False(controller.IsEngaged);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void Handoff_exit_before_AccountSetup_progress_keeps_the_hold()
+        {
+            // The Device→Account handoff 62407 (a2256107: 09:37:53) precedes any AccountSetup
+            // progress — Windows pre-writes the AccountSetup JSON all-notStarted — and must not
+            // release. The later exit with progress does.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var progress = false;
+            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+                espTimeoutProvider: () => null, accountSetupProgressProbe: () => Volatile.Read(ref progress));
+
+            ing.Start();
+            host.Start();
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+
+            PostEspExiting(ing); // handoff exit, no progress yet
+            Assert.False(WaitFor(() => api.AllowCount > 0, 500), "the handoff exit must not release the hold");
+            Assert.True(controller.IsEngaged);
+
+            Volatile.Write(ref progress, true);
+            PostEspExiting(ing); // the real user-ESP page exit
+            Assert.True(WaitFor(() => api.AllowCount == 1));
+            Assert.False(controller.IsEngaged);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void AccountSetupProvisioningComplete_no_longer_releases()
+        {
+            // The synthesized completion fired a median 3 min before the page closed in 77 % of
+            // keep-awake sessions (q8n) — it is no longer a release trigger; the cap/stop/exit are.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+                espTimeoutProvider: () => null, accountSetupProgressProbe: () => true);
 
             ing.Start();
             host.Start();
@@ -130,8 +196,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
 
             ing.Post(DecisionSignalKind.AccountSetupProvisioningComplete, At, "ProvisioningStatusTracker", Raw("done"));
 
-            Assert.True(WaitFor(() => api.AllowCount == 1), "AllowSleep should be called once on AccountSetup completion");
-            Assert.False(controller.IsEngaged);
+            Assert.False(WaitFor(() => api.AllowCount > 0, 500), "completion must not release the hold any more");
+            Assert.True(controller.IsEngaged);
+
+            host.Dispose();
+            ing.Stop();
+        }
+
+        [Fact]
+        public void EspExiting_before_engage_is_ignored()
+        {
+            // Exit signals while idle (e.g. a Device-ESP exit before AccountSetup) neither release
+            // nor poison the later engage.
+            var clock = new VirtualClock(At);
+            using var ing = BuildIngress(clock);
+            var api = new FakeKeepAwakeApi();
+            var controller = new KeepAwakeController(NewLogger(), api);
+            var host = new UserEspKeepAwakeHost("S1", "T1", ing, clock, NewLogger(), controller: controller,
+                espTimeoutProvider: () => null, accountSetupProgressProbe: () => true);
+
+            ing.Start();
+            host.Start();
+            PostEspExiting(ing);
+            Assert.False(WaitFor(() => api.AllowCount > 0, 300));
+
+            PostAccountSetupPhase(ing);
+            Assert.True(WaitFor(() => api.PreventCount == 1));
+            Assert.True(controller.IsEngaged);
+            Assert.Equal(0, api.AllowCount);
 
             host.Dispose();
             ing.Stop();

@@ -22,13 +22,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// hook <c>GatherRuleExecutorHost</c> uses for phase_change triggers):
     /// <list type="bullet">
     ///   <item><b>Engage</b> when a signal reports the ESP phase as <c>AccountSetup</c>.</item>
-    ///   <item><b>Release</b> on <see cref="DecisionSignalKind.AccountSetupProvisioningComplete"/>
-    ///     (User-ESP done), on <see cref="Stop"/> (session teardown), or on the safety-cap timer
-    ///     (a backstop in case the completion signal is missed, so a device is never held awake
-    ///     for the agent's full max-lifetime).</item>
+    ///   <item><b>Release</b> on <see cref="DecisionSignalKind.EspExiting"/> once the AccountSetup
+    ///     registry shows progress (the real user-ESP page exit — see below), on
+    ///     <see cref="Stop"/> (session teardown), or on the safety-cap timer (a backstop so a
+    ///     device is never held awake for the agent's full max-lifetime).</item>
     /// </list>
     /// The hold itself is owned by <see cref="KeepAwakeController"/>; the OS also auto-clears it
     /// on process exit / reboot, so it can never leak.
+    /// </para>
+    /// <para>
+    /// <b>Why the ESP exit and not <see cref="DecisionSignalKind.AccountSetupProvisioningComplete"/></b>
+    /// (backlog q8n, 2026-09-04): that completion signal is, fleet-wide, almost always the
+    /// user-apps-settled synthesis (Windows no longer writes <c>categorySucceeded</c>), and the
+    /// synthesis builds on the Device→Account handoff 62407 — so it fired a median 3 min before
+    /// the user-ESP page actually closed in 77 % of keep-awake sessions, and a device on battery
+    /// dropped into Modern Standby with the page still up (session a2256107). The page itself is
+    /// the truth: a Shell-Core 62407 that arrives after the AccountSetup registry left
+    /// <c>notStarted</c> is the user-ESP page exit (progress precedes it by ≥ 1 min across the
+    /// fleet), whereas the handoff exit always precedes any progress. Desktop arrival is NOT a
+    /// substitute — explorer.exe already runs under the real user while the page is still up.
+    /// Sessions that only ever see the handoff exit (about one in five) keep the hold until the
+    /// safety cap; that is the advertised behaviour ("awake during User-ESP") erring long, never
+    /// early. The completion guards in <c>EspAndHelloTracker</c> deliberately stay on presence
+    /// semantics — see <c>ProvisioningStatusTracker.HasAccountSetupActivity</c>.
     /// </para>
     /// <para>
     /// <b>Safety-cap sizing</b>: rather than a fixed product assumption, the cap is derived at
@@ -62,8 +78,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// </summary>
         internal const int EspCapMarginMinutes = 30;
 
-        // Release reasons (carried on the keep_awake_released event payload).
-        internal const string ReasonAccountSetupComplete = "account_setup_complete";
+        // Release reasons (carried on the keep_awake_released event payload). "account_setup_complete"
+        // (release on the synthesized completion signal) was retired with q8n — see the class doc.
+        internal const string ReasonUserEspExited = "user_esp_exited";
         internal const string ReasonHostStop = "host_stop";
         internal const string ReasonSafetyCap = "safety_cap";
 
@@ -83,6 +100,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         private readonly int _fallbackCapMinutes;
         private readonly TimeSpan? _safetyCapOverride;
         private readonly Func<int?> _espTimeoutProvider;
+        private readonly Func<bool> _accountSetupProgressProbe;
 
         private enum HoldState { Idle, Engaging, Engaged, Released }
 
@@ -102,7 +120,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             int fallbackCapMinutes = DefaultFallbackCapMinutes,
             KeepAwakeController? controller = null,
             TimeSpan? safetyCapOverride = null,
-            Func<int?>? espTimeoutProvider = null)
+            Func<int?>? espTimeoutProvider = null,
+            Func<bool>? accountSetupProgressProbe = null)
         {
             if (ingress == null) throw new ArgumentNullException(nameof(ingress));
             if (clock == null) throw new ArgumentNullException(nameof(clock));
@@ -118,6 +137,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // The ESP SyncFailureTimeout is read at engage time (the ESP policy is present by then).
             _espTimeoutProvider = espTimeoutProvider
                 ?? (() => EspSkipConfigurationProbe.ReadFull(_logger).SyncFailureTimeoutMinutes);
+            // Without a probe no exit can be told apart from the handoff exit — the hold then
+            // lasts until the safety cap (erring long, never early). Production always wires the
+            // EspAndHelloHost probe (DefaultComponentFactory).
+            _accountSetupProgressProbe = accountSetupProgressProbe ?? (() => false);
         }
 
         /// <summary>
@@ -163,9 +186,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // (which briefly waits on the keep-awake thread) is dispatched to the ThreadPool.
             try
             {
-                if (kind == DecisionSignalKind.AccountSetupProvisioningComplete)
+                if (kind == DecisionSignalKind.EspExiting)
                 {
-                    ThreadPool.QueueUserWorkItem(_ => SafeRelease(ReasonAccountSetupComplete, EventSeverity.Info));
+                    // Only the user-ESP page exit releases: the Device→Account handoff 62407 arrives
+                    // before any AccountSetup subcategory has left notStarted, the real exit after.
+                    // Cheap to skip while idle; the probe is a locked dictionary scan.
+                    if (IsEngagedOrEngaging() && ProbeAccountSetupProgress())
+                        ThreadPool.QueueUserWorkItem(_ => SafeRelease(ReasonUserEspExited, EventSeverity.Info));
                     return;
                 }
 
@@ -186,6 +213,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         {
             try { Engage(); }
             catch (Exception ex) { _logger.Error("UserEspKeepAwakeHost: engage failed.", ex); }
+        }
+
+        private bool IsEngagedOrEngaging()
+        {
+            lock (_gate) { return _state == HoldState.Engaging || _state == HoldState.Engaged; }
+        }
+
+        private bool ProbeAccountSetupProgress()
+        {
+            try { return _accountSetupProgressProbe(); }
+            catch (Exception ex)
+            {
+                _logger.Debug($"UserEspKeepAwakeHost: AccountSetup progress probe threw: {ex.Message}");
+                return false;
+            }
         }
 
         private void SafeRelease(string reason, EventSeverity severity)

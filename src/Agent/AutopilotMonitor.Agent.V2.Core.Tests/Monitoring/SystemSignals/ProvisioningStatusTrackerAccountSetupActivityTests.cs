@@ -9,15 +9,21 @@ using Xunit;
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 {
     /// <summary>
-    /// Backlog q8n — <see cref="ProvisioningStatusTracker.HasAccountSetupActivity"/> must mean
-    /// observed progress, not registry presence. Windows writes
-    /// <c>AccountSetupCategory.Status</c> with every subcategory <c>notStarted</c> BEFORE the
-    /// Device-ESP page exits, so a presence check labelled the intermediate Device→Account
-    /// Shell-Core 62407 as the final ESP exit; the user-apps-settled synthesis then completed
-    /// AccountSetup minutes early and released the User-ESP keep-awake while the ESP page was
-    /// still up (session a2256107, standby on battery at 09:43 with the real exit at 09:47).
-    /// Both <c>EspAndHelloTracker</c> guards (<c>IsIntermediateDeviceEspExit</c>,
-    /// <c>IsConfirmedPostAccountSetupExit</c>) hang off this property.
+    /// Backlog q8n — pins the two AccountSetup probes side by side.
+    /// <para>
+    /// <see cref="ProvisioningStatusTracker.HasAccountSetupActivity"/> keeps PRESENCE semantics:
+    /// Windows writes <c>AccountSetupCategory.Status</c> with every subcategory <c>notStarted</c>
+    /// before the Device-ESP page exits, and about one in five Classic sessions sees only that
+    /// single Shell-Core 62407 for the whole enrollment — those resolve AccountSetup solely via
+    /// the user-apps-settled synthesis, which needs the exit remembered as the edge. Tightening
+    /// this property strands them (verified on 485 SkipUser=false sessions, 2026-09-01..04).
+    /// </para>
+    /// <para>
+    /// <see cref="ProvisioningStatusTracker.HasAccountSetupProgress"/> is the additive PROGRESS
+    /// probe for the User-ESP keep-awake host: true only once a subcategory left
+    /// <c>notStarted</c>, so the host can tell the real user-ESP page exit (session a2256107:
+    /// 09:47:12) from the Device→Account handoff exit (09:37:53) that released the hold early.
+    /// </para>
     /// </summary>
     public sealed class ProvisioningStatusTrackerAccountSetupActivityTests
     {
@@ -72,31 +78,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         }
 
         [Fact]
-        public void NothingTracked_IsNotActivity()
+        public void NothingTracked_NeitherActivityNorProgress()
         {
             using var f = new Fixture();
             Assert.False(f.Tracker.HasAccountSetupActivity);
+            Assert.False(f.Tracker.HasAccountSetupProgress);
         }
 
         [Fact]
-        public void PreWrittenAllNotStartedJson_IsNotActivity()
+        public void PreWrittenAllNotStartedJson_IsActivity_ButNotProgress()
         {
-            // The registry JSON exists (7 subcategories) but nothing has started — this is the
-            // state at the intermediate Device-ESP exit and must NOT confirm it as final.
+            // The registry JSON exists (7 subcategories) but nothing has started — the state at
+            // the intermediate Device-ESP exit. Activity (presence) must stay true so the
+            // completion guards keep remembering single-exit sessions; progress must be false so
+            // the keep-awake host does not treat this exit as the user-ESP page exit.
             using var f = new Fixture();
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", AllNotStartedJson);
 
-            Assert.False(f.Tracker.HasAccountSetupActivity);
+            Assert.True(f.Tracker.HasAccountSetupActivity);
+            Assert.False(f.Tracker.HasAccountSetupProgress);
         }
 
         [Fact]
-        public void FirstSubcategoryLeavingNotStarted_IsActivity()
+        public void FirstSubcategoryLeavingNotStarted_IsProgress()
         {
             using var f = new Fixture();
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", AllNotStartedJson);
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", FirstProgressJson);
 
             Assert.True(f.Tracker.HasAccountSetupActivity);
+            Assert.True(f.Tracker.HasAccountSetupProgress);
         }
 
         [Theory]
@@ -104,7 +115,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         [InlineData("in_progress")]
         [InlineData("failed")]
         [InlineData("notRequired")]
-        public void AnyNonNotStartedState_IsActivity(string state)
+        public void AnyNonNotStartedState_IsProgress(string state)
         {
             using var f = new Fixture();
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status",
@@ -112,11 +123,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 "\"AccountSetup.AppsSubcategory\":{\"subcategoryState\":\"" + state + "\"}," +
                 "\"AccountSetup.CertificatesSubcategory\":{\"subcategoryState\":\"notStarted\"}}");
 
-            Assert.True(f.Tracker.HasAccountSetupActivity);
+            Assert.True(f.Tracker.HasAccountSetupProgress);
         }
 
         [Fact]
-        public void DeviceSetupProgress_DoesNotCountAsAccountSetupActivity()
+        public void DeviceSetupProgress_DoesNotCountAsAccountSetupProgress()
         {
             // Adversarial: a fully progressed DeviceSetup category must not leak into the
             // AccountSetup answer.
@@ -125,7 +136,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
                 "{\"categoryState\":\"succeeded\",\"DeviceSetup.AppsSubcategory\":{\"subcategoryState\":\"succeeded\"}}");
             f.Tracker.ProcessCategoryStatusForTest("AccountSetupCategory.Status", AllNotStartedJson);
 
-            Assert.False(f.Tracker.HasAccountSetupActivity);
+            Assert.False(f.Tracker.HasAccountSetupProgress);
         }
     }
 }
