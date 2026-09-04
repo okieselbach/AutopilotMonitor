@@ -37,8 +37,10 @@ namespace AutopilotMonitor.Agent.V2
     /// </summary>
     public static partial class Program
     {
-        internal const string DeploymentRegistryKey = @"SOFTWARE\AutopilotMonitor";
-        internal const string DeploymentRegistryValue = "Deployed";
+        // Shared with the Core reader (DeploymentMarker) — the marker's UTC instant anchors the
+        // pre-agent IME log era, so writer and reader must agree on key, value and format.
+        internal const string DeploymentRegistryKey = AutopilotMonitor.Agent.V2.Core.Security.DeploymentMarker.RegistryKeyPath;
+        internal const string DeploymentRegistryValue = AutopilotMonitor.Agent.V2.Core.Security.DeploymentMarker.RegistryValueName;
         internal const string BootstrapConfigFileName = "bootstrap-config.json";
         internal const string AwaitEnrollmentConfigFileName = "await-enrollment.json";
         private const string InstalledAgentExeName = "AutopilotMonitor.Agent.exe";

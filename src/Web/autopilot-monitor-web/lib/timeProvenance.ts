@@ -18,7 +18,7 @@ export interface TimeProvenance {
   sourceLocalTs: string | null;
   /** UTC offset in minutes that was APPLIED to resolve the timestamp. */
   sourceOffsetMinutes: number | null;
-  /** How the applied offset was obtained: "bias" | "line-anchored" | "reader-zone-fallback" | retired "calibrated". */
+  /** How the applied offset was obtained: "bias" | "line-anchored" | "era-anchored" | "reader-zone-fallback" | retired "calibrated". */
   sourceOffsetOrigin: string | null;
   /**
    * Observational per-file measurement from the writer's own UTC lines — NOT the applied

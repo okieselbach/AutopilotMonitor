@@ -37,6 +37,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// </summary>
     public static class StateArchiver
     {
+        internal const string Part1BucketPrefix = ".part1-";
+
+        /// <summary>
+        /// <c>true</c> when <paramref name="stateDirectory"/> holds at least one archived
+        /// <c>.part1-&lt;ts&gt;/</c> bucket — i.e. this device already went through a WhiteGlove
+        /// Part-1/Part-2 resume in this session. Durable across later reboots, unlike the
+        /// <c>whiteglove.complete</c> marker (cleared on resume) and the orchestrator's
+        /// in-memory Part-2 flag. Used to keep sign-in-overdue warnings off pre-provisioned
+        /// devices that legitimately wait days for their user (2026-09-04).
+        /// </summary>
+        public static bool HasPart1Archive(string stateDirectory)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(stateDirectory) || !Directory.Exists(stateDirectory)) return false;
+                return Directory.GetDirectories(stateDirectory, Part1BucketPrefix + "*").Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// Reducer-state segment files moved into the <c>.part1-&lt;ts&gt;/</c> bucket on
         /// archive. <c>event-sequence.json</c> is intentionally NOT in this list — see the
@@ -86,7 +109,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             if (!hasAny) return null;
 
             var stamp = utcNow().ToString("yyyyMMdd'T'HHmmssfff'Z'");
-            var bucket = Path.Combine(stateDirectory, ".part1-" + stamp);
+            var bucket = Path.Combine(stateDirectory, Part1BucketPrefix + stamp);
             Directory.CreateDirectory(bucket);
 
             foreach (var name in KnownSegmentFiles)

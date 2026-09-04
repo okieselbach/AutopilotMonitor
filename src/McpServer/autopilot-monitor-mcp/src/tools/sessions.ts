@@ -39,6 +39,9 @@ export const KEY_EVENT_TYPES = new Set([
   'agent_started', 'agent_shutdown', 'agent_shutting_down', 'agent_trace',
   'script_started', 'script_completed', 'script_failed', 'historic_ime_replay_detected',
   'vulnerability_report', 'system_sleep_episode',
+  // Info-level counterpart of entra_user_affinity_pending (Warning — admitted by severity):
+  // one line per agent run that disproves the hybrid affinity diagnosis, so it must key-rank.
+  'ime_user_token_acquired',
 ]);
 // Phase-defining events promoted to the top of the triage timeline. Module-level
 // (not handler-local) so the same drift test can validate it.

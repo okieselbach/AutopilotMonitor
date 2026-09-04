@@ -67,6 +67,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         public event EventHandler<AadPlaceholderUserDetectedEventArgs> PlaceholderUserDetected;
         public event EventHandler<AadUserJoinedEventArgs> AadUserJoined;
 
+        /// <summary>
+        /// <c>true</c> while a provisioning placeholder (foouser@/autopilot@) is the JoinInfo
+        /// user and no real user has replaced it. On a Hybrid join this stays true through the
+        /// whole user sign-in — the AD sign-in never touches JoinInfo — so consumers report it
+        /// as a fact, never as sign-in evidence (2026-09-04).
+        /// </summary>
+        internal bool PlaceholderObservedWithoutRealUser
+        {
+            get { lock (_stateLock) return _placeholderFired && !_realUserFired; }
+        }
+
         public AadJoinWatcher(AgentLogger logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));

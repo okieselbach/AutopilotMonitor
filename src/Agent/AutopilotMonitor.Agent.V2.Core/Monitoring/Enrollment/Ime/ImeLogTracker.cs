@@ -401,6 +401,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public CmTraceOffsetOrigin LastMatchedSourceOffsetOrigin { get; internal set; }
 
         /// <summary>
+        /// For <see cref="CmTraceOffsetOrigin.EraAnchored"/>: which anchor established the era's
+        /// offset ("bootstrap-policy-result", "bootstrap-stdout", with "/service-era-transfer"
+        /// when the line came from an in-process sibling file). Empty otherwise.
+        /// </summary>
+        public string LastMatchedEraAnchorKind { get; internal set; } = string.Empty;
+
+        /// <summary>
+        /// Source of the install marker's UTC instant for the backlog era pre-scan
+        /// (<see cref="ImeLogEraPreScan"/>). Defaults to the registry marker; tests inject.
+        /// </summary>
+        internal Func<DateTime?> DeployedUtcProvider { get; set; } = Security.DeploymentMarker.TryReadDeployedUtc;
+
+        /// <summary>Era table built by <see cref="PreScanEras"/> at <see cref="Start"/>; empty until then.</summary>
+        internal CmTraceEraTable EraTable { get; private set; } = new CmTraceEraTable();
+
+        // Byte offset of the entry currently being resolved in the read loop (-1 outside it) —
+        // the key for the era lookup. Set next to _currentSourceFileName.
+        private long _currentEntryOffset = -1;
+        private string _lastEraAnchorKind = string.Empty;
+
+        /// <summary>
         /// The offset the calibrator MEASURED for the source file, which is not necessarily the
         /// one applied.
         /// <para>
@@ -425,6 +446,21 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // Args: errorCode (may be empty when IME logged none), raw failure line excerpt.
         // Fired once per distinct errorCode per tracker lifetime (see HandleImeTokenFailure).
         public Action<string, string> OnImeTokenFailure { get; set; }
+        /// <summary>
+        /// Fires on EVERY IME-TOKEN-SUCCESS line that passes the historic-replay gate, with the
+        /// line's resolved UTC (null when the line carried no timestamp). Unlike
+        /// <see cref="OnEspPhaseChanged"/> (deduplicated once AccountSetup is set) and unlike the
+        /// grace-window model behind <see cref="OnImeTokenFailure"/>, this is the raw observation:
+        /// "Successfully get the token" is IntuneTokenManager acquiring the signed-in user's token
+        /// through WAM, i.e. the only SYSTEM-visible proof of Entra user affinity (2026-09-04).
+        /// </summary>
+        public Action<DateTime?> OnUserTokenAcquired { get; set; }
+        /// <summary>
+        /// Fires on EVERY IME-TOKEN-FAILURE line that passes the historic-replay gate:
+        /// errorCode (may be empty) and the line's resolved UTC. Raw observation — the
+        /// deduplicated Warning stays on <see cref="OnImeTokenFailure"/>.
+        /// </summary>
+        public Action<string, DateTime?> OnTokenFailureLine { get; set; }
         // Second arg: the [DO TEL] source log line's timestamp when the DO data came from a
         // log line, null when the DO collector observed the completion live via polling. The
         // consumer must stamp poll-driven telemetry with the clock — inheriting an unrelated
@@ -840,6 +876,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// Build the backlog era table from the files the first pass will read, each from the
+        /// position the pass will start at. Never throws — a failure leaves the table empty and
+        /// every backlog line on the reader-zone fallback, exactly as before.
+        /// </summary>
+        internal void PreScanEras()
+        {
+            try
+            {
+                if (!Directory.Exists(_logFolder)) return;
+                var inputs = new List<ImeLogEraPreScan.ScanInput>();
+                var files = new List<string>();
+                foreach (var filePath in Directory.EnumerateFiles(_logFolder))
+                {
+                    if (MatchesLogFilePattern(Path.GetFileName(filePath)))
+                        files.Add(filePath);
+                }
+                files.Sort(StringComparer.OrdinalIgnoreCase);
+                foreach (var filePath in files)
+                {
+                    var info = new FileInfo(filePath);
+                    if (!info.Exists) continue;
+                    inputs.Add(new ImeLogEraPreScan.ScanInput(filePath, _positionTracker.GetSafePosition(filePath, info.Length)));
+                }
+
+                DateTime? deployedUtc = null;
+                try { deployedUtc = DeployedUtcProvider?.Invoke(); }
+                catch (Exception ex) { _logger.Debug($"ImeLogTracker: Deployed marker read failed: {ex.Message}"); }
+
+                EraTable = ImeLogEraPreScan.Build(inputs, deployedUtc, MaxEntryBytes, _logger);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"ImeLogTracker: era pre-scan failed — backlog stays on the reader-zone fallback: {ex.Message}");
+                EraTable = new CmTraceEraTable();
+            }
+        }
+
+        /// <summary>
         /// Starts the background polling task
         /// </summary>
         public void Start()
@@ -850,6 +924,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // This recovers phase order, ignore list, app states, and log file positions so we continue
             // exactly where we left off — no re-parsing, no device-phase bleeding.
             LoadState();
+
+            // Era anchors for the backlog the first pass is about to read (2026-09-04). Runs
+            // before the poll loop so every replayed line already finds its era; read-only on
+            // the position tracker. Replay tooling anchors nothing — its logs did not come from
+            // this device's bootstrap.
+            if (!SimulationMode) PreScanEras();
 
             _cts = new CancellationTokenSource();
             var token = _cts.Token;

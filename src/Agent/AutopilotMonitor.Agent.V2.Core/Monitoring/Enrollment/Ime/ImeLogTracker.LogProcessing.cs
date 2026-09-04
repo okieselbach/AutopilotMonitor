@@ -263,6 +263,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                             // --- Normal processing (single-line or completed multiline) ---
                             CmTraceLogEntry entry;
                             string messageToMatch;
+                            _currentEntryOffset = entryStart;
                             if (CmTraceLogParser.TryParseLine(line, out entry))
                             {
                                 messageToMatch = entry.Message;
@@ -312,6 +313,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         // flagged as such.
                         if (hadPreviousObservation && calibrationAnchor != null)
                             CalibrateFrom(_currentSourceFileName, Path.GetFileName(filePath), calibrationAnchor);
+                        _currentEntryOffset = -1;
                     }
                 }
                 catch (FileNotFoundException) { }
@@ -509,6 +511,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 LastMatchedSourceOffsetMinutes = null;
                 LastMatchedSourceOffsetOrigin = CmTraceOffsetOrigin.None;
                 LastMatchedMeasuredWriterOffsetMinutes = null;
+                LastMatchedEraAnchorKind = string.Empty;
             }
             else
             {
@@ -518,6 +521,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 LastMatchedSourceLocalTimestamp = entry.HasTimestamp ? entry.LocalTimestamp : (DateTime?)null;
                 LastMatchedSourceOffsetMinutes = offsetMinutes;
                 LastMatchedSourceOffsetOrigin = origin;
+                LastMatchedEraAnchorKind = origin == CmTraceOffsetOrigin.EraAnchored ? _lastEraAnchorKind : string.Empty;
 
                 // Observational: what the calibrator measured for this file, distinct from what
                 // was applied above.
@@ -555,7 +559,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // Placed after the staleness gate so a success replayed from a previous
             // enrollment's log cannot clear a genuine current outage.
             if (!isStaleReplayLine && string.Equals(pattern.PatternId, "IME-TOKEN-SUCCESS", StringComparison.OrdinalIgnoreCase))
+            {
                 ClearPendingTokenFailure();
+                // Raw user-token observation for the Entra user-affinity detector (2026-09-04).
+                // Deliberately NOT routed through espPhaseDetected: that path deduplicates once
+                // AccountSetup is set, so a FullESP session would never report the token that
+                // followed the real-user desktop.
+                try { OnUserTokenAcquired?.Invoke(LastMatchedLogTimestamp); }
+                catch (Exception ex) { _logger?.Warning($"OnUserTokenAcquired handler threw: {ex.Message}"); }
+            }
 
             try
             {
@@ -617,6 +629,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                     case "imetokenfailure":
                         HandleImeTokenFailure(match.Groups["errorCode"]?.Value, message);
+                        // Raw per-line observation (staleness already enforced above via
+                        // AppMutatingActions) — the affinity detector counts failures after
+                        // the real-user desktop; the grace-window Warning stays separate.
+                        try { OnTokenFailureLine?.Invoke(match.Groups["errorCode"]?.Value, LastMatchedLogTimestamp); }
+                        catch (Exception ex) { _logger?.Warning($"OnTokenFailureLine handler threw: {ex.Message}"); }
                         break;
 
                     case "imeimpersonation":
@@ -938,6 +955,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     origin = CmTraceOffsetOrigin.LineAnchored;
                     offsetMinutes = (int)lineOffset.TotalMinutes;
                     return DateTime.SpecifyKind(entry.LocalTimestamp - lineOffset, DateTimeKind.Utc);
+                }
+            }
+
+            // ERA ANCHOR (2026-09-04, session a7140f98): a backlog line whose writer era was
+            // anchored by the bootstrap execution record resolves through that era's offset.
+            // Whole era or nothing — the anchor never crosses an "EMS Agent Started" boundary,
+            // and in-process sibling files (AppWorkload, AppActionProcessor) join by local
+            // time only while the service eras' local ranges are unambiguous. See
+            // ImeLogEraPreScan for why this is the one anchor a backlog line can trust.
+            _lastEraAnchorKind = string.Empty;
+            if (_currentSourceFileName != null && _currentEntryOffset >= 0)
+            {
+                TimeSpan eraOffset;
+                string anchorKind;
+                var resolved = EraTable.TryResolveByOffset(_currentSourceFileName, _currentEntryOffset, out eraOffset, out anchorKind)
+                    || (ImeLogEraPreScan.IsServiceHostedFile(_currentSourceFileName)
+                        && EraTable.TryResolveByLocalTime(entry.LocalTimestamp, out eraOffset, out anchorKind));
+                if (resolved)
+                {
+                    origin = CmTraceOffsetOrigin.EraAnchored;
+                    offsetMinutes = (int)eraOffset.TotalMinutes;
+                    _lastEraAnchorKind = anchorKind;
+                    return DateTime.SpecifyKind(entry.LocalTimestamp - eraOffset, DateTimeKind.Utc);
                 }
             }
 

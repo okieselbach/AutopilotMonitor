@@ -110,6 +110,23 @@ namespace AutopilotMonitor.Functions.Services
         {
             var matchingEvents = events.Where(e => MatchesEventType(e, condition.EventType)).ToList();
 
+            // Absence gate: not_exists without a dataField matches when NO event of that type occurs
+            // in the session (the same presence semantics as the precondition gate). A single event
+            // of that type disproves the condition — as a required condition it vetoes the rule
+            // (e.g. ime_user_token_acquired disproving ANALYZE-ID-004).
+            if (string.IsNullOrEmpty(condition.DataField)
+                && string.Equals(condition.Operator, "not_exists", StringComparison.OrdinalIgnoreCase))
+            {
+                if (matchingEvents.Any())
+                    return (false, "event type present");
+
+                return (true, new Dictionary<string, object>
+                {
+                    ["eventType"] = condition.EventType,
+                    ["count"] = 0
+                });
+            }
+
             if (!matchingEvents.Any())
                 return (false, "no matching events");
 
@@ -474,15 +491,25 @@ namespace AutopilotMonitor.Functions.Services
                 // Calculate how long this phase lasted
                 DateTime phaseEnd;
                 string? phaseEndEventId = null;
+                EnrollmentEvent? phaseEndEvent = null;
                 if (i + 1 < phaseEvents.Count)
                 {
-                    phaseEnd = phaseEvents[i + 1].Timestamp;
-                    phaseEndEventId = phaseEvents[i + 1].EventId;
+                    phaseEndEvent = phaseEvents[i + 1];
+                    phaseEnd = phaseEndEvent.Timestamp;
+                    phaseEndEventId = phaseEndEvent.EventId;
                 }
                 else
                 {
-                    phaseEnd = DateTime.UtcNow; // Phase is still active
+                    phaseEnd = DateTime.UtcNow; // Phase is still active — the end carries no provenance
                 }
+
+                // A duration is only as good as the weaker of its two endpoints: a reader-zone
+                // fallback timestamp can be hours off, which turned a 20-minute DeviceSetup into a
+                // 3 h "ESP Blocking App Timeout" (ANALYZE-ESP-001).
+                if (HasReaderZoneFallbackTimestamp(evt))
+                    return (false, UnmeasurableDurationEvidence("phase duration", "start", evt, evt));
+                if (phaseEndEvent != null && HasReaderZoneFallbackTimestamp(phaseEndEvent))
+                    return (false, UnmeasurableDurationEvidence("phase duration", "end", evt, phaseEndEvent));
 
                 var durationSeconds = (phaseEnd - evt.Timestamp).TotalSeconds;
 
@@ -510,6 +537,38 @@ namespace AutopilotMonitor.Functions.Services
                 return $"{ts.Minutes}m {ts.Seconds}s";
             return $"{ts.Seconds}s";
         }
+
+        // ===== Timestamp provenance of CMTrace-derived events =====
+        // IME-log-derived events (esp_phase_changed, app_install_*, …) carry data.sourceOffsetOrigin:
+        // "bias" | "calibrated" | "line-anchored" | "reader-zone-fallback". The last one means the
+        // agent could not determine the log writer's timezone and assumed its own, so the
+        // Timestamp may be off by whole hours. Agent-native events carry no tag and are trusted.
+
+        /// <summary>Data key written by the agent's IME log adapter for CMTrace-derived events.</summary>
+        internal const string SourceOffsetOriginField = "sourceOffsetOrigin";
+        /// <summary>Origin value that makes a timestamp unusable for an elapsed-duration measurement.</summary>
+        internal const string ReaderZoneFallbackOrigin = "reader-zone-fallback";
+
+        private static bool HasReaderZoneFallbackTimestamp(EnrollmentEvent evt)
+            => string.Equals(GetDataFieldValue(evt, SourceOffsetOriginField), ReaderZoneFallbackOrigin, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Non-match evidence for a duration whose <paramref name="endpoint"/> ("start" | "end")
+        /// timestamp is a reader-zone fallback. <paramref name="anchor"/> is the event the evaluator
+        /// normally reports as its match (eventId/sequence), <paramref name="offender"/> the endpoint
+        /// event carrying the fallback tag.
+        /// </summary>
+        private static Dictionary<string, object> UnmeasurableDurationEvidence(
+            string what, string endpoint, EnrollmentEvent anchor, EnrollmentEvent offender)
+            => new()
+            {
+                ["reason"] = $"{what} not measurable: {endpoint} timestamp derived from reader-zone fallback",
+                ["timestampProvenance"] = ReaderZoneFallbackOrigin,
+                ["provenanceEndpoint"] = endpoint,
+                ["provenanceEventId"] = offender.EventId ?? string.Empty,
+                ["eventId"] = anchor.EventId ?? string.Empty,
+                ["sequence"] = anchor.Sequence,
+            };
 
         private bool EvaluateConfidenceFactor(ConfidenceFactor factor, List<EnrollmentEvent> events, Dictionary<string, object> matchedConditions)
         {
@@ -574,7 +633,7 @@ namespace AutopilotMonitor.Functions.Services
             return string.Equals(evt.EventType, eventType, StringComparison.OrdinalIgnoreCase);
         }
 
-        private string? GetDataFieldValue(EnrollmentEvent evt, string dataField)
+        private static string? GetDataFieldValue(EnrollmentEvent evt, string dataField)
         {
             if (evt.Data == null || string.IsNullOrEmpty(dataField))
                 return null;
@@ -785,6 +844,11 @@ namespace AutopilotMonitor.Functions.Services
                 .Where(e => completionEventTypes.Contains(e.EventType ?? string.Empty))
                 .ToList();
 
+            // First pair skipped because one endpoint is a reader-zone fallback timestamp (see
+            // HasReaderZoneFallbackTimestamp). Other apps stay measurable; the skip only becomes
+            // the reported reason when nothing else matched.
+            Dictionary<string, object>? unmeasurable = null;
+
             foreach (var completionEvent in completionEvents)
             {
                 var appId = GetDataFieldValue(completionEvent, "appId");
@@ -802,6 +866,17 @@ namespace AutopilotMonitor.Functions.Services
 
                 if (startEvent == null)
                     continue;
+
+                if (HasReaderZoneFallbackTimestamp(startEvent))
+                {
+                    unmeasurable ??= UnmeasurableDurationEvidence("app install duration", "start", completionEvent, startEvent);
+                    continue;
+                }
+                if (HasReaderZoneFallbackTimestamp(completionEvent))
+                {
+                    unmeasurable ??= UnmeasurableDurationEvidence("app install duration", "end", completionEvent, completionEvent);
+                    continue;
+                }
 
                 var durationSeconds = Math.Max(0, (completionEvent.Timestamp - startEvent.Timestamp).TotalSeconds);
 
@@ -822,6 +897,9 @@ namespace AutopilotMonitor.Functions.Services
                     ["durationFormatted"] = FormatDuration(durationSeconds)
                 });
             }
+
+            if (unmeasurable != null)
+                return (false, unmeasurable);
 
             return (false, "no app install duration matched");
         }

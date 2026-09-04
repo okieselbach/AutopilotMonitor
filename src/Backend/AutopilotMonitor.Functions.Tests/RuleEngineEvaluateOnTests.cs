@@ -320,8 +320,10 @@ public class RuleEngineEvaluateOnTests
         // Pins the JSON → model deserialization of evaluateOn end-to-end through the
         // embedded catalog (rules/dist/analyze-rules.json).
         var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-ID-004");
-        Assert.Equal(new List<string> { "enrollment_end", "on_event:hybrid_login_pending" }, rule.EvaluateOn);
-        // Interim safety: the rule must not fire on a single overdue-login signal — the
+        // v2.0.0: the interim trigger is the agent's user-affinity signal (real-user desktop seen,
+        // IME acquired no Entra user token), no longer hybrid_login_pending (desktop absence).
+        Assert.Equal(new List<string> { "enrollment_end", "on_event:entra_user_affinity_pending" }, rule.EvaluateOn);
+        // Interim safety: the rule must not fire on a single pending-affinity signal — the
         // threshold has to require the repetition factors (base 60 + count>=2 → 80).
         Assert.True(rule.ConfidenceThreshold > rule.BaseConfidence,
             "ANALYZE-ID-004 must be repetition-gated to stay interim-safe");

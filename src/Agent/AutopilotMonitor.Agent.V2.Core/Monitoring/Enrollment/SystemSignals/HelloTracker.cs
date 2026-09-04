@@ -36,6 +36,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal const int EventId_ProvisioningWillNotLaunch = 360;
         internal const int EventId_ProvisioningBlocked = 362;
         internal const int EventId_PinStatus = 376;
+        // Automatic device registration failed at the join / authentication phase (Hybrid Join
+        // affinity diagnosis, 2026-09-04). Not Hello events — they ride the same UDR watcher
+        // because the channel is already armed; surfaced as device_registration_event.
+        internal const int EventId_AutoRegistrationFailedJoin = 304;
+        internal const int EventId_AutoRegistrationFailedAuth = 305;
 
         internal const int EventId_HelloForBusiness_ProcessingStarted = 3024;
         internal const int EventId_HelloForBusiness_ProcessingStopped = 6045;
@@ -47,6 +52,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         private static readonly HashSet<int> TrackedUdrEventIds = new HashSet<int>
         {
+            EventId_AutoRegistrationFailedJoin,
+            EventId_AutoRegistrationFailedAuth,
             EventId_NgcKeyRegistered,
             EventId_NgcKeyRegistrationFailed,
             EventId_ProvisioningWillLaunch,
@@ -547,7 +554,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 var query = new EventLogQuery(
                     UdrEventLogChannel,
                     PathType.LogName,
-                    "*[System[(EventID=300 or EventID=301 or EventID=358 or EventID=360 or EventID=362 or EventID=376)]]");
+                    "*[System[(EventID=300 or EventID=301 or EventID=304 or EventID=305 or EventID=358 or EventID=360 or EventID=362 or EventID=376)]]");
 
                 _udrWatcher = new EventLogWatcher(query);
                 _udrWatcher.EventRecordWritten += OnUdrEventRecordWritten;
@@ -654,6 +661,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     message = "Windows Hello PIN status update";
                     break;
 
+                case EventId_AutoRegistrationFailedJoin: // 304
+                case EventId_AutoRegistrationFailedAuth: // 305
+                    // OS-side record that the automatic device registration failed (join or
+                    // authentication phase). Companion evidence for entra_user_affinity_pending —
+                    // no Hello state involved, so no MarkHelloCompleted().
+                    eventType = Constants.EventTypes.DeviceRegistrationEvent;
+                    severity = EventSeverity.Warning;
+                    message = $"User Device Registration: automatic registration failed (event {eventId}, "
+                              + (eventId == EventId_AutoRegistrationFailedJoin ? "join phase)" : "authentication phase)");
+                    _logger.Info($"User Device Registration failure event {eventId} observed");
+                    break;
+
                 default:
                     return;
             }
@@ -691,6 +710,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // flip state multiple times — keep batched.
                 ImmediateUpload = shouldTriggerHelloCompleted
                     || eventType == Constants.EventTypes.HelloProvisioningFailed
+                    || eventType == Constants.EventTypes.DeviceRegistrationEvent
             });
 
             _logger.Info($"Hello event detected: {eventType} (EventID {eventId}{(isBackfill ? ", backfill" : "")})");

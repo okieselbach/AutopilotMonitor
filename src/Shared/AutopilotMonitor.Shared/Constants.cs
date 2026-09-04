@@ -368,6 +368,9 @@ namespace AutopilotMonitor.Shared
             public const string DesktopDetectorStarted      = "desktop_detector_started";    // 1x on Start() / ResetForRealUserSwitch()
             public const string DesktopDetectorFirstPoll    = "desktop_detector_first_poll"; // 1x after first PollForDesktop() completes
             public const string DesktopDetectorNoCandidate  = "desktop_detector_no_candidate"; // 1x after threshold polls without resolution (configurable)
+            // DAD owner-resolution trace (single-rail, own EventTypes since 2026-05-15; consts since 2026-09-04 — D-072).
+            public const string DesktopRealUserDetected     = "desktop_real_user_detected";  // explorer.exe owned by a real (non-placeholder, non-system) user
+            public const string DesktopExcludedUser         = "desktop_excluded_user";       // explorer.exe owned by an excluded identity (system / defaultuser / placeholder), 1x
             // 1x when WinRT SystemSetupInfo.OutOfBoxExperienceState flips InProgress->Completed,
             // sampled on the DAD 30s poll. Observational only (no decision-engine involvement) —
             // an owner-independent desktop corroboration for sessions where WTS+WMI owner
@@ -519,7 +522,21 @@ namespace AutopilotMonitor.Shared
             // Hybrid User-Driven enrollment observability (V2 — Hybrid completion gaps, 2026-05-01).
             // Pure observability — never consumed by the DecisionEngine, no DecisionSignalKind wired up.
             public const string AadPlaceholderUserDetected = "aad_placeholder_user_detected"; // foouser@/autopilot@ first appearance in JoinInfo
-            public const string HybridLoginPending         = "hybrid_login_pending";          // Hybrid: 10 min after reboot still placeholder, real AD login overdue
+            // Hybrid: 10 min after a reboot still no real-user desktop — the sign-in is overdue. Measures
+            // desktop absence only (2026-09-04, session a7140f98): on a Hybrid join the AD sign-in never
+            // replaces the JoinInfo placeholder, so the placeholder is reported as a fact, not as evidence.
+            public const string HybridLoginPending         = "hybrid_login_pending";
+            // Entra user affinity after the real-user desktop (2026-09-04). IME acquires the signed-in
+            // user's token through WAM ("Successfully get the token", IntuneTokenManager) — that line is
+            // the only SYSTEM-visible proof that the user session has an Entra identity (PRT). The
+            // counterpart fires when no such token follows the desktop within the delay; the payload
+            // carries the IME token-failure codes observed since the desktop. Observability only.
+            public const string ImeUserTokenAcquired       = "ime_user_token_acquired";       // Info, 1x per agent run: first IME user-token success after the real-user desktop
+            public const string EntraUserAffinityPending   = "entra_user_affinity_pending";   // Warning, 1x per agent run: N min after the real-user desktop still no IME user token
+            // User Device Registration/Admin 304/305 (automatic registration failed at join /
+            // authentication phase) — surfaced so the hybrid affinity diagnosis has the OS-side
+            // failure record on the timeline instead of sending the operator to Event Viewer.
+            public const string DeviceRegistrationEvent    = "device_registration_event";
 
             // Real-user join — companion to AadPlaceholderUserDetected. The DecisionEngine consumes
             // these as DecisionSignalKind only (HandleAadUserJoinedLateV1 is observation-only and

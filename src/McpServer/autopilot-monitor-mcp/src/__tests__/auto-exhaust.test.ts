@@ -10,6 +10,8 @@ import { describe, it, expect } from 'vitest';
 import { scanUntilMatch } from '../client.js';
 import {
   isKnownEventType,
+  isGatherOutputEventType,
+  isFilterableEventType,
   assertKnownEventType,
   assertKnownDevicePropertyKeys,
   eventTypePrefixOf,
@@ -156,6 +158,38 @@ describe('event-type validation', () => {
     expect(() => assertKnownEventType('app_install_fialed')).toThrow(/event_types catalog/);
     // "app_install_fialed" shares the "app" token → at least one suggestion surfaces.
     expect(() => assertKnownEventType('app_install_fialed')).toThrow(/Did you mean/);
+  });
+
+  it('accepts the hybrid user-affinity types added to the catalog', () => {
+    for (const t of ['desktop_real_user_detected', 'desktop_excluded_user', 'ime_user_token_acquired', 'entra_user_affinity_pending', 'device_registration_event']) {
+      expect(isKnownEventType(t), t).toBe(true);
+      expect(() => assertKnownEventType(t)).not.toThrow();
+    }
+  });
+
+  it('lets gather-rule output types through the filter gate without cataloguing them', () => {
+    // Built-in and tenant-authored outputEventType values are rule data, never catalogued.
+    for (const t of ['gather_dsregcmd_status', 'gather_custom_anything']) {
+      expect(isGatherOutputEventType(t), t).toBe(true);
+      expect(isFilterableEventType(t), t).toBe(true);
+      expect(() => assertKnownEventType(t)).not.toThrow();
+      // The strict predicate stays strict: rule-validation uses it as "is a built-in type".
+      expect(isKnownEventType(t), t).toBe(false);
+    }
+    // Catalogued code-emitted gather_* lifecycle types are known AND filterable.
+    expect(isKnownEventType('gather_result')).toBe(true);
+    expect(isFilterableEventType('gather_result')).toBe(true);
+  });
+
+  it('requires a non-empty suffix after the gather_ prefix', () => {
+    expect(isGatherOutputEventType('gather_')).toBe(false);
+    expect(isFilterableEventType('gather_')).toBe(false);
+    expect(() => assertKnownEventType('gather_')).toThrow(/event_types catalog/);
+  });
+
+  it('still rejects a typo that only resembles the gather_ prefix', () => {
+    expect(isFilterableEventType('gathre_dsregcmd_status')).toBe(false);
+    expect(() => assertKnownEventType('gathre_dsregcmd_status')).toThrow(/Unknown eventType "gathre_dsregcmd_status" — it is not in the event_types catalog/);
   });
 });
 

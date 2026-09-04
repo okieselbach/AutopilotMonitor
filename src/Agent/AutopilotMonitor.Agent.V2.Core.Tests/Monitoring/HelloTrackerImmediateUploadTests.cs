@@ -73,6 +73,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
             Assert.Equal("true", info.Payload![SignalPayloadKeys.ImmediateUpload]);
         }
 
+        [Theory]
+        [InlineData(304, "join phase")]
+        [InlineData(305, "authentication phase")]
+        public void ProcessHelloEvent_304_305_emit_device_registration_event_with_immediate_upload(int eventId, string phaseLabel)
+        {
+            // Hybrid affinity companion (2026-09-04): UDR 304/305 ride the already-armed
+            // watcher and surface as device_registration_event — a Warning, flushed at once,
+            // and never a Hello completion.
+            using var f = new Fixture();
+
+            f.Tracker.ProcessHelloEvent(eventId, Fixed, "Microsoft-Windows-User Device Registration", isBackfill: false);
+
+            var info = f.InfoEvent("device_registration_event");
+            Assert.Equal("Warning", info.Payload![SignalPayloadKeys.Severity]);
+            Assert.Equal("true", info.Payload[SignalPayloadKeys.ImmediateUpload]);
+            Assert.Contains(phaseLabel, info.Payload[SignalPayloadKeys.Message]);
+            Assert.DoesNotContain(f.Ingress.Posted, p =>
+                p.Payload != null && p.Payload.TryGetValue(SignalPayloadKeys.EventType, out var et)
+                && et.StartsWith("hello_provisioning"));
+        }
+
         [Fact]
         public void ProcessHelloEvent_358_willlaunch_is_suppressed()
         {

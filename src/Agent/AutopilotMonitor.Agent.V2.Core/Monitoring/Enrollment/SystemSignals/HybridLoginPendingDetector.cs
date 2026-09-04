@@ -10,19 +10,27 @@ using SharedConstants = AutopilotMonitor.Shared.Constants;
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 {
     /// <summary>
-    /// Single-shot detector for the Hybrid User-Driven completion-gap (2026-05-01 trigger:
-    /// session e58bcfdb-3e68-4f23-a3c2-437429ca9e78). After a Hybrid AAD-Join reboot the
-    /// agent restarts and waits for the user to log in with their real AD/AAD account
-    /// (which replaces the foouser/autopilot placeholder in JoinInfo). When that login is
-    /// overdue the agent today goes silent until the backend 5-h watchdog fires; this
-    /// detector emits a <c>hybrid_login_pending</c> warning event after a short single-shot
-    /// timer so the operator sees an explicit "stuck waiting for AD login" signal in the
-    /// timeline.
+    /// Single-shot detector for the Hybrid User-Driven sign-in gap (2026-05-01 trigger:
+    /// session e58bcfdb-3e68-4f23-a3c2-437429ca9e78). After the Hybrid AAD-Join reboot the
+    /// agent restarts and waits for the user to sign in with their AD account. When nobody
+    /// signs in the agent goes silent until the backend watchdog fires; this detector emits a
+    /// <c>hybrid_login_pending</c> warning after a short single-shot timer so the operator sees
+    /// an explicit "still waiting for the sign-in" signal in the timeline.
     /// <para>
-    /// Conditions checked at <see cref="Arm"/>: composition root must have already
-    /// confirmed a) post-reboot, b) <c>isHybridJoin == true</c>. The detector itself only
-    /// owns the timer + <see cref="AadJoinWatcher.AadUserJoined"/> cancel-path. No polling.
-    /// No periodicity. Fires at most once per agent process.
+    /// What it measures (rewritten 2026-09-04, session a7140f98): the ABSENCE of a real-user
+    /// desktop. Two cancel paths: the DesktopArrivalDetector resolving explorer.exe under a
+    /// real user (the actual sign-in evidence), and the AadJoinWatcher seeing a real user in
+    /// JoinInfo (the Entra-join flavour, where the OOBE sign-in completes the join). On a
+    /// Hybrid join the AD sign-in never replaces the JoinInfo placeholder — only the later
+    /// Entra device registration does — so the placeholder state is reported as a fact in the
+    /// payload, never as the reason for the warning.
+    /// </para>
+    /// <para>
+    /// Conditions checked at <see cref="Arm"/> by the composition root: post-reboot,
+    /// <c>isHybridJoin == true</c>, and not a WhiteGlove device (a sealed device legitimately
+    /// waits days for its user; the session status AwaitingUser already describes that).
+    /// The detector owns only the timer and the cancel paths. No polling. Fires at most once
+    /// per agent process.
     /// </para>
     /// </summary>
     internal sealed class HybridLoginPendingDetector : IDisposable
@@ -40,6 +48,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private bool _armed;
         private bool _fired;
         private bool _cancelledByRealUser;
+        private bool _cancelledByDesktop;
         private int _disposed;
 
         internal HybridLoginPendingDetector(
@@ -60,8 +69,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         /// <summary>
         /// Starts the single-shot timer. Idempotent — repeated calls after the first arm
-        /// are no-ops. Has no effect if the watcher already saw a real AAD user (the
-        /// arming was racy and the cancel won), or if the detector already fired.
+        /// are no-ops. Has no effect if a real-user desktop or a real AAD user was already
+        /// observed (the arming was racy and the cancel won), or if the detector already fired.
         /// </summary>
         public void Arm()
         {
@@ -69,6 +78,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             {
                 if (_disposed != 0) return;
                 if (_armed || _fired) return;
+                if (_cancelledByDesktop)
+                {
+                    _logger.Info("HybridLoginPendingDetector: arm requested but a real-user desktop was already observed — skipped");
+                    return;
+                }
                 if (_cancelledByRealUser)
                 {
                     _logger.Info("HybridLoginPendingDetector: arm requested but real AAD user already joined — skipped");
@@ -77,9 +91,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
                 _armed = true;
                 _logger.Info(
-                    $"HybridLoginPendingDetector: armed — will emit hybrid_login_pending in {_delay.TotalMinutes:F0} min if real AAD user has not joined by then");
+                    $"HybridLoginPendingDetector: armed — will emit hybrid_login_pending in {_delay.TotalMinutes:F0} min if no real-user desktop appears by then");
 
                 _timer = new Timer(OnTimer, null, _delay, Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        /// <summary>
+        /// The DesktopArrivalDetector resolved explorer.exe under a real user — the sign-in
+        /// happened. Cancels a running timer; remembered so a later <see cref="Arm"/> is a no-op.
+        /// </summary>
+        public void NotifyRealUserDesktop()
+        {
+            lock (_lock)
+            {
+                _cancelledByDesktop = true;
+                if (!_armed || _fired) return;
+
+                _timer?.Dispose();
+                _timer = null;
+                _logger.Info("HybridLoginPendingDetector: cancelled — real-user desktop observed before timeout");
             }
         }
 
@@ -106,6 +137,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
 
         internal bool IsArmedForTest { get { lock (_lock) { return _armed; } } }
         internal bool IsCancelledByRealUserForTest { get { lock (_lock) { return _cancelledByRealUser; } } }
+        internal bool IsCancelledByDesktopForTest { get { lock (_lock) { return _cancelledByDesktop; } } }
         internal bool HasFiredForTest { get { lock (_lock) { return _fired; } } }
 
         private void OnTimer(object? state) => EmitInternal(reason: "timer_fired");
@@ -130,23 +162,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                 // _armed guard (Codex review 2026-05-01): production is safe because the
                 // timer is only created in Arm(), but explicit guard makes the contract
                 // unambiguous — emission requires a deliberate Arm(), full stop.
-                if (!_armed || _fired || _cancelledByRealUser || _disposed != 0) return;
+                if (!_armed || _fired || _cancelledByRealUser || _cancelledByDesktop || _disposed != 0) return;
                 _fired = true;
                 _timer?.Dispose();
                 _timer = null;
             }
 
+            var placeholderActive = _watcher.PlaceholderObservedWithoutRealUser ? "true" : "false";
             var data = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["delayMinutes"] = ((int)_delay.TotalMinutes).ToString(),
                 ["reason"] = reason,
                 ["isHybridJoin"] = "true",  // armed only when composition root verified this
+                ["realUserDesktopSeen"] = "false",
+                ["placeholderActive"] = placeholderActive,
             };
 
             _post.Emit(
                 eventType: SharedConstants.EventTypes.HybridLoginPending,
                 source: SourceLabel,
-                message: $"Hybrid AAD Join: {(int)_delay.TotalMinutes} min after reboot still no real AD user — login overdue (placeholder still active in JoinInfo)",
+                message: $"Hybrid AAD Join: {(int)_delay.TotalMinutes} min after reboot still no real-user desktop — sign-in overdue",
                 severity: EventSeverity.Warning,
                 immediateUpload: true,
                 data: data);

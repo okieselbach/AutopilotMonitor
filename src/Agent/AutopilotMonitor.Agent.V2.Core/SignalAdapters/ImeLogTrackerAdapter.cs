@@ -464,6 +464,11 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 if (offsetMinutes.HasValue)
                     data["sourceOffsetMinutes"] = offsetMinutes.Value.ToString(culture);
 
+                // Which era anchor the offset came from — forensics for the era-anchored origin.
+                var anchorKind = _tracker.LastMatchedEraAnchorKind;
+                if (!string.IsNullOrEmpty(anchorKind))
+                    data["sourceOffsetAnchor"] = anchorKind;
+
                 // Observational only — what the calibrator measured, which since the 2026-08-20
                 // revert is deliberately NOT what was applied. Kept separate so the two can never
                 // be read as the same thing.
@@ -489,6 +494,9 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 // The line anchored itself: read provably fresh, its own distance to the agent
                 // clock (grid-rounded) was applied as the writer's offset. Era-safe per line.
                 case CmTraceOffsetOrigin.LineAnchored: return "line-anchored";
+                // A backlog line resolved through its writer era, anchored by the bootstrap
+                // execution record against the install marker (ImeLogEraPreScan, 2026-09-04).
+                case CmTraceOffsetOrigin.EraAnchored: return "era-anchored";
                 // The line was not provably fresh (backlog, restart catch-up, replay), so this
                 // process's own zone was assumed — correct only if the writer happens to share it.
                 default: return "reader-zone-fallback";

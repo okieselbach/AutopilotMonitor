@@ -494,14 +494,19 @@ namespace AutopilotMonitor.Agent.V2.Runtime
                         {
                             LifecycleEmitters.PostSystemRebootObserved(orchestrator.IngressSink, previousExit, logger);
 
-                            // Hybrid User-Driven completion-gap fix (2026-05-01): the reboot is the
-                            // expected switch from foouser/autopilot OOBE to the real AD account.
-                            // If the user never logs in we go silent until the 5-h backend watchdog;
-                            // arm a single-shot 10-min detector that emits hybrid_login_pending
-                            // once if the AAD user join is overdue. Cancelled when AadJoinWatcher
-                            // sees the real user. Only armed for actual Hybrid devices — non-Hybrid
-                            // reboots don't have the placeholder→real-user flow that motivates this.
-                            if (!isWhiteGloveResume && EnrollmentRegistryDetector.DetectHybridJoin())
+                            // Hybrid User-Driven sign-in gap (2026-05-01, semantics 2026-09-04): after
+                            // the Hybrid reboot the user has to sign in with the AD account. If nobody
+                            // does, the agent goes silent until the backend watchdog; arm a single-shot
+                            // 10-min detector that emits hybrid_login_pending once when no real-user
+                            // desktop appeared by then. Cancelled by the DesktopArrivalDetector (the
+                            // sign-in evidence) or by the AadJoinWatcher seeing a real user (Entra-join
+                            // flavour). Never on WhiteGlove devices: a sealed device legitimately waits
+                            // days for its user, and AwaitingUser already describes that — the Part-1
+                            // archive check covers reboots inside Part 2 after the resume marker is gone.
+                            if (!isWhiteGloveResume
+                                && !orchestrator.IsWhiteGlovePart2
+                                && !orchestrator.HasWhiteGlovePart1Archive
+                                && EnrollmentRegistryDetector.DetectHybridJoin())
                             {
                                 try { orchestrator.CollectorSurfaces?.AadJoinHost?.ArmHybridLoginPendingDetector(); }
                                 catch (Exception ex)

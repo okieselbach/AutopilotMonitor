@@ -234,7 +234,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                                 try
                                 {
                                     OnTraceEvent?.Invoke(
-                                        "desktop_excluded_user",
+                                        SharedEventTypes.DesktopExcludedUser,
                                         $"explorer.exe found but owned by excluded user '{owner}' — not a real user desktop",
                                         new Dictionary<string, object> { { "pid", proc.Id }, { "session", proc.SessionId }, { "owner", owner } });
                                 }
@@ -250,7 +250,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                         try
                         {
                             OnTraceEvent?.Invoke(
-                                "desktop_real_user_detected",
+                                SharedEventTypes.DesktopRealUserDetected,
                                 $"Real user desktop detected (explorer.exe PID {proc.Id}, user '[redacted]')",
                                 new Dictionary<string, object> { { "pid", proc.Id }, { "session", proc.SessionId }, { "owner", "[redacted]" } });
                         }

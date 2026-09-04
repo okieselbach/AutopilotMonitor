@@ -1,0 +1,21 @@
+{
+  "$schema": "../schema/gather-rule.schema.json",
+  "ruleId": "GATHER-DEVICE-008",
+  "title": "Collect Entra operational log on pending user affinity (event 1097)",
+  "description": "Collects the most recent Entra token-broker operational events with ID 1097 from Microsoft-Windows-AAD/Operational the moment the agent reports that the signed-in user still has no Entra user token (entra_user_affinity_pending). Captures the OS-side token-broker record at exactly the point where ANALYZE-ID-004 draws its evidence. The event log collector filters on one event ID per rule; GATHER-DEVICE-007 collects event 1098 from the same channel.",
+  "category": "device",
+  "version": "1.0.0",
+  "author": "Autopilot Monitor",
+  "enabled": true,
+  "collectorType": "eventlog",
+  "target": "Microsoft-Windows-AAD/Operational",
+  "parameters": {
+    "eventId": "1097",
+    "maxEntries": "20"
+  },
+  "trigger": "on_event",
+  "triggerEventType": "entra_user_affinity_pending",
+  "outputEventType": "gather_aad_operational_events",
+  "outputSeverity": "Warning",
+  "tags": ["device", "entra", "hybrid"]
+}

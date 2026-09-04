@@ -27,6 +27,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <see cref="CmTraceOffsetCalibrator.TryMeasureOffset"/>.
         /// </summary>
         LineAnchored = 3,
+
+        /// <summary>
+        /// A backlog line resolved through its writer ERA: the stretch of log written by one
+        /// process lifetime, anchored by an entry inside that era whose UTC instant the agent
+        /// knows exactly (the install marker vs. the IME's own record of the bootstrap script's
+        /// result — a few hundred milliseconds apart). An anchor applies to a whole era or not
+        /// at all, never across an "EMS Agent Started" boundary. See <c>ImeLogEraPreScan</c>
+        /// (2026-09-04, session a7140f98).
+        /// </summary>
+        EraAnchored = 4,
     }
 
     /// <summary>

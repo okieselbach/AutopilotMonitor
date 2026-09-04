@@ -2,14 +2,14 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ID-004",
   "title": "Hybrid Sign-In Never Establishes Entra User Affinity",
-  "description": "On a hybrid-joined device the real user reached the desktop, but the Autopilot provisioning placeholder stayed active in JoinInfo and the agent repeatedly reported the hybrid sign-in as overdue. The user session never establishes Entra user affinity (no PRT), so the Account Setup ESP re-runs on every logon and the enrollment never completes.",
+  "description": "On a hybrid-joined device the real user reached the desktop, but the Intune Management Extension never acquired a Microsoft Entra user token for that user within the wait window — repeatedly across reboots when the warning recurs. Without a user token the signed-in user has no Entra user affinity: user-targeted apps and policies cannot apply, Windows Hello for Business cannot provision, and with a user ESP the Account Setup page re-runs on every logon.",
   "severity": "high",
   "category": "identity",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "author": "Autopilot Monitor",
   "enabled": true,
   "trigger": "correlation",
-  "evaluateOn": ["enrollment_end", "on_event:hybrid_login_pending"],
+  "evaluateOn": ["enrollment_end", "on_event:entra_user_affinity_pending"],
   "baseConfidence": 60,
   "confidenceThreshold": 75,
   "preconditions": [
@@ -17,14 +17,14 @@
       "source": "event_data",
       "eventType": "enrollment_complete",
       "operator": "not_exists",
-      "description": "Suppress when the session eventually completed — a single overdue-login warning followed by a successful sign-in is normal hybrid latency, not a broken affinity."
+      "description": "Suppress when the session eventually completed — a single pending-affinity warning followed by a successful token acquisition is hybrid latency, not a broken affinity."
     }
   ],
   "conditions": [
     {
-      "signal": "hybrid_login_overdue",
+      "signal": "user_affinity_pending",
       "source": "event_type",
-      "eventType": "hybrid_login_pending",
+      "eventType": "entra_user_affinity_pending",
       "operator": "exists",
       "value": "",
       "required": true
@@ -38,28 +38,27 @@
       "required": true
     },
     {
-      "signal": "placeholder_still_active",
+      "signal": "no_user_token",
       "source": "event_type",
-      "eventType": "aad_placeholder_user_detected",
-      "operator": "exists",
+      "eventType": "ime_user_token_acquired",
+      "operator": "not_exists",
       "value": "",
-      "required": false
+      "required": true
     }
   ],
   "confidenceFactors": [
-    { "signal": "hybrid_login_pending", "condition": "count >= 2", "weight": 20 },
-    { "signal": "hybrid_login_pending", "condition": "count >= 3", "weight": 10 },
-    { "signal": "aad_placeholder_user_detected", "condition": "count >= 3", "weight": 10 }
+    { "signal": "entra_user_affinity_pending", "condition": "count >= 2", "weight": 20 },
+    { "signal": "entra_user_affinity_pending", "condition": "count >= 3", "weight": 10 }
   ],
-  "explanation": "A real user signed in and reached the desktop, but the device kept reporting the **Autopilot provisioning placeholder** as the active identity in JoinInfo and the hybrid sign-in as **overdue** — across multiple reboots. This means the signed-in user never established **Microsoft Entra user affinity** (no Primary Refresh Token), so:\n\n- the Account Setup ESP page re-appears on every logon,\n- user-targeted required apps and policies cannot settle,\n- the enrollment never reaches completion.\n\nAfter this many hours this is not normal Entra Connect sync latency — something is structurally preventing the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.\n\nA frequent variant: the user's **first sign-in happens without domain-controller reachability** — for example when a pre-logon VPN tunnel (GlobalProtect, Always On VPN, Zscaler ZPA) is not established yet at the logon screen. Windows falls back to cached credentials, the hybrid PRT flow silently never runs, and later reboots do not fix it — sessions in this state typically show repeated reboots and network flapping while the placeholder identity stays active.\n\nA visible side effect: **the Windows Hello for Business wizard never appears**, because Hello provisioning requires an Entra user token (PRT). Hello is a downstream symptom here, not the cause.",
+  "explanation": "**What was measured.** A real user signed in and reached the desktop (`desktop_arrived`), and by the end of the agent's wait window the Intune Management Extension (IME) had still not acquired a **Microsoft Entra user token** for that user (`entra_user_affinity_pending`). That event lists the IME token error codes observed after the desktop (`tokenFailureCodes`) and how often the acquisition failed (`tokenFailureCount`). Each agent run reports this at most once, so a second or third occurrence means the same outcome across reboots — that repetition is what raises the confidence of this finding. No `ime_user_token_acquired` event followed in this session.\n\n**Why this means no user affinity.** IME's user check-in acquires the user token through the Windows web account manager (WAM), which needs the signed-in user's Entra identity — the Primary Refresh Token (PRT) that a hybrid sign-in establishes at logon. When that PRT was never issued, every token request fails and the user has **no Entra user affinity** on this device. Consequences:\n\n- user-targeted required apps and policies cannot apply,\n- Windows Hello for Business cannot provision (it requires a user token),\n- with a user ESP the Account Setup page re-appears on every logon instead of completing.\n\n**What this diagnosis does not use.** The Autopilot provisioning placeholder in JoinInfo (`aad_placeholder_user_detected`) is not part of this finding — on hybrid devices it can stay present through a perfectly healthy sign-in. Likewise, `dsregcmd /status` collected by the agent runs as SYSTEM and shows only the **device** join state; the per-user PRT state is visible only when the command runs as the signed-in user.\n\n**Typical causes** — something structurally prevents the user (or the computer object) from registering:\n\n- the computer object's `userCertificate` attribute is not syncing to Entra ID (sync scope / OU filtering),\n- the signing-in user is not synced, or their UPN does not match a verified Entra domain,\n- the device has no line of sight to a domain controller **at logon time**, so the hybrid PRT flow cannot finish,\n- time skew or a proxy blocking `login.microsoftonline.com` / `enterpriseregistration.windows.net` from the user context.\n\nA frequent variant: the user's **first sign-in happens without domain-controller reachability** — for example when a pre-logon VPN tunnel (GlobalProtect, Always On VPN, Zscaler ZPA) is not established yet at the logon screen. Windows falls back to cached credentials, the hybrid PRT flow silently never runs, and later reboots do not fix it.\n\nThe `device_registration_event` entries in the timeline (User Device Registration events 304/305) carry the OS-side record of the failed registration; the error codes in `entra_user_affinity_pending` carry the token side. A missing Windows Hello for Business wizard is a downstream symptom here, not the cause.",
   "remediation": [
     {
       "title": "Verify user affinity on the device",
       "steps": [
         "Sign in as the affected user and run: dsregcmd /status — under 'SSO State' the value AzureAdPrt must be YES. NO means the user has no Entra token and this diagnosis is confirmed.",
-        "Also check 'Device State': AzureAdJoined = YES and DomainJoined = YES are expected for hybrid join.",
-        "Check Event Viewer: Applications and Services Logs > Microsoft > Windows > User Device Registration > Admin for PRT / registration errors (e.g. event 304/305/362).",
-        "Enable the gather rules 'Collect dsregcmd join status' so future sessions capture this state automatically."
+        "Also check 'Device State': AzureAdJoined = YES and DomainJoined = YES are expected for hybrid join — they prove the device join only, not the user's registration.",
+        "Check Event Viewer: Applications and Services Logs > Microsoft > Windows > User Device Registration > Admin for PRT / registration errors (e.g. event 304/305/362). The device_registration_event entries (304/305) in the session timeline carry the same OS-side failure record.",
+        "Enable the gather rule GATHER-DEVICE-006 (dsregcmd /status at the moment of the finding — device state only, the agent runs as SYSTEM). GATHER-DEVICE-007 and GATHER-DEVICE-008 (Microsoft-Windows-AAD/Operational events 1098 and 1097 at the same moment) are on by default."
       ]
     },
     {

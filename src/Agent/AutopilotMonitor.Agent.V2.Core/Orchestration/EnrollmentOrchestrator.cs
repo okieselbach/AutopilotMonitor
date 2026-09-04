@@ -259,6 +259,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         public bool IsWhiteGlovePart2 => _isWhiteGlovePart2;
 
         /// <summary>
+        /// <c>true</c> when this device ever resumed a WhiteGlove Part 2 in this session — the
+        /// state folder holds a <c>.part1-&lt;ts&gt;/</c> archive. Unlike
+        /// <see cref="IsWhiteGlovePart2"/> (this start only) it survives later reboots within
+        /// Part 2; see <see cref="StateArchiver.HasPart1Archive"/>.
+        /// </summary>
+        public bool HasWhiteGlovePart1Archive => StateArchiver.HasPart1Archive(_stateDirectory);
+
+        /// <summary>
         /// <c>true</c> wenn der Start auf einen korrupten State-Segment traf und
         /// Snapshot + Log-Segmente nach <c>.quarantine/{ts}/</c> bewegt wurden.
         /// Plan §2.7 Sonderfall 2.

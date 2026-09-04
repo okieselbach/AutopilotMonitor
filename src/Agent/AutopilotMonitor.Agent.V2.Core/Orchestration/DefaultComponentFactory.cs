@@ -11,6 +11,7 @@ using AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Office;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic;
 using AutopilotMonitor.Agent.V2.Core.Monitoring.Transport;
+using AutopilotMonitor.Agent.V2.Core.Security;
 using AutopilotMonitor.Agent.V2.Core.SignalAdapters;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
@@ -312,6 +313,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // later before the detector can fire). When the real-user desktop arrives, Shift+F10 is no
             // longer possible, so the console watcher is stopped to avoid post-enrollment false positives.
             ConsoleBypassHost? consoleBypassHost = null;
+            // Captured likewise (assigned right after this host). The real-user desktop is the
+            // sign-in evidence for the Hybrid detectors: it cancels hybrid_login_pending and arms
+            // the Entra user-affinity timer (2026-09-04, session a7140f98).
+            AadJoinHost? aadJoinHostRef = null;
             var desktopArrivalHost = new DesktopArrivalHost(
                 logger,
                 ingress,
@@ -325,6 +330,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     // defaultuser0), so this firing means we are past the OOBE / autologon phase where
                     // Shift+F10 works — stop the console watcher (no-op if not created / already stopped).
                     consoleBypassHost?.StopForDesktopArrival();
+
+                    aadJoinHostRef?.NotifyRealUserDesktop();
 
                     if (realmJoinHost == null) return;
                     if (UserSidResolver.TryResolveSid(owner, out var sid) && !string.IsNullOrEmpty(sid))
@@ -340,8 +347,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
             var aadJoinHost = new AadJoinHost(
                 logger, ingress, clock,
-                onRealUserJoined: desktopArrivalHost.RequestResetForRealUserSwitch);
+                onRealUserJoined: desktopArrivalHost.RequestResetForRealUserSwitch,
+                isHybridJoinProbe: EnrollmentRegistryDetector.DetectHybridJoin);
             hosts.Add(aadJoinHost);
+            aadJoinHostRef = aadJoinHost;
 
             // RealmJoin support is opt-in per tenant (portal toggle → AnalyzerConfiguration.
             // EnableRealmJoinWatcher, default off). When disabled, leave realmJoinHost null:
@@ -438,6 +447,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 onStateRestored: () => espAndHelloHost.ReevaluateUserAppsSettledSynthesis());
             hosts.Add(imeLogHost);
             imeLogHostRef = imeLogHost;
+
+            // Entra user affinity (2026-09-04): the raw IME token lines feed the AadJoinHost's
+            // affinity detector. New callbacks — nothing chained before us, so direct assignment.
+            imeLogHost.Tracker.OnUserTokenAcquired = lineUtc => aadJoinHost.NotifyUserTokenAcquired(lineUtc);
+            imeLogHost.Tracker.OnTokenFailureLine = (code, lineUtc) => aadJoinHost.NotifyTokenFailureLine(code, lineUtc);
 
             // sits-d Cloud-PC fix (2026-08-19): the user-apps-settled AccountSetup synthesis used
             // to run ONLY on the EspExited edge. On a tenant with a large required-app set the ESP

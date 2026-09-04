@@ -195,6 +195,58 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring
         }
 
         // ============================================================================
+        // Real-user desktop cancel path (2026-09-04, session a7140f98)
+        // ============================================================================
+
+        [Fact]
+        public void Real_user_desktop_after_Arm_cancels_emission()
+        {
+            using var f = new Fixture();
+            using var detector = new HybridLoginPendingDetector(f.Watcher, f.Post, f.Logger);
+
+            detector.Arm();
+            detector.NotifyRealUserDesktop();
+            detector.TriggerFromTest();
+
+            Assert.True(detector.IsCancelledByDesktopForTest);
+            Assert.False(detector.HasFiredForTest);
+            Assert.Null(FindHybridLoginPending(f.Ingress));
+        }
+
+        [Fact]
+        public void Real_user_desktop_before_Arm_short_circuits_Arm()
+        {
+            // The DAD first poll runs seconds after start; the arm request comes from the
+            // runtime host slightly later. A desktop seen first must make the arm a no-op.
+            using var f = new Fixture();
+            using var detector = new HybridLoginPendingDetector(f.Watcher, f.Post, f.Logger);
+
+            detector.NotifyRealUserDesktop();
+            detector.Arm();
+            detector.TriggerFromTest();
+
+            Assert.False(detector.IsArmedForTest);
+            Assert.Null(FindHybridLoginPending(f.Ingress));
+        }
+
+        [Fact]
+        public void Emission_reports_desktop_absence_and_placeholder_as_fact()
+        {
+            using var f = new Fixture();
+            using var detector = new HybridLoginPendingDetector(f.Watcher, f.Post, f.Logger);
+
+            detector.Arm();
+            detector.TriggerFromTest();
+
+            var info = FindHybridLoginPending(f.Ingress);
+            Assert.NotNull(info);
+            Assert.Equal("false", info!.Payload!["realUserDesktopSeen"]);
+            Assert.Equal("false", info.Payload["placeholderActive"]); // watcher never saw JoinInfo in this fixture
+            Assert.Contains("no real-user desktop", info.Payload[SignalPayloadKeys.Message]);
+            Assert.DoesNotContain("placeholder still active", info.Payload[SignalPayloadKeys.Message]);
+        }
+
+        // ============================================================================
         // Lifecycle / Dispose
         // ============================================================================
 

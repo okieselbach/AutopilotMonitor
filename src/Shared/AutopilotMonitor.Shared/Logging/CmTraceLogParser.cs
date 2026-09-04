@@ -170,7 +170,13 @@ namespace AutopilotMonitor.Shared.Logging
 
             // A writer-declared bias is authoritative — it is the writer telling us its own
             // offset, which is exactly the fact we otherwise have to measure.
-            // GetTimeZoneInformation convention: UTC = local + bias.
+            // GetTimeZoneInformation convention: UTC = local + bias. This is what the native
+            // ConfigMgr client writes (a CET client logs "-60"); PowerShell loggers built on
+            // the DMTF SWbemDateTime offset write the opposite sign ("+060" for CET). No line
+            // with a suffix reached the fleet in 30 days of IME-derived events (39k events,
+            // 2026-09-04), so the convention is pinned by this comment and the parser test,
+            // not by field data; a line read with the wrong sign lands hours in the future
+            // and is caught by the adapter's future-skew clamp.
             DateTime? timestampUtc = null;
             if (hasTimestamp && biasMinutes.HasValue)
             {

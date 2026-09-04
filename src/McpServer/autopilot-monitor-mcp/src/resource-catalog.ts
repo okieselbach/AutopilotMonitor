@@ -18,6 +18,8 @@ import {
 // in __tests__/event-types-drift.test.ts, which reads Constants.cs and asserts
 // (all catalog values ∪ INTERNAL_EVENT_TYPES) === the C# const values. When the
 // agent adds a new event type to Constants.EventTypes, add it to a group here too.
+// Gather-rule output types ("gather_dsregcmd_status", ...) are rule data, not code-emitted
+// types, and stay OUT of the catalog on purpose — see isGatherOutputEventType below.
 export const EVENT_TYPES_CATALOG = {
   phase_events: [
     'phase_transition',
@@ -44,6 +46,10 @@ export const EVENT_TYPES_CATALOG = {
     'desktop_detector_started',
     'desktop_detector_first_poll',
     'desktop_detector_no_candidate',
+    // DesktopArrivalDetector owner-resolution trace: which explorer.exe owner was seen on
+    // the way to desktop_arrived — a real user, or an excluded system/placeholder identity.
+    'desktop_real_user_detected',
+    'desktop_excluded_user',
     'oobe_state_completed',
   ],
   whiteglove_events: [
@@ -122,7 +128,17 @@ export const EVENT_TYPES_CATALOG = {
   identity_events: [
     'aad_placeholder_user_detected',
     'aad_user_joined_observed',
+    // Hybrid: 10 min after a reboot still no real-user desktop — the sign-in is overdue.
+    // Measures desktop absence only; the JoinInfo placeholder is a fact in the payload, not evidence.
     'hybrid_login_pending',
+    // Entra user affinity after the real-user desktop: IME acquired the signed-in user's token
+    // (Info, established) vs. still none after the delay (Warning, pending, carrying the IME
+    // token-failure codes observed since the desktop).
+    'ime_user_token_acquired',
+    'entra_user_affinity_pending',
+    // User Device Registration/Admin 304/305: automatic hybrid device registration failed at
+    // the join / authentication phase (Warning) — the OS-side failure record on the timeline.
+    'device_registration_event',
   ],
   realmjoin_events: [
     'realmjoin_detected',
@@ -353,6 +369,27 @@ export function isKnownEventType(s: string): boolean {
 }
 
 /**
+ * Gather-rule output types (`outputEventType`, e.g. "gather_dsregcmd_status") are rule
+ * DATA — built-in and tenant-authored — not code-emitted types, so they are deliberately
+ * NOT catalogued: D-072 scopes the catalog to `Constants.EventTypes`, and the C# guard
+ * test excludes gather outputs for the same reason. They are real events on the wire
+ * nonetheless, so the filter gate lets any `gather_`-prefixed type (with a non-empty
+ * suffix) through — the same "a valid prefix passes even when the full key is
+ * uncatalogued" stance as assertKnownDevicePropertyKeys. Kept apart from
+ * isKnownEventType, whose strict "is a built-in type" meaning rule-validation relies
+ * on for its outputEventType collision check.
+ */
+const GATHER_OUTPUT_PREFIX = 'gather_';
+export function isGatherOutputEventType(s: string): boolean {
+  return s.startsWith(GATHER_OUTPUT_PREFIX) && s.length > GATHER_OUTPUT_PREFIX.length;
+}
+
+/** True if `s` is accepted as an eventType filter: catalogued, internal, or a gather-rule output. */
+export function isFilterableEventType(s: string): boolean {
+  return isKnownEventType(s) || isGatherOutputEventType(s);
+}
+
+/**
  * Every catalogued deviceProperties key, flattened across event-type groups
  * (excluding the `_usage` doc block). This is a CURATED subset — not exhaustive —
  * because the backend reconstructs arbitrary `Props_*` columns. Use it for hints,
@@ -378,12 +415,13 @@ function suggestEventTypes(input: string): string[] {
 }
 
 /**
- * Throws a descriptive Error if `eventType` is not a known type. The thrown
- * message routes through the tools' `toolError` handler so the model gets an
- * actionable correction instead of a misleading empty result.
+ * Throws a descriptive Error if `eventType` is neither a known type nor a
+ * gather-rule output (see isFilterableEventType). The thrown message routes
+ * through the tools' `toolError` handler so the model gets an actionable
+ * correction instead of a misleading empty result.
  */
 export function assertKnownEventType(eventType: string): void {
-  if (isKnownEventType(eventType)) return;
+  if (isFilterableEventType(eventType)) return;
   const suggestions = suggestEventTypes(eventType);
   const hint = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(', ')}?` : '';
   throw new Error(
