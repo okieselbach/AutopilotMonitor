@@ -348,16 +348,6 @@ jobs:
           RELEASE_ZIP: ${{ steps.artifact.outputs.versioned_zip_release }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
           RELEASE_BODY_TAIL: |
-            ### Installation
-            1. Download `AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip`
-            2. Extract to `C:\ProgramData\AutopilotMonitor\Agent\`
-            3. Run `AutopilotMonitor.Agent.exe --install` to register the Scheduled Task
-
-            ### Included Components
-            - **AutopilotMonitor.Agent.exe** - Monitoring agent (V2 release line)
-            - **AutopilotMonitor.SummaryDialog.exe** - Enrollment summary dialog (WPF)
-            - **version-v2.json** - Per-line version manifest
-
             ### Version Info
             - **Version:** ${{ steps.version.outputs.version }}
             - **Build Number:** ${{ steps.version.outputs.build_number }}
