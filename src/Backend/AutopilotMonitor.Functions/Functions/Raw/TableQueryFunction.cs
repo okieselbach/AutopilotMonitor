@@ -201,15 +201,11 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             }
             catch (RequestFailedException rfe)
             {
-                return await req.InternalServerErrorAsync(_logger, rfe,
-                    $"Query table '{tableName}'",
-                    new { tableName, filter = req.Query["filter"], partitionKey = req.Query["partitionKey"] });
+                return await req.InternalServerErrorAsync(_logger, rfe, $"Query table '{tableName}'");
             }
             catch (Exception ex)
             {
-                return await req.InternalServerErrorAsync(_logger, ex,
-                    $"Query table '{tableName}'",
-                    new { tableName });
+                return await req.InternalServerErrorAsync(_logger, ex, $"Query table '{tableName}'");
             }
         }
 

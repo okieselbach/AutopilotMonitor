@@ -198,17 +198,17 @@ public class McpQuotaEnforcementMiddlewareTests
 
         Assert.Equal("tenant", body.Level);
         Assert.Equal(TenantB, body.TargetTenantId);
-        Assert.Contains("managed tenant 'customer.example'", body.Message);
-        Assert.Contains("tenant plan 'community'", body.Message);
-        Assert.Contains("Upgrading that tenant to Pro", body.Message);
-        Assert.DoesNotContain("your organization", body.Message);
+        Assert.Contains("managed tenant 'customer.example'", body.Error);
+        Assert.Contains("tenant plan 'community'", body.Error);
+        Assert.Contains("Upgrading that tenant to Pro", body.Error);
+        Assert.DoesNotContain("your organization", body.Error);
     }
 
     [Fact]
     public void ManagedTarget_WithoutLabel_FallsBackToTheId()
     {
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", TenantB));
-        Assert.Contains($"managed tenant '{TenantB}'", body.Message);
+        Assert.Contains($"managed tenant '{TenantB}'", body.Error);
     }
 
     [Fact]
@@ -216,8 +216,8 @@ public class McpQuotaEnforcementMiddlewareTests
     {
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("pro", TenantB, 3000, 3000), "customer.example");
         Assert.Equal(TenantB, body.TargetTenantId);
-        Assert.DoesNotContain("Upgrading", body.Message);
-        Assert.Contains("shared by all its members and delegated admins", body.Message);
+        Assert.DoesNotContain("Upgrading", body.Error);
+        Assert.Contains("shared by all its members and delegated admins", body.Error);
     }
 
     [Fact]
@@ -225,8 +225,8 @@ public class McpQuotaEnforcementMiddlewareTests
     {
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", target: null));
         Assert.Null(body.TargetTenantId);
-        Assert.Contains("of your organization", body.Message);
-        Assert.DoesNotContain("managed tenant", body.Message);
+        Assert.Contains("of your organization", body.Error);
+        Assert.DoesNotContain("managed tenant", body.Error);
     }
 
     [Fact]
@@ -235,13 +235,13 @@ public class McpQuotaEnforcementMiddlewareTests
         // The quota is the upgrade lever: a member blocked by their own Community organization window is told
         // that Community is sized for occasional use and that Pro lifts it — Pro members never see the hint.
         var community = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", target: null));
-        Assert.Contains("sized for occasional use", community.Message);
-        Assert.Contains("upgrading your organization to Pro", community.Message);
-        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", community.Message);
+        Assert.Contains("sized for occasional use", community.Error);
+        Assert.Contains("upgrading your organization to Pro", community.Error);
+        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", community.Error);
 
         var pro = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("pro", target: null, 3000, 3000));
-        Assert.DoesNotContain("upgrading", pro.Message);
-        Assert.DoesNotContain("occasional use", pro.Message);
+        Assert.DoesNotContain("upgrading", pro.Error);
+        Assert.DoesNotContain("occasional use", pro.Error);
     }
 
     [Fact]
@@ -249,9 +249,9 @@ public class McpQuotaEnforcementMiddlewareTests
     {
         // The delegated admin must learn that the CUSTOMER's plan (not their own Pro/MSP plan) governs the window.
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", TenantB), "customer.example");
-        Assert.Contains("on the Community plan", body.Message);
-        Assert.Contains("its own plan governs this window, not yours", body.Message);
-        Assert.Contains("Upgrading that tenant to Pro", body.Message);
+        Assert.Contains("on the Community plan", body.Error);
+        Assert.Contains("its own plan governs this window, not yours", body.Error);
+        Assert.Contains("Upgrading that tenant to Pro", body.Error);
     }
 
     [Theory]
@@ -266,9 +266,9 @@ public class McpQuotaEnforcementMiddlewareTests
             dailyUsed: 100, monthlyUsed: 500, tenantDailyUsed: 1, tenantMonthlyUsed: 1, Now);
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(decision);
         Assert.Equal("user", body.Level);
-        Assert.StartsWith($"MCP daily request quota exceeded for plan '{userPlan}'.", body.Message);
-        Assert.Equal(expectHint, body.Message.Contains("Pro raises your daily and monthly windows"));
-        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", body.Message);
+        Assert.StartsWith($"MCP daily request quota exceeded for plan '{userPlan}'.", body.Error);
+        Assert.Equal(expectHint, body.Error.Contains("Pro raises your daily and monthly windows"));
+        Assert.EndsWith("Resets at 2026-09-03T00:00:00Z.", body.Error);
     }
 
     [Fact]
@@ -277,8 +277,8 @@ public class McpQuotaEnforcementMiddlewareTests
         var body = McpQuotaEnforcementMiddleware.BuildExceededResponse(Blocked("community", TenantB), exhaustedTenantCount: 3);
         Assert.Null(body.TargetTenantId);
         Assert.Equal("tenant", body.Level);
-        Assert.Contains("all 3 managed tenants", body.Message);
-        Assert.Contains("Earliest reset at 2026-09-03T00:00:00Z", body.Message);
+        Assert.Contains("all 3 managed tenants", body.Error);
+        Assert.Contains("Earliest reset at 2026-09-03T00:00:00Z", body.Error);
     }
 
     [Fact]
@@ -293,6 +293,6 @@ public class McpQuotaEnforcementMiddlewareTests
         Assert.Null(body.TargetTenantId);
         Assert.Equal(
             "MCP daily request quota exceeded for plan 'community'. The Community plan is sized for occasional use; Pro raises your daily and monthly windows. Resets at 2026-09-03T00:00:00Z.",
-            body.Message);
+            body.Error);
     }
 }

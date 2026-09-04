@@ -17,9 +17,11 @@ namespace AutopilotMonitor.Functions.Tests;
 /// match is a straight failure:
 ///   - Regex A: <c>OkAsync/CreatedAsync/JsonAsync(new { ... })</c> through ResponseHelper
 ///     (typed initializers <c>OkAsync(new SomeResponse { ... })</c> do not match),
-///   - Regex B: raw success <c>WriteAsJsonAsync(new { ... })</c>. Error bodies — first
-///     property <c>error</c>/<c>message</c>, or literal <c>success = false</c> — are
-///     tolerated and stay anonymous by design (one shape).
+///   - Regex B: raw <c>WriteAsJsonAsync(new { ... })</c> — since the error-envelope pass
+///     (2026-09) this covers ERROR bodies too: every non-2xx body is an
+///     <see cref="IApiErrorResponse"/> written by <c>ResponseHelper.ErrorAsync</c> /
+///     <c>ApiErrorWriter</c>, so the former error-shape tolerance is gone and the legacy
+///     anonymous error sites are frozen in <see cref="WriteBaseline"/> to melt down.
 /// Endpoints return typed DTOs implementing <see cref="IApiResponse"/>
 /// (AutopilotMonitor.Shared.Models, exported to TypeScript by SharedManifestParityTests),
 /// and each conversion carries an ordinal old-vs-new proof in the *WireParityTests files.
@@ -41,11 +43,165 @@ public class TypedResponseGuardTests
     private static readonly Dictionary<string, int> HelperBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// EMPTY since 2026-08-31 — every anonymous success WriteAsJsonAsync body is typed (the
-    /// migration started from the frozen 2026-08-30 baseline of 134 sites / 76 files). Any
-    /// entry that would need to be ADDED here is a regression: return a typed DTO instead.
+    /// Success bodies: EMPTY since 2026-08-31 (migrated from the frozen 2026-08-30 baseline of
+    /// 134 sites / 76 files). Error bodies: frozen 2026-09-05 at 458 anonymous sites / 149 files
+    /// when the error envelope (<see cref="IApiErrorResponse"/>) landed — every entry below is a
+    /// legacy <c>{ success = false, message }</c> / <c>{ error }</c> literal awaiting migration to
+    /// <c>req.ErrorAsync</c> / <c>req.BadRequestAsync</c> etc. Ratchet: a migrated file lowers or
+    /// removes its entry; an entry that would need to be ADDED is a regression.
     /// </summary>
-    private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Functions/Admin/AutopilotDeviceValidationConsentFunction.cs"] = 1,
+        ["Functions/Admin/BackfillOccurredUtcFunction.cs"] = 3,
+        ["Functions/Admin/DelegatedAdminManagementFunction.cs"] = 7,
+        ["Functions/Admin/DelegatedSlotManagementFunction.cs"] = 1,
+        ["Functions/Admin/DelegationManagedTenantFunction.cs"] = 2,
+        ["Functions/Admin/DelegationSelfServiceFunction.cs"] = 2,
+        ["Functions/Admin/DeviceBlockFunction.cs"] = 4,
+        ["Functions/Admin/EmailTemplatesFunction.cs"] = 2,
+        ["Functions/Admin/GetAllBlockedDevicesFunction.cs"] = 2,
+        ["Functions/Admin/GetAuditLogsFunction.cs"] = 2,
+        ["Functions/Admin/GetGlobalAuditLogsFunction.cs"] = 2,
+        ["Functions/Admin/GetOpsEventsFunction.cs"] = 3,
+        ["Functions/Admin/IdentityBindingManagementFunction.cs"] = 3,
+        ["Functions/Admin/ReclassifyLegacySessionsFunction.cs"] = 4,
+        ["Functions/Admin/ReseedFromGitHubFunction.cs"] = 2,
+        ["Functions/Admin/SubmitOffboardingFeedbackFunction.cs"] = 4,
+        ["Functions/Admin/TenantAdminManagementFunction.cs"] = 14,
+        ["Functions/Admin/TenantGroupManagementFunction.cs"] = 10,
+        ["Functions/Admin/TenantOffboardFunction.cs"] = 2,
+        ["Functions/Admin/TriggerMaintenanceFunction.cs"] = 2,
+        ["Functions/Admin/VersionBlockFunction.cs"] = 4,
+        ["Functions/Annotations/GetSessionAnnotationsFunction.cs"] = 1,
+        ["Functions/Annotations/ListSessionAnnotationsFunction.cs"] = 3,
+        ["Functions/Annotations/ListTenantSessionAnnotationsFunction.cs"] = 3,
+        ["Functions/Annotations/UpsertSessionAnnotationFunction.cs"] = 4,
+        ["Functions/Apps/GetAppAnalyticsFunction.cs"] = 3,
+        ["Functions/Apps/GetAppSessionsFunction.cs"] = 3,
+        ["Functions/Apps/GetAppsListFunction.cs"] = 3,
+        ["Functions/Apps/GetGlobalAppAnalyticsFunction.cs"] = 4,
+        ["Functions/Apps/GetGlobalAppSessionsFunction.cs"] = 4,
+        ["Functions/Apps/GetGlobalAppsListFunction.cs"] = 4,
+        ["Functions/Bootstrap/BootstrapGetAgentConfigFunction.cs"] = 3,
+        ["Functions/Bootstrap/BootstrapRegisterSessionFunction.cs"] = 4,
+        ["Functions/Bootstrap/BootstrapReportAgentErrorFunction.cs"] = 1,
+        ["Functions/Bootstrap/CreateBootstrapSessionFunction.cs"] = 3,
+        ["Functions/Bootstrap/ListBootstrapSessionsFunction.cs"] = 1,
+        ["Functions/Bootstrap/RevokeBootstrapSessionFunction.cs"] = 3,
+        ["Functions/Bootstrap/ValidateBootstrapCodeFunction.cs"] = 5,
+        ["Functions/Config/AppHomingFunction.cs"] = 4,
+        ["Functions/Config/GetAdminConfigurationFunction.cs"] = 1,
+        ["Functions/Config/GetAgentConfigFunction.cs"] = 2,
+        ["Functions/Config/GetAllTenantConfigurationsFunction.cs"] = 3,
+        ["Functions/Config/GetLatestVersionsFunction.cs"] = 1,
+        ["Functions/Config/GetTenantConfigFieldsSchemaFunction.cs"] = 1,
+        ["Functions/Config/GetTenantConfigurationFunction.cs"] = 1,
+        ["Functions/Config/GetTenantFeatureFlagsFunction.cs"] = 1,
+        ["Functions/Config/ListTenantConfigBackupsFunction.cs"] = 1,
+        ["Functions/Config/PatchTenantConfigurationFieldsFunction.cs"] = 3,
+        ["Functions/Config/PlanManagementFunction.cs"] = 8,
+        ["Functions/Config/RevertTenantConfigurationFunction.cs"] = 2,
+        ["Functions/Config/TestOpsChannelFunction.cs"] = 1,
+        ["Functions/Config/TestWebhookNotificationFunction.cs"] = 2,
+        ["Functions/Config/UpdateAdminConfigurationFunction.cs"] = 5,
+        ["Functions/Config/UpdateTenantConfigurationFunction.cs"] = 5,
+        ["Functions/Diagnostics/DiagnosticsDownloadFunction.cs"] = 5,
+        ["Functions/Diagnostics/DiagnosticsDownloadTicketFunction.cs"] = 4,
+        ["Functions/Diagnostics/DiagnosticsTicketDownloadFunction.cs"] = 4,
+        ["Functions/Diagnostics/GetDiagnosticsPathsFunction.cs"] = 1,
+        ["Functions/Feedback/FeedbackFunction.cs"] = 5,
+        ["Functions/Global/GlobalNotificationsFunction.cs"] = 1,
+        ["Functions/Infrastructure/AuthFunction.cs"] = 7,
+        ["Functions/Infrastructure/McpUserFunction.cs"] = 9,
+        ["Functions/Infrastructure/SignalRAddToGroupFunction.cs"] = 9,
+        ["Functions/Infrastructure/SignalRNegotiateFunction.cs"] = 2,
+        ["Functions/Infrastructure/SignalRRemoveFromGroupFunction.cs"] = 7,
+        ["Functions/Metrics/GetAppMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetDeviceJourneyFunctions.cs"] = 4,
+        ["Functions/Metrics/GetFleetHealthMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGeographicLocationSessionsFunction.cs"] = 2,
+        ["Functions/Metrics/GetGeographicMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGlobalAgentEfficiencyFunction.cs"] = 2,
+        ["Functions/Metrics/GetGlobalAppMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGlobalFleetHealthMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGlobalGeographicLocationSessionsFunction.cs"] = 2,
+        ["Functions/Metrics/GetGlobalGeographicMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGlobalPlatformMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/GetGlobalSlaMetricsFunction.cs"] = 2,
+        ["Functions/Metrics/GetImePatternHealthFunction.cs"] = 1,
+        ["Functions/Metrics/GetImeVersionHistoryFunction.cs"] = 1,
+        ["Functions/Metrics/GetPlatformStatsFunction.cs"] = 2,
+        ["Functions/Metrics/GetTimeAttributionFunctions.cs"] = 3,
+        ["Functions/Metrics/GetVerdictCalibrationFunction.cs"] = 2,
+        ["Functions/Metrics/McpUsageMetricsFunction.cs"] = 7,
+        ["Functions/Metrics/MetricsSummaryFunction.cs"] = 1,
+        ["Functions/Metrics/PlatformUsageMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/RuleHitSessionsFunction.cs"] = 2,
+        ["Functions/Metrics/RuleStatsFunction.cs"] = 2,
+        ["Functions/Metrics/SlaMetricsFunction.cs"] = 1,
+        ["Functions/Metrics/UsageMetricsFunction.cs"] = 1,
+        ["Functions/Notifications/TenantNotificationsFunction.cs"] = 1,
+        ["Functions/Progress/ProgressPortalFunction.cs"] = 8,
+        ["Functions/Raw/AppInsightsQueryFunction.cs"] = 5,
+        ["Functions/Raw/QueryRawEventsFunction.cs"] = 7,
+        ["Functions/Raw/QueryRawSessionsFunction.cs"] = 3,
+        ["Functions/Raw/RawGlobalAdminGate.cs"] = 1,
+        ["Functions/Raw/TableQueryFunction.cs"] = 5,
+        ["Functions/Reports/GetDistressReportsFunction.cs"] = 1,
+        ["Functions/Reports/GetSessionReportDownloadUrlFunction.cs"] = 4,
+        ["Functions/Reports/GetSessionReportsFunction.cs"] = 3,
+        ["Functions/Reports/SessionReportDownloadTicketFunction.cs"] = 4,
+        ["Functions/Reports/SessionReportTicketDownloadFunction.cs"] = 4,
+        ["Functions/Reports/SubmitDiagFilesReportFunction.cs"] = 6,
+        ["Functions/Reports/SubmitSessionReportFunction.cs"] = 6,
+        ["Functions/Reports/UpdateSessionReportNoteFunction.cs"] = 4,
+        ["Functions/Rules/AnalyzeRulesFunction.cs"] = 12,
+        ["Functions/Rules/DryRunAnalyzeRuleFunction.cs"] = 2,
+        ["Functions/Rules/GatherRulesFunction.cs"] = 9,
+        ["Functions/Rules/GetRuleResultsFunction.cs"] = 1,
+        ["Functions/Rules/GlobalRulesFunction.cs"] = 5,
+        ["Functions/Rules/ImeLogPatternsFunction.cs"] = 4,
+        ["Functions/Rules/PreviewWhitelistFunction.cs"] = 10,
+        ["Functions/Rules/TestLogPatternFunction.cs"] = 1,
+        ["Functions/Sessions/GetAllSessionStatsFunction.cs"] = 3,
+        ["Functions/Sessions/GetAllSessionsFunction.cs"] = 4,
+        ["Functions/Sessions/GetSessionDecisionGraphFunction.cs"] = 1,
+        ["Functions/Sessions/GetSessionDeletePreviewFunction.cs"] = 4,
+        ["Functions/Sessions/GetSessionDeletionManifestFunction.cs"] = 4,
+        ["Functions/Sessions/GetSessionDeletionsListFunction.cs"] = 4,
+        ["Functions/Sessions/GetSessionEventsFunction.cs"] = 3,
+        ["Functions/Sessions/GetSessionFunction.cs"] = 2,
+        ["Functions/Sessions/GetSessionReducerVerificationFunction.cs"] = 1,
+        ["Functions/Sessions/GetSessionSignalsFunction.cs"] = 1,
+        ["Functions/Sessions/GetSessionStatsFunction.cs"] = 2,
+        ["Functions/Sessions/GetSessionsFunction.cs"] = 3,
+        ["Functions/Sessions/GetTenantDeletionManifestsFunction.cs"] = 2,
+        ["Functions/Sessions/GetTenantsWithDeletionManifestsFunction.cs"] = 1,
+        ["Functions/Sessions/MarkSessionFailedFunction.cs"] = 2,
+        ["Functions/Sessions/MarkSessionSucceededFunction.cs"] = 2,
+        ["Functions/Sessions/QueueSessionActionFunction.cs"] = 4,
+        ["Functions/Sessions/QuickSearchSessionsFunction.cs"] = 1,
+        ["Functions/Sessions/SearchSessionsByCveFunction.cs"] = 3,
+        ["Functions/Sessions/SearchSessionsByEventFunction.cs"] = 3,
+        ["Functions/Sessions/SearchSessionsFunction.cs"] = 4,
+        ["Functions/Vulnerability/AutoResolveCpeMappingFunction.cs"] = 3,
+        ["Functions/Vulnerability/DeleteCustomCpeMappingFunction.cs"] = 3,
+        ["Functions/Vulnerability/GetSoftwareInventoryFunction.cs"] = 1,
+        ["Functions/Vulnerability/GetTenantSoftwareInventoryFunction.cs"] = 1,
+        ["Functions/Vulnerability/GetVulnerabilityReportFunction.cs"] = 2,
+        ["Functions/Vulnerability/GetVulnerabilitySyncStatusFunction.cs"] = 1,
+        ["Functions/Vulnerability/IgnoreSoftwareFunction.cs"] = 5,
+        ["Functions/Vulnerability/SaveCustomCpeMappingFunction.cs"] = 2,
+        ["Functions/Vulnerability/TriggerEpssSyncFunction.cs"] = 2,
+        ["Functions/Vulnerability/TriggerMsrcSyncFunction.cs"] = 1,
+        ["Functions/Vulnerability/TriggerNvdCacheRefreshFunction.cs"] = 1,
+        ["Functions/Vulnerability/TriggerVulnerabilityDataSyncFunction.cs"] = 1,
+        ["Functions/Vulnerability/VulnerabilitySummaryFunction.cs"] = 1,
+        ["Helpers/TicketDownloadPrelude.cs"] = 3,
+        ["Security/SecurityValidationExtensions.cs"] = 3,
+        ["Services/Diagnostics/DiagnosticsBlobStreamer.cs"] = 2,
+    };
 
     // ── Bypass-shape guards (closed 2026-08-31) ─────────────────────────────────────────
     // Regexes A/B only see the INLINE literal `...(new { ... })`. Three bypass shapes let a
@@ -73,20 +229,16 @@ public class TypedResponseGuardTests
     /// <summary>
     /// JsonSerializer.Serialize(new { ... }) sites that are NOT responses. EMPTY: the last entry (the
     /// App Insights query POST body) became a typed request record when the proxy learned sources.
-    /// Everything must be a typed DTO (error shapes are tolerated by the shape check).
+    /// Everything must be a typed DTO — error bodies included (IApiErrorResponse).
     /// </summary>
     private static readonly Dictionary<string, int> SerializeBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// A Build*/Compute*/*Payload/*Response method declared object hides its wire shape from
-    /// every type check. The single tolerated site is BuildV2ResponseBody: its SUCCESS arm is
-    /// the typed <c>SessionDeletionQueuedResponse</c>, but the method returns a union with the
-    /// anonymous ERROR arms (tolerated by design), so its declared type must stay object.
+    /// every type check. EMPTY: the last entry (DeleteSession's success/error union) returns
+    /// <see cref="IApiResponse"/> since the error arms became <c>SessionDeletionRejectedResponse</c>.
     /// </summary>
-    private static readonly Dictionary<string, int> ObjectBuilderBaseline = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Functions/Sessions/DeleteSessionFunction.cs"] = 1,
-    };
+    private static readonly Dictionary<string, int> ObjectBuilderBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     [Fact]
     public void Anonymous_helper_success_bodies_never_exceed_the_frozen_baseline()
@@ -98,13 +250,12 @@ public class TypedResponseGuardTests
     }
 
     [Fact]
-    public void Anonymous_WriteAsJsonAsync_success_bodies_never_exceed_the_frozen_baseline()
+    public void Anonymous_WriteAsJsonAsync_bodies_never_exceed_the_frozen_baseline()
     {
         AssertRatchet(
-            text => AnonymousWriteAsJson.Matches(text)
-                .Count(m => !IsErrorShape(text, m.Index + m.Length)),
+            text => AnonymousWriteAsJson.Matches(text).Count,
             WriteBaseline,
-            "anonymous success WriteAsJsonAsync(new { ... })");
+            "anonymous WriteAsJsonAsync(new { ... })");
     }
 
     [Fact]
@@ -116,22 +267,19 @@ public class TypedResponseGuardTests
                 var ident = m.Groups[1].Value;
                 if (ident == "new") return false;
                 var assign = new Regex(@"(?:var\s+)?" + Regex.Escape(ident) + @"\s*=\s*new\s*\{");
-                var a = assign.Match(text);
-                // Tolerate error-shaped variables the same way inline literals are tolerated.
-                return a.Success && !IsErrorShape(text, a.Index + a.Length);
+                return assign.IsMatch(text);
             }),
             IdentifierBaseline,
             "WriteAsJsonAsync(<variable holding an anonymous object>)");
     }
 
     [Fact]
-    public void Anonymous_JsonSerializer_Serialize_success_bodies_never_exceed_the_frozen_baseline()
+    public void Anonymous_JsonSerializer_Serialize_bodies_never_exceed_the_frozen_baseline()
     {
         AssertRatchet(
-            text => SerializeAnonymous.Matches(text)
-                .Count(m => !IsErrorShape(text, m.Index + m.Length)),
+            text => SerializeAnonymous.Matches(text).Count,
             SerializeBaseline,
-            "anonymous success JsonSerializer.Serialize(new { ... })");
+            "anonymous JsonSerializer.Serialize(new { ... })");
     }
 
     [Fact]
@@ -171,6 +319,34 @@ public class TypedResponseGuardTests
         Assert.True(nonFlat.Count == 0,
             "IApiResponse implementers must derive directly from object (key-order protection):\n  "
             + string.Join("\n  ", nonFlat));
+    }
+
+    /// <summary>
+    /// The error envelope is a PREFIX contract: every <see cref="IApiErrorResponse"/> implementer
+    /// (generic <see cref="ApiErrorResponse"/> and the specialised bodies alike) declares
+    /// <c>Error</c>, <c>Code</c>, <c>CorrelationId</c> as its first three properties, in that
+    /// order, so any consumer can read the envelope from any error body without knowing the
+    /// specialised type. Declaration order == wire order (see the flatness fact above).
+    /// </summary>
+    [Fact]
+    public void Every_IApiErrorResponse_implementer_starts_with_the_envelope_prefix()
+    {
+        var implementers = typeof(IApiResponse).Assembly.GetTypes()
+            .Where(t => typeof(IApiErrorResponse).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
+            .ToList();
+        Assert.Contains(typeof(ApiErrorResponse), implementers);
+
+        var expected = new[] { nameof(IApiErrorResponse.Error), nameof(IApiErrorResponse.Code), nameof(IApiErrorResponse.CorrelationId) };
+        var offenders = implementers
+            .Select(t => (Type: t, Prefix: t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Select(p => p.Name).Take(3).ToArray()))
+            .Where(x => !x.Prefix.SequenceEqual(expected))
+            .Select(x => $"{x.Type.FullName}: [{string.Join(", ", x.Prefix)}]")
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            "IApiErrorResponse implementers must declare Error, Code, CorrelationId first (wire prefix):\n  "
+            + string.Join("\n  ", offenders));
     }
 
     // ── Object-slot ratchet (closed 2026-08-31, typisierung follow-up) ──────────────────
@@ -266,58 +442,6 @@ public class TypedResponseGuardTests
         if (element.IsGenericType && element.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
             return null;
         return element;
-    }
-
-    /// <summary>
-    /// Error shape = first property of the anonymous object is <c>error</c> or <c>message</c>
-    /// (assigned or C# shorthand), or the literal <c>success = false</c>. Everything else —
-    /// including <c>success = someExpression</c> (dual success/failure sites) — counts as a
-    /// success body that must become a typed DTO.
-    /// </summary>
-    private static bool IsErrorShape(string text, int afterBraceIndex)
-    {
-        var i = SkipTrivia(text, afterBraceIndex);
-        var start = i;
-        while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_'))
-            i++;
-        var identifier = text.Substring(start, i - start);
-
-        if (identifier is "error" or "message")
-            return true;
-
-        if (identifier == "success")
-        {
-            i = SkipTrivia(text, i);
-            if (i < text.Length && text[i] == '=' && (i + 1 >= text.Length || text[i + 1] != '='))
-            {
-                i = SkipTrivia(text, i + 1);
-                if (string.CompareOrdinal(text, i, "false", 0, 5) == 0 &&
-                    (i + 5 >= text.Length || !char.IsLetterOrDigit(text[i + 5])))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static int SkipTrivia(string text, int i)
-    {
-        while (i < text.Length)
-        {
-            if (char.IsWhiteSpace(text[i]))
-            {
-                i++;
-            }
-            else if (text[i] == '/' && i + 1 < text.Length && text[i + 1] == '/')
-            {
-                while (i < text.Length && text[i] != '\n') i++;
-            }
-            else
-            {
-                break;
-            }
-        }
-        return i;
     }
 
     private static void AssertRatchet(

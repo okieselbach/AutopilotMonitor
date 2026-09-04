@@ -148,7 +148,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         LogBlocked(oid, chargeTenantId, decision);
         var targetLabel = decision.TargetTenantId != null ? await ResolveTenantLabelAsync(decision.TargetTenantId) : null;
-        await WriteExceededAsync(httpContext, decision, BuildExceededResponse(decision, targetLabel));
+        await WriteExceededAsync(context, httpContext, decision, BuildExceededResponse(decision, targetLabel));
     }
 
     /// <summary>
@@ -181,7 +181,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             LogBlocked(oid, $"aggregate({chargeTenantIds.Count})", blocking);
             // A user-level block names the caller's own plan; "every managed tenant exhausted" names the count.
             var exhausted = blocking.Level == McpQuotaLevel.Tenant ? excludedTargets.Count : (int?)null;
-            await WriteExceededAsync(httpContext, blocking, BuildExceededResponse(blocking, exhaustedTenantCount: exhausted));
+            await WriteExceededAsync(context, httpContext, blocking, BuildExceededResponse(blocking, exhaustedTenantCount: exhausted));
             return;
         }
 
@@ -304,6 +304,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
 
         return new McpQuotaExceededResponse
         {
+            Error = message,
             QuotaExceeded = true,
             Plan = decision.Plan,
             Scope = decision.Scope,
@@ -311,7 +312,6 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             Limit = decision.ExceededLimit,
             Used = decision.ExceededUsed,
             ResetUtc = resetStamp,
-            Message = message,
             TargetTenantId = targetTenantId,
         };
     }
@@ -339,13 +339,10 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             decision.TenantDailyUsed, decision.TenantDailyLimit, decision.TenantMonthlyUsed, decision.TenantMonthlyLimit);
     }
 
-    private static async Task WriteExceededAsync(HttpContext httpContext, McpQuotaDecision decision, McpQuotaExceededResponse body)
+    private static Task WriteExceededAsync(FunctionContext context, HttpContext httpContext, McpQuotaDecision decision, McpQuotaExceededResponse body)
     {
         var retryAfterSeconds = Math.Max(1, (int)(decision.ResetUtc - DateTime.UtcNow).TotalSeconds);
-        httpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
-        httpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
-        httpContext.Response.ContentType = "application/json";
-        await httpContext.Response.WriteAsJsonAsync(body);
+        return ApiErrorWriter.WriteAsync(httpContext, context.GetCorrelationId(), HttpStatusCode.TooManyRequests, body, retryAfterSeconds);
     }
 
     /// <summary>

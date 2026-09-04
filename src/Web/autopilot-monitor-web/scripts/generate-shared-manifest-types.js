@@ -95,6 +95,8 @@ const MCP_VOCABULARIES = [
     doc: "Session-annotation verdicts (C# AnnotationVerdicts)." },
   { section: "logSources", constName: "LOG_SOURCES", typeName: "LogSourceName",
     doc: "Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources)." },
+  { section: "apiErrorCodes", constName: "API_ERROR_CODES", typeName: "ApiErrorCode",
+    doc: "Every machine-readable `code` an error envelope can carry (C# Constants.ApiErrorCodes + DelegationCodes + DelegatedSlots)." },
 ];
 
 /**

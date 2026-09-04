@@ -213,11 +213,16 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly
-    /// quota is exhausted (structurally a success shape: first key is quotaExceeded).
+    /// quota is exhausted. Carries the error-envelope prefix (error, code=QuotaExceeded,
+    /// correlationId); <c>quotaExceeded</c> is the discriminator the MCP error handler keys on.
     /// </summary>
     // Declaration order == wire order.
-    public class McpQuotaExceededResponse : IApiResponse
+    public class McpQuotaExceededResponse : IApiErrorResponse
     {
+        /// <summary>The full quota message (whose window, which plan, when it resets).</summary>
+        public string Error { get; set; } = default!;
+        public string Code { get; set; } = Constants.ApiErrorCodes.QuotaExceeded;
+        public string CorrelationId { get; set; } = string.Empty;
         public bool QuotaExceeded { get; set; }
         public string Plan { get; set; } = default!;
 
@@ -235,8 +240,6 @@ namespace AutopilotMonitor.Shared.Models
 
         /// <summary>Reset time of the exceeded window, pre-formatted "yyyy-MM-ddTHH:mm:ssZ".</summary>
         public string ResetUtc { get; set; } = default!;
-
-        public string Message { get; set; } = default!;
 
         /// <summary>
         /// The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs

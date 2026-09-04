@@ -267,6 +267,50 @@ namespace AutopilotMonitor.Shared
         }
 
         /// <summary>
+        /// Machine-readable <c>code</c> values of the typed error envelope (<c>ApiErrorResponse</c>).
+        /// Status defaults first (one per HTTP status the API emits), then the codes a consumer
+        /// branches on. Domain code classes (<see cref="DelegationCodes"/>, <see cref="DelegatedSlots"/>)
+        /// keep their own values; the manifest exports all of them together as <c>apiErrorCodes</c>.
+        /// Wire contract — keep stable, PascalCase.
+        /// </summary>
+        public static class ApiErrorCodes
+        {
+            // ── status defaults ──
+            public const string BadRequest = "BadRequest";
+            public const string Unauthorized = "Unauthorized";
+            public const string Forbidden = "Forbidden";
+            public const string NotFound = "NotFound";
+            public const string Conflict = "Conflict";
+            public const string Gone = "Gone";
+            public const string UnprocessableEntity = "UnprocessableEntity";
+            public const string RateLimited = "RateLimited";
+            public const string InternalError = "InternalError";
+            public const string ServiceUnavailable = "ServiceUnavailable";
+
+            // ── policy / authentication (PolicyEnforcementMiddleware, AuthenticationMiddleware) ──
+            public const string AuthenticationRequired = "AuthenticationRequired";
+            public const string InsufficientPermissions = "InsufficientPermissions";
+            public const string CrossTenantAccessDenied = "CrossTenantAccessDenied";
+            public const string TenantSuspended = "TenantSuspended";
+
+            // ── MCP quota (McpQuotaEnforcementMiddleware) ──
+            public const string QuotaExceeded = "QuotaExceeded";
+
+            // ── identity binding (grant endpoints, HTTP 422) ──
+            public const string HomeTenantUnresolved = "HomeTenantUnresolved";
+
+            // ── app homing (AppHomingFunction) ──
+            public const string InvalidTarget = "InvalidTarget";
+            public const string TenantNotFound = "TenantNotFound";
+
+            // ── session deletion cascade (DeleteSessionFunction) ──
+            public const string CascadeAlreadyInFlight = "CascadeAlreadyInFlight";
+            public const string CascadePoisonedUseRestore = "CascadePoisonedUseRestore";
+            public const string KillSwitchActive = "KillSwitchActive";
+            public const string CasExhaustedRetryLater = "CasExhaustedRetryLater";
+        }
+
+        /// <summary>
         /// API endpoint paths used by the agent
         /// </summary>
         public static class ApiEndpoints

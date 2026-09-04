@@ -279,6 +279,22 @@ export interface AnalyzeRuleListResponse {
   rules: AnalyzeRule[];
 }
 
+/** The one generic error body: { error, code, correlationId, hint?, retryAfterSeconds?, operation? }. Written by ResponseHelper.ErrorAsync (functions) and ApiErrorWriter (middleware). */
+export interface ApiErrorResponse {
+  /** Human-readable message. Never carries stack traces or infrastructure detail. */
+  error: string;
+  /** Machine-readable code — Constants.ApiErrorCodes unless a domain class owns it. */
+  code: string;
+  /** The request's correlation id (also the X-Correlation-ID response header); the handle for backend log lookup. */
+  correlationId: string;
+  /** Recovery hint for the caller (MCP clients read it into the tool error text); absent when none applies. */
+  hint?: string;
+  /** Mirrors the Retry-After header on 429/503; absent otherwise. */
+  retryAfterSeconds?: number;
+  /** The failing operation (function name) — 500 bodies for MCP clients only; absent otherwise. */
+  operation?: string;
+}
+
 /** One of the top 5 failure codes of the analytics window. */
 export interface AppAnalyticsFailureCode {
   code: string;
@@ -943,6 +959,7 @@ export interface DelegatedSlotHold {
 export interface DelegatedSlotLimitReachedResponse {
   error: string;
   code: string;
+  correlationId: string;
   /** The managing (home) tenant whose slots are exhausted. */
   homeTenantId: string;
   /** Its display name; absent when the config row carries none. */
@@ -2410,8 +2427,12 @@ export interface McpOrganizationUsageItem {
   lastRequestAt?: string;
 }
 
-/** 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted (structurally a success shape: first key is quotaExceeded). */
+/** 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted. Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on. */
 export interface McpQuotaExceededResponse {
+  /** The full quota message (whose window, which plan, when it resets). */
+  error: string;
+  code: string;
+  correlationId: string;
   quotaExceeded: boolean;
   plan: string;
   /** Which window was exceeded ("daily"/"monthly") — always set on the blocked path. */
@@ -2424,7 +2445,6 @@ export interface McpQuotaExceededResponse {
   used: number;
   /** Reset time of the exceeded window, pre-formatted "yyyy-MM-ddTHH:mm:ssZ". */
   resetUtc: string;
-  message: string;
   /** The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the all-managed-tenants-exhausted aggregate block. */
   targetTenantId?: string;
 }
@@ -3207,13 +3227,25 @@ export interface SessionDeletionProgressWire {
   lastResidualSampleJson?: string;
 }
 
-/** Success body (202 Accepted) of the V2 cascade-delete enqueue — the non-success arms stay anonymous error bodies by design (one shape: success=false + message). */
+/** Success body (202 Accepted) of the V2 cascade-delete enqueue; the rejected arms are SessionDeletionRejectedResponse. */
 export interface SessionDeletionQueuedResponse {
   success: boolean;
   /** Always "queued". */
   status: string;
   manifestId?: string;
   message: string;
+}
+
+/** Error body of DELETE sessions/{id} when the cascade could not be enqueued (409 lock states, 503 kill-switch / CAS exhaustion, 404). Error-envelope prefix plus the lock diagnostics the portal renders; manifestId is absent when no manifest exists (kill-switch refusal). */
+export interface SessionDeletionRejectedResponse {
+  error: string;
+  /** Constants.ApiErrorCodes: CascadeAlreadyInFlight, CascadePoisonedUseRestore, KillSwitchActive, CasExhaustedRetryLater, NotFound, InternalError. */
+  code: string;
+  correlationId: string;
+  /** The in-flight cascade's state on the 409 arms; absent otherwise. */
+  deletionState?: string;
+  /** The in-flight cascade's manifest on the 409 arms; absent otherwise. */
+  manifestId?: string;
 }
 
 /** Paged session listing envelope shared by GetSessions, GetAllSessions, SearchSessionsByCve and SearchSessionsByEvent (identical wire shape). */

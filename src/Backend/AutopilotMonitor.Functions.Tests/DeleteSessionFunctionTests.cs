@@ -1,8 +1,9 @@
 using System.Net;
-using System.Reflection;
 using AutopilotMonitor.Functions.Functions.Sessions;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
@@ -59,6 +60,9 @@ public class DeleteSessionFunctionTests
     }
 
     // ── BuildV2ResponseBody ───────────────────────────────────────────────────────────────
+    // The success arm is SessionDeletionQueuedResponse; every rejected arm is the typed error body
+    // SessionDeletionRejectedResponse (envelope prefix error/code/correlationId + lock diagnostics).
+    // The correlation id is stamped by the writer, so the builder leaves it empty here.
 
     [Fact]
     public void BuildV2ResponseBody_Enqueued_carries_manifestId_and_queued_status()
@@ -69,15 +73,15 @@ public class DeleteSessionFunctionTests
             ManifestId = ManifestId,
         };
 
-        var body = DeleteSessionFunction.BuildV2ResponseBody(result, SessionId);
+        var body = Assert.IsType<SessionDeletionQueuedResponse>(DeleteSessionFunction.BuildV2ResponseBody(result, SessionId));
 
-        AssertProperty(body, "success", true);
-        AssertProperty(body, "status", "queued");
-        AssertProperty(body, "manifestId", ManifestId);
+        Assert.True(body.Success);
+        Assert.Equal("queued", body.Status);
+        Assert.Equal(ManifestId, body.ManifestId);
     }
 
     [Fact]
-    public void BuildV2ResponseBody_AlreadyInFlight_carries_state_and_manifestId_with_hint()
+    public void BuildV2ResponseBody_AlreadyInFlight_carries_state_and_manifestId_with_code()
     {
         var result = new SessionDeletionEnqueueResult
         {
@@ -86,12 +90,11 @@ public class DeleteSessionFunctionTests
             ExistingState = "Running",
         };
 
-        var body = DeleteSessionFunction.BuildV2ResponseBody(result, SessionId);
+        var body = Rejected(DeleteSessionFunction.BuildV2ResponseBody(result, SessionId));
 
-        AssertProperty(body, "success", false);
-        AssertProperty(body, "manifestId", ManifestId);
-        AssertProperty(body, "deletionState", "Running");
-        AssertProperty(body, "hint", "cascade_already_in_flight");
+        Assert.Equal(Constants.ApiErrorCodes.CascadeAlreadyInFlight, body.Code);
+        Assert.Equal(ManifestId, body.ManifestId);
+        Assert.Equal("Running", body.DeletionState);
     }
 
     [Fact]
@@ -106,13 +109,12 @@ public class DeleteSessionFunctionTests
             ExistingState = "Poisoned",
         };
 
-        var body = DeleteSessionFunction.BuildV2ResponseBody(result, SessionId);
+        var body = Rejected(DeleteSessionFunction.BuildV2ResponseBody(result, SessionId));
 
-        AssertProperty(body, "hint", "cascade_poisoned_use_restore");
-        AssertProperty(body, "manifestId", ManifestId);
+        Assert.Equal(Constants.ApiErrorCodes.CascadePoisonedUseRestore, body.Code);
+        Assert.Equal(ManifestId, body.ManifestId);
         // The message string must mention the restore endpoint so the UI surfaces it verbatim.
-        var message = GetProperty<string>(body, "message");
-        Assert.Contains("/restore", message);
+        Assert.Contains("/restore", body.Error);
     }
 
     [Fact]
@@ -126,10 +128,27 @@ public class DeleteSessionFunctionTests
             Outcome = SessionDeletionEnqueueOutcome.KillSwitchActive,
         };
 
-        var body = DeleteSessionFunction.BuildV2ResponseBody(result, SessionId);
+        var body = Rejected(DeleteSessionFunction.BuildV2ResponseBody(result, SessionId));
 
-        AssertProperty(body, "hint", "kill_switch_active");
-        Assert.False(HasProperty(body, "manifestId"));
+        Assert.Equal(Constants.ApiErrorCodes.KillSwitchActive, body.Code);
+        Assert.Null(body.ManifestId);
+        Assert.DoesNotContain("manifestId", TestWire.Serialize(body));
+    }
+
+    [Fact]
+    public void BuildV2ResponseBody_rejected_arms_serialize_with_the_envelope_prefix()
+    {
+        var result = new SessionDeletionEnqueueResult
+        {
+            Outcome = SessionDeletionEnqueueOutcome.SessionNotFound,
+        };
+
+        var body = Rejected(DeleteSessionFunction.BuildV2ResponseBody(result, SessionId));
+        body.CorrelationId = "cid-1";
+
+        Assert.Equal(
+            $"{{\"error\":\"Session {SessionId} not found\",\"code\":\"NotFound\",\"correlationId\":\"cid-1\"}}",
+            TestWire.Serialize(body));
     }
 
     // ── EvaluateAdminDeleteGates (kill-switch short-circuit) ──────────────────────────────
@@ -141,10 +160,10 @@ public class DeleteSessionFunctionTests
 
         Assert.NotNull(gate);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, gate!.Value.Status);
-        AssertProperty(gate.Value.Body, "hint", "kill_switch_active");
+        Assert.Equal(Constants.ApiErrorCodes.KillSwitchActive, gate.Value.Body.Code);
         // The kill-switch body must NOT carry a manifestId so the UI doesn't render a
         // "track this cascade" link for a request that was refused.
-        Assert.False(HasProperty(gate.Value.Body, "manifestId"));
+        Assert.Null(gate.Value.Body.ManifestId);
     }
 
     [Fact]
@@ -157,25 +176,6 @@ public class DeleteSessionFunctionTests
         Assert.Null(gate);
     }
 
-    // ── Anonymous-object reflection helpers ───────────────────────────────────────────────
-
-    // IgnoreCase: the Enqueued arm is a typed DTO (PascalCase properties, camelCased on the
-    // wire by ApiJsonOptions); the error arms stay anonymous (camelCase). Both resolve here.
-    private static void AssertProperty(object body, string propertyName, object? expected)
-    {
-        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-        Assert.NotNull(prop);
-        Assert.Equal(expected, prop!.GetValue(body));
-    }
-
-    private static T GetProperty<T>(object body, string propertyName)
-    {
-        var prop = body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-        Assert.NotNull(prop);
-        var value = prop!.GetValue(body);
-        return (T)value!;
-    }
-
-    private static bool HasProperty(object body, string propertyName) =>
-        body.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance) != null;
+    private static SessionDeletionRejectedResponse Rejected(IApiResponse body)
+        => Assert.IsType<SessionDeletionRejectedResponse>(body);
 }

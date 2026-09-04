@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -139,22 +140,11 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
             "[UserRateLimit] THROTTLED caller={Caller} requests={Count}/{Max} retryAfter={RetryAfter}s",
             requestContext.CallerId, result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
 
-        httpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
-        httpContext.Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
-        httpContext.Response.ContentType = "application/json";
-
-        await httpContext.Response.WriteAsJsonAsync(new
-        {
-            success = false,
-            message = $"Rate limit exceeded: {result.MaxRequests} requests per minute",
-            rateLimitExceeded = true,
-            rateLimitInfo = new
-            {
-                requestsInWindow = result.RequestsInWindow,
-                maxRequests = result.MaxRequests,
-                windowDurationSeconds = result.WindowDuration.TotalSeconds,
-                retryAfterSeconds
-            }
-        });
+        // Envelope with the retry window; the counters ride in the X-RateLimit-* headers above.
+        await ApiErrorWriter.WriteAsync(
+            httpContext, context.GetCorrelationId(), HttpStatusCode.TooManyRequests,
+            Constants.ApiErrorCodes.RateLimited,
+            $"Rate limit exceeded: {result.MaxRequests} requests per minute",
+            retryAfterSeconds: retryAfterSeconds);
     }
 }

@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Azure.Functions.Worker;
@@ -67,7 +68,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     _logger.LogWarning(
                         "DeleteSession rejected: SessionDeletionKillSwitch is active. tenant={TenantId} session={SessionId}",
                         tenantId, sessionId);
-                    return await WriteResponse(req, gateResult.Value.Status, gateResult.Value.Body);
+                    return await req.ErrorAsync(gateResult.Value.Status, gateResult.Value.Body);
                 }
 
                 // Gate passed — hand off to the V2 cascade producer (handles 404, locked states,
@@ -76,13 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error deleting session {sessionId}");
-
-                return await WriteResponse(req, HttpStatusCode.InternalServerError, new
-                {
-                    success = false,
-                    message = "Internal server error",
-                });
+                return await req.InternalServerErrorAsync(_logger, ex, "DeleteSession");
             }
         }
 
@@ -96,15 +91,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         /// producer's recovery and strand admin-triggered cascades that crashed mid-flight.
         /// </para>
         /// </summary>
-        internal static (HttpStatusCode Status, object Body)? EvaluateAdminDeleteGates(bool killSwitchActive)
+        internal static (HttpStatusCode Status, SessionDeletionRejectedResponse Body)? EvaluateAdminDeleteGates(bool killSwitchActive)
         {
             if (killSwitchActive)
             {
-                return (HttpStatusCode.ServiceUnavailable, new
+                return (HttpStatusCode.ServiceUnavailable, new SessionDeletionRejectedResponse
                 {
-                    success = false,
-                    message = "Session deletion is temporarily disabled by global kill-switch.",
-                    hint = "kill_switch_active",
+                    Error = "Session deletion is temporarily disabled by global kill-switch.",
+                    Code = Constants.ApiErrorCodes.KillSwitchActive,
                 });
             }
 
@@ -171,7 +165,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         /// Builds the JSON body for a V2-enqueue response. Internal so the test project
         /// can assert the shape without going through HttpResponseData mock plumbing.
         /// </summary>
-        internal static object BuildV2ResponseBody(SessionDeletionEnqueueResult result, string sessionId) => result.Outcome switch
+        internal static IApiResponse BuildV2ResponseBody(SessionDeletionEnqueueResult result, string sessionId) => result.Outcome switch
         {
             SessionDeletionEnqueueOutcome.Enqueued => new SessionDeletionQueuedResponse
             {
@@ -180,51 +174,51 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 ManifestId = result.ManifestId,
                 Message = "Cascade deletion queued; worker will drain asynchronously.",
             },
-            SessionDeletionEnqueueOutcome.AlreadyInFlight => new
+            SessionDeletionEnqueueOutcome.AlreadyInFlight => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = "A cascade for this session is already in flight.",
-                deletionState = result.ExistingState,
-                manifestId = result.ManifestId,
-                hint = "cascade_already_in_flight",
+                Error = "A cascade for this session is already in flight.",
+                Code = Constants.ApiErrorCodes.CascadeAlreadyInFlight,
+                DeletionState = result.ExistingState,
+                ManifestId = result.ManifestId,
             },
-            SessionDeletionEnqueueOutcome.Poisoned => new
+            SessionDeletionEnqueueOutcome.Poisoned => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = "Cascade is poisoned; recover via POST /api/global/sessions/{id}/restore before retrying delete.",
-                deletionState = result.ExistingState,
-                manifestId = result.ManifestId,
-                hint = "cascade_poisoned_use_restore",
+                Error = "Cascade is poisoned; recover via POST /api/global/sessions/{id}/restore before retrying delete.",
+                Code = Constants.ApiErrorCodes.CascadePoisonedUseRestore,
+                DeletionState = result.ExistingState,
+                ManifestId = result.ManifestId,
             },
-            SessionDeletionEnqueueOutcome.KillSwitchActive => new
+            SessionDeletionEnqueueOutcome.KillSwitchActive => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = "Session deletion is temporarily disabled by global kill-switch.",
-                hint = "kill_switch_active",
+                Error = "Session deletion is temporarily disabled by global kill-switch.",
+                Code = Constants.ApiErrorCodes.KillSwitchActive,
             },
-            SessionDeletionEnqueueOutcome.CasExhausted => new
+            SessionDeletionEnqueueOutcome.CasExhausted => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = "Cascade enqueue exhausted retries; please retry shortly.",
-                hint = "cas_exhausted_retry_later",
+                Error = "Cascade enqueue exhausted retries; please retry shortly.",
+                Code = Constants.ApiErrorCodes.CasExhaustedRetryLater,
             },
-            SessionDeletionEnqueueOutcome.SessionNotFound => new
+            SessionDeletionEnqueueOutcome.SessionNotFound => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = $"Session {sessionId} not found",
+                Error = $"Session {sessionId} not found",
+                Code = Constants.ApiErrorCodes.NotFound,
             },
-            _ => new
+            _ => new SessionDeletionRejectedResponse
             {
-                success = false,
-                message = "Internal server error",
+                Error = "Internal server error",
+                Code = Constants.ApiErrorCodes.InternalError,
             },
         };
 
-        private static async Task<HttpResponseData> WriteResponse(HttpRequestData req, HttpStatusCode status, object body)
+        /// <summary>
+        /// Dispatch on the concrete body type: serializing through the <see cref="IApiResponse"/>
+        /// marker would emit an empty object (System.Text.Json writes the declared type).
+        /// </summary>
+        private static Task<HttpResponseData> WriteResponse(HttpRequestData req, HttpStatusCode status, IApiResponse body) => body switch
         {
-            var response = req.CreateResponse(status);
-            await response.WriteAsJsonAsync(body);
-            return response;
-        }
+            SessionDeletionRejectedResponse rejected => req.ErrorAsync(status, rejected),
+            SessionDeletionQueuedResponse queued => req.JsonAsync(status, queued),
+            _ => throw new InvalidOperationException($"Unexpected DeleteSession body {body.GetType().Name}"),
+        };
     }
 }

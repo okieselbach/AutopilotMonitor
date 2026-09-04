@@ -27,4 +27,11 @@ public static class ApiJsonOptions
         Apply(options);
         return options;
     }
+
+    /// <summary>
+    /// Shared read-only instance for writers outside the worker serializer (middleware writing
+    /// through the ASP.NET Core <c>HttpResponse</c>), so a middleware body and a function body
+    /// serialize identically.
+    /// </summary>
+    public static JsonSerializerOptions Instance { get; } = Create();
 }

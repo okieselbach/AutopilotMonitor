@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Backup;
 using AutopilotMonitor.Shared.Models.Backup;
 using Microsoft.Azure.Functions.Worker;
@@ -34,10 +35,7 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             var (payload, _) = await _store.ReadManifestAsync(backupId, req.FunctionContext.CancellationToken);
             if (payload is null)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                notFound.Headers.Add("Content-Type", "application/json; charset=utf-8");
-                await notFound.WriteStringAsync(JsonSerializer.Serialize(new { error = "ManifestNotFound", backupId }, BackupManifestJson.SerializerOptions));
-                return notFound;
+                return await req.NotFoundAsync($"Backup manifest {backupId} not found.");
             }
 
             // Stream the bytes verbatim — the manifest is already JSON, no need to deserialise + re-serialise.

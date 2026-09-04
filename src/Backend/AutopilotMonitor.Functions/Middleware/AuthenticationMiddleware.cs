@@ -76,13 +76,10 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
         if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogWarning("[Auth Middleware] Blocked unauthenticated request to {Path}", logPath);
-            httpContext.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-            httpContext.Response.ContentType = "application/json";
-            await httpContext.Response.WriteAsJsonAsync(new
-            {
-                success = false,
-                message = "Authentication required. Please provide a valid JWT token."
-            });
+            await ApiErrorWriter.WriteAsync(
+                httpContext, context.GetCorrelationId(), HttpStatusCode.Unauthorized,
+                Constants.ApiErrorCodes.AuthenticationRequired,
+                "Authentication required. Please provide a valid JWT token.");
             return;
         }
 
@@ -232,13 +229,10 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
         if (!authenticated)
         {
             _logger.LogWarning("[Auth Middleware] Blocked request with invalid token to {Path}", logPath);
-            httpContext.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-            httpContext.Response.ContentType = "application/json";
-            await httpContext.Response.WriteAsJsonAsync(new
-            {
-                success = false,
-                message = "Authentication required. Please provide a valid JWT token."
-            });
+            await ApiErrorWriter.WriteAsync(
+                httpContext, context.GetCorrelationId(), HttpStatusCode.Unauthorized,
+                Constants.ApiErrorCodes.AuthenticationRequired,
+                "Authentication required. Please provide a valid JWT token.");
             return;
         }
 

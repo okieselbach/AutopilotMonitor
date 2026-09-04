@@ -27,6 +27,7 @@ public class DelegationWireParityTests
             {
                 error = "Delegated tenant slot limit reached for partner.example: 2 of 2 slot(s) in use, 1 more needed. Raise the tenant's limit (plan package or Global Admin override) and retry.",
                 code = "DelegatedSlotLimitReached",
+                correlationId = "",
                 homeTenantId = Home,
                 homeTenantDomain = "partner.example",
                 used = 2,
@@ -47,6 +48,7 @@ public class DelegationWireParityTests
             {
                 error = $"Delegated tenant slot limit reached for {Home}: 3 of 3 slot(s) in use, 2 more needed. Raise the tenant's limit (plan package or Global Admin override) and retry.",
                 code = "DelegatedSlotLimitReached",
+                correlationId = "",
                 homeTenantId = Home,
                 homeTenantDomain,
                 used = 3,

@@ -641,6 +641,10 @@ public class InfrastructureWireParityTests
     }
 
     // ---- McpQuotaEnforcementMiddleware: 429 quota body -----------------------------------
+    // DELIBERATE wire change (error-envelope pass): the body now leads with the envelope prefix
+    // error/code/correlationId (error carries the former `message`); quotaExceeded stays as the
+    // MCP's discriminator. These literals pin the NEW shape (correlationId is stamped by the writer,
+    // so the builder leaves it empty).
 
     [Fact]
     public void McpQuotaExceededResponse_matches_the_daily_blocked_shape()
@@ -654,14 +658,16 @@ public class InfrastructureWireParityTests
         AssertParity(
             new
             {
+                error = "MCP daily request quota exceeded for plan 'community'. The Community plan is sized for occasional use; Pro raises your daily and monthly windows. Resets at 2026-08-31T00:00:00Z.",
+                code = "QuotaExceeded",
+                correlationId = "",
                 quotaExceeded = true,
                 plan = "community",
                 scope = "daily",
                 level = "user",
                 limit = 200,
                 used = 200L,
-                resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP daily request quota exceeded for plan 'community'. The Community plan is sized for occasional use; Pro raises your daily and monthly windows. Resets at 2026-08-31T00:00:00Z."
+                resetUtc = "2026-08-31T00:00:00Z"
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision));
     }
@@ -679,14 +685,16 @@ public class InfrastructureWireParityTests
         AssertParity(
             new
             {
+                error = "MCP monthly request quota of your organization exceeded (tenant plan 'pro', shared by all its members). Resets at 2026-09-01T00:00:00Z.",
+                code = "QuotaExceeded",
+                correlationId = "",
                 quotaExceeded = true,
                 plan = "power",
                 scope = "monthly",
                 level = "tenant",
                 limit = 60000,
                 used = 60000L,
-                resetUtc = "2026-09-01T00:00:00Z",
-                message = "MCP monthly request quota of your organization exceeded (tenant plan 'pro', shared by all its members). Resets at 2026-09-01T00:00:00Z."
+                resetUtc = "2026-09-01T00:00:00Z"
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision));
     }
@@ -701,17 +709,20 @@ public class InfrastructureWireParityTests
         AssertParity(
             new
             {
+                error = "MCP  request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z.",
+                code = "QuotaExceeded",
+                correlationId = "",
                 quotaExceeded = true,
                 plan = "community",
                 scope,
                 level = "user",
                 limit = 200,
                 used = 200L,
-                resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP  request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z."
+                resetUtc = "2026-08-31T00:00:00Z"
             },
             new McpQuotaExceededResponse
             {
+                Error = "MCP  request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z.",
                 QuotaExceeded = true,
                 Plan = "community",
                 Scope = null,
@@ -719,7 +730,6 @@ public class InfrastructureWireParityTests
                 Limit = 200,
                 Used = 200,
                 ResetUtc = "2026-08-31T00:00:00Z",
-                Message = "MCP  request quota exceeded for plan 'community'. Resets at 2026-08-31T00:00:00Z."
             });
     }
 
@@ -737,6 +747,9 @@ public class InfrastructureWireParityTests
         AssertParity(
             new
             {
+                error = "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). That tenant is on the Community plan, which is sized for occasional use; its own plan governs this window, not yours. Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-08-31T00:00:00Z.",
+                code = "QuotaExceeded",
+                correlationId = "",
                 quotaExceeded = true,
                 plan = "pro",
                 scope = "daily",
@@ -744,7 +757,6 @@ public class InfrastructureWireParityTests
                 limit = 300,
                 used = 300L,
                 resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). That tenant is on the Community plan, which is sized for occasional use; its own plan governs this window, not yours. Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-08-31T00:00:00Z.",
                 targetTenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002"
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, "customer.example"));
@@ -763,14 +775,16 @@ public class InfrastructureWireParityTests
         AssertParity(
             new
             {
+                error = "MCP request quota exceeded for all 2 managed tenants in scope (each managed tenant's own plan governs its organization windows; upgrading a managed tenant to Pro lifts them). Earliest reset at 2026-08-31T00:00:00Z.",
+                code = "QuotaExceeded",
+                correlationId = "",
                 quotaExceeded = true,
                 plan = "pro",
                 scope = "daily",
                 level = "tenant",
                 limit = 300,
                 used = 300L,
-                resetUtc = "2026-08-31T00:00:00Z",
-                message = "MCP request quota exceeded for all 2 managed tenants in scope (each managed tenant's own plan governs its organization windows; upgrading a managed tenant to Pro lifts them). Earliest reset at 2026-08-31T00:00:00Z."
+                resetUtc = "2026-08-31T00:00:00Z"
             },
             McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, exhaustedTenantCount: 2));
     }

@@ -313,6 +313,44 @@
     "web",
     "mcp"
   ],
+  "apiErrorCodes": [
+    "BadRequest",
+    "Unauthorized",
+    "Forbidden",
+    "NotFound",
+    "Conflict",
+    "Gone",
+    "UnprocessableEntity",
+    "RateLimited",
+    "InternalError",
+    "ServiceUnavailable",
+    "AuthenticationRequired",
+    "InsufficientPermissions",
+    "CrossTenantAccessDenied",
+    "TenantSuspended",
+    "QuotaExceeded",
+    "HomeTenantUnresolved",
+    "InvalidTarget",
+    "TenantNotFound",
+    "CascadeAlreadyInFlight",
+    "CascadePoisonedUseRestore",
+    "KillSwitchActive",
+    "CasExhaustedRetryLater",
+    "InvalidInvitation",
+    "InvitationNotFound",
+    "InvitationExpired",
+    "InvitationAlreadyUsed",
+    "InvitationCancelled",
+    "CannotAcceptOwnInvitation",
+    "AlreadyManaged",
+    "ManagerNotEntitled",
+    "DelegatedAdminNotAllowed",
+    "NotManagedBySelfService",
+    "NotATenantMember",
+    "AssigneeNotFound",
+    "IdentityBindingConflict",
+    "DelegatedSlotLimitReached"
+  ],
   "tenantRoles": [
     "Admin",
     "Operator",
@@ -1715,6 +1753,63 @@
               "name": "AnalyzeRule"
             }
           }
+        }
+      ]
+    },
+    "ApiErrorResponse": {
+      "kind": "object",
+      "doc": "The one generic error body: { error, code, correlationId, hint?, retryAfterSeconds?, operation? }. Written by ResponseHelper.ErrorAsync (functions) and ApiErrorWriter (middleware).",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Human-readable message. Never carries stack traces or infrastructure detail."
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Machine-readable code — Constants.ApiErrorCodes unless a domain class owns it."
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The request's correlation id (also the X-Correlation-ID response header); the handle for backend log lookup."
+        },
+        {
+          "name": "hint",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Recovery hint for the caller (MCP clients read it into the tool error text); absent when none applies."
+        },
+        {
+          "name": "retryAfterSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Mirrors the Retry-After header on 429/503; absent otherwise."
+        },
+        {
+          "name": "operation",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The failing operation (function name) — 500 bodies for MCP clients only; absent otherwise."
         }
       ]
     },
@@ -4776,6 +4871,13 @@
         },
         {
           "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
           "type": {
             "kind": "primitive",
             "name": "string"
@@ -11377,8 +11479,30 @@
     },
     "McpQuotaExceededResponse": {
       "kind": "object",
-      "doc": "429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted (structurally a success shape: first key is quotaExceeded).",
+      "doc": "429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted. Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on.",
       "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The full quota message (whose window, which plan, when it resets)."
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
         {
           "name": "quotaExceeded",
           "type": {
@@ -11433,13 +11557,6 @@
             "name": "string"
           },
           "doc": "Reset time of the exceeded window, pre-formatted \"yyyy-MM-ddTHH:mm:ssZ\"."
-        },
-        {
-          "name": "message",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
         },
         {
           "name": "targetTenantId",
@@ -14944,7 +15061,7 @@
     },
     "SessionDeletionQueuedResponse": {
       "kind": "object",
-      "doc": "Success body (202 Accepted) of the V2 cascade-delete enqueue — the non-success arms stay anonymous error bodies by design (one shape: success=false + message).",
+      "doc": "Success body (202 Accepted) of the V2 cascade-delete enqueue; the rejected arms are SessionDeletionRejectedResponse.",
       "fields": [
         {
           "name": "success",
@@ -14975,6 +15092,52 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "SessionDeletionRejectedResponse": {
+      "kind": "object",
+      "doc": "Error body of DELETE sessions/{id} when the cascade could not be enqueued (409 lock states, 503 kill-switch / CAS exhaustion, 404). Error-envelope prefix plus the lock diagnostics the portal renders; manifestId is absent when no manifest exists (kill-switch refusal).",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Constants.ApiErrorCodes: CascadeAlreadyInFlight, CascadePoisonedUseRestore, KillSwitchActive, CasExhaustedRetryLater, NotFound, InternalError."
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "deletionState",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The in-flight cascade's state on the 409 arms; absent otherwise."
+        },
+        {
+          "name": "manifestId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The in-flight cascade's manifest on the 409 arms; absent otherwise."
         }
       ]
     },

@@ -97,14 +97,11 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         catch (Exception ex)
         {
             _logger.LogError(ex, "[PolicyEnforcement] Service error evaluating policy for {Method} {Path}", logMethod, logPath);
-            httpContext.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-            httpContext.Response.ContentType = "application/json";
-            httpContext.Response.Headers["Retry-After"] = "5";
-            await httpContext.Response.WriteAsJsonAsync(new
-            {
-                error = "ServiceUnavailable",
-                message = "Authorization service temporarily unavailable. Please retry."
-            });
+            await ApiErrorWriter.WriteAsync(
+                httpContext, context.GetCorrelationId(), HttpStatusCode.ServiceUnavailable,
+                Constants.ApiErrorCodes.ServiceUnavailable,
+                "Authorization service temporarily unavailable. Please retry.",
+                retryAfterSeconds: 5);
             return;
         }
 
@@ -124,9 +121,11 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             logMethod, logPath, result.StatusCode, LogSanitizer.Clean(result.UserIdentifier), result.UserRole, result.LogReason,
             LogSanitizer.Clean(principal?.GetObjectId()), LogSanitizer.Clean(principal?.GetTenantId()), clientSource, mcpToolName);
         await ReportPrivilegedDenialAsync(context, result, httpMethod, requestPath, principal, clientSource, mcpToolName);
-        httpContext.Response.StatusCode = result.StatusCode;
-        httpContext.Response.ContentType = "application/json";
-        await httpContext.Response.WriteAsJsonAsync(new { error = result.ErrorCode, message = result.ErrorMessage });
+        // Envelope: the human message is `error`, the policy code (Forbidden, CrossTenantAccessDenied,
+        // TenantSuspended, AuthenticationRequired, InsufficientPermissions) is `code`.
+        await ApiErrorWriter.WriteAsync(
+            httpContext, context.GetCorrelationId(), (HttpStatusCode)result.StatusCode,
+            result.ErrorCode ?? Constants.ApiErrorCodes.Forbidden, result.ErrorMessage ?? "Access denied.");
     }
 
     private static string? DenialHeader(HttpContext httpContext, string name)

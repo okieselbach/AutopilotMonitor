@@ -185,7 +185,7 @@ public class IdentityBindingRequest
     }
 
     /// <summary>Error code the grant endpoints return (HTTP 422) when the home tenant could not be resolved automatically.</summary>
-    public const string HomeTenantUnresolvedCode = "HomeTenantUnresolved";
+    public const string HomeTenantUnresolvedCode = AutopilotMonitor.Shared.Constants.ApiErrorCodes.HomeTenantUnresolved;
     public const string HomeTenantUnresolvedMessage =
         "The person's home tenant could not be resolved automatically (no previous sign-in, and the UPN domain does not belong to an onboarded tenant). Select the tenant they sign in from.";
 }

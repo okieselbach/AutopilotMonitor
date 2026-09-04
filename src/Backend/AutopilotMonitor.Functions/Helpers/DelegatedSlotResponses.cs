@@ -22,10 +22,6 @@ public static class DelegatedSlotResponses
         };
     }
 
-    public static async Task<HttpResponseData> ConflictAsync(HttpRequestData req, DelegatedSlotViolation violation)
-    {
-        var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-        await conflict.WriteAsJsonAsync(Build(violation));
-        return conflict;
-    }
+    public static Task<HttpResponseData> ConflictAsync(HttpRequestData req, DelegatedSlotViolation violation)
+        => req.ErrorAsync(HttpStatusCode.Conflict, Build(violation));
 }

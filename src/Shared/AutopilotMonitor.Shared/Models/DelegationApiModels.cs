@@ -12,10 +12,11 @@ namespace AutopilotMonitor.Shared.Models
     /// <c>error</c> comes first so generic error rendering keeps working; <c>code</c> lets the GA UI offer the
     /// "raise the limit and retry" flow.
     /// </summary>
-    public class DelegatedSlotLimitReachedResponse : IApiResponse
+    public class DelegatedSlotLimitReachedResponse : IApiErrorResponse
     {
         public string Error { get; set; } = default!;
         public string Code { get; set; } = Constants.DelegatedSlots.LimitReachedCode;
+        public string CorrelationId { get; set; } = string.Empty;
         /// <summary>The managing (home) tenant whose slots are exhausted.</summary>
         public string HomeTenantId { get; set; } = default!;
         /// <summary>Its display name; absent when the config row carries none.</summary>

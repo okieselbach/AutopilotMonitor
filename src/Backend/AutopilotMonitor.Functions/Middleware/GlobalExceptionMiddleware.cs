@@ -1,6 +1,7 @@
 using System.Net;
 using Azure;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -48,23 +49,14 @@ public class GlobalExceptionMiddleware : IFunctionsWorkerMiddleware
                 httpContext.Request.Headers["X-Client-Source"].FirstOrDefault(),
                 "mcp", StringComparison.OrdinalIgnoreCase);
 
-            var errorBody = new Dictionary<string, object?>
-            {
-                ["error"] = ResponseHelper.SanitizeErrorMessage(ex, functionName),
-                ["correlationId"] = correlationId,
-                ["exceptionType"] = ex.GetType().Name,
-            };
-
-            if (isMcp)
-            {
-                errorBody["operation"] = functionName;
-                var hint = ResponseHelper.GetRecoveryHint(ex);
-                if (hint != null) errorBody["hint"] = hint;
-            }
-
-            httpContext.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-            httpContext.Response.ContentType = "application/json";
-            await httpContext.Response.WriteAsJsonAsync(errorBody);
+            // Same envelope as ResponseHelper.InternalServerErrorAsync: MCP clients get the
+            // operation + recovery hint; the CLR exception type never leaves the process.
+            await ApiErrorWriter.WriteAsync(
+                httpContext, correlationId, HttpStatusCode.InternalServerError,
+                Constants.ApiErrorCodes.InternalError,
+                ResponseHelper.SanitizeErrorMessage(ex, functionName),
+                hint: isMcp ? ResponseHelper.GetRecoveryHint(ex) : null,
+                operation: isMcp ? functionName : null);
         }
     }
 }

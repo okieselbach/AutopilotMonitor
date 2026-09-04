@@ -83,6 +83,12 @@ public sealed class SharedManifestParityTests
             ["opsEventTypes"] = OpsEventTypes.All,
             // Telemetry stores behind the operator KQL proxy (query_backend_logs `source`).
             ["logSources"] = LogQuerySources.All,
+            // Every machine-readable `code` an error envelope (IApiErrorResponse) can carry: the
+            // generic catalog first, then the domain code classes. Declaration order kept.
+            ["apiErrorCodes"] = ConstStrings(typeof(Constants.ApiErrorCodes))
+                .Concat(ConstStrings(typeof(Constants.DelegationCodes)))
+                .Concat(ConstStrings(typeof(Constants.DelegatedSlots)))
+                .ToArray(),
             ["tenantRoles"] = ConstStrings(typeof(Constants.TenantRoles)),
             ["globalRoles"] = ConstStrings(typeof(Constants.GlobalRoles)),
             ["delegatedRoles"] = ConstStrings(typeof(Constants.DelegatedRoles)),
