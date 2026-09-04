@@ -7,12 +7,44 @@ name: CI
 # The deploy workflows build but never test, so this is the only place the suites
 # actually run. It does not gate anything — main is deliberately unprotected, so a
 # red run reports rather than blocks. Read the result and follow up.
-
+#
+# Path filters: commits that only bump a private submodule gitlink (internal/, infra/,
+# .claude/commands) or touch prose cannot change anything the suites cover, so they are
+# skipped instead of burning ~15 runner-minutes each. A gitlink bump reports the bare
+# path ('internal', no trailing slash), which 'internal/**' does NOT match — both forms
+# are listed. GitHub skips only when EVERY changed path matches; a commit that touches
+# docs AND code still runs.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'internal'
+      - 'internal/**'
+      - 'infra'
+      - 'infra/**'
+      - '.claude/**'
+      - '.gitmodules'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - '.github/assets/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'internal'
+      - 'internal/**'
+      - 'infra'
+      - 'infra/**'
+      - '.claude/**'
+      - '.gitmodules'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - '.github/assets/**'
   workflow_dispatch:
 
 permissions:

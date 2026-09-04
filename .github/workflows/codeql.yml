@@ -1,22 +1,43 @@
 name: CodeQL
 
-# Documentation-only changes cannot affect what CodeQL analyzes (C# and
-# TypeScript), so they are filtered out rather than spending ~10 minutes to
-# re-report an unchanged result. A commit that touches docs AND code still runs:
-# GitHub skips only when EVERY changed path matches the filter.
+# Documentation-only changes and private-submodule gitlink bumps (internal/, infra/,
+# .claude/commands) cannot affect what CodeQL analyzes (C# and TypeScript), so they
+# are filtered out rather than spending ~10 minutes to re-report an unchanged result.
+# A gitlink bump reports the bare path ('internal', no trailing slash), which
+# 'internal/**' does NOT match — both forms are listed. A commit that touches docs
+# AND code still runs: GitHub skips only when EVERY changed path matches the filter.
+# Same list as ci.yml; keep them in step.
 on:
   push:
     branches: [main]
     paths-ignore:
+      - 'internal'
       - 'internal/**'
+      - 'infra'
+      - 'infra/**'
+      - '.claude/**'
+      - '.gitmodules'
       - '**/*.md'
       - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - '.github/assets/**'
   pull_request:
     branches: [main]
     paths-ignore:
+      - 'internal'
       - 'internal/**'
+      - 'infra'
+      - 'infra/**'
+      - '.claude/**'
+      - '.gitmodules'
       - '**/*.md'
       - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - '.github/dependabot.yml'
+      - '.github/assets/**'
   schedule:
     # Weekly, so advisories published after a merge still surface. Deliberately
     # unfiltered — it re-analyzes the whole tree regardless of what changed, which
