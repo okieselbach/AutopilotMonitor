@@ -503,13 +503,21 @@ namespace AutopilotMonitor.Functions.Services
                     phaseEnd = DateTime.UtcNow; // Phase is still active — the end carries no provenance
                 }
 
-                // A duration is only as good as the weaker of its two endpoints: a reader-zone
-                // fallback timestamp can be hours off, which turned a 20-minute DeviceSetup into a
-                // 3 h "ESP Blocking App Timeout" (ANALYZE-ESP-001).
-                if (HasReaderZoneFallbackTimestamp(evt))
-                    return (false, UnmeasurableDurationEvidence("phase duration", "start", evt, evt));
-                if (phaseEndEvent != null && HasReaderZoneFallbackTimestamp(phaseEndEvent))
-                    return (false, UnmeasurableDurationEvidence("phase duration", "end", evt, phaseEndEvent));
+                // MIXED provenance is what breaks a duration: a reader-zone fallback timestamp can
+                // be hours off, and when the other endpoint is anchored (or is "now" for an open
+                // phase) the error lands in the span — a 20-minute DeviceSetup became a 3 h "ESP
+                // Blocking App Timeout" (ANALYZE-ESP-001, session a7140f98). Two fallback endpoints
+                // share the same writer-zone error and cancel it, so that pair stays measurable —
+                // otherwise the rule would go silent on every agent that has no era anchor, because
+                // the DeviceSetup line is written before the agent starts and is always backlog.
+                var startFallback = HasReaderZoneFallbackTimestamp(evt);
+                var endFallback = phaseEndEvent != null && HasReaderZoneFallbackTimestamp(phaseEndEvent);
+                if (startFallback != endFallback)
+                {
+                    return (false, startFallback
+                        ? UnmeasurableDurationEvidence("phase duration", "start", evt, evt)
+                        : UnmeasurableDurationEvidence("phase duration", "end", evt, phaseEndEvent!));
+                }
 
                 var durationSeconds = (phaseEnd - evt.Timestamp).TotalSeconds;
 
@@ -540,9 +548,12 @@ namespace AutopilotMonitor.Functions.Services
 
         // ===== Timestamp provenance of CMTrace-derived events =====
         // IME-log-derived events (esp_phase_changed, app_install_*, …) carry data.sourceOffsetOrigin:
-        // "bias" | "calibrated" | "line-anchored" | "reader-zone-fallback". The last one means the
-        // agent could not determine the log writer's timezone and assumed its own, so the
-        // Timestamp may be off by whole hours. Agent-native events carry no tag and are trusted.
+        // "bias" | "calibrated" | "line-anchored" | "era-anchored" | "reader-zone-fallback". The
+        // last one means the agent could not determine the log writer's timezone and assumed its
+        // own, so the Timestamp may be off by whole hours — but by the SAME hours for every line
+        // of that writer era, so a span with two fallback endpoints is still measurable; only a
+        // span mixing a fallback endpoint with an anchored one (or with "now") is not.
+        // Agent-native events carry no tag and are trusted.
 
         /// <summary>Data key written by the agent's IME log adapter for CMTrace-derived events.</summary>
         internal const string SourceOffsetOriginField = "sourceOffsetOrigin";
@@ -554,7 +565,8 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Non-match evidence for a duration whose <paramref name="endpoint"/> ("start" | "end")
-        /// timestamp is a reader-zone fallback. <paramref name="anchor"/> is the event the evaluator
+        /// timestamp is a reader-zone fallback while the other endpoint is not (mixed provenance).
+        /// <paramref name="anchor"/> is the event the evaluator
         /// normally reports as its match (eventId/sequence), <paramref name="offender"/> the endpoint
         /// event carrying the fallback tag.
         /// </summary>
@@ -562,7 +574,7 @@ namespace AutopilotMonitor.Functions.Services
             string what, string endpoint, EnrollmentEvent anchor, EnrollmentEvent offender)
             => new()
             {
-                ["reason"] = $"{what} not measurable: {endpoint} timestamp derived from reader-zone fallback",
+                ["reason"] = $"{what} not measurable: {endpoint} timestamp derived from reader-zone fallback while the other endpoint is anchored (mixed provenance)",
                 ["timestampProvenance"] = ReaderZoneFallbackOrigin,
                 ["provenanceEndpoint"] = endpoint,
                 ["provenanceEventId"] = offender.EventId ?? string.Empty,
@@ -844,8 +856,9 @@ namespace AutopilotMonitor.Functions.Services
                 .Where(e => completionEventTypes.Contains(e.EventType ?? string.Empty))
                 .ToList();
 
-            // First pair skipped because one endpoint is a reader-zone fallback timestamp (see
-            // HasReaderZoneFallbackTimestamp). Other apps stay measurable; the skip only becomes
+            // First pair skipped because exactly one endpoint is a reader-zone fallback timestamp
+            // (mixed provenance — see the phase evaluator; two fallback endpoints cancel their
+            // shared error and stay measurable). Other apps stay measurable; the skip only becomes
             // the reported reason when nothing else matched.
             Dictionary<string, object>? unmeasurable = null;
 
@@ -867,14 +880,13 @@ namespace AutopilotMonitor.Functions.Services
                 if (startEvent == null)
                     continue;
 
-                if (HasReaderZoneFallbackTimestamp(startEvent))
+                var startFallback = HasReaderZoneFallbackTimestamp(startEvent);
+                var endFallback = HasReaderZoneFallbackTimestamp(completionEvent);
+                if (startFallback != endFallback)
                 {
-                    unmeasurable ??= UnmeasurableDurationEvidence("app install duration", "start", completionEvent, startEvent);
-                    continue;
-                }
-                if (HasReaderZoneFallbackTimestamp(completionEvent))
-                {
-                    unmeasurable ??= UnmeasurableDurationEvidence("app install duration", "end", completionEvent, completionEvent);
+                    unmeasurable ??= startFallback
+                        ? UnmeasurableDurationEvidence("app install duration", "start", completionEvent, startEvent)
+                        : UnmeasurableDurationEvidence("app install duration", "end", completionEvent, completionEvent);
                     continue;
                 }
 

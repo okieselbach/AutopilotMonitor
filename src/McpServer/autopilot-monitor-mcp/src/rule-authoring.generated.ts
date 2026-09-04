@@ -431,7 +431,7 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
         },
         "source": {
           "type": "string",
-          "description": "Source of the signal. phase_duration and app_install_duration never derive a duration from an IME-log timestamp whose sourceOffsetOrigin is reader-zone-fallback (writer timezone unknown to the agent): such a condition evaluates false with evidence timestampProvenance=reader-zone-fallback.",
+          "description": "Source of the signal. phase_duration and app_install_duration never derive a duration from a span with mixed timestamp provenance (exactly one IME-log endpoint with sourceOffsetOrigin=reader-zone-fallback, i.e. the writer timezone was unknown to the agent for one endpoint only): such a condition evaluates false with evidence timestampProvenance=reader-zone-fallback. Two fallback endpoints share the same error and stay measurable.",
           "enum": [
             "event_type",
             "event_data",

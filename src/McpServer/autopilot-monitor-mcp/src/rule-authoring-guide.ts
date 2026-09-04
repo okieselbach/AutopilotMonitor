@@ -163,15 +163,16 @@ export const RULE_AUTHORING_GUIDE = {
         'Match a phase (eventType=esp_phase_changed, dataField=espPhase, operator=equals, ' +
         'value=<phase>); the evidence carries durationSeconds. Combine with a confidenceFactor ' +
         '"phase_duration > N" for the actual duration check. The condition is false (reason ' +
-        '"not measurable", evidence timestampProvenance=reader-zone-fallback) when the phase start ' +
-        'or the next phase event is an IME-log event whose sourceOffsetOrigin is reader-zone-fallback ' +
-        '— that timestamp can be hours off, so no duration is derived from it.',
+        '"not measurable", evidence timestampProvenance=reader-zone-fallback) when exactly one of the ' +
+        'phase start and the next phase event carries sourceOffsetOrigin=reader-zone-fallback — that ' +
+        'timestamp can be hours off, so a mixed span derives no duration; two fallback endpoints share ' +
+        'the same error and stay measurable.',
       app_install_duration:
         'Compare app install duration in seconds (operator gt/lt/gte/lte, value=seconds). ' +
         'Attempt-scoped: pairs each completion with the LATEST app_install_started before it ' +
         '(sequence order), so an IME re-evaluation pass an hour earlier does not inflate the ' +
-        'value — same semantics as the apps dashboard since 2026-08. A start/completion pair with a ' +
-        'reader-zone-fallback sourceOffsetOrigin on either side is skipped as not measurable.',
+        'value — same semantics as the apps dashboard since 2026-08. A start/completion pair with ' +
+        'mixed provenance (reader-zone-fallback on exactly one side) is skipped as not measurable.',
       event_correlation:
         'Join two event types over a shared field: eventType + correlateEventType + joinField, ' +
         'optional timeWindowSeconds, optional eventAFilterField/-Operator/-Value to pre-filter the ' +

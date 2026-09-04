@@ -10,8 +10,9 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Timestamp provenance in the duration evaluators (phase_duration, app_install_duration).
 /// IME-log-derived events carry <c>data.sourceOffsetOrigin</c>; <c>reader-zone-fallback</c>
 /// means the agent assumed its own timezone for the log writer, so the Timestamp can be hours
-/// off. A duration with such an endpoint is not measurable: the condition is false with a
-/// provenance reason. Other origins and agent-native events (no tag) stay measurable.
+/// off. A span with MIXED provenance — one fallback endpoint, the other anchored or "now" — is
+/// not measurable: the condition is false with a provenance reason. Two fallback endpoints share
+/// the writer's error and stay measurable, as do other origins and agent-native events (no tag).
 /// Field case: a 20-minute DeviceSetup rendered as 3 h 22 min fired ANALYZE-ESP-001 (high).
 /// </summary>
 public class RuleEngineDurationProvenanceTests
@@ -130,7 +131,41 @@ public class RuleEngineDurationProvenanceTests
         Assert.Equal("start", AsString(AsDict(fallbackCondition.Evidence!)["provenanceEndpoint"]));
     }
 
+    [Fact]
+    public async Task PhaseDuration_BothEndsFallback_IsComputed()
+    {
+        // Two fallback endpoints carry the same writer-zone error, so the span is right — and
+        // this is the shape of every session from an agent without an era anchor, because the
+        // DeviceSetup line is written before the agent starts.
+        var events = new List<EnrollmentEvent>
+        {
+            PhaseEvent("DeviceSetup", T0, 10, Fallback),
+            PhaseEvent("AccountSetup", T0.AddHours(3), 20, Fallback),
+        };
+
+        var (dry, _, _) = await DryRunAsync(PhaseRule("DeviceSetup"), events);
+
+        var condition = Assert.Single(dry.Conditions);
+        Assert.True(condition.Matched);
+        Assert.Equal(10800d, Convert.ToDouble(AsDict(condition.Evidence!)["durationSeconds"]));
+    }
+
     // ===== app_install_duration =====
+
+    [Fact]
+    public async Task AppInstallDuration_BothEndsFallback_IsComputed()
+    {
+        var events = new List<EnrollmentEvent>
+        {
+            AppEvent("app_install_started", "app-a", T0, 10, Fallback),
+            AppEvent("app_install_completed", "app-a", T0.AddHours(1), 20, Fallback),
+        };
+
+        var (dry, _, _) = await DryRunAsync(AppDurationRule(minSeconds: 600), events);
+
+        var condition = Assert.Single(dry.Conditions);
+        Assert.True(condition.Matched);
+    }
 
     [Fact]
     public async Task AppInstallDuration_StartWithFallbackProvenance_IsNotMeasurable()
@@ -240,6 +275,22 @@ public class RuleEngineDurationProvenanceTests
 
         var outcome = await RunBuiltInAsync(rule, events);
         Assert.Empty(outcome.Results);
+    }
+
+    [Fact]
+    public async Task ANALYZE_ESP_001_still_fires_when_both_endpoints_are_fallback()
+    {
+        var rule = BuiltInAnalyzeRules.GetAll().First(r => r.RuleId == "ANALYZE-ESP-001");
+
+        var events = new List<EnrollmentEvent>
+        {
+            PhaseEvent("DeviceSetup", T0, 10, Fallback),
+            PhaseEvent("AccountSetup", T0.AddHours(3), 20, Fallback),
+        };
+
+        var outcome = await RunBuiltInAsync(rule, events);
+        var result = Assert.Single(outcome.Results);
+        Assert.Equal("ANALYZE-ESP-001", result.RuleId);
     }
 
     [Fact]
