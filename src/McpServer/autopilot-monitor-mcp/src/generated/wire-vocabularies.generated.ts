@@ -101,6 +101,7 @@ export const OPS_EVENT_TYPES = [
   "PoisonQueueBacklogCritical",
   "ExcessiveSessionEventsAutoActioned",
   "PrivilegedRouteDenied",
+  "McpServicePrincipalFirstSeen",
   "OffboardingFeedbackReceived",
   "TenantOffboarded",
   "TenantOffboardingFailed",

@@ -10,6 +10,7 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { isProViaMsp } from "@/lib/edition";
 import { buildInviteLink, describeDelegationError, holdRemainingLabel, invitationStatusLabel } from "@/lib/delegations";
+import { principalLabel } from "@/utils/principalKeys";
 import type {
   DelegationAssigneeListResponse,
   DelegationInvitationListResponse,
@@ -419,7 +420,7 @@ export function SectionDelegatedAccess() {
                       const isUnassign = confirm?.kind === "unassign" && confirm.upn === a.upn;
                       return (
                         <li key={a.upn} className="py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                          <span className="text-gray-900 break-all">{a.upn}</span>
+                          <span className="text-gray-900 break-all">{principalLabel(a.upn)}</span>
                           {!a.isEnabled && <span className="text-xs text-gray-500">(disabled)</span>}
                           <span className="ml-auto flex items-center gap-2">
                             {!isUnassign ? (
@@ -452,14 +453,14 @@ export function SectionDelegatedAccess() {
                   >
                     <option value="">Add a member…</option>
                     {assignableUpns.map((upn) => (
-                      <option key={upn} value={upn}>{upn}</option>
+                      <option key={upn} value={upn}>{principalLabel(upn)}</option>
                     ))}
                   </select>
                   <button
                     type="button"
                     disabled={!assignUpn || busy !== null}
                     onClick={async () => {
-                      const ok = await mutate("assign", api.delegations.assignees(), "POST", { upn: assignUpn }, `${assignUpn} can now read your managed tenants.`);
+                      const ok = await mutate("assign", api.delegations.assignees(), "POST", { upn: assignUpn }, `${principalLabel(assignUpn)} can now read your managed tenants.`);
                       if (ok) setAssignUpn("");
                     }}
                     className="shrink-0 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"

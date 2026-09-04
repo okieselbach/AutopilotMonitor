@@ -79,8 +79,10 @@ public class McpUserService
     public virtual async Task<McpAccessCheckResult> IsAllowedAsync(
         string? upn, string? homeTenantId, string? objectId, IReadOnlyList<string>? appRoles = null)
     {
+        // The principal key: a person's UPN, or app:<client-id> for an application principal. A token
+        // that yields neither carries no identity we could grant anything to.
         if (string.IsNullOrWhiteSpace(upn))
-            return McpAccessCheckResult.Denied("Missing UPN");
+            return McpAccessCheckResult.Denied("Missing principal identity (no upn / preferred_username, and not an app-only token)");
 
         upn = upn.ToLowerInvariant();
         var identity = AdminIdentity.Create(upn, homeTenantId, objectId);
@@ -159,9 +161,11 @@ public class McpUserService
         var memberRole = string.IsNullOrWhiteSpace(homeTenantId)
             ? null
             : await _memberRoleResolver.ResolveAsync(homeTenantId, upn, appRoles);
-        return memberRole != null
-            ? McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole)
-            : McpAccessCheckResult.Denied("User not enabled for MCP usage (account has no role in its organization's tenant — ask a Tenant Admin to add you)");
+        if (memberRole != null)
+            return McpAccessCheckResult.Allowed(upn, "AllMembers", false, null, delegatedTenantIds, delegatedRole);
+        return McpAccessCheckResult.Denied(Constants.PrincipalKeys.IsApplication(upn)
+            ? "Service principal not enabled for MCP usage (the application is not a member of its tenant — ask a Tenant Admin to add it under Members as a service principal)"
+            : "User not enabled for MCP usage (account has no role in its organization's tenant — ask a Tenant Admin to add you)");
     }
 
     /// <summary>

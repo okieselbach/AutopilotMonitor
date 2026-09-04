@@ -4,6 +4,7 @@ using Microsoft.ApplicationInsights.Channel;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Middleware;
+using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 
@@ -111,6 +112,16 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             var mcpToolName = httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault();
             if (!string.IsNullOrEmpty(mcpToolName))
                 requestTelemetry.Properties["McpToolName"] = mcpToolName;
+
+            // APPLICATION PRINCIPALS — the request-row dimension that lets KQL separate automation
+            // (app-only tokens) from people: "app" plus the calling client id, nothing for a person.
+            if (context.GetUser() is { } principal && principal.IsApplicationPrincipal())
+            {
+                requestTelemetry.Properties["PrincipalKind"] = "app";
+                var applicationId = principal.GetApplicationId();
+                if (applicationId != null)
+                    requestTelemetry.Properties["ApplicationId"] = applicationId;
+            }
 
             if (context.Items.TryGetValue("CorrelationId", out var corrId) && corrId is string correlationId)
                 requestTelemetry.Properties["CorrelationId"] = correlationId;

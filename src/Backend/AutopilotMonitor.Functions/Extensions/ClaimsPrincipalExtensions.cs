@@ -41,20 +41,47 @@ public static class ClaimsPrincipalExtensions
     }
 
     /// <summary>
-    /// Gets the user's UPN (User Principal Name) from token claims
-    /// Falls back to preferred_username if upn is not available
-    /// Supports both v1.0 and v2.0 token formats.
+    /// The caller's principal key — the value every role table is keyed on (see
+    /// <see cref="AutopilotMonitor.Shared.Constants.PrincipalKeys"/>). For a person it is the UPN
+    /// (<c>upn</c>, falling back to <c>preferred_username</c>; v1.0 and v2.0 shapes); for an application
+    /// principal (an app-only token, see <see cref="IsApplicationPrincipal"/>) it is
+    /// <c>app:&lt;client-id&gt;</c>, so a service flows through membership, whitelist, delegation, audit and
+    /// throttling exactly like a person without any consumer having to know the difference.
     /// <para>
-    /// Display / audit / row-key use only. Both claims are mutable and reusable across tenants, so no
+    /// Display / audit / row-key use only. The UPN claims are mutable and reusable across tenants, so no
     /// cross-tenant authorization is keyed on this value alone — role resolution takes the full
-    /// <see cref="Security.AdminIdentity"/> (upn + tid + oid) and verifies it against the identity binding.
+    /// <see cref="Security.AdminIdentity"/> (key + tid + oid) and verifies it against the identity binding.
     /// </para>
     /// </summary>
     public static string? GetUserPrincipalName(this ClaimsPrincipal principal)
     {
-        return principal.FindFirst("upn")?.Value
+        var upn = principal.FindFirst("upn")?.Value
                ?? principal.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn")?.Value
                ?? principal.FindFirst("preferred_username")?.Value;
+        if (upn != null)
+            return upn;
+
+        var applicationId = principal.IsApplicationPrincipal() ? principal.GetApplicationId() : null;
+        return applicationId == null ? null : AutopilotMonitor.Shared.Constants.PrincipalKeys.ForApplication(applicationId);
+    }
+
+    /// <summary>
+    /// True for an app-only token (client-credentials, e.g. a workload with a federated credential): Entra
+    /// stamps <c>idtyp = app</c> on access tokens for this API (optional claim on the app registration).
+    /// A token without the claim is a user token by definition — the classification fails closed to
+    /// "person", who then needs a UPN like everyone else.
+    /// </summary>
+    public static bool IsApplicationPrincipal(this ClaimsPrincipal principal)
+        => string.Equals(principal.FindFirst("idtyp")?.Value, "app", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The calling application's Entra application (client) id: <c>appid</c> on v1.0 tokens, <c>azp</c> on
+    /// v2.0 tokens. Null when the token names no client (never the case for a token Entra issued).
+    /// </summary>
+    public static string? GetApplicationId(this ClaimsPrincipal principal)
+    {
+        var id = principal.FindFirst("appid")?.Value ?? principal.FindFirst("azp")?.Value;
+        return string.IsNullOrWhiteSpace(id) ? null : id.Trim().ToLowerInvariant();
     }
 
     /// <summary>

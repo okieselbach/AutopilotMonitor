@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type { McpOrganizationUsageItem, McpUsageQuotaNode } from "@/utils/wire-types.generated";
+import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
 
 interface UsageRecord {
   userId: string;
@@ -262,7 +263,15 @@ export function SectionMcpUsage() {
                   {orgUsers.map((u) => (
                     <tr key={u.userId} className="border-b border-gray-50 last:border-0">
                       <td className="py-1.5 pr-3 min-w-0">
-                        <span className="text-gray-900 break-all">{u.userPrincipalName || u.userId}</span>
+                        <span className="text-gray-900 break-all">{u.userPrincipalName ? principalLabel(u.userPrincipalName) : u.userId}</span>
+                        {isApplicationKey(u.userPrincipalName) && (
+                          <span
+                            className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 whitespace-nowrap"
+                            title="Service principal — automation calling with an app-only token (read-only member)"
+                          >
+                            App
+                          </span>
+                        )}
                         {u.delegated && (
                           <span
                             className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap"

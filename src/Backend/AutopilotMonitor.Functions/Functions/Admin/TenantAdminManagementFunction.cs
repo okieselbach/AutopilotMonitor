@@ -85,18 +85,32 @@ public class TenantAdminManagementFunction
         var requestCtx = context.GetRequestContext();
         var upn = requestCtx.UserPrincipalName;
 
-        // Parse request body
+        // Parse request body. A member is either a person (upn) or an application (applicationId — the
+        // Entra client id of a service principal in THIS tenant, stored under the app:<client-id> key).
         var body = await req.ReadFromJsonAsync<AddTenantAdminRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn))
+        var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
+        if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
         {
             var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "UPN is required" });
+            await badRequestResponse.WriteAsJsonAsync(new { error = "UPN or applicationId is required" });
             return badRequestResponse;
         }
+        if (isApplication && !Guid.TryParse(body.ApplicationId, out _))
+        {
+            var badAppResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badAppResponse.WriteAsJsonAsync(new { error = "applicationId must be the application's (client) id GUID" });
+            return badAppResponse;
+        }
+        var memberKey = isApplication
+            ? AutopilotMonitor.Shared.Constants.PrincipalKeys.ForApplication(body.ApplicationId!)
+            : body.Upn;
 
-        // Determine role (default to Admin for backward compat), then validate against the
-        // allow-list so arbitrary strings never reach storage.
-        var requestedRole = !string.IsNullOrWhiteSpace(body.Role) ? body.Role : AutopilotMonitor.Shared.Constants.TenantRoles.Admin;
+        // Determine role (default to Admin for backward compat, Viewer for an application), then validate
+        // against the allow-list so arbitrary strings never reach storage. An application is read-only:
+        // Viewer is the only role it may hold (the resolver caps it there regardless of the row).
+        var requestedRole = !string.IsNullOrWhiteSpace(body.Role)
+            ? body.Role
+            : isApplication ? AutopilotMonitor.Shared.Constants.TenantRoles.Viewer : AutopilotMonitor.Shared.Constants.TenantRoles.Admin;
         var role = TryCanonicalizeRole(requestedRole);
         if (role == null)
         {
@@ -104,23 +118,31 @@ public class TenantAdminManagementFunction
             await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
             return badRoleResponse;
         }
+        if (isApplication && role != AutopilotMonitor.Shared.Constants.TenantRoles.Viewer)
+        {
+            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRoleResponse.WriteAsJsonAsync(new { error = ApplicationRoleError });
+            return badRoleResponse;
+        }
+        var canManageBootstrapTokens = !isApplication && body.CanManageBootstrapTokens;
 
-        var newAdmin = await _tenantAdminsService.AddTenantMemberAsync(requestCtx.TargetTenantId, body.Upn, upn!, role, body.CanManageBootstrapTokens);
+        var newAdmin = await _tenantAdminsService.AddTenantMemberAsync(requestCtx.TargetTenantId, memberKey, upn!, role, canManageBootstrapTokens);
 
         await _maintenanceRepo.LogAuditEntryAsync(
             requestCtx.TargetTenantId,
             "CREATE",
             "TenantAdmin",
-            body.Upn,
+            memberKey,
             upn!,
             new Dictionary<string, string>
             {
                 { "Role", role },
-                { "CanManageBootstrapTokens", body.CanManageBootstrapTokens.ToString() }
+                { "CanManageBootstrapTokens", canManageBootstrapTokens.ToString() },
+                { "PrincipalType", isApplication ? "Application" : "User" }
             }
         );
 
-        _logger.LogInformation($"Tenant member added: {body.Upn} with role {role} to tenant {requestCtx.TargetTenantId} by {upn}");
+        _logger.LogInformation($"Tenant member added: {memberKey} with role {role} to tenant {requestCtx.TargetTenantId} by {upn}");
 
         var response = req.CreateResponse(HttpStatusCode.Created);
         await response.WriteAsJsonAsync(new TenantAdminCreatedResponse { Admin = newAdmin });
@@ -288,6 +310,12 @@ public class TenantAdminManagementFunction
             await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
             return badRoleResponse;
         }
+        if (AutopilotMonitor.Shared.Constants.PrincipalKeys.IsApplication(adminUpn) && role != AutopilotMonitor.Shared.Constants.TenantRoles.Viewer)
+        {
+            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRoleResponse.WriteAsJsonAsync(new { error = ApplicationRoleError });
+            return badRoleResponse;
+        }
 
         // Prevent demoting yourself if you're the last Admin
         if (adminUpn.Equals(upn, StringComparison.OrdinalIgnoreCase) && role != AutopilotMonitor.Shared.Constants.TenantRoles.Admin)
@@ -343,6 +371,9 @@ public class TenantAdminManagementFunction
     /// matching case-insensitively and canonicalizing to the exact constant casing so only
     /// canonical values are ever persisted. Returns null for anything not in the allow-list.
     /// </summary>
+    internal const string ApplicationRoleError =
+        "A service principal can only hold the Viewer role (read-only). Grant Operator or Admin to a person instead.";
+
     internal static string? TryCanonicalizeRole(string role)
     {
         string[] validRoles =
@@ -357,7 +388,13 @@ public class TenantAdminManagementFunction
 
 public class AddTenantAdminRequest
 {
+    /// <summary>The person's UPN. Leave empty when adding an application (<see cref="ApplicationId"/>).</summary>
     public string Upn { get; set; } = string.Empty;
+    /// <summary>
+    /// The Entra application (client) id of a service principal in this tenant. Stored under the
+    /// <c>app:&lt;client-id&gt;</c> member key; the role is fixed to Viewer.
+    /// </summary>
+    public string? ApplicationId { get; set; }
     public string? Role { get; set; }
     public bool CanManageBootstrapTokens { get; set; }
 }

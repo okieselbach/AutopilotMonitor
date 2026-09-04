@@ -12,6 +12,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Security.Claims;
+using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Helpers;
 
@@ -182,6 +183,20 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
 
             var principal = _tokenHandler.ValidateToken(token, validationParameters, out var validatedToken);
 
+            // APPLICATION-PRINCIPAL GATE. An app-only token (idtyp=app: a service principal, typically
+            // behind a federated credential) is a valid Entra token for this API in EVERY tenant where our
+            // service principal exists, with or without any permission assigned. It is accepted here only
+            // when the caller's tenant admin actually granted the application permission
+            // (roles ∋ access_as_application) — that consent is the Entra-side half of the grant; the role
+            // rows keyed on app:<client-id> are ours. Rejected tokens never reach the catalog.
+            var applicationGateError = ValidateApplicationPrincipal(principal);
+            if (applicationGateError != null)
+            {
+                _logger.LogWarning("[Auth Middleware] Rejected app-only token for {Path}: {Reason} (appid={AppId}, tid={Tid})",
+                    logPath, applicationGateError, principal.GetApplicationId() ?? "(none)", tenantId);
+                throw new SecurityTokenValidationException(applicationGateError);
+            }
+
             // Get user identifier for logging (same logic as TenantHelper.GetUserIdentifier)
             var userIdentifier = principal.FindFirst("upn")?.Value ??
                                principal.FindFirst(ClaimTypes.Upn)?.Value ??
@@ -242,6 +257,25 @@ public class AuthenticationMiddleware : IFunctionsWorkerMiddleware
     /// <c>diagnostics/download</c> route). Unregistered routes (FindPolicy == null) are fail-closed:
     /// JWT required. Method-aware so e.g. an unexpected verb on a public path is not waved through.
     /// </summary>
+    /// <summary>
+    /// The application-principal gate: null for a user token (or any token without <c>idtyp=app</c>),
+    /// otherwise the rejection reason for an app-only token that is not admissible — no application
+    /// (client) id, no object id, or the <c>access_as_application</c> permission missing from <c>roles</c>.
+    /// Pure so the three rejections and the pass are unit-testable on hand-built principals.
+    /// </summary>
+    internal static string? ValidateApplicationPrincipal(ClaimsPrincipal principal)
+    {
+        if (!principal.IsApplicationPrincipal())
+            return null;
+        if (principal.GetApplicationId() == null)
+            return "app-only token carries no application id (appid/azp)";
+        if (string.IsNullOrWhiteSpace(principal.GetObjectId()))
+            return "app-only token carries no object id (oid)";
+        if (!principal.GetAppRoles().Contains(Constants.ApplicationPermissions.AccessAsApplication, StringComparer.OrdinalIgnoreCase))
+            return $"app-only token lacks the '{Constants.ApplicationPermissions.AccessAsApplication}' application permission (admin consent in the caller's tenant)";
+        return null;
+    }
+
     internal static bool SkipsJwtValidation(string httpMethod, string path)
     {
         var entry = EndpointAccessPolicyCatalog.FindPolicy(httpMethod, path);

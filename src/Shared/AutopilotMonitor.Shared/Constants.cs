@@ -874,6 +874,40 @@ namespace AutopilotMonitor.Shared
             public const string DelegatedAdmin = "DelegatedAdmin";
         }
 
+        /// <summary>
+        /// The key every role table (TenantAdmins, McpUsers, DelegatedAdmins, TenantGroupAssignments,
+        /// AdminIdentityBindings) stores a principal under. For a person it is the lowercase UPN; for an
+        /// application (service principal presenting an app-only token) it is <c>app:&lt;client-id&gt;</c>,
+        /// so a service is granted, bound (tid + oid) and audited through exactly the same rows and UI as a
+        /// person. A colon is not a legal UPN character, so the two key spaces cannot collide.
+        /// </summary>
+        public static class PrincipalKeys
+        {
+            public const string ApplicationPrefix = "app:";
+
+            /// <summary>Builds the key for an application by its Entra application (client) id.</summary>
+            public static string ForApplication(string applicationId)
+                => ApplicationPrefix + applicationId.Trim().ToLowerInvariant();
+
+            public static bool IsApplication(string? principalKey)
+                => principalKey != null && principalKey.StartsWith(ApplicationPrefix, System.StringComparison.OrdinalIgnoreCase);
+
+            /// <summary>The application (client) id behind an application key, or null for a person's key.</summary>
+            public static string? TryGetApplicationId(string? principalKey)
+                => IsApplication(principalKey) ? principalKey!.Substring(ApplicationPrefix.Length) : null;
+        }
+
+        /// <summary>
+        /// Application permissions (Entra app roles with <c>allowedMemberTypes = ["Application"]</c>) the API
+        /// app registration exposes. An app-only token is accepted only when its <c>roles</c> claim carries
+        /// <see cref="AccessAsApplication"/>: the admin consent that assigns it in the caller's tenant is the
+        /// Entra-side half of the grant, the role rows keyed on <see cref="PrincipalKeys"/> are ours.
+        /// </summary>
+        public static class ApplicationPermissions
+        {
+            public const string AccessAsApplication = "access_as_application";
+        }
+
         // -----------------------------------------------------------------------
         // SignalR message names
         // -----------------------------------------------------------------------

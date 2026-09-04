@@ -195,6 +195,8 @@ public class DelegationSelfServiceFunction
         if (body == null || string.IsNullOrWhiteSpace(body.Upn))
             return await BadAsync(req, "upn is required");
 
+        // The member key as listed under Access Management — a UPN or a service principal's app:<client-id>
+        // key; the service verifies it is a member of the caller's tenant, which is the only grant path.
         var result = await _svc.AssignAsync(ctx.TenantId, body.Upn, ctx.UserPrincipalName);
         if (!result.Ok)
             return await FailAsync(req, result.Failure!);

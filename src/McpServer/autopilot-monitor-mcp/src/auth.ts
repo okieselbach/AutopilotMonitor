@@ -12,7 +12,7 @@
 import { createDecoder } from './jwt-decode.js';
 
 export interface TokenClaims {
-  /** User Principal Name (email) */
+  /** User Principal Name (email) — absent on an app-only token. */
   upn?: string;
   /** Azure AD Object ID */
   oid?: string;
@@ -20,6 +20,15 @@ export interface TokenClaims {
   tid?: string;
   /** Token expiry (unix timestamp) */
   exp?: number;
+  /**
+   * "app" on an app-only token (client credentials — a service principal, typically behind a federated
+   * credential). Optional claim the API app registration emits; absent on every user token.
+   */
+  idtyp?: string;
+  /** Calling application's client id on a v1.0 app-only token. */
+  appid?: string;
+  /** Calling application's client id on a v2.0 token. */
+  azp?: string;
   /**
    * Audience. Parsed for observability/diagnostics but intentionally NOT
    * validated here — the same Bearer token is passed through to the backend
@@ -48,6 +57,26 @@ export function extractTokenClaims(token: string): TokenClaims | null {
   } catch {
     return null;
   }
+}
+
+/** Prefix of the principal key a service principal is granted under (mirrors Constants.PrincipalKeys). */
+export const APPLICATION_KEY_PREFIX = 'app:';
+
+/**
+ * The caller's principal key — the value the backend keys every role table on and reports back as
+ * `upn` from `auth/mcp`: a person's UPN (lowercase), or `app:<client-id>` for an app-only token
+ * (`idtyp === 'app'` plus `appid` / `azp`). Undefined when the token names no principal at all; a token
+ * without `idtyp` is a person by definition (fail-closed classification, same rule as the backend).
+ */
+export function principalKeyOf(claims: TokenClaims): string | undefined {
+  if (claims.upn) return claims.upn.toLowerCase();
+  if (claims.idtyp?.toLowerCase() !== 'app') return undefined;
+  const applicationId = (claims.appid ?? claims.azp)?.trim().toLowerCase();
+  return applicationId ? `${APPLICATION_KEY_PREFIX}${applicationId}` : undefined;
+}
+
+export function isApplicationKey(principalKey: string | undefined): boolean {
+  return principalKey?.startsWith(APPLICATION_KEY_PREFIX) === true;
 }
 
 /**

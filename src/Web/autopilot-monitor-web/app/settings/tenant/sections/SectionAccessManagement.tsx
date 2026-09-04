@@ -10,6 +10,7 @@ export function SectionAccessManagement() {
     admins, loadingAdmins,
     newAdminEmail, setNewAdminEmail,
     newMemberRole, setNewMemberRole,
+    newMemberKind, setNewMemberKind,
     addingAdmin, removingAdmin, togglingAdmin,
     adminSearchQuery, setAdminSearchQuery,
     currentAdminPage, setCurrentAdminPage,
@@ -39,6 +40,8 @@ export function SectionAccessManagement() {
         setNewAdminEmail={setNewAdminEmail}
         newMemberRole={newMemberRole}
         setNewMemberRole={setNewMemberRole}
+        newMemberKind={newMemberKind}
+        setNewMemberKind={setNewMemberKind}
         addingAdmin={addingAdmin}
         removingAdmin={removingAdmin}
         togglingAdmin={togglingAdmin}

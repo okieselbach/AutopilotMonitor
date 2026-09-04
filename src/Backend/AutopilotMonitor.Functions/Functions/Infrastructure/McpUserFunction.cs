@@ -1,13 +1,16 @@
 using System.Net;
+using System.Security.Claims;
 using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace AutopilotMonitor.Functions.Functions.Infrastructure;
@@ -20,15 +23,24 @@ public class McpUserFunction
     private readonly ILogger<McpUserFunction> _logger;
     private readonly McpUserService _mcpUserService;
     private readonly AdminIdentityResolver _identityResolver;
+    private readonly IMetricsRepository _metricsRepo;
+    private readonly OpsEventService _opsEvents;
+    private readonly IMemoryCache _cache;
 
     public McpUserFunction(
         ILogger<McpUserFunction> logger,
         McpUserService mcpUserService,
-        AdminIdentityResolver identityResolver)
+        AdminIdentityResolver identityResolver,
+        IMetricsRepository metricsRepo,
+        OpsEventService opsEvents,
+        IMemoryCache cache)
     {
         _logger = logger;
         _mcpUserService = mcpUserService;
         _identityResolver = identityResolver;
+        _metricsRepo = metricsRepo;
+        _opsEvents = opsEvents;
+        _cache = cache;
     }
 
     /// <summary>
@@ -67,20 +79,33 @@ public class McpUserFunction
         var currentUpn = principal?.GetUserPrincipalName();
 
         var body = await req.ReadFromJsonAsync<AddMcpUserRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn))
+        var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
+        if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
         {
             var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badResponse.WriteAsJsonAsync(new { error = "UPN is required" });
+            await badResponse.WriteAsJsonAsync(new { error = "UPN or applicationId is required" });
             return badResponse;
         }
-        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+        if (isApplication && !Guid.TryParse(body.ApplicationId, out _))
+        {
+            var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badResponse.WriteAsJsonAsync(new { error = "applicationId must be the application's (client) id GUID" });
+            return badResponse;
+        }
+        // An application has no sign-in history and no UPN domain to resolve a home tenant from: the tenant
+        // its service principal lives in must be named. The object id (that tenant's SP object id) is pinned
+        // on the first call, exactly like a person's.
+        var bindingError = isApplication
+            ? IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId)
+            : IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
             var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
             await badResponse.WriteAsJsonAsync(new { error = bindingError });
             return badResponse;
         }
-        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
+        var principalKey = isApplication ? Constants.PrincipalKeys.ForApplication(body.ApplicationId!) : body.Upn;
+        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, principalKey, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
             var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
@@ -91,7 +116,7 @@ public class McpUserFunction
         McpUserEntry user;
         try
         {
-            user = await _mcpUserService.AddMcpUserAsync(body.Upn, currentUpn!, identity.Value.TenantId, identity.Value.ObjectId);
+            user = await _mcpUserService.AddMcpUserAsync(principalKey, currentUpn!, identity.Value.TenantId, identity.Value.ObjectId);
         }
         catch (IdentityBindingConflictException ex)
         {
@@ -103,6 +128,43 @@ public class McpUserFunction
         var response = req.CreateResponse(HttpStatusCode.Created);
         await response.WriteAsJsonAsync(new AddMcpUserResponse { User = user });
         return response;
+    }
+
+    /// <summary>
+    /// A service principal never signs in to the portal, so the MCP front door is where its presence is
+    /// recorded: the sign-in history row (its "last seen", and what the per-user usage view keys the
+    /// display on) plus, when the key has no history yet, the once-only
+    /// <see cref="OpsEventTypes.McpServicePrincipalFirstSeen"/> so new automation is noticed the moment it
+    /// starts. Fire-and-forget: observation must never delay or fail the access check.
+    /// </summary>
+    private void ObserveApplicationSession(ClaimsPrincipal principal, McpAccessCheckResult result)
+    {
+        var tenantId = principal.GetTenantId() ?? string.Empty;
+        var objectId = principal.GetObjectId() ?? string.Empty;
+        var applicationId = principal.GetApplicationId() ?? string.Empty;
+        var principalKey = result.Upn;
+        // The history read is a filtered scan meant for grant time; one per application per instance is
+        // enough — after that the memory cache says "seen" and only the cheap login upsert remains.
+        var seenKey = $"mcp-app-seen:{principalKey}";
+        var alreadySeen = _cache.TryGetValue(seenKey, out _);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (!alreadySeen)
+                {
+                    var history = await _metricsRepo.GetSignInIdentitiesByUpnAsync(principalKey);
+                    if (history.Count == 0)
+                        await _opsEvents.RecordMcpServicePrincipalFirstSeenAsync(tenantId, principalKey, applicationId, objectId, result.AccessGrant);
+                    _cache.Set(seenKey, true, TimeSpan.FromHours(24));
+                }
+                await _metricsRepo.RecordUserLoginAsync(tenantId, principalKey, displayName: $"Service principal {applicationId}", objectId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[McpAccess] Failed to record the application session for {PrincipalKey}", principalKey);
+            }
+        });
     }
 
     /// <summary>
@@ -204,6 +266,9 @@ public class McpUserFunction
         var result = await _mcpUserService.IsAllowedAsync(
             upn, principal?.GetTenantId(), principal?.GetObjectId(), principal?.GetAppRoles());
 
+        if (result.IsAllowed && principal != null && principal.IsApplicationPrincipal())
+            ObserveApplicationSession(principal, result);
+
         var response = req.CreateResponse(result.IsAllowed ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
         // Only surface platform-role flags when the caller actually has one (null ⇒ key omitted).
         // A normal tenant user gets neither field: the MCP access-guard reads `globalRole` to decide
@@ -228,7 +293,13 @@ public class McpUserFunction
 
 public class AddMcpUserRequest
 {
+    /// <summary>The person's UPN. Leave empty when adding an application (<see cref="ApplicationId"/>).</summary>
     public string Upn { get; set; } = string.Empty;
+    /// <summary>
+    /// The Entra application (client) id of a service principal; stored under the <c>app:&lt;client-id&gt;</c>
+    /// key. <see cref="HomeTenantId"/> is then required (no sign-in history to resolve it from).
+    /// </summary>
+    public string? ApplicationId { get; set; }
     /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
     public string? HomeTenantId { get; set; }
     /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>

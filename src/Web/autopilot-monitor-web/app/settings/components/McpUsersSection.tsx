@@ -7,6 +7,7 @@ import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch"
 import { api } from "@/lib/api";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
+import { isApplicationKey, looksLikeGuid, principalLabel } from "@/utils/principalKeys";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -59,7 +60,12 @@ export default function McpUsersSection() {
   // belongs to no onboarded tenant) — the one case the identity binding cannot be resolved automatically.
   const [needHomeTenant, setNeedHomeTenant] = useState(false);
   const [homeTenantPick, setHomeTenantPick] = useState("");
-  const tenants = useTenantList(needHomeTenant);
+  // A service principal (application calling with an app-only token) has no sign-in history and no UPN
+  // domain, so its home tenant is always picked explicitly; the entry is stored under app:<client-id>.
+  const [addingApplication, setAddingApplication] = useState(false);
+  const homeTenantRequired = needHomeTenant || addingApplication;
+  const tenants = useTenantList(homeTenantRequired);
+  const newEntryValid = addingApplication ? looksLikeGuid(newEmail) : newEmail.trim().length > 0;
   const [adding, setAdding] = useState(false);
   const [removingUpn, setRemovingUpn] = useState<string | null>(null);
   const [togglingUpn, setTogglingUpn] = useState<string | null>(null);
@@ -148,19 +154,19 @@ export default function McpUsersSection() {
   }, [getAccessToken, addNotification]);
 
   const handleAddUser = useCallback(async () => {
-    if (!newEmail.trim() || (needHomeTenant && !homeTenantPick)) return;
+    if (!newEntryValid || (homeTenantRequired && !homeTenantPick)) return;
     try {
       setAdding(true);
       setError(null);
       setSuccessMessage(null);
 
+      const body = addingApplication
+        ? { applicationId: newEmail.trim(), homeTenantId: homeTenantPick }
+        : { upn: newEmail.trim(), homeTenantId: needHomeTenant ? homeTenantPick : undefined };
       const response = await authenticatedFetch(api.mcpUsers.add(), getAccessToken, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          upn: newEmail.trim(),
-          homeTenantId: needHomeTenant ? homeTenantPick : undefined,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -186,7 +192,7 @@ export default function McpUsersSection() {
     } finally {
       setAdding(false);
     }
-  }, [newEmail, needHomeTenant, homeTenantPick, getAccessToken, addNotification, fetchMcpUsers]);
+  }, [newEmail, newEntryValid, addingApplication, homeTenantRequired, needHomeTenant, homeTenantPick, getAccessToken, addNotification, fetchMcpUsers]);
 
   const handleRemoveUser = useCallback(async (upn: string) => {
     if (!confirm(`Remove ${upn} from MCP users?`)) return;
@@ -277,7 +283,7 @@ export default function McpUsersSection() {
 
   // Filter & paginate
   const filteredUsers = users.filter((u) =>
-    u.upn.toLowerCase().includes(searchQuery.toLowerCase()),
+    principalLabel(u.upn).toLowerCase().includes(searchQuery.toLowerCase()),
   );
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
   const paginatedUsers = filteredUsers.slice(
@@ -341,8 +347,20 @@ export default function McpUsersSection() {
           <>
             {/* Add user form */}
             <div className="flex flex-wrap gap-2">
+              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-sm" role="group" aria-label="Entry type">
+                {([[false, "User"], [true, "Service principal"]] as const).map(([app, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => { setAddingApplication(app); setNewEmail(""); setNeedHomeTenant(false); setHomeTenantPick(""); }}
+                    className={`px-3 py-2 ${addingApplication === app ? "bg-purple-600 text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <input
-                type="email"
+                type={addingApplication ? "text" : "email"}
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 onKeyDown={(e) => {
@@ -351,18 +369,18 @@ export default function McpUsersSection() {
                     handleAddUser();
                   }
                 }}
-                placeholder="user@domain.com"
+                placeholder={addingApplication ? "Application (client) ID of the service principal" : "user@domain.com"}
                 autoComplete="off"
                 className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
               />
-              {needHomeTenant && (
+              {homeTenantRequired && (
                 <select
                   value={homeTenantPick}
                   onChange={(e) => setHomeTenantPick(e.target.value)}
                   className="flex-1 min-w-0 px-3 py-2 border border-amber-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 transition-colors"
-                  aria-label="Home tenant of the person"
+                  aria-label={addingApplication ? "Tenant the service principal lives in" : "Home tenant of the person"}
                 >
-                  <option value="">Home tenant they sign in from…</option>
+                  <option value="">{addingApplication ? "Tenant the service principal lives in…" : "Home tenant they sign in from…"}</option>
                   {tenants.map((t) => (
                     <option key={t.tenantId} value={t.tenantId}>
                       {t.domainName || t.tenantId}
@@ -372,7 +390,7 @@ export default function McpUsersSection() {
               )}
               <button
                 onClick={handleAddUser}
-                disabled={adding || !newEmail.trim() || (needHomeTenant && !homeTenantPick)}
+                disabled={adding || !newEntryValid || (homeTenantRequired && !homeTenantPick)}
                 className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
               >
                 {adding ? (
@@ -442,7 +460,12 @@ export default function McpUsersSection() {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-medium text-gray-900 truncate">{mcpUser.upn}</span>
+                          <span className="font-medium text-gray-900 truncate">{principalLabel(mcpUser.upn)}</span>
+                          {isApplicationKey(mcpUser.upn) && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — calls the API with an app-only token">
+                              App
+                            </span>
+                          )}
                           {mcpUser.isEnabled ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
                               Active

@@ -274,6 +274,7 @@
     "PoisonQueueBacklogCritical",
     "ExcessiveSessionEventsAutoActioned",
     "PrivilegedRouteDenied",
+    "McpServicePrincipalFirstSeen",
     "OffboardingFeedbackReceived",
     "TenantOffboarded",
     "TenantOffboardingFailed",

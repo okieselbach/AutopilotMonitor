@@ -10,7 +10,7 @@
  * same token. These helpers only decode + check the unix `exp`.
  */
 import { describe, it, expect } from 'vitest';
-import { extractTokenClaims, isTokenExpired } from '../auth.js';
+import { extractTokenClaims, isApplicationKey, isTokenExpired, principalKeyOf } from '../auth.js';
 
 /** Build an unsigned JWT-shaped string with the given payload claims. */
 function makeToken(claims: Record<string, unknown>): string {
@@ -88,5 +88,27 @@ describe('isTokenExpired', () => {
     // now > exp - 60  ⇒  expired. At exp = now + 61, (exp - 60) = now + 1 > now,
     // so it is NOT expired. Pins the boundary direction.
     expect(isTokenExpired({ exp: nowSec() + 61 })).toBe(false);
+  });
+});
+
+describe('principalKeyOf', () => {
+  it('is the lowercased upn for a person', () => {
+    expect(principalKeyOf({ upn: 'Alice@Contoso.Example' })).toBe('alice@contoso.example');
+  });
+
+  it('is app:<client-id> for an app-only token, from appid (v1) or azp (v2)', () => {
+    expect(principalKeyOf({ idtyp: 'app', appid: 'AAAA-1' })).toBe('app:aaaa-1');
+    expect(principalKeyOf({ idtyp: 'app', azp: 'BBBB-2' })).toBe('app:bbbb-2');
+    expect(isApplicationKey('app:aaaa-1')).toBe(true);
+    expect(isApplicationKey('alice@contoso.example')).toBe(false);
+  });
+
+  it('yields nothing for a token without idtyp or without a client id (fail-closed classification)', () => {
+    expect(principalKeyOf({ appid: 'AAAA-1', oid: 'x' })).toBeUndefined();
+    expect(principalKeyOf({ idtyp: 'app' })).toBeUndefined();
+  });
+
+  it('prefers the upn when a user token also names a client', () => {
+    expect(principalKeyOf({ upn: 'alice@contoso.example', appid: 'portal-app' })).toBe('alice@contoso.example');
   });
 });

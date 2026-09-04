@@ -103,6 +103,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // per instance: one event per caller per hour and at most 5 per hour in total, then ONE
     // Critical "storm" marker (PrivilegedDenialReporter). Route it to Telegram at MinSeverity Critical.
     "PrivilegedRouteDenied",
+    // A service principal (app-only token, key app:<client-id>) opened its first MCP session — once per
+    // application and home tenant, so new automation is visible the moment it starts.
+    "McpServicePrincipalFirstSeen",
     "VersionBlocked",
     // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or
     // telemetry channel) — as opposed to DeviceBlocked/VersionBlocked which fire on rule

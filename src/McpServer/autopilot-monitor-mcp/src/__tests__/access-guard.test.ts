@@ -364,3 +364,45 @@ describe('accessGuard — 429 (rate limit) and caching', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('accessGuard — application principals (app-only tokens)', () => {
+  // A service principal calls with a client-credentials token it obtained from Entra directly: no upn,
+  // idtyp=app, the client id in appid (v1) / azp (v2). The guard keys it as app:<client-id> and lets the
+  // backend decide membership — exactly like a person's UPN.
+  let appSeed = 0;
+  const uniqueAppId = () => `0000000${++appSeed}-0000-4000-8000-000000000000`.slice(-36);
+  const appToken = (appId: string, claim: 'appid' | 'azp' = 'appid') =>
+    makeToken({ idtyp: 'app', [claim]: appId, oid: 'sp-object-id', tid: 'tenant-1', roles: ['access_as_application'], exp: futureExp() });
+
+  it('admits an app-only token the backend allows and keys the caller on app:<client-id>', async () => {
+    const appId = uniqueAppId();
+    const fetchFn = stubBackend({ body: { allowed: true, accessGrant: 'AllMembers', upn: `app:${appId}` } });
+
+    const out = await runGuard(mockReq(`Bearer ${appToken(appId, 'azp')}`));
+
+    expect(out.nextCalled).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(out.ctx?.ga).toBe(false);
+  });
+
+  it('rejects an app-only token without idtyp (a token without any principal)', async () => {
+    const fetchFn = stubBackend({ body: { allowed: true } });
+    const out = await runGuard(mockReq(`Bearer ${makeToken({ appid: uniqueAppId(), oid: 'x', exp: futureExp() })}`));
+    expect(out.status).toBe(401);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('names the service principal and the Members fix in a denial', async () => {
+    const appId = uniqueAppId();
+    stubBackend({ body: { allowed: false, reason: 'Service principal not enabled for MCP usage' } });
+
+    const out = await runGuard(mockReq(`Bearer ${appToken(appId)}`));
+
+    expect(out.status).toBe(403);
+    const body = out.body as { error: string; message: string };
+    expect(body.error).toBe('Service principal not enabled for MCP usage');
+    expect(body.message).toContain(appId);
+    expect(body.message).toMatch(/Members/);
+    expect(body.message).not.toMatch(/whitelist/i);
+  });
+});

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Security;
 
@@ -31,6 +32,15 @@ public class TenantMemberRoleResolver
     public virtual async Task<MemberRoleInfo?> ResolveAsync(string tenantId, string upn, IReadOnlyList<string>? appRoles)
     {
         var (state, tableRole) = await _tenantAdminsService.GetTableMembershipAsync(tenantId, upn);
+
+        // An application principal (app:<client-id> key) is a member only through its table row, and never
+        // above Viewer: the cap is enforced here and not only at grant time, so a row edited to Admin or
+        // Operator by any other path still yields a read-only member. Its `roles` claim carries
+        // application permissions (access_as_application), never a member role — the claim path is skipped.
+        if (Constants.PrincipalKeys.IsApplication(upn))
+            return state == TableMemberState.Enabled && tableRole != null
+                ? new MemberRoleInfo { Role = Constants.TenantRoles.Viewer, CanManageBootstrapTokens = false }
+                : null;
 
         // Table-first: an enabled row wins, a disabled row is an explicit deny. Both skip the claim path
         // entirely — and avoid the tenant-config lookup. Only when no row exists do we consult the Entra

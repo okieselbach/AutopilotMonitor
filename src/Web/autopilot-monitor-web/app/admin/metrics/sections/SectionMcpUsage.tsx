@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
+import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
 
 interface UsageRecord {
   userId: string;
@@ -256,7 +257,14 @@ export function SectionMcpUsage() {
             {userAggregates.slice(0, 25).map((user) => (
               <div key={user.userId || user.upn} className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
                 <div className="min-w-0">
-                  <div className="text-sm text-gray-900 truncate">{user.upn || user.userId}</div>
+                  <div className="text-sm text-gray-900 truncate flex items-center gap-1.5">
+                    <span className="truncate">{user.upn ? principalLabel(user.upn) : user.userId}</span>
+                    {isApplicationKey(user.upn) && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 shrink-0" title="Service principal — automation calling with an app-only token">
+                        App
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500 truncate">
                     <span className="font-mono">{user.tenantId ? user.tenantId.slice(0, 8) : "—"}</span>
                     {" · "}

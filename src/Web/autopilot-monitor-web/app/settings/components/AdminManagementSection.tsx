@@ -3,6 +3,7 @@
 import { TenantAdmin } from "../types";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { isApplicationKey, looksLikeGuid, principalLabel, type MemberKind } from "@/utils/principalKeys";
 
 interface AdminManagementSectionProps {
   admins: TenantAdmin[];
@@ -11,6 +12,8 @@ interface AdminManagementSectionProps {
   setNewAdminEmail: (value: string) => void;
   newMemberRole: string;
   setNewMemberRole: (value: string) => void;
+  newMemberKind: MemberKind;
+  setNewMemberKind: (value: MemberKind) => void;
   addingAdmin: boolean;
   removingAdmin: string | null;
   togglingAdmin: string | null;
@@ -62,6 +65,8 @@ export default function AdminManagementSection({
   setNewAdminEmail,
   newMemberRole,
   setNewMemberRole,
+  newMemberKind,
+  setNewMemberKind,
   addingAdmin,
   removingAdmin,
   togglingAdmin,
@@ -75,6 +80,7 @@ export default function AdminManagementSection({
   onToggleAdmin,
   onUpdatePermissions,
 }: AdminManagementSectionProps) {
+  const addingApplication = newMemberKind === "application";
   return (
     <div className="bg-white rounded-lg shadow">
       <SectionCardHeader
@@ -162,7 +168,7 @@ export default function AdminManagementSection({
               {/* Filtered and Paginated Member List */}
               {(() => {
                 const filteredAdmins = admins.filter(admin =>
-                  admin.upn.toLowerCase().includes(adminSearchQuery.toLowerCase())
+                  principalLabel(admin.upn).toLowerCase().includes(adminSearchQuery.toLowerCase())
                 );
 
                 if (filteredAdmins.length === 0) {
@@ -183,7 +189,8 @@ export default function AdminManagementSection({
                   <>
                     <div className="space-y-2">
                       {paginatedAdmins.map((admin) => {
-                        const effectiveRole = admin.role ?? "Admin";
+                        const isApplication = isApplicationKey(admin.upn);
+                        const effectiveRole = isApplication ? "Viewer" : (admin.role ?? "Admin");
                         const isCurrentUser = admin.upn.toLowerCase() === user?.upn?.toLowerCase();
 
                         return (
@@ -198,8 +205,13 @@ export default function AdminManagementSection({
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                               <div className="flex-1 min-w-0">
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  <div className="font-medium text-gray-900 truncate">{admin.upn}</div>
-                                  {getRoleBadge(admin.role)}
+                                  <div className="font-medium text-gray-900 truncate">{principalLabel(admin.upn)}</div>
+                                  {isApplication && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — an application calling with an app-only token; read-only">
+                                      App
+                                    </span>
+                                  )}
+                                  {getRoleBadge(effectiveRole)}
                                   {!admin.isEnabled && (
                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
                                       Disabled
@@ -219,7 +231,8 @@ export default function AdminManagementSection({
                                     <select
                                       value={effectiveRole}
                                       onChange={(e) => onUpdatePermissions(admin.upn, e.target.value, admin.canManageBootstrapTokens)}
-                                      disabled={togglingAdmin === admin.upn}
+                                      disabled={isApplication || togglingAdmin === admin.upn}
+                                      title={isApplication ? "A service principal is always read-only (Viewer)" : undefined}
                                       className="px-2 py-1 text-sm border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
                                     >
                                       <option value="Admin">Admin</option>
@@ -306,17 +319,33 @@ export default function AdminManagementSection({
         <div>
           <label className="block mb-2">
             <span className="text-gray-700 font-medium">Add New Team Member</span>
-            <p className="text-sm text-gray-500 mb-2">
-              Enter the user email (UPN) and select a role to grant access.
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <p className="text-sm text-gray-500">
+                {addingApplication
+                  ? "Enter the application (client) ID of a service principal in your tenant. It is always read-only (Viewer) and must hold the access_as_application permission for Autopilot Monitor, granted by admin consent in your Entra tenant."
+                  : "Enter the user email (UPN) and select a role to grant access."}
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2">
+              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-sm" role="group" aria-label="Member type">
+                {([["user", "User"], ["application", "Service principal"]] as const).map(([kind, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => { setNewMemberKind(kind); setNewAdminEmail(""); }}
+                    className={`px-3 py-2 ${newMemberKind === kind ? "bg-purple-600 text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <input
-                type="email"
+                type={addingApplication ? "text" : "email"}
                 name="new-admin-email"
                 id="add-new-admin-email-input"
                 value={newAdminEmail}
                 onChange={(e) => setNewAdminEmail(e.target.value)}
-                placeholder="user@tenant.com"
+                placeholder={addingApplication ? "Application (client) ID, e.g. 00000000-0000-0000-0000-000000000000" : "user@tenant.com"}
                 autoComplete="off"
                 className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
                 onKeyDown={(e) => {
@@ -327,9 +356,11 @@ export default function AdminManagementSection({
                 }}
               />
               <select
-                value={newMemberRole}
+                value={addingApplication ? "Viewer" : newMemberRole}
                 onChange={(e) => setNewMemberRole(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                disabled={addingApplication}
+                title={addingApplication ? "A service principal is always read-only (Viewer)" : undefined}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
               >
                 <option value="Admin">Admin</option>
                 <option value="Operator">Operator</option>
@@ -337,7 +368,7 @@ export default function AdminManagementSection({
               </select>
               <button
                 onClick={onAddAdmin}
-                disabled={addingAdmin || !newAdminEmail.trim()}
+                disabled={addingAdmin || !(addingApplication ? looksLikeGuid(newAdminEmail) : newAdminEmail.trim())}
                 className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
               >
                 {addingAdmin ? (

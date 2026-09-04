@@ -123,19 +123,34 @@ public sealed class EndpointPolicyEntry
     /// </summary>
     public bool ExcludeDelegated { get; }
 
+    /// <summary>
+    /// When true, an application principal (app-only token, <c>app:&lt;client-id&gt;</c> key) is admitted to
+    /// an <see cref="EndpointPolicy.AuthenticatedUser"/> / <see cref="EndpointPolicy.AuthenticatedUserWithRole"/>
+    /// route. Those two tiers mean "some person in some tenant" (Progress Portal, feedback, SignalR
+    /// negotiate) and admit a valid token without any role, so a service reaching them would bypass every
+    /// membership gate; applications are therefore denied there unless the entry opts in — today only the
+    /// MCP front door (<c>GET auth/mcp</c>), which does its own membership check. Role-gated tiers need no
+    /// flag: an application passes them only through its (Viewer-capped) membership or delegated scope.
+    /// </summary>
+    public bool ApplicationAllowed { get; }
+
     // Pre-compiled regex for matching actual request paths against the route template
     internal Regex RouteRegex { get; }
 
     public EndpointPolicyEntry(string httpMethod, string routeTemplate, EndpointPolicy policy,
-        TenantScoping tenantScoping = TenantScoping.None, bool excludeDelegated = false)
+        TenantScoping tenantScoping = TenantScoping.None, bool excludeDelegated = false, bool applicationAllowed = false)
     {
         HttpMethod = httpMethod.ToUpperInvariant();
         RouteTemplate = routeTemplate;
         Policy = policy;
         TenantScoping = tenantScoping;
         ExcludeDelegated = excludeDelegated;
+        ApplicationAllowed = applicationAllowed;
         RouteRegex = BuildRouteRegex(routeTemplate);
     }
+
+    /// <summary>True when this entry's tier admits any valid token regardless of role.</summary>
+    public bool IsRolelessTier => Policy is EndpointPolicy.AuthenticatedUser or EndpointPolicy.AuthenticatedUserWithRole;
 
     /// <summary>
     /// Converts a route template like "sessions/{sessionId}/events" into a regex
@@ -377,7 +392,9 @@ public static class EndpointAccessPolicyCatalog
         new("DELETE", "bootstrap/sessions/{code}", EndpointPolicy.BootstrapManagerOrGA, TenantScoping.QueryParam),
 
         // ── MCP Access Check (any authenticated user can check their own access) ──
-        new("GET",    "auth/mcp",                              EndpointPolicy.AuthenticatedUser),
+        // The MCP front door: the only roleless-tier route an application principal may reach — the
+        // handler resolves membership / delegation itself (McpUserService.IsAllowedAsync).
+        new("GET",    "auth/mcp",                              EndpointPolicy.AuthenticatedUser, applicationAllowed: true),
 
         // ── MCP Usage (self-service) ──────────────────────────────────
         new("GET",    "metrics/mcp-usage/me",                  EndpointPolicy.AuthenticatedUser),

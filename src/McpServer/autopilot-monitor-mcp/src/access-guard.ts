@@ -9,7 +9,7 @@
  */
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
-import { extractTokenClaims, isTokenExpired } from './auth.js';
+import { APPLICATION_KEY_PREFIX, extractTokenClaims, isApplicationKey, isTokenExpired, principalKeyOf } from './auth.js';
 import { runWithCaller, wantsPrettyJson } from './client.js';
 import { API_BASE_URL, getPublicBaseUrl, parsePositiveInt } from './config.js';
 import type { CheckMcpAccessResponse } from './generated/wire-types.generated.js';
@@ -406,7 +406,11 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
 
   const token = authHeader.slice(7);
   const claims = extractTokenClaims(token);
-  if (!claims || !claims.upn) {
+  // The principal key: a person's UPN, or app:<client-id> for an app-only token (a service principal
+  // calling with a client-credentials token it obtained from Entra directly — the OAuth proxy never
+  // brokers that grant). Everything below keys on it: cache, rate limit, logs, caller context.
+  const upn = claims ? principalKeyOf(claims) : undefined;
+  if (!claims || !upn) {
     console.error(`[mcp-auth] 401 invalid-token-claims (method=${rpcMethod})`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
     res.status(401).json({ error: 'Invalid token: missing required claims' });
@@ -414,13 +418,12 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
   }
 
   if (isTokenExpired(claims)) {
-    console.error(`[mcp-auth] 401 token-expired (method=${rpcMethod}, upn=${claims.upn})`);
+    console.error(`[mcp-auth] 401 token-expired (method=${rpcMethod}, upn=${upn})`);
     res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
     res.status(401).json({ error: 'Token expired' });
     return;
   }
 
-  const upn = claims.upn.toLowerCase();
   const clientIp = getClientIp(req);
 
   // Access check (async — calls backend, cached). Must run BEFORE the per-UPN
@@ -453,15 +456,25 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
         // Genuine authorization denial — most commonly the user's account is not
         // on the MCP whitelist. Spell that out and tell them what to do, so they
         // can ask the MCP server owner to enable their account instead of being
-        // left guessing why authentication "failed".
-        res.status(403).json({
-          error: 'User not enabled for MCP usage',
-          reason: result.reason,
-          message:
-            `Your account (${upn}) is not enabled to use this Autopilot Monitor MCP server. ` +
-            'Ask the MCP server owner/administrator to whitelist your account for MCP access, ' +
-            'then reconnect.',
-        });
+        // left guessing why authentication "failed". A service principal is
+        // granted under Members (as a Viewer) rather than whitelisted.
+        res.status(403).json(isApplicationKey(upn)
+          ? {
+              error: 'Service principal not enabled for MCP usage',
+              reason: result.reason,
+              message:
+                `The service principal (${upn.slice(APPLICATION_KEY_PREFIX.length)}) is not enabled to use this ` +
+                'Autopilot Monitor MCP server. Ask a Tenant Admin to add it under Members as a service principal ' +
+                '(read-only), then retry.',
+            }
+          : {
+              error: 'User not enabled for MCP usage',
+              reason: result.reason,
+              message:
+                `Your account (${upn}) is not enabled to use this Autopilot Monitor MCP server. ` +
+                'Ask the MCP server owner/administrator to whitelist your account for MCP access, ' +
+                'then reconnect.',
+            });
         return;
       }
 

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import type { TenantAdminRow } from "@/utils/wire-types.generated";
+import { isApplicationKey, looksLikeGuid, principalLabel, type MemberKind } from "@/utils/principalKeys";
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
 type TenantAdmin = TenantAdminRow;
@@ -28,6 +29,9 @@ export function TenantAdminSection({
   const [loadingAdmins, setLoadingAdmins] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<string>("Admin");
+  const [newMemberKind, setNewMemberKind] = useState<MemberKind>("user");
+  const addingApplication = newMemberKind === "application";
+  const newMemberInputValid = addingApplication ? looksLikeGuid(newAdminEmail) : newAdminEmail.trim().length > 0;
   const [addingAdmin, setAddingAdmin] = useState(false);
   const [removingAdmin, setRemovingAdmin] = useState<string | null>(null);
   const [togglingAdmin, setTogglingAdmin] = useState<string | null>(null);
@@ -71,16 +75,19 @@ export function TenantAdminSection({
 
   const handleAddTenantAdmin = async () => {
     if (!canMutate) return; // read-only Global Reader — also closes the Enter-key path past disabled buttons
-    if (!newAdminEmail.trim()) return;
+    if (!newMemberInputValid) return;
 
     try {
       setAddingAdmin(true);
       setError(null);
 
+      const body = addingApplication
+        ? { applicationId: newAdminEmail.trim(), role: "Viewer" }
+        : { upn: newAdminEmail.trim(), role: newMemberRole };
       const response = await authenticatedFetch(api.tenants.admins(tenantId), getAccessToken, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upn: newAdminEmail.trim(), role: newMemberRole }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -88,7 +95,9 @@ export function TenantAdminSection({
         throw new Error(errorData.error || `Failed to add admin: ${response.statusText}`);
       }
 
-      setSuccessMessage(`${newMemberRole} ${newAdminEmail} added successfully!`);
+      setSuccessMessage(addingApplication
+        ? `Service principal ${newAdminEmail.trim()} added as Viewer.`
+        : `${newMemberRole} ${newAdminEmail} added successfully!`);
       setNewAdminEmail("");
 
       // Refresh admin list
@@ -229,7 +238,7 @@ export function TenantAdminSection({
 
   // Admin Pagination with Search
   const filteredAdmins = tenantAdmins.filter(admin =>
-    admin.upn.toLowerCase().includes(adminSearchQuery.toLowerCase())
+    principalLabel(admin.upn).toLowerCase().includes(adminSearchQuery.toLowerCase())
   );
   const totalAdminPages = Math.ceil(filteredAdmins.length / adminsPerPage);
   const startAdminIndex = currentAdminPage * adminsPerPage;
@@ -298,7 +307,8 @@ export function TenantAdminSection({
               <>
                 <div className="space-y-2">
                   {paginatedAdmins.map((admin) => {
-                    const effectiveRole = admin.role ?? "Admin";
+                    const isApplication = isApplicationKey(admin.upn);
+                    const effectiveRole = isApplication ? "Viewer" : (admin.role ?? "Admin");
                     return (
                     <div
                       key={admin.upn}
@@ -309,15 +319,20 @@ export function TenantAdminSection({
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <div className="font-medium text-gray-900 truncate">{admin.upn}</div>
+                          <div className="font-medium text-gray-900 truncate">{principalLabel(admin.upn)}</div>
+                          {isApplication && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700" title="Service principal — calls the API with an app-only token; read-only">
+                              App
+                            </span>
+                          )}
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                            (admin.role ?? "Admin") === "Admin"
+                            effectiveRole === "Admin"
                               ? "bg-purple-100 text-purple-800"
-                              : (admin.role === "Operator")
+                              : effectiveRole === "Operator"
                               ? "bg-blue-100 text-blue-800"
                               : "bg-gray-100 text-gray-700"
                           }`}>
-                            {admin.role ?? "Admin"}
+                            {effectiveRole}
                           </span>
                           {!admin.isEnabled && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
@@ -333,7 +348,8 @@ export function TenantAdminSection({
                         <select
                           value={effectiveRole}
                           onChange={(e) => handleUpdatePermissions(admin.upn, e.target.value, admin.canManageBootstrapTokens)}
-                          disabled={!canMutate || togglingAdmin === admin.upn}
+                          disabled={!canMutate || isApplication || togglingAdmin === admin.upn}
+                          title={isApplication ? "A service principal is always read-only (Viewer)" : undefined}
                           className="px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
                         >
                           <option value="Admin">Admin</option>
@@ -411,15 +427,37 @@ export function TenantAdminSection({
 
           {/* Add New Admin */}
           <div>
-            <p className="text-sm text-purple-800 font-medium mb-2">Add New Admin:</p>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <p className="text-sm text-purple-800 font-medium">Add New Admin:</p>
+              <div className="inline-flex rounded border border-purple-300 overflow-hidden text-xs" role="group" aria-label="Member type">
+                {([["user", "User"], ["application", "Service principal"]] as const).map(([kind, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => { setNewMemberKind(kind); setNewAdminEmail(""); }}
+                    className={`px-2 py-1 ${newMemberKind === kind ? "bg-purple-600 text-white" : "bg-white text-purple-700 hover:bg-purple-50"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {addingApplication && (
+              <p className="text-xs text-purple-700 mb-2">
+                An application in this tenant that calls the API with an app-only token (for example an automation
+                using a federated credential). It is always read-only (Viewer) and must hold the{" "}
+                <span className="font-mono">access_as_application</span> permission for Autopilot Monitor, granted
+                by admin consent in your Entra tenant.
+              </p>
+            )}
             <div className="flex space-x-2">
               <input
-                type="email"
+                type={addingApplication ? "text" : "email"}
                 name="modal-new-admin-email"
                 id="modal-add-admin-email-input"
                 value={newAdminEmail}
                 onChange={(e) => setNewAdminEmail(e.target.value)}
-                placeholder="admin@tenant.com"
+                placeholder={addingApplication ? "Application (client) ID, e.g. 00000000-0000-0000-0000-000000000000" : "admin@tenant.com"}
                 autoComplete="off"
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 onKeyDown={(e) => {
@@ -430,9 +468,11 @@ export function TenantAdminSection({
                 }}
               />
               <select
-                value={newMemberRole}
+                value={addingApplication ? "Viewer" : newMemberRole}
                 onChange={(e) => setNewMemberRole(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                disabled={addingApplication}
+                title={addingApplication ? "A service principal is always read-only (Viewer)" : undefined}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
               >
                 <option value="Admin">Admin</option>
                 <option value="Operator">Operator</option>
@@ -440,7 +480,7 @@ export function TenantAdminSection({
               </select>
               <button
                 onClick={() => handleAddTenantAdmin()}
-                disabled={!canMutate || addingAdmin || !newAdminEmail.trim()}
+                disabled={!canMutate || addingAdmin || !newMemberInputValid}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
               >
                 {addingAdmin ? "Adding..." : "Add"}

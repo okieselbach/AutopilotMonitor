@@ -80,7 +80,12 @@ public class DelegatedAdminService
         if (!await _bindings.IsBoundAsync(identity))
             return DelegatedScope.Empty;
 
-        return await ApplyHomeTenantGateAsync(scope, identity.Upn, identity.TenantId);
+        var gated = await ApplyHomeTenantGateAsync(scope, identity.Upn, identity.TenantId);
+
+        // An application principal reads managed tenants, it never administers them: whatever role its rows
+        // carry (a GA grant on global/delegated-admins could say DelegatedAdmin), the scope it presents is
+        // capped to DelegatedReader. Enforced at resolution so no grant path has to remember the rule.
+        return identity.IsApplication ? gated.AsReaderOnly() : gated;
     }
 
     /// <summary>The scope the assignment ROWS (direct + group-derived) confer on a UPN, ignoring identity binding
@@ -445,6 +450,15 @@ public sealed class DelegatedScope
 
     /// <summary>Tenant IDs (lowercase) this scope grants access to.</summary>
     public IReadOnlyCollection<string> TenantIds => (IReadOnlyCollection<string>)_tenantRoles.Keys;
+
+    /// <summary>The same tenants, every role lowered to DelegatedReader (the application-principal cap).</summary>
+    public DelegatedScope AsReaderOnly()
+    {
+        if (_tenantRoles.Values.All(r => r == Constants.DelegatedRoles.DelegatedReader))
+            return this;
+        var readerRoles = _tenantRoles.Keys.ToDictionary(t => t, _ => Constants.DelegatedRoles.DelegatedReader, StringComparer.OrdinalIgnoreCase);
+        return new DelegatedScope(readerRoles, _homeCharged);
+    }
 
     /// <summary>
     /// The covered tenants reached through a Tenant Group flagged <see cref="TenantGroup.ChargeHomeTenantQuota"/>:

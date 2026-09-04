@@ -73,6 +73,12 @@ public class GlobalAdminService
             return null;
         }
 
+        // An application principal never holds a platform role (D-133): a GlobalAdmins row keyed
+        // app:<client-id> is inert even if one were written. Tenant membership and delegation are the only
+        // grant paths for a service.
+        if (identity.IsApplication)
+            return null;
+
         var role = await GetRowRoleAsync(identity.Upn);
         if (role == null)
             return null;

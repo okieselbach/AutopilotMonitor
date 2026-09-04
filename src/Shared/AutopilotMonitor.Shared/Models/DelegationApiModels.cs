@@ -217,6 +217,10 @@ namespace AutopilotMonitor.Shared.Models
 
     public class DelegationAssignRequest
     {
+        /// <summary>
+        /// The member's principal key as listed under Access Management: a person's UPN, or the
+        /// <c>app:&lt;client-id&gt;</c> key of a service principal member (read-only like every assignee).
+        /// </summary>
         public string Upn { get; set; } = string.Empty;
     }
 

@@ -350,6 +350,17 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// An application principal opened its first MCP session (no sign-in history for its key yet).
+        /// Recorded against the application's HOME tenant (JWT tid) once; afterwards its calls show up in the
+        /// per-user usage view like anyone else's.
+        /// </summary>
+        public Task RecordMcpServicePrincipalFirstSeenAsync(string tenantId, string principalKey, string applicationId, string objectId, string accessGrant)
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.McpServicePrincipalFirstSeen, OpsEventSeverity.Info,
+                $"Service principal {applicationId} opened its first MCP session (grant: {accessGrant})",
+                tenantId, principalKey,
+                new { applicationId, oid = objectId, tid = tenantId, accessGrant });
+
+        /// <summary>
         /// The reporter's per-instance budget is spent: one Critical marker (same event type, so the same
         /// alert rule pushes it) that says further denials this window are trace-only. A storm is a
         /// stronger signal than any single denial — either someone is sweeping the GA surface with a

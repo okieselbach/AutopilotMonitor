@@ -16,11 +16,20 @@ namespace AutopilotMonitor.Functions.Security;
 /// every consumer treats as "no cross-tenant role" (fail-closed).
 /// </para>
 /// </summary>
-/// <param name="Upn">The UPN (lowercase) — the row key of the role tables.</param>
+/// <param name="Upn">The principal key (lowercase) — the row key of the role tables: a person's UPN, or
+/// <c>app:&lt;client-id&gt;</c> for an application principal (<see cref="Shared.Constants.PrincipalKeys"/>).</param>
 /// <param name="TenantId">The JWT <c>tid</c> (lowercase) — the caller's home tenant.</param>
-/// <param name="ObjectId">The JWT <c>oid</c> (lowercase) — the caller's object id in that tenant.</param>
+/// <param name="ObjectId">The JWT <c>oid</c> (lowercase) — the caller's object id in that tenant (for an
+/// application the service principal's object id, which differs per tenant).</param>
 public sealed record AdminIdentity(string Upn, string TenantId, string ObjectId)
 {
+    /// <summary>
+    /// True when the key names an application (app-only token). Applications are capped everywhere: never
+    /// a platform role, never more than Viewer in a tenant, never more than DelegatedReader on a managed
+    /// tenant — the caps live in the respective role services, this flag is what they switch on.
+    /// </summary>
+    public bool IsApplication => Shared.Constants.PrincipalKeys.IsApplication(Upn);
+
     /// <summary>Builds the identity from a validated principal, or null when upn, tid or oid is missing.</summary>
     public static AdminIdentity? FromPrincipal(ClaimsPrincipal? principal)
         => principal == null

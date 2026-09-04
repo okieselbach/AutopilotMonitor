@@ -452,6 +452,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         var upn = principal?.GetUserPrincipalName();
         var userIdentifier = upn ?? "anonymous";
 
+        // An application principal (app-only token) is a member, a delegated reader or nothing — never
+        // "some authenticated person". The roleless tiers admit any valid token, so they are closed to
+        // applications unless the catalog entry opted in (auth/mcp). Every role-gated tier below already
+        // resolves the app:<client-id> key through the same tables as a person, with its caps applied.
+        if (principal != null && principal.IsApplicationPrincipal() && entry.IsRolelessTier && !entry.ApplicationAllowed)
+            return CatalogDecisionResult.Deny(userIdentifier, "Application", "ApplicationPrincipalNotAllowed");
+
         switch (entry.Policy)
         {
             case EndpointPolicy.PublicAnonymous:

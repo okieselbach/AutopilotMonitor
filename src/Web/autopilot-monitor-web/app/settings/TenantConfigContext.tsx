@@ -29,6 +29,7 @@ import { parseSasExpiry } from "./components/DiagnosticsSection";
 import { COMMUNITY_DEFAULT, parseEditionInfo, type EditionInfo } from "@/lib/edition";
 import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChannel, LEGACY_CHANNEL_ID } from "./types";
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
+import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
 
 /**
@@ -299,6 +300,9 @@ interface TenantConfigContextValue {
   setNewAdminEmail: (v: string) => void;
   newMemberRole: string;
   setNewMemberRole: (v: string) => void;
+  /** Person (UPN) or service principal (application id) — see utils/principalKeys. */
+  newMemberKind: MemberKind;
+  setNewMemberKind: (v: MemberKind) => void;
   addingAdmin: boolean;
   removingAdmin: string | null;
   togglingAdmin: string | null;
@@ -379,6 +383,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<string>("Admin");
+  const [newMemberKind, setNewMemberKind] = useState<MemberKind>("user");
   const [addingAdmin, setAddingAdmin] = useState(false);
   const [removingAdmin, setRemovingAdmin] = useState<string | null>(null);
   const [togglingAdmin, setTogglingAdmin] = useState<string | null>(null);
@@ -1388,16 +1393,21 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   // Admin management handlers
   // -----------------------------------------------------------------------
   const handleAddAdmin = useCallback(async () => {
-    if (!tenantId || !newAdminEmail.trim()) return;
+    const addingApplication = newMemberKind === "application";
+    if (!tenantId || !(addingApplication ? looksLikeGuid(newAdminEmail) : newAdminEmail.trim())) return;
     try {
       setAddingAdmin(true);
       setError(null);
       setSuccessMessage(null);
 
+      // A service principal is stored under app:<client-id> and is always read-only (Viewer).
+      const body = addingApplication
+        ? { applicationId: newAdminEmail.trim(), role: "Viewer" }
+        : { upn: newAdminEmail.trim(), role: newMemberRole };
       const response = await authenticatedFetch(api.tenants.admins(tenantId), getAccessToken, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ upn: newAdminEmail.trim(), role: newMemberRole }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -1405,8 +1415,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         throw new Error(errorData.error || `Failed to add member: ${response.statusText}`);
       }
 
-      trackEvent("admin_member_added", { role: newMemberRole });
-      setSuccessMessage(`${newMemberRole} ${newAdminEmail} added successfully!`);
+      trackEvent("admin_member_added", { role: body.role, kind: newMemberKind });
+      setSuccessMessage(addingApplication
+        ? `Service principal ${newAdminEmail.trim()} added as Viewer.`
+        : `${newMemberRole} ${newAdminEmail} added successfully!`);
       setNewAdminEmail("");
       setNewMemberRole("Admin");
       await fetchAdmins();
@@ -1423,7 +1435,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     } finally {
       setAddingAdmin(false);
     }
-  }, [tenantId, newAdminEmail, newMemberRole, getAccessToken, addNotification, fetchAdmins]);
+  }, [tenantId, newAdminEmail, newMemberRole, newMemberKind, getAccessToken, addNotification, fetchAdmins]);
 
   const handleRemoveAdmin = useCallback(async (adminUpn: string) => {
     if (!tenantId) return;
@@ -1792,6 +1804,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       admins, loadingAdmins,
       newAdminEmail, setNewAdminEmail,
       newMemberRole, setNewMemberRole,
+      newMemberKind, setNewMemberKind,
       addingAdmin, removingAdmin, togglingAdmin,
       adminSearchQuery, setAdminSearchQuery,
       currentAdminPage, setCurrentAdminPage,
@@ -1845,7 +1858,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     diagnosticsBlobSasUrl, diagnosticsUploadMode, diagnosticsUploadDestination,
     tenantDiagPaths, newDiagPath, newDiagDesc,
     handleSaveDiagnostics, handleResetDiagnostics,
-    admins, loadingAdmins, newAdminEmail, newMemberRole, addingAdmin, removingAdmin, togglingAdmin,
+    admins, loadingAdmins, newAdminEmail, newMemberRole, newMemberKind, addingAdmin, removingAdmin, togglingAdmin,
     adminSearchQuery, currentAdminPage,
     handleAddAdmin, handleRemoveAdmin, handleToggleTenantAdmin, handleUpdatePermissions,
     bootstrapSessions, bootstrapLoading, fetchBootstrapSessions, createBootstrapSession, revokeBootstrapSession,
