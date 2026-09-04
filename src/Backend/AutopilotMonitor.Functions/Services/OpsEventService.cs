@@ -350,6 +350,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// The reporter's per-instance budget is spent: one Critical marker (same event type, so the same
+        /// alert rule pushes it) that says further denials this window are trace-only. A storm is a
+        /// stronger signal than any single denial — either someone is sweeping the GA surface with a
+        /// valid token, or an operator script is misconfigured; both deserve the one push, neither
+        /// deserves fifty.
+        /// </summary>
+        public Task RecordPrivilegedRouteDenialStormAsync(PrivilegedDenial last, int cap, TimeSpan window)
+            => WriteAsync(OpsEventCategory.Security, OpsEventTypes.PrivilegedRouteDenied, OpsEventSeverity.Critical,
+                $"Privileged-route denial storm: {cap} events in {window.TotalMinutes:0} min on this instance; further denials stay in the Warning trace until the window resets (last: {last.Method} {last.Path} by {last.Upn ?? "(no upn)"})",
+                last.TenantId, last.Upn ?? "System.PolicyEnforcement",
+                new
+                {
+                    storm = true, cap, windowMinutes = (int)window.TotalMinutes,
+                    lastMethod = last.Method, lastPath = last.Path, lastUpn = last.Upn, lastOid = last.ObjectId, lastTid = last.TenantId,
+                    lastClientSource = last.ClientSource, lastMcpToolName = last.McpToolName,
+                });
+
+        /// <summary>
         /// Fired by <see cref="KillSwitchEvaluator"/> when a Kill signal was actually SERVED to
         /// an agent (as opposed to DeviceBlocked/VersionBlocked, which fire when the admin
         /// creates the rule). This is the delivery confirmation operators wire Telegram rules

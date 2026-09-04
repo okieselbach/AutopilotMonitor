@@ -99,8 +99,9 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "ExcessiveSessionEventsAutoActioned",
     // Assume-breach layer for the Global-Admin-only surface: an authenticated caller without the
     // GlobalAdmin role hit a GlobalAdminOnly route (or, via the MCP probe, a GA-only tool).
-    // Critical for callers without any platform role, Warning for a Global Reader; throttled 1h
-    // per caller+path (PrivilegedDenialReporter). Route it to Telegram at MinSeverity Critical.
+    // Critical for callers without any platform role, Warning for a Global Reader. Flood-capped
+    // per instance: one event per caller per hour and at most 5 per hour in total, then ONE
+    // Critical "storm" marker (PrivilegedDenialReporter). Route it to Telegram at MinSeverity Critical.
     "PrivilegedRouteDenied",
     "VersionBlocked",
     // Delivery confirmation: a Kill signal was actually SERVED to an agent (config or

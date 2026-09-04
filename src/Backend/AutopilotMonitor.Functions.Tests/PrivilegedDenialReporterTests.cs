@@ -118,21 +118,64 @@ public class PrivilegedDenialReporterTests
     }
 
     [Fact]
-    public void Same_caller_and_path_is_throttled_but_another_path_is_not()
+    public void One_event_per_caller_per_window_whatever_path_another_caller_is_reported()
     {
         var (reporter, saved) = Rig();
 
         reporter.Report(Denial());
-        reporter.Report(Denial(mcpTool: "query_table"));                      // same path → throttled
-        reporter.Report(Denial(path: "/api/global/raw/tables"));              // new path → reported
+        reporter.Report(Denial(mcpTool: "query_table"));                      // same caller → throttled
+        reporter.Report(Denial(path: "/api/global/raw/tables"));              // same caller, other route → throttled (a sweep is ONE event)
         reporter.Report(Denial(callerId: "oid-2"));                            // new caller → reported
 
-        var events = Settle(saved, 3);
-        Assert.Equal(3, events.Count);
-        Assert.Contains(events, e => e.Message.Contains("/api/global/raw/tables"));
-        // The second attempt on the same (caller, path) carried a different tool name and was swallowed.
+        var events = Settle(saved, 2);
+        Assert.Equal(2, events.Count);
+        Assert.DoesNotContain(events, e => e.Message.Contains("/api/global/raw/tables"));
         Assert.DoesNotContain(events, e => e.Message.Contains("query_table"));
-        Assert.Equal(2, events.Count(e => e.Message.Contains("/api/global/raw/logs")));
+        Assert.All(events, e => Assert.Contains("/api/global/raw/logs", e.Message));
+    }
+
+    [Fact]
+    public void Instance_budget_ends_in_one_storm_marker_then_silence()
+    {
+        var (reporter, saved) = Rig();
+
+        // Six distinct callers: five normal events, the sixth trips the storm marker.
+        for (var i = 1; i <= 6; i++)
+            reporter.Report(Denial(callerId: $"oid-{i}", path: $"/api/global/raw/route-{i}"));
+        // Everything after that stays trace-only for the window — new callers included.
+        for (var i = 7; i <= 40; i++)
+            reporter.Report(Denial(callerId: $"oid-{i}"));
+
+        var events = Settle(saved, PrivilegedDenialReporter.MaxEventsPerWindow + 1);
+        Assert.Equal(PrivilegedDenialReporter.MaxEventsPerWindow + 1, events.Count);
+        Assert.All(events, e => Assert.Equal(OpsEventTypes.PrivilegedRouteDenied, e.EventType));
+
+        var normal = events.Take(PrivilegedDenialReporter.MaxEventsPerWindow).ToList();
+        Assert.All(normal, e => Assert.DoesNotContain("storm", e.Message));
+
+        var storm = events.Last();
+        Assert.Equal(OpsEventSeverity.Critical, storm.Severity);
+        Assert.Contains("denial storm", storm.Message);
+        Assert.Contains("/api/global/raw/route-6", storm.Message);
+        using var details = JsonDocument.Parse(storm.Details!);
+        Assert.True(details.RootElement.GetProperty("storm").GetBoolean());
+        Assert.Equal(PrivilegedDenialReporter.MaxEventsPerWindow, details.RootElement.GetProperty("cap").GetInt32());
+        Assert.Equal("oid-1", details.RootElement.GetProperty("lastOid").GetString());
+    }
+
+    [Fact]
+    public void Reader_denials_count_against_the_budget_too()
+    {
+        var (reporter, saved) = Rig();
+
+        for (var i = 1; i <= PrivilegedDenialReporter.MaxEventsPerWindow + 3; i++)
+            reporter.Report(Denial(callerId: $"reader-{i}", callerRole: Constants.GlobalRoles.GlobalReader));
+
+        var events = Settle(saved, PrivilegedDenialReporter.MaxEventsPerWindow + 1);
+        Assert.Equal(PrivilegedDenialReporter.MaxEventsPerWindow + 1, events.Count);
+        // The five Reader slips are Warning (no push under a Critical rule); the storm marker is Critical.
+        Assert.Equal(PrivilegedDenialReporter.MaxEventsPerWindow, events.Count(e => e.Severity == OpsEventSeverity.Warning));
+        Assert.Equal(OpsEventSeverity.Critical, events.Last().Severity);
     }
 
     [Fact]
