@@ -38,6 +38,30 @@ public class AppInsightsQueryFunctionTests
         Assert.Equal(expected, AppInsightsQueryFunction.ClampBudget(requested));
     }
 
+    // ── Upstream failure → status the caller sees. Query errors are the caller's (400, rendered in full
+    //    by the MCP); a missing managed-identity grant (401/403) and store failures (5xx) are 502. ──
+    [Theory]
+    [InlineData(400, System.Net.HttpStatusCode.BadRequest)]   // SyntaxError / SemanticError / BadArgumentError
+    [InlineData(404, System.Net.HttpStatusCode.BadRequest)]   // unknown app id in the setting: still a config/caller problem, not the store
+    [InlineData(401, System.Net.HttpStatusCode.BadGateway)]
+    [InlineData(403, System.Net.HttpStatusCode.BadGateway)]
+    [InlineData(429, System.Net.HttpStatusCode.BadRequest)]
+    [InlineData(500, System.Net.HttpStatusCode.BadGateway)]
+    [InlineData(503, System.Net.HttpStatusCode.BadGateway)]
+    public void Upstream_failures_map_to_400_for_the_query_and_502_for_grant_or_store(int upstream, System.Net.HttpStatusCode expected)
+    {
+        Assert.Equal(expected, AppInsightsQueryFunction.MapUpstreamFailure((System.Net.HttpStatusCode)upstream));
+    }
+
+    [Fact]
+    public void Hints_name_the_query_problem_or_the_missing_grant()
+    {
+        Assert.Contains("syntax error", AppInsightsQueryFunction.UpstreamHint(System.Net.HttpStatusCode.BadRequest, "SyntaxError", "backend")!);
+        Assert.Contains("getschema", AppInsightsQueryFunction.UpstreamHint(System.Net.HttpStatusCode.BadRequest, "SemanticError", "web")!);
+        Assert.Contains("Log Analytics Reader", AppInsightsQueryFunction.UpstreamHint(System.Net.HttpStatusCode.Forbidden, null, "mcp")!);
+        Assert.Null(AppInsightsQueryFunction.UpstreamHint(System.Net.HttpStatusCode.InternalServerError, "InternalError", "backend"));
+    }
+
     // ── Kusto body → typed tables; cells forwarded as the JSON the store produced ──
     [Fact]
     public void Kusto_body_is_parsed_cell_for_cell_and_complete_results_carry_no_partial()

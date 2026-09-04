@@ -123,18 +123,20 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                         source.Name, upstreamResponse.StatusCode, LogSanitizer.Clean(Cap(responseText, 2048)));
 
                     var (errorMessage, errorCode) = ExtractError(responseText);
-                    var errorResp = req.CreateResponse(HttpStatusCode.BadGateway);
+                    // A query the store rejected is the CALLER's error (400): the MCP renders 4xx bodies in
+                    // full (message, hint, upstream) but sanitizes every 5xx down to the error code — and a
+                    // KQL syntax error hidden behind "retry later" is exactly the parity loss this proxy
+                    // exists to avoid. Store-side failures (5xx) and a missing read grant (401/403 — the
+                    // managed identity, not the caller) stay 502.
+                    var status = MapUpstreamFailure(upstreamResponse.StatusCode);
+                    var errorResp = req.CreateResponse(status);
                     await errorResp.WriteAsJsonAsync(new
                     {
                         error = errorMessage,
                         errorCode,
                         statusCode = (int)upstreamResponse.StatusCode,
                         source = source.Name,
-                        hint = errorCode == "SyntaxError"
-                            ? "The KQL query has a syntax error. Check operators, pipe stages, and string quoting. Example: traces | where message contains 'error' | take 50"
-                            : errorCode == "SemanticError"
-                                ? $"The KQL query references an unknown table or column for source '{source.Name}'. Run '<table> | getschema' to list columns."
-                                : (string?)null,
+                        hint = UpstreamHint(upstreamResponse.StatusCode, errorCode, source.Name),
                         // Everything the store said, so nothing the CLI would print is lost.
                         upstream = Cap(responseText, UpstreamErrorCap),
                     });
@@ -178,6 +180,29 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "Query telemetry store");
             }
+        }
+
+        /// <summary>
+        /// Upstream 4xx other than 401/403 = the caller's query (400 to the caller, rendered in full by the
+        /// MCP); 401/403 = the managed identity lacks the read grant, and 5xx = the store — both 502.
+        /// </summary>
+        internal static HttpStatusCode MapUpstreamFailure(HttpStatusCode upstream)
+        {
+            var code = (int)upstream;
+            if (code == 401 || code == 403) return HttpStatusCode.BadGateway;
+            return code >= 400 && code < 500 ? HttpStatusCode.BadRequest : HttpStatusCode.BadGateway;
+        }
+
+        internal static string? UpstreamHint(HttpStatusCode upstream, string? errorCode, string sourceName)
+        {
+            if ((int)upstream is 401 or 403)
+                return $"The backend's managed identity has no read access to the '{sourceName}' store (Monitoring Reader on the App Insights component / Log Analytics Reader on the workspace). Role propagation can take minutes after a grant.";
+            return errorCode switch
+            {
+                "SyntaxError" => "The KQL query has a syntax error. Check operators, pipe stages, and string quoting. Example: traces | where message contains 'error' | take 50",
+                "SemanticError" => $"The KQL query references an unknown table or column for source '{sourceName}'. Run '<table> | getschema' to list columns.",
+                _ => null,
+            };
         }
 
         /// <summary>Null or out-of-range budgets collapse to the default / the nearest bound.</summary>

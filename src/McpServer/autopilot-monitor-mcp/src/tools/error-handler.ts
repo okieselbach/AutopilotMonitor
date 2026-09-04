@@ -68,6 +68,11 @@ export function toolError(
     // legitimate reason to act on — deliberately NOT surfaced here, mirroring the
     // 5xx sanitization above. correlationId + errorCode remain as operator handles.
     if (p.errorCode) parts.push(`**Error code**: ${p.errorCode}`);
+    // The operator log proxy forwards the telemetry store's own error JSON (query_backend_logs):
+    // that is what `az monitor … query` prints, and the parity promise is that nothing of it is lost.
+    if (typeof p.upstream === 'string' && p.upstream.length > 0) {
+      parts.push(`**Upstream response**:\n\`\`\`json\n${p.upstream.length > 4000 ? p.upstream.slice(0, 4000) + '…' : p.upstream}\n\`\`\``);
+    }
   } else if (error instanceof ApiError) {
     // API error but non-JSON body
     if (error.status === 401) {

@@ -36,6 +36,31 @@ describe('toolError', () => {
     expect(text).not.toContain('Exception type');
   });
 
+  it('renders the upstream store error of a rejected KQL query in full (parity with az)', () => {
+    const upstream = JSON.stringify({ error: { message: 'The request had some invalid properties', code: 'BadArgumentError', innererror: { code: 'SyntaxError', message: "Query could not be parsed at 'takee'" } } });
+    const err = new ApiError(400, JSON.stringify({
+      error: "Query could not be parsed at 'takee'",
+      errorCode: 'SyntaxError',
+      statusCode: 400,
+      source: 'web',
+      hint: 'The KQL query has a syntax error.',
+      upstream,
+    }));
+    const text = toolError('query_backend_logs', { query: 'pageViews | takee 1' }, err).content[0].text;
+    expect(text).toContain("Query could not be parsed at 'takee'");
+    expect(text).toContain('SyntaxError');
+    expect(text).toContain('**Upstream response**');
+    expect(text).toContain('BadArgumentError');
+  });
+
+  it('keeps sanitizing a 5xx even when it carries an upstream body', () => {
+    const err = new ApiError(502, JSON.stringify({ error: 'store down', errorCode: 'InternalError', upstream: '{"secret":"x"}' }));
+    const text = toolError('query_backend_logs', {}, err).content[0].text;
+    expect(text).toContain('InternalError');
+    expect(text).not.toContain('Upstream response');
+    expect(text).not.toContain('secret');
+  });
+
   it('gives a friendly 401 message for an unstructured auth failure', () => {
     const err = new ApiError(401, 'Unauthorized');
     const res = toolError('get_metrics', {}, err);
