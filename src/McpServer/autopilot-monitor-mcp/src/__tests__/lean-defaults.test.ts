@@ -81,7 +81,7 @@ describe('first-page defaults', () => {
 
   it('a FILTERED get_session_events read stays complete: no projection, no omission marker', async () => {
     // Usage telemetry: filtered reads target specific events and want their payload about half the
-    // time (and the ime-decompile skill reads data.msiDownloadUrl after an eventType filter).
+    // time (and operator tooling reads data.msiDownloadUrl after an eventType filter).
     const handler = handlerFor('get_session_events');
     const { urls } = stubFetchCapture();
 

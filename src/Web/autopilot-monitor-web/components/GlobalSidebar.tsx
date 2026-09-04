@@ -255,7 +255,7 @@ export function GlobalSidebar({ children }: { children: ReactNode }) {
   // drains it all at once (p95 ~0.9s but a tail reaching 150s+), so the navigation the user
   // actually wants is stuck behind it and the portal freezes. Every route here is a client component behind
   // ProtectedRoute that fetches its own data after mount, so the prefetched RSC payload
-  // buys nothing. See docs/web/portal-navigation-prefetch.md.
+  // buys nothing. See internal/docs/web/portal-navigation-prefetch.md.
   // --- Render a global nav link ---
   const renderGlobalItem = (item: NavItem, isGlobal = false) => {
     const active = isNavActive(item.href);

@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Shared.Models
     /// consumer (engine rule filter, ingest trigger registry, CRUD validation) shares so
     /// the matching semantics cannot drift apart. An absent/empty EvaluateOn list means
     /// <see cref="EnrollmentEnd"/> only — the historical terminal-only behavior, bit-for-bit.
-    /// See docs/rules/analyze-rule-triggers.md for the full design.
+    /// See internal/docs/rules/analyze-rule-triggers.md for the full design.
     /// </summary>
     public static class AnalyzeRuleTriggers
     {

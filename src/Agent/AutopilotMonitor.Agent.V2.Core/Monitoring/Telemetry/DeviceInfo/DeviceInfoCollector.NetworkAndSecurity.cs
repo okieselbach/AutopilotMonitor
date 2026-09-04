@@ -292,7 +292,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 {
                     // Second diagnostic surface (independent of AutopilotPolicyCache): Microsoft's
                     // documented Diagnostics\Autopilot key (IsAutopilotDisabled, TenantMatched,
-                    // CloudAssignedTenantDomain/Id, ...). See docs/agent/autopilot-ztd-diagnostics.md.
+                    // CloudAssignedTenantDomain/Id, ...). See internal/docs/agent/autopilot-ztd-diagnostics.md.
                     diagnosticsRegistry = ZtdEvidence.ReadDiagnosticsRegistry(_logger);
                     if (diagnosticsRegistry != null)
                         data["diagnosticsRegistry"] = diagnosticsRegistry;
@@ -312,7 +312,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
                 // runs as a standard Entra join and would otherwise look like a regular
                 // Autopilot session — surface the edge case explicitly, with a ZTD verdict
                 // backed by the ModernDeployment Autopilot event log plus an endpoint probe
-                // (see docs/agent/autopilot-ztd-diagnostics.md for the evidence model).
+                // (see internal/docs/agent/autopilot-ztd-diagnostics.md for the evidence model).
                 if (!isDevicePreparation && IsAutopilotProfileMissing(data))
                 {
                     // On Windows 365 Cloud PCs a missing profile is the expected state — Cloud PCs

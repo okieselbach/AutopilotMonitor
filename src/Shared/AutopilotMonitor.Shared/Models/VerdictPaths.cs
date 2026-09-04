@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Machine-readable vocabulary for <see cref="SessionSummary.VerdictPath"/> — WHICH code path
     /// produced the session's current <see cref="SessionStatus"/>. Format is
     /// <c>origin:detail</c>, lower-case, stable: values are a persisted contract that the verdict
-    /// calibration aggregate (docs/backend/verdict-calibration.md) counts over days and tenants, so
+    /// calibration aggregate (internal/docs/backend/verdict-calibration.md) counts over days and tenants, so
     /// entries are append-only — never rename or reuse one. Unlike <c>FailureSource</c> (written
     /// only on Failed) the path is stamped for every status write, so a sweep "Incomplete", a late
     /// agent upgrade and an admin override are all countable.

@@ -2,7 +2,7 @@
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ENRL-005",
   "title": "Hybrid Join Timeout 0x80004005 — Fixed by Windows Update",
-  "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+  "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276).",
   "severity": "high",
   "category": "enrollment",
   "version": "1.1.0",

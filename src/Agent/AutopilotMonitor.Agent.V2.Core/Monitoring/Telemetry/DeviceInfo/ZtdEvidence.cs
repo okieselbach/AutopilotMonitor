@@ -26,7 +26,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.DeviceInfo
     ///         authoritative witness for reachability at check time.</item>
     /// </list>
     /// Event-ID meanings, registry values, and endpoint list are documented (with sources and
-    /// a re-check RSS feed) in docs/agent/autopilot-ztd-diagnostics.md — keep both in sync.
+    /// a re-check RSS feed) in internal/docs/agent/autopilot-ztd-diagnostics.md — keep both in sync.
     /// </summary>
     internal static class ZtdEvidence
     {

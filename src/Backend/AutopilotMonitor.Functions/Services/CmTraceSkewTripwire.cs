@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Regression tripwire for the agent's CMTrace time resolution (per-line self-anchoring,
-    /// docs/agent/cmtrace-time-resolution.md). Runs once per session on the terminal ingest
+    /// internal/docs/agent/cmtrace-time-resolution.md). Runs once per session on the terminal ingest
     /// batch, over samples the counter reconcile collected in its existing partition scan.
     ///
     /// Detection: diff = median(Δ_IME) − median(Δ_other), where Δ = ReceivedAt − OccurredUtc.
@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Functions.Services
     internal static class CmTraceSkewTripwire
     {
         // Same grid the agent anchors on and the same residual tolerance as its own grid
-        // guard (docs/agent/cmtrace-time-resolution.md) — keep these in lockstep with the
+        // guard (internal/docs/agent/cmtrace-time-resolution.md) — keep these in lockstep with the
         // agent so a future anchoring change stays traceable to this detector.
         internal const int GridMinutes = 15;
         internal const double ResidualToleranceMinutes = 2.0;

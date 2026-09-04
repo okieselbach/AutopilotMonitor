@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Partial: verdict-calibration drift radar (docs/backend/verdict-calibration.md). Same
+    /// Partial: verdict-calibration drift radar (internal/docs/backend/verdict-calibration.md). Same
     /// episode/tracker pattern as the rule-regression radar, over the verdict-calibration daily
     /// rows (<see cref="VerdictCalibrationRadar"/>). Operator-only: fires a VerdictCalibrationDrift
     /// ops event once per episode and surfaces the episode in the calibration endpoint's

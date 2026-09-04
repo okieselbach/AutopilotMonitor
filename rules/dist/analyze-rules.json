@@ -1541,7 +1541,7 @@
     {
       "ruleId": "ANALYZE-DEV-007",
       "title": "System Clock Skew — TPM Attestation and ESP Timeout Risk",
-      "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts. Knowledge source: docs/agent/autopilot-ztd-diagnostics.md.",
+      "description": "The device's real-time clock deviates from NTP by more than two minutes. Microsoft documents that a clock off by several minutes causes TPM attestation errors (self-deploying/pre-provisioning) and ESP timeouts.",
       "severity": "warning",
       "category": "device",
       "version": "1.1.0",
@@ -1987,7 +1987,7 @@
     {
       "ruleId": "ANALYZE-ENRL-003",
       "title": "TPM Attestation Failure — Known Error Code",
-      "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Observability: attestation precedes MDM enrollment, so in the normal deployment model (agent installed via IME after enrollment) these codes are rarely visible — the rule primarily serves bootstrap-token deployments. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
+      "description": "A TPM-attestation-related error code documented in the Microsoft Autopilot known-issues list was observed (0x800705B4, 0x801C03EA, 0x81039001, 0x81039023, 0x81039024, 0x80070490). These block self-deploying and pre-provisioning deployments during 'Securing your hardware'. Observability: attestation precedes MDM enrollment, so in the normal deployment model (agent installed via IME after enrollment) these codes are rarely visible — the rule primarily serves bootstrap-token deployments.",
       "severity": "high",
       "category": "enrollment",
       "version": "1.1.0",
@@ -2077,7 +2077,7 @@
     {
       "ruleId": "ANALYZE-ENRL-004",
       "title": "MDM Enrollment Blocked — Known Error Code",
-      "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Observability: a blocked MDM enrollment normally means no agent gets installed at all (IME install happens after enrollment) — this rule can realistically only fire for bootstrap-token deployments (pre-MDM reporting) or mixed retry scenarios. See docs/agent/autopilot-ztd-diagnostics.md (Observability section).",
+      "description": "An enrollment-blocking error code documented in the Microsoft Autopilot known-issues/troubleshooting pages was observed (0x80180014, 0x80180018, 0xC1036501, 0x801C03F3, 0x80070774). Each has a specific, documented cause and fix. Observability: a blocked MDM enrollment normally means no agent gets installed at all (IME install happens after enrollment) — this rule can realistically only fire for bootstrap-token deployments (pre-MDM reporting) or mixed retry scenarios.",
       "severity": "high",
       "category": "enrollment",
       "version": "1.1.0",
@@ -2164,7 +2164,7 @@
     {
       "ruleId": "ANALYZE-ENRL-005",
       "title": "Hybrid Join Timeout 0x80004005 — Fixed by Windows Update",
-      "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276). Knowledge source: docs/agent/autopilot-ztd-diagnostics.md (error-code map).",
+      "description": "A Microsoft Entra hybrid join Autopilot deployment hit error 0x80004005 — a documented build-dependent known issue, resolved by KB5065789 (25H2, build >= 26200.6725), KB5065426 (24H2, build >= 26100.6584), and KB5070312 (23H2, build >= 22631.6276).",
       "severity": "high",
       "category": "enrollment",
       "version": "1.1.0",

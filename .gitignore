@@ -15,7 +15,7 @@ bld/
 [Ll]ogs/
 
 # Build counter files: the authoritative counter is the shared blob
-# (agent container, buildcounter-v{N}.txt, ETag-CAS — see docs/agent/build-counter-blob.md).
+# (agent container, buildcounter-v{N}.txt, ETag-CAS — see internal/docs/agent/build-counter-blob.md).
 # The local file is only an offline fallback for -SkipUpload/bare-dotnet smoke builds.
 buildcounter.txt
 
@@ -134,7 +134,6 @@ tests/fixtures/enrollment-sessions-local/
 TODO.txt
 tools/orphan-analysis.py
 tools/export-session-fixture.mjs
-tasks/
 
 # Azure Table cleanup backups (dry-run exports + delete manifests)
 # Produced by /cleanup-table skill — never commit deletion payloads
@@ -148,8 +147,8 @@ plans/REFACTOR_AGENT_V2.md
 # (storage account name, resource group are operator-specific) so it stays
 # out of the repo. Each operator keeps their own copy.
 scripts/Backup/setup-backup-container.ps1
-docs/Introduction-AutopilotMonitor.pptx
-docs/~$Introduction-AutopilotMonitor.pptx
+internal/docs/Introduction-AutopilotMonitor.pptx
+internal/docs/~$Introduction-AutopilotMonitor.pptx
 
 # Playwright MCP browser artifacts (snapshots, screenshots, console logs)
 .playwright-mcp/
@@ -159,7 +158,6 @@ docs/~$Introduction-AutopilotMonitor.pptx
 src/Web/autopilot-monitor-web/public/version.json
 
 
-# Local IME binaries scratch used by the /ime-decompile skill (MSI + msiexec-
-# extracted payload per version, for grepping in binaries). Decompilates live in
-# the private ime-decompiles repo, MSIs in the ime-archive blob - this stays local.
+# Local IME installer scratch (MSI + extracted payload per version, for grepping
+# in binaries). Operator-only, never committed.
 ime-files/

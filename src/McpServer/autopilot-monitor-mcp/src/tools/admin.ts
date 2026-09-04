@@ -982,7 +982,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   );
 
   // Tool: get_verdict_calibration — platform scope (GA + Global Reader). Operator diagnostics for
-  // the session-verdict classifier (docs/backend/verdict-calibration.md) — never a customer surface.
+  // the session-verdict classifier (internal/docs/backend/verdict-calibration.md) — never a customer surface.
   if (ga) server.registerTool(
     'get_verdict_calibration',
     {

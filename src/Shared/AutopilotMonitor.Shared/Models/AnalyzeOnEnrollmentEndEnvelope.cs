@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Shared.Models
     /// is the incremental rerun (no stats), and the interim reasons
     /// <c>whiteglove_sealed</c> / <c>interim_trigger</c> run the evaluateOn-filtered
     /// interim path (notify yes, KO + stats suppressed) — see
-    /// docs/rules/analyze-rule-triggers.md.
+    /// internal/docs/rules/analyze-rule-triggers.md.
     /// </para>
     /// </summary>
     public sealed class AnalyzeOnEnrollmentEndEnvelope

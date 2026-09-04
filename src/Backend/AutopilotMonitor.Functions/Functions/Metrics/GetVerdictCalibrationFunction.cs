@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Metrics
 {
     /// <summary>
-    /// Operator-only verdict calibration matrix (docs/backend/verdict-calibration.md): per verdict
+    /// Operator-only verdict calibration matrix (internal/docs/backend/verdict-calibration.md): per verdict
     /// path, how many sessions it produced in the window, its share, how often it was overridden
     /// (admin / late completion / other), the 7-day re-enrollment proxy, and a 7d-vs-28d trend.
     /// Platform scope ("global" partition) or one tenant via ?tenantId=. Serves the admin

@@ -77,7 +77,7 @@ namespace AutopilotMonitor.Shared.Models
 
         // ===== EVALUATION LIFECYCLE (evaluateOn interim triggers) =====
         // All nullable: rows written before the feature read as final/terminal legacy results.
-        // See docs/rules/analyze-rule-triggers.md.
+        // See internal/docs/rules/analyze-rule-triggers.md.
 
         /// <summary>
         /// When this finding FIRST fired for the session (stable across interim refreshes and

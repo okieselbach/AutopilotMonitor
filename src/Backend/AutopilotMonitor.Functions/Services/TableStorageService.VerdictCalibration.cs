@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Partial: verdict-calibration daily aggregate persistence (docs/backend/verdict-calibration.md).
+    /// Partial: verdict-calibration daily aggregate persistence (internal/docs/backend/verdict-calibration.md).
     /// VerdictCalibrationAggregates: PK=TenantId ("global" for the cross-tenant row),
     /// RK="{yyyy-MM-dd}" — one row per (tenant, StartedAt date) holding the per-verdict-path
     /// buckets as a JSON column. Recomputed whole (Replace) by the maintenance sweep, 180d

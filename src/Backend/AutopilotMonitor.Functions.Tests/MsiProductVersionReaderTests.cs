@@ -154,7 +154,7 @@ public class MsiProductVersionReaderTests
 
     /// <summary>
     /// Sweeps every <c>ime-files/&lt;version&gt;/IntuneWindowsAgent.msi</c> in the repo checkout
-    /// (gitignored decompile scratch, populated by /ime-decompile) and asserts the reader
+    /// (gitignored local scratch, populated by an operator tool) and asserts the reader
     /// returns exactly the folder's version. Silently passes when the folder is absent (CI)
     /// — the synthetic tests above carry the contract there; this one pins the string-pool
     /// id convention against Microsoft's real packages.

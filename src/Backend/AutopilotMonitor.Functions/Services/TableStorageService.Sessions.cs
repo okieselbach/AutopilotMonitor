@@ -210,7 +210,7 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(adminMarkedAction))
                 indexEntity["AdminMarkedAction"] = adminMarkedAction;
 
-            // Verdict calibration attribution (docs/backend/verdict-calibration.md): the aggregate
+            // Verdict calibration attribution (internal/docs/backend/verdict-calibration.md): the aggregate
             // sweep reads these off the session row, and the index mirror must not drop them on a
             // StartedAt-shift full upsert.
             foreach (var col in new[] { "VerdictPath", "PriorStatus", "PriorVerdictPath" })

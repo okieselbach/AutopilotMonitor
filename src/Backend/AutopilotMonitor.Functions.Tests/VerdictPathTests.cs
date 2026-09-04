@@ -7,7 +7,7 @@ using AutopilotMonitor.Shared.Models;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Verdict calibration instrumentation (docs/backend/verdict-calibration.md): every status write
+/// Verdict calibration instrumentation (internal/docs/backend/verdict-calibration.md): every status write
 /// declares its origin, overriding a prior verdict preserves it, the classifier names the rule
 /// behind each verdict, and pre-instrumentation rows derive an honest path from their literals.
 /// </summary>

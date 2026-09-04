@@ -65,7 +65,7 @@ function Read-Counter {
         $resp = Invoke-WebRequest -Uri $CounterUrl -Method Get -UseBasicParsing
     } catch {
         if ((Get-HttpStatus $_) -eq 404) {
-            throw "Counter blob not found at $CounterUrl. Seed it once with the last used build number: PUT the plain integer with 'x-ms-blob-type: BlockBlob' and 'If-None-Match: *'. See docs/versioning.md."
+            throw "Counter blob not found at $CounterUrl. Seed it once with the last used build number: PUT the plain integer with 'x-ms-blob-type: BlockBlob' and 'If-None-Match: *'. See internal/docs/versioning.md."
         }
         throw
     }

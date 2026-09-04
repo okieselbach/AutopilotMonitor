@@ -27,7 +27,7 @@ public class VerdictCalibrationFinding
 
 /// <summary>
 /// Pure drift detection over one tenant's verdict-calibration daily rows
-/// (docs/backend/verdict-calibration.md) — the same statistics as the rule-regression radar
+/// (internal/docs/backend/verdict-calibration.md) — the same statistics as the rule-regression radar
 /// (7-day window vs the prior 28 days, lift ≥2×, Wilson-separated via
 /// <see cref="MetricsMath.RateIncreaseSeparated"/>, small-n gates) applied to three questions:
 /// <list type="bullet">

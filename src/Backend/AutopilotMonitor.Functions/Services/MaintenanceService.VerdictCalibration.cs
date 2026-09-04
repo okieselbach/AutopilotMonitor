@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
-    /// Partial: verdict-calibration daily aggregates (docs/backend/verdict-calibration.md) — the
+    /// Partial: verdict-calibration daily aggregates (internal/docs/backend/verdict-calibration.md) — the
     /// operator thermometer for the rule classifier: which verdict path produced how many
     /// sessions per day, how many of those were later overridden (admin / late completion /
     /// other), and how many devices re-enrolled within 7 days.

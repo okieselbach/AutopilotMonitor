@@ -7,7 +7,7 @@ using Moq;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// evaluateOn interim-trigger semantics (docs/rules/analyze-rule-triggers.md):
+/// evaluateOn interim-trigger semantics (internal/docs/rules/analyze-rule-triggers.md):
 /// trigger grammar + matching helpers, the engine's interim rule filter, the
 /// RuleResult update/finalize/resolve lifecycle replacing the permanent dedupe
 /// freeze, KO suppression on interim runs, and the ingest-side trigger registry.

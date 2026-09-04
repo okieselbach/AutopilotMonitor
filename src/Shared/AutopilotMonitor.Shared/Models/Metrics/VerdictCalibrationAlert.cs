@@ -2,7 +2,7 @@ using System;
 
 namespace AutopilotMonitor.Shared.Models
 {
-    /// <summary>Kinds of verdict-calibration drift the radar detects (docs/backend/verdict-calibration.md).</summary>
+    /// <summary>Kinds of verdict-calibration drift the radar detects (internal/docs/backend/verdict-calibration.md).</summary>
     public static class VerdictCalibrationAlertKinds
     {
         /// <summary>One verdict path's share of all sessions rose ≥2× over its 28-day baseline (Wilson-separated).</summary>

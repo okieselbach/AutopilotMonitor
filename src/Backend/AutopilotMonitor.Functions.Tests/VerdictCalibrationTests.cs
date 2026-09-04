@@ -9,7 +9,7 @@ using AutopilotMonitor.Shared.Models;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Verdict calibration aggregate (docs/backend/verdict-calibration.md): the pure bucketing core,
+/// Verdict calibration aggregate (internal/docs/backend/verdict-calibration.md): the pure bucketing core,
 /// the persistence round-trip and the matrix arithmetic of the read endpoint.
 /// </summary>
 public class VerdictCalibrationTests

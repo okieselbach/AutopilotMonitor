@@ -403,7 +403,7 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
     });
   }
 
-  // ── evaluateOn (interim evaluation) lints — docs/rules/analyze-rule-triggers.md ──
+  // ── evaluateOn (interim evaluation) lints — internal/docs/rules/analyze-rule-triggers.md ──
   const evaluateOn = (Array.isArray(rule.evaluateOn) ? rule.evaluateOn : []).filter(
     (t): t is string => typeof t === 'string',
   );

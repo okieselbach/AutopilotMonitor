@@ -22,7 +22,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
     /// The Autopilot channel's documented event-ID semantics (100 waiting-for-profile,
     /// 153/160/161/163/164 profile-download flow, 171/172 TPM attestation, 807/809/815/908
     /// ZTD registration/assignment errors) are catalogued with sources in
-    /// docs/agent/autopilot-ztd-diagnostics.md — re-check that doc's sources periodically.
+    /// internal/docs/agent/autopilot-ztd-diagnostics.md — re-check that doc's sources periodically.
     /// The continuous watcher here filters to Level ≤ 3; <see cref="Telemetry.DeviceInfo.ZtdEvidence"/>
     /// runs a targeted all-level one-shot query on the profile-missing path instead.
     /// </summary>
@@ -50,7 +50,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// registration/assignment errors (171/172, 807/809/815/908, all Level 1-2) happen
         /// BEFORE the agent is installed in the normal IME deployment model — a failed
         /// attempt that was resolved by a retry would stay invisible without replaying the
-        /// channel history at startup. See docs/agent/autopilot-ztd-diagnostics.md
+        /// channel history at startup. See internal/docs/agent/autopilot-ztd-diagnostics.md
         /// (Observability section). Fixed 4h lookback: OOBE start → agent install is
         /// normally well under that, and the RecordId watermark below prevents replays
         /// from re-emitting on every agent restart.

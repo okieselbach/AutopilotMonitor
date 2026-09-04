@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the Verdict Calibration matrix (docs/backend/verdict-calibration.md).
+ * Pure helpers for the Verdict Calibration matrix (internal/docs/backend/verdict-calibration.md).
  * Wire shape mirrors GetVerdictCalibrationFunction / VerdictCalibrationResponse (camelCase).
  */
 

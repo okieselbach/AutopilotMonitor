@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.DeviceInfo;
 /// <summary>
 /// Pins the ZTD verdict mapping (autopilot_profile_missing evidence). The event-ID semantics
 /// come from the Microsoft Autopilot troubleshooting FAQ (see
-/// docs/agent/autopilot-ztd-diagnostics.md): error IDs are authoritative and must win over
+/// internal/docs/agent/autopilot-ztd-diagnostics.md): error IDs are authoritative and must win over
 /// the Info-flow reconstruction, and the priority order within the errors is
 /// registration (807) → identity mismatch (908) → deleted (809) → not assigned (815).
 /// </summary>

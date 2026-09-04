@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
     ///     to match the legacy <c>ReanalyzeAfterVulnerabilityEmitAsync</c> behavior (avoids
     ///     double-counting eval rows on already-stat'd rules).</item>
     ///   <item><c>whiteglove_sealed</c> / <c>interim_trigger</c> — evaluateOn-filtered interim
-    ///     runs before the session is terminal (docs/rules/analyze-rule-triggers.md): persist
+    ///     runs before the session is terminal (internal/docs/rules/analyze-rule-triggers.md): persist
     ///     results + resolved rows, SignalR + channel notifications (NotifiedAt-deduped), skip
     ///     platform-stat and rule-fire stats; the engine suppresses the KO escalation.</item>
     /// </list>

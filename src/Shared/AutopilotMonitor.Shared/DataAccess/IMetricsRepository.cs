@@ -148,7 +148,7 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task DeleteDeviceJourneyAggregateAsync(string tenantId, string dateKey);
         Task<int> DeleteDeviceJourneyAggregatesOlderThanAsync(DateTime cutoffDate);
 
-        // --- Verdict calibration (docs/backend/verdict-calibration.md) ---
+        // --- Verdict calibration (internal/docs/backend/verdict-calibration.md) ---
         Task<bool> SaveVerdictCalibrationAggregateAsync(VerdictCalibrationDailyAggregate aggregate);
         /// <summary>Daily verdict-path rows of one tenant partition ("global" allowed), inclusive date range; counts are additive across days.</summary>
         Task<List<VerdictCalibrationDailyAggregate>> GetVerdictCalibrationAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);

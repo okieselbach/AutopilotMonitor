@@ -9,7 +9,7 @@ using AutopilotMonitor.Shared.Models;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Verdict-calibration drift radar (docs/backend/verdict-calibration.md): the three finding
+/// Verdict-calibration drift radar (internal/docs/backend/verdict-calibration.md): the three finding
 /// kinds, the small-n / lift / Wilson gates, re-arm, and the tracker round-trip.
 /// </summary>
 public class VerdictCalibrationRadarTests

@@ -226,7 +226,7 @@ export interface AnalyzeRule {
   provenance?: string;
   /** Rule trigger type: "single" (matches individual events) or "correlation" (combines multiple event types) Both types run at the same time during analysis - this field is organizational/descriptive */
   trigger: string;
-  /** When this rule is evaluated. Null/empty = ["enrollment_end"] — the historical terminal-only behavior. Additional interim triggers let a rule fire before the session is terminal: "whiteglove_sealed" (first genuine whiteglove_complete seal) and "on_event:<eventType>" (an ingest batch contained that event type). Interim runs suppress the KO path and record no stats — see AnalyzeRuleTriggers and docs/rules/analyze-rule-triggers.md. */
+  /** When this rule is evaluated. Null/empty = ["enrollment_end"] — the historical terminal-only behavior. Additional interim triggers let a rule fire before the session is terminal: "whiteglove_sealed" (first genuine whiteglove_complete seal) and "on_event:<eventType>" (an ingest batch contained that event type). Interim runs suppress the KO path and record no stats — see AnalyzeRuleTriggers and internal/docs/rules/analyze-rule-triggers.md. */
   evaluateOn?: string[];
   /** Optional device-fact gates evaluated BEFORE conditions. ALL preconditions must pass; if any fails the rule is silently skipped — no result, no UI card. Used to filter out hardware/OS profiles where a rule does not apply (e.g. "skip on virtual machines"). */
   preconditions: RulePrecondition[];

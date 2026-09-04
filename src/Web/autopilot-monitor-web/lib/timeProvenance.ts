@@ -3,7 +3,7 @@
  * CMTrace-derived events with how their UTC timestamp was produced — the raw local time
  * as written in the log, the applied UTC offset and its origin, the purely observational
  * per-file writer offset, and the clock-fallback markers. All values arrive as STRINGS
- * inside the event data payload (see docs/agent/cmtrace-time-resolution.md).
+ * inside the event data payload (see internal/docs/agent/cmtrace-time-resolution.md).
  *
  * The timeline sorts by sequence — always, never by time (user guardrail). A displayed
  * time that steps BACKWARDS within that order is therefore information, not a rendering

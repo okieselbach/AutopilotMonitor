@@ -71,7 +71,7 @@ builder.Services
 // 2026-08-23: solved differently — RequestTelemetryMiddleware sets SamplingPercentage=100 on its
 // own item (per-item sampling bypass), and the host duplicate is removed by a workspace DCR
 // transformation on AppRequests (keeps rows with Properties.Source=='WorkerMiddleware' plus
-// non-HTTP host rows with empty Url, i.e. timer/queue invocations). See docs/backend/telemetry-ingest-shaping.md.
+// non-HTTP host rows with empty Url, i.e. timer/queue invocations). See internal/docs/backend/telemetry-ingest-shaping.md.
 
 // Drop successful Azure Storage dependencies (Table/Queue/Blob) from the worker telemetry
 // pipeline to curb AppDependencies ingestion cost — this backend is storage-I/O heavy and those
@@ -267,7 +267,7 @@ builder.Services.AddSingleton<BackendBuildInfo>();
 builder.Services.AddSingleton<GatherRuleService>();
 builder.Services.AddSingleton<AnalyzeRuleService>();
 // Cached per-tenant evaluateOn trigger sets for the ingest-side interim analyze enqueue
-// (docs/rules/analyze-rule-triggers.md). Singleton so the 5-min TTL cache is shared.
+// (internal/docs/rules/analyze-rule-triggers.md). Singleton so the 5-min TTL cache is shared.
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Analyze.InterimTriggerRegistry>();
 builder.Services.AddSingleton<ImeLogPatternService>();
 builder.Services.AddHttpClient<GitHubRuleRepository>()

@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
     /// <para>
     /// <b>Fault tolerance:</b> queue-side exceptions are logged but never rethrown — the
     /// caller is the ingest path's fire-and-forget continuation. A missed enqueue means the
-    /// version's installer is not auto-archived; the /ime-decompile skill's blob backfill
+    /// version's installer is not auto-archived; the operator-side blob backfill
     /// is the manual fallback.
     /// </para>
     /// </summary>
@@ -72,7 +72,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
             {
                 // Fail-soft — ingest continuation. Skill-side blob backfill is the fallback.
                 _logger.LogWarning(ex,
-                    "ImeMsiArchive enqueue failed (version={Version}) — /ime-decompile blob backfill is the fallback",
+                    "ImeMsiArchive enqueue failed (version={Version}) — operator-side blob backfill is the fallback",
                     envelope.Version);
             }
         }

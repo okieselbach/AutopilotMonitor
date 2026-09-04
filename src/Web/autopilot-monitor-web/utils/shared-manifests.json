@@ -1484,7 +1484,7 @@
             }
           },
           "optional": true,
-          "doc": "When this rule is evaluated. Null/empty = [\"enrollment_end\"] — the historical terminal-only behavior. Additional interim triggers let a rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine whiteglove_complete seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). Interim runs suppress the KO path and record no stats — see AnalyzeRuleTriggers and docs/rules/analyze-rule-triggers.md."
+          "doc": "When this rule is evaluated. Null/empty = [\"enrollment_end\"] — the historical terminal-only behavior. Additional interim triggers let a rule fire before the session is terminal: \"whiteglove_sealed\" (first genuine whiteglove_complete seal) and \"on_event:<eventType>\" (an ingest batch contained that event type). Interim runs suppress the KO path and record no stats — see AnalyzeRuleTriggers and internal/docs/rules/analyze-rule-triggers.md."
         },
         {
           "name": "preconditions",

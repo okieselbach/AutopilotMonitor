@@ -737,7 +737,7 @@ namespace AutopilotMonitor.Functions.Services
                 });
 
         /// <summary>
-        /// Verdict-calibration drift radar (docs/backend/verdict-calibration.md): a verdict
+        /// Verdict-calibration drift radar (internal/docs/backend/verdict-calibration.md): a verdict
         /// path's share of sessions doubled over its 28d baseline, the silence share
         /// (sweep+maxlife — agent went quiet, backend had to decide) doubled, or the pure
         /// fallthrough rule r6 decides ≥20 % of classifier verdicts. Operator-only diagnostic —
@@ -867,7 +867,7 @@ namespace AutopilotMonitor.Functions.Services
         /// The CMTrace time-skew tripwire fired: a terminal session's IME-derived event
         /// timestamps diverge from its other events by a clean 15-minute-grid multiple —
         /// the signature of a timezone mis-conversion the per-line self-anchoring
-        /// (docs/agent/cmtrace-time-resolution.md) failed to catch. Goal state: this event
+        /// (internal/docs/agent/cmtrace-time-resolution.md) failed to catch. Goal state: this event
         /// NEVER fires; any occurrence is a real anchoring regression or a detector bug,
         /// both actionable. Emitted by <see cref="EventIngestProcessor"/> once per session
         /// (gated on the terminal status transition). The message carries the full numbers

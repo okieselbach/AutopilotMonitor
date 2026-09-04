@@ -17,7 +17,7 @@ namespace AutopilotMonitor.Functions.Services.Analyze
     /// (no interim enqueue — behavior degrades to the terminal-only baseline, never throws
     /// into the ingest path). The engine re-checks rule scope anyway, so registry staleness
     /// can only cost a wasted (cheap, rule-less) queue round-trip, never a wrong evaluation.
-    /// See docs/rules/analyze-rule-triggers.md.
+    /// See internal/docs/rules/analyze-rule-triggers.md.
     /// </summary>
     public class InterimTriggerRegistry
     {

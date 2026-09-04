@@ -201,7 +201,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
         /// (<c>msiMatchedBy=productVersion</c>, allowlisted), the version is not archived (and
         /// not permanently rejected as a bad version string), and the last archive activity is
         /// older than <see cref="RequeueBackoff"/> — or there never was any (versions sighted
-        /// before the archiver existed, or archived by hand via the /ime-decompile skill; the
+        /// before the archiver existed, or archived by hand by an operator; the
         /// 409 path then heals the row to Archived).
         /// </summary>
         public static bool ShouldRequeueOnSighting(

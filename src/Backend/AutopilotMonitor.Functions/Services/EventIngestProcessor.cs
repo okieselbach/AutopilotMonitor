@@ -554,8 +554,8 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         /// <summary>
         /// Fire-and-forget enqueue of the installer-archive job for an IME version; the
-        /// producer is fail-soft (a lost message means "not auto-archived", the /ime-decompile
-        /// skill's blob backfill is the manual fallback).
+        /// producer is fail-soft (a lost message means "not auto-archived", the operator-side
+        /// blob backfill is the manual fallback).
         /// </summary>
         private Task EnqueueImeMsiArchiveAsync(
             string imeVersion, string? msiDownloadUrl, string? msiMatchedBy, IngestEventsRequest request)

@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Daily verdict-calibration rollup for one (tenant, date) — the operator's thermometer for the
-    /// rule classifier (docs/backend/verdict-calibration.md). A session buckets on its StartedAt
+    /// rule classifier (internal/docs/backend/verdict-calibration.md). A session buckets on its StartedAt
     /// date (same convention as every other daily aggregate; the rolling sweep re-buckets
     /// late-terminating sessions idempotently). Every status is counted — non-terminal rows are
     /// part of the picture (a growing Stalled share is a signal) — and

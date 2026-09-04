@@ -422,7 +422,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             };
         }
 
-        // ===== VERDICT CALIBRATION DRIFT (docs/backend/verdict-calibration.md) =====
+        // ===== VERDICT CALIBRATION DRIFT (internal/docs/backend/verdict-calibration.md) =====
 
         internal const string VerdictCalibrationRowKeyPrefix = "verdictcalibration|";
 

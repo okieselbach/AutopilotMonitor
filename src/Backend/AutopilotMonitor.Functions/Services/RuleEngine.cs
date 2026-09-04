@@ -38,7 +38,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Evaluates analyze rules against the full session event stream under an explicit run
-        /// context (see <see cref="AnalyzeRunContext"/> and docs/rules/analyze-rule-triggers.md).
+        /// context (see <see cref="AnalyzeRunContext"/> and internal/docs/rules/analyze-rule-triggers.md).
         /// <para>
         /// <b>Rule scope:</b> Terminal/Reanalyze runs evaluate every active rule; Interim runs
         /// evaluate only rules whose <c>evaluateOn</c> matches the run's trigger.
@@ -443,7 +443,7 @@ namespace AutopilotMonitor.Functions.Services
 
     /// <summary>
     /// Run context for <see cref="RuleEngine.AnalyzeSessionAsync(string, string, AnalyzeRunContext)"/>.
-    /// Built from the queue envelope's Reason (see docs/rules/analyze-rule-triggers.md).
+    /// Built from the queue envelope's Reason (see internal/docs/rules/analyze-rule-triggers.md).
     /// </summary>
     public sealed class AnalyzeRunContext
     {

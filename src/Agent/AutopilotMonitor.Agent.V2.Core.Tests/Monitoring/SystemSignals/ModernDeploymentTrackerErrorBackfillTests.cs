@@ -13,7 +13,7 @@ using Xunit;
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
 {
     /// <summary>
-    /// Autopilot-channel error backfill (docs/agent/autopilot-ztd-diagnostics.md,
+    /// Autopilot-channel error backfill (internal/docs/agent/autopilot-ztd-diagnostics.md,
     /// Observability section): TPM/ZTD errors precede the agent's IME install, so a
     /// retry-then-success attempt leaves them in the event log with nobody watching.
     /// The backfill replays them as backfilled=true modern_deployment_error events; the
