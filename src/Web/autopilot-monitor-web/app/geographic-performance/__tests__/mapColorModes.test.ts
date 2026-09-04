@@ -5,7 +5,10 @@ import {
   MAP_COLOR_MODES,
   MAP_COLOR_MODE_BY_ID,
   MAP_LEGEND_NOTE,
+  NO_BUCKET_FILTER,
+  bucketFilterAllows,
   isMapColorModeId,
+  toggleBucketFilter,
 } from "../mapColorModes";
 
 // Typed against the wire types: a manifest regen that renames a field fails tsc here, not at runtime.
@@ -241,5 +244,41 @@ describe("badge class parity", () => {
         ],
       }
     `);
+  });
+});
+
+describe("bucket filter", () => {
+  const { buckets } = MAP_COLOR_MODE_BY_ID.latency;
+
+  it("empty filter allows every bucket", () => {
+    for (const b of buckets) expect(bucketFilterAllows(NO_BUCKET_FILTER, b)).toBe(true);
+  });
+
+  it("toggling in narrows to exactly the selected buckets", () => {
+    const one = toggleBucketFilter(NO_BUCKET_FILTER, buckets[0]);
+    expect(bucketFilterAllows(one, buckets[0])).toBe(true);
+    expect(bucketFilterAllows(one, buckets[1])).toBe(false);
+
+    const two = toggleBucketFilter(one, buckets[3]);
+    expect([...buckets].map((b) => bucketFilterAllows(two, b))).toEqual([true, false, false, true, false]);
+  });
+
+  it("toggling the last selected bucket out returns to show-all", () => {
+    const one = toggleBucketFilter(NO_BUCKET_FILTER, buckets[2]);
+    const none = toggleBucketFilter(one, buckets[2]);
+    expect(none.size).toBe(0);
+    for (const b of buckets) expect(bucketFilterAllows(none, b)).toBe(true);
+  });
+
+  it("does not mutate the input set", () => {
+    const one = toggleBucketFilter(NO_BUCKET_FILTER, buckets[0]);
+    toggleBucketFilter(one, buckets[1]);
+    expect(NO_BUCKET_FILTER.size).toBe(0);
+    expect(one.size).toBe(1);
+  });
+
+  it("matches buckets by identity, so another mode's bucket is never allowed", () => {
+    const one = toggleBucketFilter(NO_BUCKET_FILTER, buckets[0]);
+    expect(bucketFilterAllows(one, MAP_COLOR_MODE_BY_ID.success.buckets[0])).toBe(false);
   });
 });

@@ -185,4 +185,30 @@ export function isMapColorModeId(value: string): value is MapColorModeId {
   return Object.prototype.hasOwnProperty.call(MAP_COLOR_MODE_BY_ID, value);
 }
 
-export const MAP_LEGEND_NOTE = "Marker size = sessions in range · Blue ring = selected location";
+export const MAP_LEGEND_NOTE =
+  "Marker size = sessions in range · Blue ring = selected location · Click a bucket to filter";
+
+// ---- Legend filter --------------------------------------------------------------------------
+
+/**
+ * Which buckets the map currently shows. Empty = no filter, every marker is drawn. Buckets are
+ * compared by identity, so a set built from one mode's buckets never matches another mode's;
+ * the page resets the filter on a mode switch rather than relying on that.
+ */
+export type BucketFilter = ReadonlySet<ColorBucket>;
+
+export const NO_BUCKET_FILTER: BucketFilter = new Set();
+
+/** Toggle one bucket. Removing the last selected bucket returns to "show all" (empty set). */
+export function toggleBucketFilter(filter: BucketFilter, bucket: ColorBucket): BucketFilter {
+  const next = new Set(filter);
+  if (next.has(bucket)) next.delete(bucket);
+  else next.add(bucket);
+  return next.size === 0 ? NO_BUCKET_FILTER : next;
+}
+
+/** Legend dimming and marker visibility both go through here so they cannot disagree. */
+export function bucketFilterAllows(filter: BucketFilter, bucket: ColorBucket): boolean {
+  return filter.size === 0 || filter.has(bucket);
+}
+

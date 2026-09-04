@@ -22,7 +22,9 @@ import {
   DEFAULT_MAP_COLOR_MODE,
   MAP_COLOR_MODES,
   MAP_COLOR_MODE_BY_ID,
+  NO_BUCKET_FILTER,
   isMapColorModeId,
+  type BucketFilter,
   type MapColorModeId,
 } from "./mapColorModes";
 import { MapLegend } from "./MapLegend";
@@ -65,6 +67,8 @@ export default function GeographicPerformancePage() {
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [colorModeId, setColorModeId] = useState<MapColorModeId>(DEFAULT_MAP_COLOR_MODE);
   const colorMode = MAP_COLOR_MODE_BY_ID[colorModeId];
+  // Legend selection; buckets belong to a mode, so a mode switch resets it (see the select).
+  const [bucketFilter, setBucketFilter] = useState<BucketFilter>(NO_BUCKET_FILTER);
 
   const isTimeRangeMount = useRef(true);
 
@@ -290,7 +294,9 @@ export default function GeographicPerformancePage() {
                   <select
                     value={colorModeId}
                     onChange={(e) => {
-                      if (isMapColorModeId(e.target.value)) setColorModeId(e.target.value);
+                      if (!isMapColorModeId(e.target.value)) return;
+                      setColorModeId(e.target.value);
+                      setBucketFilter(NO_BUCKET_FILTER);
                     }}
                     className="border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   >
@@ -305,12 +311,13 @@ export default function GeographicPerformancePage() {
                   locations={geoMetrics.locations}
                   globalAverages={geoMetrics.globalAverages}
                   colorMode={colorMode}
+                  bucketFilter={bucketFilter}
                   selectedLocation={selectedLocation}
                   onLocationSelect={setSelectedLocation}
                 />
               </div>
               <div className="px-4 pb-3">
-                <MapLegend mode={colorMode} />
+                <MapLegend mode={colorMode} filter={bucketFilter} onFilterChange={setBucketFilter} />
               </div>
             </div>
           )}

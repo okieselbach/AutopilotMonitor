@@ -5,13 +5,15 @@ import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-le
 import "leaflet/dist/leaflet.css";
 import { formatThroughput } from "@/lib/formatting";
 import type { GlobalAverages, LocationMetrics } from "@/utils/wire-types.generated";
-import type { MapColorMode } from "./mapColorModes";
+import { bucketFilterAllows, type BucketFilter, type MapColorMode } from "./mapColorModes";
 
 interface GeoMapProps {
   locations: LocationMetrics[];
   globalAverages: GlobalAverages;
   /** Module-level object from MAP_COLOR_MODE_BY_ID; identity-stable across renders. */
   colorMode: MapColorMode;
+  /** Legend selection; empty = every marker. Only marker rendering honours it (see below). */
+  bucketFilter: BucketFilter;
   selectedLocation: string | null;
   onLocationSelect: (key: string | null) => void;
 }
@@ -53,7 +55,14 @@ function FitBounds({ locations }: { locations: { coords: [number, number] }[] })
   return null;
 }
 
-export default function GeoMap({ locations, globalAverages, colorMode, selectedLocation, onLocationSelect }: GeoMapProps) {
+export default function GeoMap({
+  locations,
+  globalAverages,
+  colorMode,
+  bucketFilter,
+  selectedLocation,
+  onLocationSelect,
+}: GeoMapProps) {
   // Memoize so the derived array keeps a stable identity across re-renders. FitBounds' effect
   // depends on this list; a fresh array every render would re-run it (and re-fire the camera
   // move) on every parent re-render, not just when the location data actually changes.
@@ -76,6 +85,9 @@ export default function GeoMap({ locations, globalAverages, colorMode, selectedL
     );
   }
 
+  // FitBounds and the radius scale stay on the full list on purpose: toggling a legend bucket
+  // must not move the camera or resize the remaining markers, otherwise the filter reads as a
+  // different map instead of the same map with some markers hidden.
   const maxSessions = Math.max(...mappableLocations.map((l) => l.sessionCount));
 
   return (
@@ -93,6 +105,7 @@ export default function GeoMap({ locations, globalAverages, colorMode, selectedL
       {mappableLocations.map((loc) => {
         const isSelected = selectedLocation === loc.locationKey;
         const bucket = colorMode.resolve(loc, globalAverages);
+        if (!bucketFilterAllows(bucketFilter, bucket)) return null;
         return (
           <CircleMarker
             key={loc.locationKey}
