@@ -114,12 +114,6 @@ tmpclaude-*-cwd
 # Claude skills and scripts are now in a private submodule (.claude/commands/)
 # No individual file ignores needed — the submodule handles everything
 
-# Deployment scripts (local only — contain tokens + SAS URLs)
-scripts/Deployment/
-
-# Migration tooling (local only, vorerst) — cross-tenant storage/cert migration scripts
-scripts/Migration/
-
 # Infra: tracked. The Bicep templates carry no credentials — every secret is a
 # @secure() parameter with an empty default, injected at deploy time, and image
 # pull runs on managed identity. Keep it that way: never commit a resolved secret
@@ -136,17 +130,11 @@ tools/orphan-analysis.py
 tools/export-session-fixture.mjs
 
 # Azure Table cleanup backups (dry-run exports + delete manifests)
-# Produced by /cleanup-table skill — never commit deletion payloads
+# Produced by operator tooling — never commit deletion payloads
 db-backups/
 plans/REFACTOR_AGENT_V2.md
 .claude/scheduled_tasks.lock
 .claude/plans/health-script-remediation-fix.md
-
-# Operator-local Azure setup helper — applies lifecycle policy + container
-# creation against a live storage account. Not portable across environments
-# (storage account name, resource group are operator-specific) so it stays
-# out of the repo. Each operator keeps their own copy.
-scripts/Backup/setup-backup-container.ps1
 internal/docs/Introduction-AutopilotMonitor.pptx
 internal/docs/~$Introduction-AutopilotMonitor.pptx
 

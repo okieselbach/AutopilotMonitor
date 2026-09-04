@@ -19,7 +19,7 @@ Codex reviews your output once you are done.
 | Working files | `internal/work/` | See the next section. |
 | Agent review criteria | `internal/docs/agent/architecture-principles.md` | Check every agent change against it. |
 | Private operator instructions | `internal/CLAUDE.md` | Imported at the end of this file. Absent for contributors without submodule access; nothing in it may be copied into this public repo. |
-| Infrastructure | `infra/` — private submodule | |
+| Infrastructure and operator scripts | `infra/` — private submodule | Bicep plus deploy/backup/migration scripts. Scripts never carry credentials; secrets come from env or a gitignored file next to the script. |
 | Skills | `.claude/commands/` — private submodule | |
 | Claude auto-memory | outside the repo, per machine | Private notes only. Anything the project must keep goes into `internal/`. |
 
