@@ -242,6 +242,26 @@ public class PolicyEnforcementMiddlewareTests
         Assert.Null(reader.CorrelationId);
     }
 
+    [Fact]
+    public async Task BuildPrivilegedDenial_strips_control_characters_from_method_and_decoded_path()
+    {
+        var h = BuildHarness();
+        var principal = AuthedPrincipal(TenantA, "admin@contoso.com");
+        var r = await h.Middleware.DecideAsync("POST", "/api/global/raw/logs", null, principal);
+
+        // A percent-decoded path or a hand-crafted method can carry CR/LF; the record feeds log lines,
+        // the ops-events table and alert channels, so the barrier sits in the projection.
+        var d = PolicyEnforcementMiddleware.BuildPrivilegedDenial(
+            r, "PO\r\nST", "/api/global/raw/logs\r\nforged: line" + new string('x', 400), principal, globalRole: null,
+            clientSource: null, mcpToolName: null, correlationId: null);
+
+        Assert.Equal("POST", d.Method);
+        Assert.DoesNotContain('\n', d.Path);
+        Assert.DoesNotContain('\r', d.Path);
+        Assert.StartsWith("/api/global/raw/logsforged: line", d.Path);
+        Assert.Equal(256, d.Path.Length);
+    }
+
     private static ClaimsPrincipal AuthedPrincipal(string tenantId, string upn, string objectId = TestOid)
         => new(new ClaimsIdentity(new[] { new Claim("tid", tenantId), new Claim("upn", upn), new Claim("oid", objectId) }, "TestAuth"));
 

@@ -132,10 +132,10 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     private static string? DenialHeader(HttpContext httpContext, string name)
     {
         var raw = LogSanitizer.Clean(httpContext.Request.Headers[name].FirstOrDefault());
-        if (string.IsNullOrEmpty(raw))
-            return null;
-        return raw.Length <= MaxDenialHeaderLength ? raw : raw[..MaxDenialHeaderLength];
+        return string.IsNullOrEmpty(raw) ? null : Truncate(raw, MaxDenialHeaderLength);
     }
+
+    private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 
     /// <summary>
     /// ASSUME-BREACH layer for the Global-Admin-only surface. A 403 on a <c>GlobalAdminOnly</c> route by
@@ -171,13 +171,21 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             && result.Policy == EndpointPolicy.GlobalAdminOnly
             && result.StatusCode == (int)HttpStatusCode.Forbidden;
 
-    /// <summary>Pure projection of a denial into the record the reporter writes; separated so tests can pin it without an HttpContext.</summary>
+    /// <summary>Longest request path kept in a denial record; the route catalog has nothing longer.</summary>
+    private const int MaxDenialPathLength = 256;
+
+    /// <summary>
+    /// Pure projection of a denial into the record the reporter writes; separated so tests can pin it
+    /// without an HttpContext. Method and path are caller-controlled too (the path is percent-DECODED,
+    /// so %0A arrives as a newline) and the record's text reaches log lines, the ops-events table and
+    /// the alert channels — sanitized and capped here, once, before any of that.
+    /// </summary>
     internal static PrivilegedDenial BuildPrivilegedDenial(
         PolicyResult result, string httpMethod, string requestPath, ClaimsPrincipal principal, string? globalRole,
         string? clientSource, string? mcpToolName, string? correlationId)
         => new(
-            Method: httpMethod,
-            Path: requestPath,
+            Method: LogSanitizer.Clean(httpMethod) ?? string.Empty,
+            Path: Truncate(LogSanitizer.Clean(requestPath) ?? string.Empty, MaxDenialPathLength),
             StatusCode: result.StatusCode,
             Reason: result.LogReason,
             Policy: result.Policy?.ToString() ?? string.Empty,
