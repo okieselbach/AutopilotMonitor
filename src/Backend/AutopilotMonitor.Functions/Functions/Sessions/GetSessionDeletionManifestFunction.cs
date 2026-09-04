@@ -11,6 +11,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -81,36 +82,18 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Azure.RequestFailedException rfe) when (rfe.Status == 404)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = $"Manifest blob not found for tenant={tenantId} session={sessionId} manifestId={manifestId}.",
-                });
-                return notFound;
+                return await req.NotFoundAsync($"Manifest blob not found for tenant={tenantId} session={sessionId} manifestId={manifestId}.");
             }
             catch (InvalidDataException ex)
             {
                 _logger.LogError(ex,
                     "GetSessionDeletionManifest: snapshot integrity failure for tenant={TenantId} session={SessionId} manifestId={ManifestId}",
                     tenantId, sessionId, manifestId);
-                var corrupt = req.CreateResponse(HttpStatusCode.Conflict);
-                await corrupt.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Snapshot SHA-256 mismatch — the manifest blob has been tampered with or the producer crashed.",
-                    error = ex.Message,
-                });
-                return corrupt;
+                return await req.ErrorAsync(HttpStatusCode.Conflict, Constants.ApiErrorCodes.Conflict, "Snapshot SHA-256 mismatch — the manifest blob has been tampered with or the producer crashed.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "GetSessionDeletionManifest: unexpected error for tenant={TenantId} session={SessionId} manifestId={ManifestId}",
-                    tenantId, sessionId, manifestId);
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionDeletionManifest");
             }
 
             // Progress blob — best-effort. A Preparing-phase manifest may exist without a progress
@@ -146,9 +129,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
         private static async Task<HttpResponseData> BadRequest(HttpRequestData req, string message)
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { success = false, message });
-            return bad;
+            return await req.BadRequestAsync(message);
         }
 
         private static async Task<HttpResponseData> BuildSummaryResponse(

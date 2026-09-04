@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -38,11 +39,9 @@ public class QuickSearchSessionsFunction
             var rateLimitResult = _rateLimitService.CheckRateLimit(rateLimitKey, 30);
             if (!rateLimitResult.IsAllowed)
             {
-                var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
-                if (rateLimitResult.RetryAfter.HasValue)
-                    tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                await tooMany.WriteAsJsonAsync(new { success = false, message = "Rate limit exceeded. Try again later." });
-                return tooMany;
+                return await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
+                    "Rate limit exceeded. Try again later.",
+                    retryAfterSeconds: rateLimitResult.RetryAfter is { } retryAfter ? (int)retryAfter.TotalSeconds : null);
             }
 
             var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);

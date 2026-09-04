@@ -38,9 +38,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             }
             catch (UnauthorizedAccessException)
             {
-                var err = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await err.WriteAsJsonAsync(new { error = "Unauthorized" });
-                return err;
+                return await req.UnauthorizedAsync("Unauthorized");
             }
             catch (Exception ex)
             {
@@ -84,9 +82,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var pagination = QueryRawEventsPagination.ParsePagination(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             // Date window: an unparsable value is an error, not a silently dropped filter —
@@ -94,9 +90,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             if (!QueryRawEventsPagination.TryParseUtc(startedAfter, out var afterUtc)
                 || !QueryRawEventsPagination.TryParseUtc(startedBefore, out var beforeUtc))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = "startedAfter/startedBefore must be ISO 8601 datetimes" });
-                return bad;
+                return await req.BadRequestAsync("startedAfter/startedBefore must be ISO 8601 datetimes");
             }
 
             var callerTenantId = TenantHelper.GetTenantId(req);
@@ -117,9 +111,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 }
                 if (string.IsNullOrEmpty(tenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = "tenantId is required when querying by sessionId (or the session was not found)" });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId is required when querying by sessionId (or the session was not found)");
                 }
 
                 string? singleAzureToken = null;
@@ -131,12 +123,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                             out singleAzureToken, out var rejectReason))
                     {
                         _logger.LogWarning("QueryRawEvents: single-session continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            error = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -175,9 +162,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
             if (string.IsNullOrEmpty(eventType))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = "Either sessionId or eventType is required for raw event queries" });
-                return bad;
+                return await req.BadRequestAsync("Either sessionId or eventType is required for raw event queries");
             }
 
             // Cross-session path — budgeted EventTypeIndex walk (see RawEventsScan): index rows
@@ -193,12 +178,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                         out azureToken, out var rejectReason))
                 {
                     _logger.LogWarning("QueryRawEvents: continuation rejected ({Reason})", rejectReason);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        error = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                 }
             }
 

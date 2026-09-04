@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -140,9 +141,8 @@ public class EmailTemplatesFunction
 
         if (!sent)
         {
-            var failed = req.CreateResponse(HttpStatusCode.BadGateway);
-            await failed.WriteAsJsonAsync(new { error = "The email provider did not accept the message. Check the backend log for the provider response.", sentTo = toEmail });
-            return failed;
+            return await req.ErrorAsync(HttpStatusCode.BadGateway, Constants.ApiErrorCodes.UpstreamError,
+                "The email provider did not accept the message. Check the backend log for the provider response.");
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);
@@ -152,9 +152,7 @@ public class EmailTemplatesFunction
 
     private static async Task<HttpResponseData> BadRequest(HttpRequestData req, string error)
     {
-        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-        await bad.WriteAsJsonAsync(new { error });
-        return bad;
+        return await req.BadRequestAsync(error);
     }
 }
 

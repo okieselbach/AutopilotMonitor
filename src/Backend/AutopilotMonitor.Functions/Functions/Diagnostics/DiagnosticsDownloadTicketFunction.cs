@@ -49,9 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
 
                 if (string.IsNullOrEmpty(tenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "tenantId query parameter is required." });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId query parameter is required.");
                 }
 
                 // blobName accepted from body (preferred) or ?blobName= query (fallback).
@@ -68,9 +66,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
 
                 if (string.IsNullOrEmpty(blobName))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "blobName is required." });
-                    return bad;
+                    return await req.BadRequestAsync("blobName is required.");
                 }
 
                 // Reject malformed / cross-tenant blob names before minting (defence-in-depth on
@@ -81,9 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                     _logger.LogWarning(
                         "DiagnosticsDownloadTicket: rejecting blob {Blob} for tenant {TenantId}: {Reason}",
                         blobName, tenantId, classifyErr);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                    return bad;
+                    return await req.BadRequestAsync("Invalid blob name.");
                 }
 
                 var destinationLabel = destination == DiagnosticsDownloadFunction.BlobDestination.Hosted
@@ -118,10 +112,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error minting diagnostics download ticket");
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "DiagnosticsDownloadTicket");
             }
         }
 

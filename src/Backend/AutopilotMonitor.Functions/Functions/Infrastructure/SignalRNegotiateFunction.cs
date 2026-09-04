@@ -2,6 +2,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -46,9 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             if (!isAuthenticated)
             {
                 _logger.LogWarning("Unauthenticated SignalR negotiate attempt");
-                var unauthorizedResponse = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorizedResponse.WriteAsJsonAsync(new { success = false, message = "Authentication required" });
-                return unauthorizedResponse;
+                return await req.UnauthorizedAsync("Authentication required");
             }
 
             // Negotiate via the Management SDK (not the SignalRConnectionInfoInput binding) so the
@@ -61,9 +60,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             var negotiation = await _signalRService.NegotiateClientAsync(userEmail.ToLowerInvariant());
             if (negotiation == null)
             {
-                var unavailable = req.CreateResponse(HttpStatusCode.ServiceUnavailable);
-                await unavailable.WriteAsJsonAsync(new { success = false, message = "SignalR negotiation unavailable" });
-                return unavailable;
+                return await req.ErrorAsync(HttpStatusCode.ServiceUnavailable, Constants.ApiErrorCodes.ServiceUnavailable, "SignalR negotiation unavailable");
             }
 
             _logger.LogInformation($"SignalR connection negotiated for user: {userEmail}");

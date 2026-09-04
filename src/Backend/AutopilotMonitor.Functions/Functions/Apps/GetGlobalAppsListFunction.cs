@@ -37,9 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var scopedTenantId = query["tenantId"];
                 if (!AppsAnalyticsHelper.IsValidOptionalTenantIdQueryParam(scopedTenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a valid GUID" });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId must be a valid GUID");
                 }
                 int days = 30;
                 if (int.TryParse(query["days"], out var parsedDays) && parsedDays > 0 && parsedDays <= 365)
@@ -52,9 +50,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var paging = AppsAnalyticsHelper.ParseAppsPaging(query);
                 if (paging.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = paging.Error });
-                    return bad;
+                    return await req.BadRequestAsync(paging.Error);
                 }
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, scopedTenantId, days);
@@ -70,16 +66,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             catch (UnauthorizedAccessException ex)
             {
                 _logger.LogWarning(ex, "Unauthorized global/apps/list request");
-                var unauth = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauth.WriteAsJsonAsync(new { success = false, message = "Unauthorized" });
-                return unauth;
+                return await req.UnauthorizedAsync("Unauthorized");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching global apps list");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalAppsList");
             }
         }
     }

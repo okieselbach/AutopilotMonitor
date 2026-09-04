@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -66,10 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting latest versions");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetLatestVersions");
             }
         }
     }

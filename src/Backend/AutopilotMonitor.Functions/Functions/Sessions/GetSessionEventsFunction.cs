@@ -32,9 +32,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             if (string.IsNullOrEmpty(sessionId))
             {
-                var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequestResponse.WriteAsJsonAsync(new { success = false, message = "SessionId is required" });
-                return badRequestResponse;
+                return await req.BadRequestAsync("SessionId is required");
             }
 
             var sessionPrefix = $"[Session: {sessionId.Substring(0, Math.Min(8, sessionId.Length))}]";
@@ -42,9 +40,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             var pagination = SessionEventsPagination.ParseQuery(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             _logger.LogInformation(
@@ -165,13 +161,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                         _logger.LogWarning(
                             "{Prefix} GetSessionEvents: continuation rejected ({Reason})",
                             sessionPrefix, reason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({reason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({reason}). Restart pagination from the first page.");
                     }
                 }
 

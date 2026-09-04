@@ -47,18 +47,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576) // 1 MB limit
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Request body too large");
                 }
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var config = JsonConvert.DeserializeObject<AdminConfiguration>(requestBody);
 
                 if (config == null)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = "Invalid configuration" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid configuration");
                 }
 
                 // Rate limits must be positive: a zero/negative value would throttle every request
@@ -70,9 +66,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     null;
                 if (rateLimitError != null)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = $"{rateLimitError} must be at least 1 request per minute." });
-                    return badRequest;
+                    return await req.BadRequestAsync($"{rateLimitError} must be at least 1 request per minute.");
                 }
 
                 // Set the actual user identifier for audit logging
@@ -98,9 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var channelsError = TenantConfigValidation.ValidateNotificationChannels(config.OpsNotificationChannelsJson);
                 if (channelsError != null)
                 {
-                    var badChannels = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badChannels.WriteAsJsonAsync(new { success = false, message = $"Invalid ops notification channels: {channelsError}" });
-                    return badChannels;
+                    return await req.BadRequestAsync($"Invalid ops notification channels: {channelsError}");
                 }
 
                 var changes = ConfigDiffHelper.GetChanges(existingConfig, config);
@@ -128,10 +120,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating admin configuration");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "UpdateAdminConfiguration");
             }
         }
     }

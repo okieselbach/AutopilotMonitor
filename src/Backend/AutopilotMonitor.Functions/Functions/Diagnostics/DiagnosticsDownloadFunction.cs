@@ -2,6 +2,7 @@ using System.Net;
 using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Diagnostics;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -53,9 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
 
                 if (string.IsNullOrEmpty(query["tenantId"]) || string.IsNullOrEmpty(rawBlobName))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "tenantId and blobName query parameters are required." });
-                    return badRequest;
+                    return await req.BadRequestAsync("tenantId and blobName query parameters are required.");
                 }
 
                 return await _streamer.ProxyDownloadAsync(
@@ -68,34 +67,21 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             }
             catch (ArgumentException)
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                return badRequest;
+                return await req.BadRequestAsync("Invalid blob name.");
             }
             catch (Azure.RequestFailedException ex) when (ex.Status == 404)
             {
                 _logger.LogWarning("DiagnosticsDownload: Blob not found for requested download");
-                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFoundResponse.WriteAsJsonAsync(new { success = false, message = "Diagnostics package not found." });
-                return notFoundResponse;
+                return await req.NotFoundAsync("Diagnostics package not found.");
             }
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("DiagnosticsDownload: Operation timed out or was cancelled for requested blob download");
-                var timeoutResponse = req.CreateResponse(HttpStatusCode.GatewayTimeout);
-                await timeoutResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Diagnostics download timed out. The file may be too large or the connection is too slow."
-                });
-                return timeoutResponse;
+                return await req.ErrorAsync(HttpStatusCode.GatewayTimeout, Constants.ApiErrorCodes.UpstreamTimeout, "Diagnostics download timed out. The file may be too large or the connection is too slow.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error proxying diagnostics download");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "DiagnosticsDownload");
             }
         }
 

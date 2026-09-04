@@ -147,25 +147,19 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576)
                 {
-                    var tooLarge = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await tooLarge.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return tooLarge;
+                    return await req.BadRequestAsync("Request body too large");
                 }
 
                 var body = await req.ReadFromJsonAsync<FeedbackRequest>();
                 if (body == null)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid request body" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid request body");
                 }
 
                 // Validate rating
                 if (!body.Dismissed && (body.Rating < 1 || body.Rating > 5))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Rating must be between 1 and 5" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Rating must be between 1 and 5");
                 }
 
                 // Trim comment. Aligned with the offboarding-feedback endpoint at 4096 chars
@@ -205,10 +199,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error submitting feedback");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "Feedback");
             }
         }
 
@@ -241,10 +232,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching all feedback");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "Feedback");
             }
         }
 

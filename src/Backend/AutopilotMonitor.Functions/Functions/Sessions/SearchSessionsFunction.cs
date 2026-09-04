@@ -61,9 +61,7 @@ public class SearchSessionsFunction
                     // Interpolated into OData filters downstream — GUID-gate the raw query value.
                     if (!Guid.TryParse(filterTenantId, out var parsedTenantId))
                     {
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a GUID" });
-                        return bad;
+                        return await req.BadRequestAsync("tenantId must be a GUID");
                     }
                     filterTenantId = parsedTenantId.ToString("D");
                 }
@@ -78,17 +76,13 @@ public class SearchSessionsFunction
             // backfill loop into a full scan for nothing (mirrors search/quick's minimum).
             if (filter.Q != null && filter.Q.Length < 2)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "q must be at least 2 characters" });
-                return bad;
+                return await req.BadRequestAsync("q must be at least 2 characters");
             }
 
             var pagination = SearchSessionsPagination.ParsePagination(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             string? azureToken = null;
@@ -99,13 +93,7 @@ public class SearchSessionsFunction
                         out azureToken, out var rejectReason))
                 {
                     _logger.LogWarning("SearchSessions: continuation rejected ({Reason})", rejectReason);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                 }
             }
 

@@ -1,4 +1,5 @@
 using System.Net;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Http;
 
@@ -13,6 +14,25 @@ namespace AutopilotMonitor.Functions.Helpers;
 /// </summary>
 public static class ApiErrorWriter
 {
+    /// <summary>The status-default <c>code</c> for sites whose status is computed at runtime.</summary>
+    public static string DefaultCode(HttpStatusCode status) => status switch
+    {
+        HttpStatusCode.BadRequest => Constants.ApiErrorCodes.BadRequest,
+        HttpStatusCode.Unauthorized => Constants.ApiErrorCodes.Unauthorized,
+        HttpStatusCode.Forbidden => Constants.ApiErrorCodes.Forbidden,
+        HttpStatusCode.NotFound => Constants.ApiErrorCodes.NotFound,
+        HttpStatusCode.Conflict => Constants.ApiErrorCodes.Conflict,
+        HttpStatusCode.Gone => Constants.ApiErrorCodes.Gone,
+        HttpStatusCode.RequestEntityTooLarge => Constants.ApiErrorCodes.PayloadTooLarge,
+        HttpStatusCode.UnprocessableEntity => Constants.ApiErrorCodes.UnprocessableEntity,
+        HttpStatusCode.TooManyRequests => Constants.ApiErrorCodes.RateLimited,
+        HttpStatusCode.InternalServerError => Constants.ApiErrorCodes.InternalError,
+        HttpStatusCode.BadGateway => Constants.ApiErrorCodes.UpstreamError,
+        HttpStatusCode.ServiceUnavailable => Constants.ApiErrorCodes.ServiceUnavailable,
+        HttpStatusCode.GatewayTimeout => Constants.ApiErrorCodes.UpstreamTimeout,
+        _ => status.ToString(),
+    };
+
     /// <summary>Build the generic envelope. Pure; shared by both writers and by tests.</summary>
     public static ApiErrorResponse Build(
         string correlationId, string code, string message, string? hint = null,

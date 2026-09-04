@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Azure.Core;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -81,18 +82,14 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             }
             if (body == null || string.IsNullOrWhiteSpace(body.Query))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = "query is required" });
-                return bad;
+                return await req.BadRequestAsync("query is required");
             }
 
             if (!_sources.TryResolve(body.Source, out var source, out var sourceError))
             {
                 var known = LogQuerySources.IsKnown(string.IsNullOrWhiteSpace(body.Source) ? LogQuerySources.Backend : body.Source.Trim());
                 var status = known ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.BadRequest;
-                var resp = req.CreateResponse(status);
-                await resp.WriteAsJsonAsync(new { error = sourceError });
-                return resp;
+                return await req.ErrorAsync(status, ApiErrorWriter.DefaultCode(status), sourceError ?? "Unknown log source.");
             }
 
             var timespan = string.IsNullOrWhiteSpace(body.Timespan) ? "PT1H" : body.Timespan.Trim();
@@ -129,18 +126,17 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                     // exists to avoid. Store-side failures (5xx) and a missing read grant (401/403 — the
                     // managed identity, not the caller) stay 502.
                     var status = MapUpstreamFailure(upstreamResponse.StatusCode);
-                    var errorResp = req.CreateResponse(status);
-                    await errorResp.WriteAsJsonAsync(new
+                    return await req.ErrorAsync(status, new QueryBackendLogsErrorResponse
                     {
-                        error = errorMessage,
-                        errorCode,
-                        statusCode = (int)upstreamResponse.StatusCode,
-                        source = source.Name,
-                        hint = UpstreamHint(upstreamResponse.StatusCode, errorCode, source.Name),
+                        Error = errorMessage ?? "The telemetry store rejected the query.",
+                        Code = ApiErrorWriter.DefaultCode(status),
+                        UpstreamCode = errorCode,
+                        StatusCode = (int)upstreamResponse.StatusCode,
+                        Source = source.Name,
+                        Hint = UpstreamHint(upstreamResponse.StatusCode, errorCode, source.Name),
                         // Everything the store said, so nothing the CLI would print is lost.
-                        upstream = Cap(responseText, UpstreamErrorCap),
+                        Upstream = Cap(responseText, UpstreamErrorCap),
                     });
-                    return errorResp;
                 }
 
                 var (tables, partialReason) = ParseKustoBody(responseText);
@@ -160,21 +156,14 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             }
             catch (OperationCanceledException)
             {
-                var timeout = req.CreateResponse(HttpStatusCode.GatewayTimeout);
-                await timeout.WriteAsJsonAsync(new
-                {
-                    error = $"Log query ({source!.Name}) exceeded its budget of {budget}s",
-                    budgetSeconds = budget,
-                    hint = $"Narrow the query (smaller timespan, `summarize` instead of raw rows, `take N`) or raise budgetSeconds (max {MaxBudgetSeconds}).",
-                });
-                return timeout;
+                return await req.ErrorAsync(HttpStatusCode.GatewayTimeout, Constants.ApiErrorCodes.UpstreamTimeout,
+                    $"Log query ({source!.Name}) exceeded its budget of {budget}s",
+                    hint: $"Narrow the query (smaller timespan, `summarize` instead of raw rows, `take N`) or raise budgetSeconds (max {MaxBudgetSeconds}).");
             }
             catch (Azure.Identity.CredentialUnavailableException ex)
             {
                 _logger.LogError(ex, "Managed Identity not available for log query ({Source})", source!.Name);
-                var err = req.CreateResponse(HttpStatusCode.ServiceUnavailable);
-                await err.WriteAsJsonAsync(new { error = "Managed Identity is not configured. Enable the system-assigned Managed Identity on the Function App and grant it read access to the telemetry store." });
-                return err;
+                return await req.ErrorAsync(HttpStatusCode.ServiceUnavailable, Constants.ApiErrorCodes.ServiceUnavailable, "Managed Identity is not configured. Enable the system-assigned Managed Identity on the Function App and grant it read access to the telemetry store.");
             }
             catch (Exception ex)
             {

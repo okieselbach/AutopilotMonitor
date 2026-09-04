@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -52,9 +53,7 @@ public class GlobalNotificationsFunction
 
         if (!found)
         {
-            var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFoundResponse.WriteAsJsonAsync(new { success = false, message = "Notification not found" });
-            return notFoundResponse;
+            return await req.NotFoundAsync("Notification not found");
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);

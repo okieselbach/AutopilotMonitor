@@ -70,10 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching annotations for session {SessionId}", sessionId);
-                var errorResponse = req.CreateResponse(System.Net.HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionAnnotations");
             }
         }
 

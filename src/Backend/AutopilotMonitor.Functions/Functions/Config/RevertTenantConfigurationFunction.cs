@@ -59,9 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
                 catch (JsonException)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid JSON body" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid JSON body");
                 }
                 request ??= new RevertRequest();
 
@@ -83,10 +81,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reverting configuration for tenant {TenantId}", tenantId);
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "RevertTenantConfiguration");
             }
         }
     }

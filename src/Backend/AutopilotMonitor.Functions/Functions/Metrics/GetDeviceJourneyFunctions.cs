@@ -54,9 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 if (string.IsNullOrWhiteSpace(rawSerial))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "serialNumber is required" });
-                    return badRequest;
+                    return await req.BadRequestAsync("serialNumber is required");
                 }
 
                 // Junk/placeholder serials have no device identity — by design they never have a
@@ -90,10 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching device history");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetDeviceHistory");
             }
         }
     }
@@ -138,10 +133,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching device journey metrics");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetDeviceHistory");
             }
         }
     }
@@ -187,10 +179,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching global device journey metrics");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetDeviceHistory");
             }
         }
     }

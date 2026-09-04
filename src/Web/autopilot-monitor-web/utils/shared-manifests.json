@@ -324,14 +324,18 @@
     "RateLimited",
     "InternalError",
     "ServiceUnavailable",
+    "UpstreamError",
+    "UpstreamTimeout",
     "AuthenticationRequired",
     "InsufficientPermissions",
     "CrossTenantAccessDenied",
     "TenantSuspended",
     "QuotaExceeded",
+    "PayloadTooLarge",
     "HomeTenantUnresolved",
-    "InvalidTarget",
-    "TenantNotFound",
+    "TrialAlreadyConsumed",
+    "AlreadyPro",
+    "ContactProfileRequired",
     "CascadeAlreadyInFlight",
     "CascadePoisonedUseRestore",
     "KillSwitchActive",
@@ -2181,6 +2185,42 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "AppHomingDeniedResponse": {
+      "kind": "object",
+      "doc": "Success response of PATCH config/{tenantId}/fields and POST config/{tenantId}/revert (both flow through the same outcome writer): which fields changed, the masked diff, and the pre-write backup id.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "probe",
+          "type": {
+            "kind": "ref",
+            "name": "AppHomingProbeWire"
+          },
+          "optional": true,
+          "doc": "The consent probe outcome; absent for pre-probe refusals (target/tenant/window checks)."
         }
       ]
     },
@@ -11686,6 +11726,19 @@
         }
       ]
     },
+    "MessageResponse": {
+      "kind": "object",
+      "doc": "Message-only acknowledgement: { \"message\": ... } — the 200 shape of the member, group, binding and MCP-user mutations (no success key: adding one would change the wire these sites have always written).",
+      "fields": [
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "MetricsSummaryResponse": {
       "kind": "object",
       "doc": "Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal.",
@@ -12472,6 +12525,53 @@
         }
       ]
     },
+    "PreviewWhitelistActionResponse": {
+      "kind": "object",
+      "doc": "Acknowledgement of the preview-whitelist mutations (approve 201/200, revoke, save notification email, send welcome email): a message plus the echoed subject — each site sets only the keys its old anonymous body wrote (null keys vanish).",
+      "fields": [
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "alreadyApproved",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Approve only: true when the tenant was already on the whitelist (idempotent success)."
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "welcomeEmailSent",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "optional": true,
+          "doc": "Save-notification-email only: whether the once-only welcome mail went out with this save."
+        }
+      ]
+    },
     "PreviewWhitelistTenantEntry": {
       "kind": "object",
       "doc": "One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31 wire carried synthetic PreviewWhitelistEntity rows whose only real datum was the tenant id in partitionKey (plus garbage defaults) — the contract is now just the id.",
@@ -12549,6 +12649,75 @@
           },
           "optional": true,
           "doc": "The matched session; null (key omitted on the wire) when nothing matched."
+        }
+      ]
+    },
+    "QueryBackendLogsErrorResponse": {
+      "kind": "object",
+      "doc": "Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "upstreamCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The store's error code (e.g. Kusto SyntaxError); absent when the store sent none."
+        },
+        {
+          "name": "statusCode",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "The store's HTTP status."
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Which telemetry store answered (query_backend_logs source)."
+        },
+        {
+          "name": "hint",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "upstream",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "The store's response body, capped; absent when empty."
         }
       ]
     },
@@ -17315,9 +17484,56 @@
         }
       ]
     },
+    "TenantConfigPatchFailedResponse": {
+      "kind": "object",
+      "doc": "Error body of PATCH config/{tenantId}/fields when the patch was not applied (400/404/409/503/500): envelope prefix plus the pre-write backup id and, on a rolled-back write, the fields that drifted.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "backupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Pre-write snapshot id when a backup was taken before the failure; absent otherwise."
+        },
+        {
+          "name": "drift",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Fields whose post-write read-back differed from the intent (rolled back); absent otherwise."
+        }
+      ]
+    },
     "TenantConfigPatchOutcomeResponse": {
       "kind": "object",
-      "doc": "Success response of PATCH config/{tenantId}/fields and POST config/{tenantId}/revert (both flow through the same outcome writer): which fields changed, the masked diff, and the pre-write backup id.",
       "fields": [
         {
           "name": "success",

@@ -13,6 +13,7 @@ using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Deletion;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -63,9 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             if (string.IsNullOrWhiteSpace(sessionId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "sessionId is required" });
-                return badRequest;
+                return await req.BadRequestAsync("sessionId is required");
             }
 
             var requestCtx = req.GetRequestContext();
@@ -74,9 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             var mode = (query["mode"] ?? "summary").ToLowerInvariant();
             if (mode != "summary" && mode != "full" && mode != "download")
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "mode must be one of: summary, full, download" });
-                return bad;
+                return await req.BadRequestAsync("mode must be one of: summary, full, download");
             }
 
             // Resolve tenantId. Three-tier fallback ordered by Codex F1 review:
@@ -105,9 +102,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             if (string.IsNullOrEmpty(tenantId))
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = $"Session {sessionId} not found in any tenant." });
-                return notFound;
+                return await req.NotFoundAsync($"Session {sessionId} not found in any tenant.");
             }
 
             // Guard hint: if a cascade is in flight, surface that to the caller. The preview
@@ -144,9 +139,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 _logger.LogError(ex,
                     "DeletePreview failed: tenant={TenantId} session={SessionId} mode={Mode}",
                     tenantId, sessionId, mode);
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Failed to build deletion manifest", error = ex.Message });
-                return error;
+                return await req.ErrorAsync(HttpStatusCode.InternalServerError, Constants.ApiErrorCodes.InternalError,
+                    "Failed to build deletion manifest");
             }
             stopwatch.Stop();
             var builderDurationMs = stopwatch.ElapsedMilliseconds;

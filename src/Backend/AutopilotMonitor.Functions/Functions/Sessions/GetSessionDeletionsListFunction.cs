@@ -58,13 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var state = query["state"] ?? string.Empty;
                 if (!IsAllowedState(state))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "Query parameter 'state' must be one of: Preparing, Queued, Running, Poisoned.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync("Query parameter 'state' must be one of: Preparing, Queued, Running, Poisoned.");
                 }
 
                 int? strandedSinceMinutes = null;
@@ -73,23 +67,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 {
                     if (state != SessionDeletionState.Queued)
                     {
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = "strandedSinceMinutes is only valid with state=Queued.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync("strandedSinceMinutes is only valid with state=Queued.");
                     }
                     if (!int.TryParse(strandedRaw, out var minutes) || minutes <= 0 || minutes > 10080)
                     {
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = "strandedSinceMinutes must be a positive integer up to 10080 (7 days).",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync("strandedSinceMinutes must be a positive integer up to 10080 (7 days).");
                     }
                     strandedSinceMinutes = minutes;
                 }
@@ -128,10 +110,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "GetSessionDeletionsList: unexpected error (state={State})", req.Url.Query);
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionDeletionsList");
             }
         }
 

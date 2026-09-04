@@ -3,6 +3,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Functions.Ingest;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -58,9 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 // /api/bootstrap/* route; this is only the cheap early exit.
                 if (SecurityValidator.GetBootstrapToken(req) == null)
                 {
-                    var noToken = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await noToken.WriteAsJsonAsync(new { error = "X-Bootstrap-Token header is required" });
-                    return noToken;
+                    return await req.UnauthorizedAsync("X-Bootstrap-Token header is required");
                 }
 
                 var tenantId = req.Headers.Contains("X-Tenant-Id")

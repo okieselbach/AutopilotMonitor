@@ -56,9 +56,7 @@ public class MetricsSummaryFunction
                 // (belt) in addition to ODataSanitizer at the sink (braces).
                 if (!Guid.TryParse(filterTenantId, out var parsedTenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a GUID" });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId must be a GUID");
                 }
                 filterTenantId = parsedTenantId.ToString("D");
             }

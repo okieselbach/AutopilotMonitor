@@ -42,9 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // fields — robust to key formatting and partial (country-only) drilldowns.
                 if (string.IsNullOrEmpty(locationKey) && string.IsNullOrEmpty(country))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "locationKey or country parameter is required" });
-                    return badRequest;
+                    return await req.BadRequestAsync("locationKey or country parameter is required");
                 }
 
                 var daysParam = query["days"];
@@ -92,10 +90,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching global geographic location sessions");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalGeographicLocationSessions");
             }
         }
     }

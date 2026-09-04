@@ -3,6 +3,8 @@ using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -52,11 +54,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     _logger.LogWarning("Platform stats rate limit exceeded for IP {ClientIp} ({Count} requests)",
                         clientIp, rateLimitResult.RequestsInWindow);
 
-                    var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
-                    if (rateLimitResult.RetryAfter.HasValue)
-                        tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                    await tooMany.WriteAsJsonAsync(new { error = "Rate limit exceeded" });
-                    return tooMany;
+                    return await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
+                        "Rate limit exceeded",
+                        retryAfterSeconds: rateLimitResult.RetryAfter is { } retryAfter ? (int)retryAfter.TotalSeconds : null);
                 }
 
                 var stats = await _metricsRepo.GetPlatformStatsAsync();
@@ -100,10 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching platform stats");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Failed to retrieve platform stats" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetPlatformStats");
             }
         }
     }

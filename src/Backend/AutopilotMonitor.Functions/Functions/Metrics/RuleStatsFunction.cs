@@ -67,10 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching tenant rule stats");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Failed to fetch rule stats" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "RuleStats");
             }
         }
 
@@ -117,10 +114,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching global rule stats");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Failed to fetch global rule stats" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "RuleStats");
             }
         }
 

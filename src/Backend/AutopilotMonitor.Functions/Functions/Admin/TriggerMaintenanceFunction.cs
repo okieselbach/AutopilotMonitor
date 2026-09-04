@@ -61,9 +61,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                     }
                     else
                     {
-                        var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badRequest.WriteAsJsonAsync(new { error = "Invalid date format. Use yyyy-MM-dd" });
-                        return badRequest;
+                        return await req.BadRequestAsync("Invalid date format. Use yyyy-MM-dd");
                     }
                 }
 
@@ -86,16 +84,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error triggering maintenance");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error"
-                });
-
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "TriggerMaintenance");
             }
         }
     }

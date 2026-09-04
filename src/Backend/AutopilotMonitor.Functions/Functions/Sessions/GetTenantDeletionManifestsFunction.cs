@@ -52,9 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             if (string.IsNullOrWhiteSpace(tenantId) || !Guid.TryParse(tenantId, out _))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "Path parameter 'tenantId' must be a GUID." });
-                return bad;
+                return await req.BadRequestAsync("Path parameter 'tenantId' must be a GUID.");
             }
 
             // sessionId-scoped sub-tree probe — handy when the operator opens the browser by
@@ -85,12 +83,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "GetTenantDeletionManifests: enumeration failed for tenant={TenantId}",
-                    tenantId);
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Failed to enumerate manifest blobs." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetTenantDeletionManifests");
             }
 
             var sessions = bySession

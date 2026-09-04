@@ -3,6 +3,8 @@ using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Diagnostics;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 
@@ -40,27 +42,22 @@ namespace AutopilotMonitor.Functions.Helpers
                 logger.LogWarning("{Route} rate limit exceeded for IP {ClientIp} ({Count} requests)",
                     routeLabel, clientIp, rateLimitResult.RequestsInWindow);
 
-                var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
-                if (rateLimitResult.RetryAfter.HasValue)
-                    tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                await tooMany.WriteAsJsonAsync(new { success = false, message = "Rate limit exceeded." });
+                var tooMany = await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
+                    "Rate limit exceeded.",
+                    retryAfterSeconds: rateLimitResult.RetryAfter is { } retryAfter ? (int)retryAfter.TotalSeconds : null);
                 return (tooMany, default);
             }
 
             var ticket = HttpUtility.ParseQueryString(req.Url.Query)["t"];
             if (string.IsNullOrEmpty(ticket))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "Missing download ticket." });
-                return (bad, default);
+                return (await req.BadRequestAsync("Missing download ticket."), default);
             }
 
             if (!DiagnosticsDownloadTicket.TryDecode(ticket, out var tenantId, out var blobName, out var destination, out var reason, purpose: purpose))
             {
                 logger.LogWarning("{Route}: rejecting ticket ({Reason})", routeLabel, reason);
-                var unauth = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauth.WriteAsJsonAsync(new { success = false, message = "Invalid or expired download ticket." });
-                return (unauth, default);
+                return (await req.UnauthorizedAsync("Invalid or expired download ticket."), default);
             }
 
             return (null, new Admitted(tenantId, blobName, destination));

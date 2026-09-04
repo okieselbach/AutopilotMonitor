@@ -34,7 +34,7 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("ContactProfileRequired", deny?.Error);
+        Assert.Equal("ContactProfileRequired", deny?.Code);
         Assert.Contains("contact address", deny?.Message);
         Assert.DoesNotContain("company name", deny?.Message);
     }
@@ -49,7 +49,7 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("ContactProfileRequired", deny?.Error);
+        Assert.Equal("ContactProfileRequired", deny?.Code);
         Assert.Contains("company name", deny?.Message);
         Assert.DoesNotContain("contact address", deny?.Message);
     }
@@ -63,7 +63,7 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("ContactProfileRequired", deny?.Error);
+        Assert.Equal("ContactProfileRequired", deny?.Code);
         Assert.Contains("contact address and company name", deny?.Message);
         Assert.Equal(new[] { "contact address", "company name" },
             PlanManagementFunction.MissingContactProfileParts(config));
@@ -77,7 +77,7 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("TrialAlreadyConsumed", deny?.Error);
+        Assert.Equal("TrialAlreadyConsumed", deny?.Code);
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("AlreadyPro", deny?.Error);
+        Assert.Equal("AlreadyPro", deny?.Code);
     }
 
     [Fact]
@@ -105,6 +105,6 @@ public class PlanManagementTrialGateTests
 
         var deny = PlanManagementFunction.EvaluateTrialStart(config, Now);
 
-        Assert.Equal("AlreadyPro", deny?.Error);
+        Assert.Equal("AlreadyPro", deny?.Code);
     }
 }

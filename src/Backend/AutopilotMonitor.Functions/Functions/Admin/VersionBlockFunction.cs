@@ -49,10 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting blocked versions");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "VersionBlock");
             }
         }
 
@@ -72,18 +69,18 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 JObject json;
                 try { json = JObject.Parse(body); }
-                catch { return await BadRequestAsync(req, "Invalid JSON body"); }
+                catch { return await req.BadRequestAsync("Invalid JSON body"); }
 
                 var versionPattern = json["versionPattern"]?.ToString();
                 var action = json["action"]?.ToString() ?? "Block";
                 var reason = json["reason"]?.ToString();
 
                 if (string.IsNullOrEmpty(versionPattern))
-                    return await BadRequestAsync(req, "versionPattern is required");
+                    return await req.BadRequestAsync("versionPattern is required");
 
                 if (!string.Equals(action, "Block", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(action, "Kill", StringComparison.OrdinalIgnoreCase))
-                    return await BadRequestAsync(req, "action must be 'Block' or 'Kill'");
+                    return await req.BadRequestAsync("action must be 'Block' or 'Kill'");
 
                 try
                 {
@@ -91,7 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 }
                 catch (ArgumentException ex)
                 {
-                    return await BadRequestAsync(req, ex.Message);
+                    return await req.BadRequestAsync(ex.Message);
                 }
 
                 var normalizedAction = string.Equals(action, "Kill", StringComparison.OrdinalIgnoreCase) ? "Kill" : "Block";
@@ -127,10 +124,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding version block rule");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "VersionBlock");
             }
         }
 
@@ -147,7 +141,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 var versionPattern = Uri.UnescapeDataString(encodedPattern ?? string.Empty);
                 if (string.IsNullOrEmpty(versionPattern))
-                    return await BadRequestAsync(req, "versionPattern is required");
+                    return await req.BadRequestAsync("versionPattern is required");
 
                 await _blockedVersionService.UnblockVersionAsync(versionPattern);
 
@@ -169,10 +163,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing version block rule");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "VersionBlock");
             }
         }
 
@@ -180,11 +171,5 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         // Helpers
         // -----------------------------------------------------------------------
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var r = req.CreateResponse(HttpStatusCode.BadRequest);
-            await r.WriteAsJsonAsync(new { success = false, message });
-            return r;
-        }
     }
 }

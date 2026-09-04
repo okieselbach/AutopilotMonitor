@@ -58,10 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting configuration for tenant {TenantId}", tenantId);
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetTenantConfiguration");
             }
         }
 

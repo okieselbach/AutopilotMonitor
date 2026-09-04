@@ -54,10 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "GetTenantsWithDeletionManifests: hierarchy listing failed");
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Failed to enumerate tenant prefixes." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetTenantsWithDeletionManifests");
             }
         }
     }

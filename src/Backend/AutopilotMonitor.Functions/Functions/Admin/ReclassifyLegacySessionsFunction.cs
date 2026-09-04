@@ -56,9 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
             if (!string.IsNullOrEmpty(tenantIdScope) && !Guid.TryParse(tenantIdScope, out _))
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = "tenantId must be a GUID" });
-                return bad;
+                return await req.BadRequestAsync("tenantId must be a GUID");
             }
 
             var maxSessions = DefaultMaxSessions;
@@ -66,9 +64,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             {
                 if (!int.TryParse(req.Query["maxSessions"], out maxSessions) || maxSessions < 1)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = $"maxSessions must be a positive integer (max {MaxMaxSessions})" });
-                    return bad;
+                    return await req.BadRequestAsync($"maxSessions must be a positive integer (max {MaxMaxSessions})");
                 }
                 maxSessions = Math.Min(maxSessions, MaxMaxSessions);
             }
@@ -92,12 +88,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 if (result == null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        error = $"Unknown mode '{mode}'. Valid: {LegacyReclassificationService.ModeLegacyTimeouts}, {LegacyReclassificationService.ModePendingOrphans}, {LegacyReclassificationService.ModeSelfDeployingSilent}"
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Unknown mode '{mode}'. Valid: {LegacyReclassificationService.ModeLegacyTimeouts}, {LegacyReclassificationService.ModePendingOrphans}, {LegacyReclassificationService.ModeSelfDeployingSilent}");
                 }
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -112,10 +103,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Legacy reclassification run failed");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "ReclassifyLegacySessions");
             }
         }
     }

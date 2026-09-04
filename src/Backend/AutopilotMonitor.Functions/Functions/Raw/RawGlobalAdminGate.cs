@@ -21,9 +21,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             if (context.GetRequestContext().IsGlobalAdmin)
                 return null;
 
-            var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-            await forbidden.WriteAsJsonAsync(new { error = "Forbidden", message = "Global Admin role required." });
-            return forbidden;
+            return await req.ForbiddenAsync("Global Admin role required.");
         }
     }
 }

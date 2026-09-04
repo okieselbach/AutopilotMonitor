@@ -60,9 +60,7 @@ public class SearchSessionsByCveFunction
             var cveId = query["cveId"];
             if (string.IsNullOrEmpty(cveId))
             {
-                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteAsJsonAsync(new { success = false, message = "cveId is required" });
-                return badReq;
+                return await req.BadRequestAsync("cveId is required");
             }
 
             double? minCvssScore = double.TryParse(query["minCvssScore"], out var mcs) ? mcs : null;
@@ -71,9 +69,7 @@ public class SearchSessionsByCveFunction
             var pagination = SearchSessionsByCvePagination.ParsePagination(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             var callerTenantId = TenantHelper.GetTenantId(req);
@@ -87,13 +83,7 @@ public class SearchSessionsByCveFunction
                         out azureToken, out var rejectReason))
                 {
                     _logger.LogWarning("SearchSessionsByCve: continuation rejected ({Reason})", rejectReason);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                 }
             }
 

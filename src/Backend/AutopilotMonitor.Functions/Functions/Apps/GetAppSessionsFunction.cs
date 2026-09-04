@@ -42,9 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var decodedAppName = Uri.UnescapeDataString(appName ?? string.Empty);
                 if (string.IsNullOrWhiteSpace(decodedAppName))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "appName is required" });
-                    return bad;
+                    return await req.BadRequestAsync("appName is required");
                 }
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
@@ -76,16 +74,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             catch (UnauthorizedAccessException ex)
             {
                 _logger.LogWarning(ex, "Unauthorized apps/sessions request");
-                var unauth = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauth.WriteAsJsonAsync(new { success = false, message = "Unauthorized" });
-                return unauth;
+                return await req.UnauthorizedAsync("Unauthorized");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching app sessions");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAppSessions");
             }
         }
     }

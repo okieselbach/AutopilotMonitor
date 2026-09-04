@@ -172,6 +172,37 @@ namespace AutopilotMonitor.Shared.Models
     /// (both flow through the same outcome writer): which fields changed, the masked diff,
     /// and the pre-write backup id.
     /// </summary>
+    /// <summary>
+    /// Error body of POST config/{tenantId}/app-homing when the flip is refused (400/403/404/409/503):
+    /// envelope prefix with <c>code</c> from <c>Constants.AppHomingReasonCodes</c>, plus the consent
+    /// probe result when one ran (the portal names the missing Graph roles from it).
+    /// </summary>
+    // Declaration order == wire order.
+    public class AppHomingDeniedResponse : IApiErrorResponse
+    {
+        public string Error { get; set; } = default!;
+        public string Code { get; set; } = default!;
+        public string CorrelationId { get; set; } = string.Empty;
+        /// <summary>The consent probe outcome; absent for pre-probe refusals (target/tenant/window checks).</summary>
+        public AppHomingProbeWire? Probe { get; set; }
+    }
+
+    /// <summary>
+    /// Error body of PATCH config/{tenantId}/fields when the patch was not applied (400/404/409/503/500):
+    /// envelope prefix plus the pre-write backup id and, on a rolled-back write, the fields that drifted.
+    /// </summary>
+    // Declaration order == wire order.
+    public class TenantConfigPatchFailedResponse : IApiErrorResponse
+    {
+        public string Error { get; set; } = default!;
+        public string Code { get; set; } = default!;
+        public string CorrelationId { get; set; } = string.Empty;
+        /// <summary>Pre-write snapshot id when a backup was taken before the failure; absent otherwise.</summary>
+        public string? BackupId { get; set; }
+        /// <summary>Fields whose post-write read-back differed from the intent (rolled back); absent otherwise.</summary>
+        public IReadOnlyCollection<string>? Drift { get; set; }
+    }
+
     // Declaration order == wire order.
     public class TenantConfigPatchOutcomeResponse : IApiResponse
     {

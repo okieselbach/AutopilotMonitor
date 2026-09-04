@@ -57,18 +57,14 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var request = JsonConvert.DeserializeObject<CreateBootstrapSessionRequest>(body);
                 if (request == null)
                 {
-                    var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { error = "Invalid request body" });
-                    return badReq;
+                    return await req.BadRequestAsync("Invalid request body");
                 }
 
                 // Check if the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
                 if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
-                    var disabled = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await disabled.WriteAsJsonAsync(new { error = "Bootstrap token feature is not enabled for this tenant" });
-                    return disabled;
+                    return await req.ForbiddenAsync("Bootstrap token feature is not enabled for this tenant");
                 }
 
                 // Validate validity hours
@@ -107,10 +103,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating bootstrap session");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { error = "Failed to create bootstrap session" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "CreateBootstrapSession");
             }
         }
     }

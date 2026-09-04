@@ -126,9 +126,7 @@ public class TenantGroupManagementFunction
             && !await SetChargeModeCoreAsync(groupId, chargeHomeTenantQuota, currentUpn))
             return await NotFound(req);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Group updated" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Group updated" });
     }
 
     /// <summary>
@@ -170,9 +168,7 @@ public class TenantGroupManagementFunction
         var currentUpn = context.GetRequestContext().UserPrincipalName;
         await DeleteGroupCoreAsync(groupId, currentUpn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Group deleted" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Group deleted" });
     }
 
     /// <summary>
@@ -247,9 +243,7 @@ public class TenantGroupManagementFunction
 
         _logger.LogInformation("Tenant {TenantId} added to group {GroupId} by {By}", tenantId, groupId, currentUpn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant added to group" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Tenant added to group" });
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId}/tenants/{tenantId} — remove a tenant. GlobalAdminOnly.</summary>
@@ -288,9 +282,7 @@ public class TenantGroupManagementFunction
 
         _logger.LogInformation("Tenant {TenantId} removed from group {GroupId} by {By}", normalizedTenantId, groupId, currentUpn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant removed from group" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Tenant removed from group" });
     }
 
     /// <summary>
@@ -331,9 +323,7 @@ public class TenantGroupManagementFunction
         var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
-            await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
-            return unresolved;
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
         }
 
         // Slot limit of the assignee's HOME tenant: the whole group's tenant set must fit (fresh read).
@@ -350,9 +340,7 @@ public class TenantGroupManagementFunction
         }
         catch (IdentityBindingConflictException ex)
         {
-            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-            await conflict.WriteAsJsonAsync(new { error = ex.Message });
-            return conflict;
+            return await req.ConflictAsync(ex.Message);
         }
         if (!assigned)
             return await NotFound(req);
@@ -370,9 +358,7 @@ public class TenantGroupManagementFunction
 
         _logger.LogInformation("Group {GroupId} assigned to {Upn} ({Role}) by {By}", groupId, upn, role, currentUpn);
 
-        var response = req.CreateResponse(HttpStatusCode.Created);
-        await response.WriteAsJsonAsync(new { message = "Assigned to group" });
-        return response;
+        return await req.CreatedAsync(new MessageResponse { Message = "Assigned to group" });
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId}/assignees/{upn} — unassign a UPN. GlobalAdminOnly.</summary>
@@ -387,9 +373,7 @@ public class TenantGroupManagementFunction
         if (!unassigned)
             return await NotFound(req);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Unassigned from group" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Unassigned from group" });
     }
 
     /// <summary>
@@ -438,16 +422,12 @@ public class TenantGroupManagementFunction
 
     private static async Task<HttpResponseData> Bad(HttpRequestData req, string error)
     {
-        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-        await bad.WriteAsJsonAsync(new { error });
-        return bad;
+        return await req.BadRequestAsync(error);
     }
 
     private static async Task<HttpResponseData> NotFound(HttpRequestData req)
     {
-        var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-        await notFound.WriteAsJsonAsync(new { error = "Group not found" });
-        return notFound;
+        return await req.NotFoundAsync("Group not found");
     }
 }
 

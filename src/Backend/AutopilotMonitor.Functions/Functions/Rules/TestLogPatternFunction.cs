@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Shared.Logging;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -57,7 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                 && contentLength > 1_048_576) // 1 MB limit
             {
-                return await BadRequestAsync(req, "Request body too large");
+                return await req.BadRequestAsync("Request body too large");
             }
 
             var body = await new StreamReader(req.Body).ReadToEndAsync();
@@ -68,13 +69,13 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (JsonException ex)
             {
-                return await BadRequestAsync(req, $"Request body is not valid JSON: {ex.Message}");
+                return await req.BadRequestAsync($"Request body is not valid JSON: {ex.Message}");
             }
 
             var validationError = ValidateRequest(request);
             if (validationError != null)
             {
-                return await BadRequestAsync(req, validationError);
+                return await req.BadRequestAsync(validationError);
             }
 
             var isTextMode = string.Equals(request!.Format, "text", StringComparison.OrdinalIgnoreCase);
@@ -88,7 +89,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (ArgumentException ex)
             {
-                return await BadRequestAsync(req, $"Invalid regex pattern (this is the agent's .NET engine speaking): {ex.Message}");
+                return await req.BadRequestAsync($"Invalid regex pattern (this is the agent's .NET engine speaking): {ex.Message}");
             }
 
             var result = EvaluatePattern(pattern, isTextMode, request.SampleLines!);
@@ -206,12 +207,6 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             return value.Substring(0, maxLength) + "...";
         }
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { success = false, message });
-            return badRequest;
-        }
     }
 
     // LogPatternTestResult / LogPatternLineResult moved to

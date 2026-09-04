@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Vulnerability;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -119,20 +120,11 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "Failed to fetch rules from GitHub");
-                var response = req.CreateResponse(HttpStatusCode.BadGateway);
-                await response.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to fetch rules from GitHub. GitHub CDN may cache responses for up to 5 minutes after a merge."
-                });
-                return response;
+                return await req.ErrorAsync(HttpStatusCode.BadGateway, Constants.ApiErrorCodes.UpstreamError, "Failed to fetch rules from GitHub. GitHub CDN may cache responses for up to 5 minutes after a merge.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during GitHub reseed");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { success = false, message = "Failed to reseed from GitHub" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "ReseedFromGitHub");
             }
         }
 

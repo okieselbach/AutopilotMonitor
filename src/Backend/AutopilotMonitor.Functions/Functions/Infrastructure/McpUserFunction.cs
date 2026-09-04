@@ -7,6 +7,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -82,15 +83,11 @@ public class McpUserFunction
         var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
         if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
         {
-            var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badResponse.WriteAsJsonAsync(new { error = "UPN or applicationId is required" });
-            return badResponse;
+            return await req.BadRequestAsync("UPN or applicationId is required");
         }
         if (isApplication && !Guid.TryParse(body.ApplicationId, out _))
         {
-            var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badResponse.WriteAsJsonAsync(new { error = "applicationId must be the application's (client) id GUID" });
-            return badResponse;
+            return await req.BadRequestAsync("applicationId must be the application's (client) id GUID");
         }
         // An application has no sign-in history and no UPN domain to resolve a home tenant from: the tenant
         // its service principal lives in must be named. The object id (that tenant's SP object id) is pinned
@@ -100,17 +97,13 @@ public class McpUserFunction
             : IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
-            var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badResponse.WriteAsJsonAsync(new { error = bindingError });
-            return badResponse;
+            return await req.BadRequestAsync(bindingError);
         }
         var principalKey = isApplication ? Constants.PrincipalKeys.ForApplication(body.ApplicationId!) : body.Upn;
         var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, principalKey, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
-            await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
-            return unresolved;
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
         }
 
         McpUserEntry user;
@@ -120,9 +113,7 @@ public class McpUserFunction
         }
         catch (IdentityBindingConflictException ex)
         {
-            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-            await conflict.WriteAsJsonAsync(new { error = ex.Message });
-            return conflict;
+            return await req.ConflictAsync(ex.Message);
         }
 
         var response = req.CreateResponse(HttpStatusCode.Created);
@@ -179,9 +170,7 @@ public class McpUserFunction
     {
         await _mcpUserService.RemoveMcpUserAsync(upn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "MCP user removed" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "MCP user removed" });
     }
 
     /// <summary>
@@ -196,9 +185,7 @@ public class McpUserFunction
     {
         await _mcpUserService.SetMcpUserEnabledAsync(upn, true);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "MCP user enabled" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "MCP user enabled" });
     }
 
     /// <summary>
@@ -213,9 +200,7 @@ public class McpUserFunction
     {
         await _mcpUserService.SetMcpUserEnabledAsync(upn, false);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "MCP user disabled" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "MCP user disabled" });
     }
 
     /// <summary>
@@ -235,9 +220,7 @@ public class McpUserFunction
         var success = await _mcpUserService.SetMcpUserUsagePlanAsync(upn, usagePlan);
         if (!success)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "MCP user not found" });
-            return notFound;
+            return await req.NotFoundAsync("MCP user not found");
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);

@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -219,30 +220,22 @@ public class SubmitOffboardingFeedbackFunction
 
     private static async Task<HttpResponseData> BadRequest(HttpRequestData req, string message)
     {
-        var r = req.CreateResponse(HttpStatusCode.BadRequest);
-        await r.WriteAsJsonAsync(new { success = false, message });
-        return r;
+        return await req.BadRequestAsync(message);
     }
 
     private static async Task<HttpResponseData> NotFound(HttpRequestData req, string message)
     {
-        var r = req.CreateResponse(HttpStatusCode.NotFound);
-        await r.WriteAsJsonAsync(new { success = false, message });
-        return r;
+        return await req.NotFoundAsync(message);
     }
 
     private static async Task<HttpResponseData> Conflict(HttpRequestData req, string message)
     {
-        var r = req.CreateResponse(HttpStatusCode.Conflict);
-        await r.WriteAsJsonAsync(new { success = false, message });
-        return r;
+        return await req.ConflictAsync(message);
     }
 
     private static async Task<HttpResponseData> Build500(HttpRequestData req, string message)
     {
-        var r = req.CreateResponse(HttpStatusCode.InternalServerError);
-        await r.WriteAsJsonAsync(new { success = false, message });
-        return r;
+        return await req.ErrorAsync(HttpStatusCode.InternalServerError, Constants.ApiErrorCodes.InternalError, message);
     }
 }
 

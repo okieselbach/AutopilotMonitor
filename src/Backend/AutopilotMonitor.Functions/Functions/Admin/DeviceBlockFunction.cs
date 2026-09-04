@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 var tenantId = req.Query["tenantId"];
                 if (string.IsNullOrEmpty(tenantId))
-                    return await BadRequestAsync(req, "tenantId query parameter is required");
+                    return await req.BadRequestAsync("tenantId query parameter is required");
 
                 var blocked = await _blockedDeviceService.GetBlockedDevicesAsync(tenantId);
 
@@ -53,10 +53,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting blocked devices");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "DeviceBlock");
             }
         }
 
@@ -76,7 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 JObject json;
                 try { json = JObject.Parse(body); }
-                catch { return await BadRequestAsync(req, "Invalid JSON body"); }
+                catch { return await req.BadRequestAsync("Invalid JSON body"); }
 
                 var tenantId = json["tenantId"]?.ToString();
                 var serialNumber = json["serialNumber"]?.ToString();
@@ -86,14 +83,14 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var blockedSessionId = NormalizeOptionalSessionId(json["blockedSessionId"]?.ToString());
 
                 if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(serialNumber))
-                    return await BadRequestAsync(req, "tenantId and serialNumber are required");
+                    return await req.BadRequestAsync("tenantId and serialNumber are required");
 
                 if (durationHours < 1 || durationHours > 720) // max 30 days
-                    return await BadRequestAsync(req, "durationHours must be between 1 and 720");
+                    return await req.BadRequestAsync("durationHours must be between 1 and 720");
 
                 if (!string.Equals(action, "Block", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(action, "Kill", StringComparison.OrdinalIgnoreCase))
-                    return await BadRequestAsync(req, "action must be 'Block' or 'Kill'");
+                    return await req.BadRequestAsync("action must be 'Block' or 'Kill'");
 
                 // Normalize casing
                 action = string.Equals(action, "Kill", StringComparison.OrdinalIgnoreCase) ? "Kill" : "Block";
@@ -140,10 +137,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error blocking device");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "DeviceBlock");
             }
         }
 
@@ -160,11 +154,11 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 var tenantId = req.Query["tenantId"];
                 if (string.IsNullOrEmpty(tenantId))
-                    return await BadRequestAsync(req, "tenantId query parameter is required");
+                    return await req.BadRequestAsync("tenantId query parameter is required");
 
                 var serialNumber = Uri.UnescapeDataString(encodedSerialNumber ?? string.Empty);
                 if (string.IsNullOrEmpty(serialNumber))
-                    return await BadRequestAsync(req, "serialNumber is required");
+                    return await req.BadRequestAsync("serialNumber is required");
 
                 await _blockedDeviceService.UnblockDeviceAsync(tenantId, serialNumber);
 
@@ -186,23 +180,13 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error unblocking device");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "DeviceBlock");
             }
         }
 
         // -----------------------------------------------------------------------
         // Helpers
         // -----------------------------------------------------------------------
-
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var r = req.CreateResponse(HttpStatusCode.BadRequest);
-            await r.WriteAsJsonAsync(new { success = false, message });
-            return r;
-        }
 
         /// <summary>
         /// Trims and rejects whitespace/empty sessionIds so the service layer never receives "  " as a valid session token.

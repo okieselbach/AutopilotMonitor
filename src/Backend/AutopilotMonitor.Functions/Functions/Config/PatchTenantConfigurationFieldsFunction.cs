@@ -99,10 +99,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error patching configuration for tenant {TenantId}", tenantId);
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "PatchTenantConfigurationFields");
             }
         }
 
@@ -140,22 +137,16 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // the caller changed nothing durable and must involve an operator.
                 _ => HttpStatusCode.InternalServerError,
             };
-            var error = req.CreateResponse(status);
-            await error.WriteAsJsonAsync(new
+            return await req.ErrorAsync(status, new TenantConfigPatchFailedResponse
             {
-                success = false,
-                message = outcome.Error,
-                backupId = outcome.BackupId,
-                drift = outcome.Drift,
+                Error = outcome.Error ?? "Configuration patch failed.",
+                Code = ApiErrorWriter.DefaultCode(status),
+                BackupId = outcome.BackupId,
+                Drift = outcome.Drift,
             });
-            return error;
         }
 
-        private static async Task<HttpResponseData> WriteError(HttpRequestData req, HttpStatusCode status, string message)
-        {
-            var response = req.CreateResponse(status);
-            await response.WriteAsJsonAsync(new { success = false, message });
-            return response;
-        }
+        private static Task<HttpResponseData> WriteError(HttpRequestData req, HttpStatusCode status, string message)
+            => req.ErrorAsync(status, ApiErrorWriter.DefaultCode(status), message);
     }
 }

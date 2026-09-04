@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker.Http;
 
 namespace AutopilotMonitor.Functions.Helpers;

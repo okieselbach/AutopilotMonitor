@@ -39,9 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var parsed = SessionReportsPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 if (parsed.PageSize == null)
@@ -58,13 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                             out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("GetSessionReports: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -90,15 +82,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching session reports");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionReports");
             }
         }
     }

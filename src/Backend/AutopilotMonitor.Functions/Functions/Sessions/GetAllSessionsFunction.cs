@@ -46,16 +46,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var parsed = SessionListPagination.ParseQuery(query, acceptFilterTenantId: true);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 if (!string.IsNullOrEmpty(parsed.FilterTenantId) && !Guid.TryParse(parsed.FilterTenantId, out _))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId format" });
-                    return bad;
+                    return await req.BadRequestAsync("Invalid tenantId format");
                 }
 
                 _logger.LogInformation(
@@ -72,13 +68,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                             out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("GetAllSessions: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -113,18 +103,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting all sessions");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error",
-                    count = 0,
-                    sessions = Array.Empty<object>()
-                });
-
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAllSessions");
             }
         }
     }

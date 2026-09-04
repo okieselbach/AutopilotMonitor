@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Functions.Sessions;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
@@ -61,9 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 // /api/bootstrap/* route; this is only the cheap early exit.
                 if (SecurityValidator.GetBootstrapToken(req) == null)
                 {
-                    var noToken = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await noToken.WriteAsJsonAsync(new { success = false, message = "X-Bootstrap-Token header is required" });
-                    return new RegisterSessionOutput { HttpResponse = noToken };
+                    return new RegisterSessionOutput { HttpResponse = await req.UnauthorizedAsync("X-Bootstrap-Token header is required") };
                 }
 
                 // Parse request body (same as original RegisterSessionFunction)
@@ -71,9 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576)
                 {
-                    var tooLarge = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await tooLarge.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return new RegisterSessionOutput { HttpResponse = tooLarge };
+                    return new RegisterSessionOutput { HttpResponse = await req.BadRequestAsync("Request body too large") };
                 }
 
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
@@ -81,9 +78,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 
                 if (request?.Registration == null)
                 {
-                    var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { success = false, message = "Invalid request payload" });
-                    return new RegisterSessionOutput { HttpResponse = badReq };
+                    return new RegisterSessionOutput { HttpResponse = await req.BadRequestAsync("Invalid request payload") };
                 }
 
                 var registration = request.Registration;
@@ -111,10 +106,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in bootstrap register-session");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return new RegisterSessionOutput { HttpResponse = error };
+                return new RegisterSessionOutput { HttpResponse = await req.InternalServerErrorAsync(_logger, ex, "BootstrapRegisterSession") };
             }
         }
     }

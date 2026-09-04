@@ -52,16 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing tenant usage metrics");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to compute tenant usage metrics"
-                });
-
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "UsageMetrics");
             }
         }
 

@@ -128,27 +128,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 else
                 {
                     _logger.LogWarning($"Session {sessionId} not found");
-                    var response = req.CreateResponse(HttpStatusCode.NotFound);
-                    await response.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Session {sessionId} not found"
-                    });
-                    return new MarkSessionFailedOutput { HttpResponse = response };
+                    return new MarkSessionFailedOutput { HttpResponse = await req.NotFoundAsync($"Session {sessionId} not found") };
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error marking session {sessionId} as failed");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error"
-                });
-
-                return new MarkSessionFailedOutput { HttpResponse = errorResponse };
+                return new MarkSessionFailedOutput { HttpResponse = await req.InternalServerErrorAsync(_logger, ex, "MarkSessionFailed") };
             }
         }
     }

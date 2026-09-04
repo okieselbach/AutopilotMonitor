@@ -60,25 +60,19 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 if (string.IsNullOrEmpty(blobName))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "blobName is required." });
-                    return bad;
+                    return await req.BadRequestAsync("blobName is required.");
                 }
 
                 // Report blobs are flat names; anything else is a traversal attempt.
                 if (!BlobNameGuard.IsFlat(blobName))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                    return bad;
+                    return await req.BadRequestAsync("Invalid blob name.");
                 }
 
                 var blobClient = _blobStorage.GetContainerClient(ContainerName).GetBlobClient(blobName);
                 if (!await blobClient.ExistsAsync())
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = "Blob not found." });
-                    return notFound;
+                    return await req.NotFoundAsync("Blob not found.");
                 }
 
                 var audience = string.IsNullOrEmpty(requestCtx.TenantId) ? "operator" : requestCtx.TenantId;
@@ -111,10 +105,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error minting session-report download ticket");
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "SessionReportDownloadTicket");
             }
         }
 

@@ -33,6 +33,16 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Message-only acknowledgement: <c>{ "message": ... }</c> — the 200 shape of the member,
+    /// group, binding and MCP-user mutations (no <c>success</c> key: adding one would change
+    /// the wire these sites have always written).
+    /// </summary>
+    public class MessageResponse : IApiResponse
+    {
+        public string Message { get; set; } = default!;
+    }
+
+    /// <summary>
     /// Marker for every typed HTTP ERROR body (any non-2xx response). The wire prefix is fixed:
     /// the first three keys are <c>error</c> (human-readable), <c>code</c> (machine-readable,
     /// <c>Constants.ApiErrorCodes</c> or a domain code class) and <c>correlationId</c> (the

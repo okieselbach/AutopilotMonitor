@@ -49,9 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             if (string.IsNullOrWhiteSpace(userId))
             {
-                var unauthorized = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorized.WriteAsJsonAsync(new { error = "Unable to determine user identity" });
-                return unauthorized;
+                return await req.UnauthorizedAsync("Unable to determine user identity");
             }
 
             try
@@ -95,10 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting own MCP usage");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
 
@@ -117,9 +112,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             var tenantId = ctx.TenantId;
             if (string.IsNullOrWhiteSpace(tenantId))
             {
-                var unauthorized = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauthorized.WriteAsJsonAsync(new { error = "Unable to determine tenant identity" });
-                return unauthorized;
+                return await req.UnauthorizedAsync("Unable to determine tenant identity");
             }
 
             try
@@ -147,10 +140,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting organization MCP usage");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
 
@@ -255,10 +245,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting MCP user usage");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
 
@@ -285,10 +272,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting global MCP usage");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
 
@@ -315,10 +299,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting global MCP daily usage");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
         }
     }

@@ -45,9 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 if (string.IsNullOrWhiteSpace(ruleId))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "ruleId is required" });
-                    return badRequest;
+                    return await req.BadRequestAsync("ruleId is required");
                 }
 
                 var days = ParseDays(query["days"]);
@@ -67,10 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching rule hit sessions");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "RuleHitSessions");
             }
         }
 

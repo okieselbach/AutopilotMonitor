@@ -236,6 +236,23 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Acknowledgement of the preview-whitelist mutations (approve 201/200, revoke, save notification
+    /// email, send welcome email): a message plus the echoed subject — each site sets only the keys
+    /// its old anonymous body wrote (null keys vanish).
+    /// </summary>
+    // Declaration order == wire order.
+    public class PreviewWhitelistActionResponse : IApiResponse
+    {
+        public string Message { get; set; } = default!;
+        public string? TenantId { get; set; }
+        /// <summary>Approve only: true when the tenant was already on the whitelist (idempotent success).</summary>
+        public bool? AlreadyApproved { get; set; }
+        public string? Email { get; set; }
+        /// <summary>Save-notification-email only: whether the once-only welcome mail went out with this save.</summary>
+        public bool? WelcomeEmailSent { get; set; }
+    }
+
+    /// <summary>
     /// One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31
     /// wire carried synthetic <c>PreviewWhitelistEntity</c> rows whose only real datum was the
     /// tenant id in <c>partitionKey</c> (plus garbage defaults) — the contract is now just the id.

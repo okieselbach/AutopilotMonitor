@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -45,9 +46,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     // caller bug into a 400 instead of a 500.
                     if (!Guid.TryParse(tenantIdRaw, out var parsedTenant))
                     {
-                        var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId" });
-                        return badRequest;
+                        return await req.BadRequestAsync("Invalid tenantId");
                     }
                     tenantId = parsedTenant.ToString();
                 }
@@ -60,15 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing agent efficiency metrics");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to compute agent efficiency metrics"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalAgentEfficiency");
             }
         }
 

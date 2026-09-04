@@ -60,9 +60,7 @@ public class DelegatedSlotManagementFunction
         var body = await req.ReadFromJsonAsync<ReleaseDelegatedSlotHoldRequest>();
         if (body == null || (!body.All && string.IsNullOrWhiteSpace(body.InvitationId)))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "invitationId or all=true is required" });
-            return bad;
+            return await req.BadRequestAsync("invitationId or all=true is required");
         }
 
         var released = await _slots.ReleaseHoldAsync(target, body.InvitationId, body.All, ctx.UserPrincipalName);

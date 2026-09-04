@@ -58,21 +58,13 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 20_971_520)
                 {
-                    var tooLarge = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await tooLarge.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return tooLarge;
+                    return await req.BadRequestAsync("Request body too large");
                 }
 
                 var request = await req.ReadFromJsonAsync<SubmitDiagFilesReportRequest>();
                 if (request == null)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequestResponse.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "Invalid request body."
-                    });
-                    return badRequestResponse;
+                    return await req.BadRequestAsync("Invalid request body.");
                 }
 
                 // Tenant identity: enforce JWT tenantId for non-GAs (prevents body
@@ -86,33 +78,19 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         _logger.LogWarning(
                             "SubmitDiagFilesReport: BLOCKED cross-tenant body for non-GA user={User} jwtTenant={JwtTenant} bodyTenant={BodyTenant}",
                             userIdentifier, tenantId, request.TenantId);
-                        var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbidden.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = "Body tenantId must match your authenticated tenant."
-                        });
-                        return forbidden;
+                        return await req.ForbiddenAsync("Body tenantId must match your authenticated tenant.");
                     }
                     request.TenantId = tenantId;
                 }
                 else if (string.IsNullOrEmpty(request.TenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "tenantId is required in body for Global Admin submissions."
-                    });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId is required in body for Global Admin submissions.");
                 }
 
                 // TenantId becomes part of the blob name — must be a GUID, never path-shaped.
                 if (!SecurityValidator.IsValidGuid(request.TenantId))
                 {
-                    var invalid = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await invalid.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId." });
-                    return invalid;
+                    return await req.BadRequestAsync("Invalid tenantId.");
                 }
 
                 var metadata = await _sessionReportService.SubmitDiagFilesReportAsync(request, userIdentifier);
@@ -163,15 +141,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error submitting diag-files report");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "SubmitDiagFilesReport");
             }
         }
     }

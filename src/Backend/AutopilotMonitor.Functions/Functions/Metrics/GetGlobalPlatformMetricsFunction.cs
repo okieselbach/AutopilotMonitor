@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -44,16 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing platform agent metrics");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to compute platform agent metrics"
-                });
-
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalPlatformMetrics");
             }
         }
 

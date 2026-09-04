@@ -134,14 +134,10 @@ public class DelegatedAdminManagementFunction
         var removed = await RevokeCoreAsync(upn, tenantId, currentUpn);
         if (!removed)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Delegated assignment not found" });
-            return notFound;
+            return await req.NotFoundAsync("Delegated assignment not found");
         }
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Delegated assignment revoked" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Delegated assignment revoked" });
     }
 
     /// <summary>
@@ -190,14 +186,10 @@ public class DelegatedAdminManagementFunction
         var ok = await SetEnabledCoreAsync(upn, tenantId, isEnabled, currentUpn);
         if (!ok)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Delegated assignment not found" });
-            return notFound;
+            return await req.NotFoundAsync("Delegated assignment not found");
         }
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = isEnabled ? "Delegated assignment enabled" : "Delegated assignment disabled" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = isEnabled ? "Delegated assignment enabled" : "Delegated assignment disabled" });
     }
 
     /// <summary>
@@ -253,23 +245,17 @@ public class DelegatedAdminManagementFunction
 
     private static async Task<HttpResponseData> Bad(HttpRequestData req, string error)
     {
-        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-        await bad.WriteAsJsonAsync(new { error });
-        return bad;
+        return await req.BadRequestAsync(error);
     }
 
     private static async Task<HttpResponseData> Conflict(HttpRequestData req, string error)
     {
-        var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-        await conflict.WriteAsJsonAsync(new { error });
-        return conflict;
+        return await req.ConflictAsync(error);
     }
 
     private static async Task<HttpResponseData> Unresolved(HttpRequestData req)
     {
-        var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
-        await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
-        return unresolved;
+        return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
     }
 }
 

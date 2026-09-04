@@ -50,18 +50,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                 && contentLength > 1_048_576) // 1 MB limit
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                return badRequest;
+                return await req.BadRequestAsync("Request body too large");
             }
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var rule = JsonConvert.DeserializeObject<AnalyzeRule>(body);
 
             if (rule == null || string.IsNullOrEmpty(rule.RuleId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid rule data" });
-                return badRequest;
+                return await req.BadRequestAsync("Invalid rule data");
             }
 
             try
@@ -74,15 +70,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (InvalidOperationException ex)
             {
-                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return conflict;
+                return await req.ConflictAsync(ex.Message);
             }
             catch (ArgumentException ex)
             {
-                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return badReq;
+                return await req.BadRequestAsync(ex.Message);
             }
         }
 
@@ -98,18 +90,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 && long.TryParse(clValues2.FirstOrDefault(), out var contentLength2)
                 && contentLength2 > 1_048_576) // 1 MB limit
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                return badRequest;
+                return await req.BadRequestAsync("Request body too large");
             }
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var rule = JsonConvert.DeserializeObject<AnalyzeRule>(body);
 
             if (rule == null)
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid rule data" });
-                return badRequest;
+                return await req.BadRequestAsync("Invalid rule data");
             }
 
             rule.RuleId = ruleId;
@@ -123,15 +111,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (InvalidOperationException ex)
             {
-                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return conflict;
+                return await req.ConflictAsync(ex.Message);
             }
             catch (ArgumentException ex)
             {
-                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return badReq;
+                return await req.BadRequestAsync(ex.Message);
             }
         }
 
@@ -148,9 +132,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             if (variables == null || variables.Count == 0)
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Template variable values are required" });
-                return badRequest;
+                return await req.BadRequestAsync("Template variable values are required");
             }
 
             try
@@ -163,15 +145,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (InvalidOperationException ex)
             {
-                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                await conflict.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return conflict;
+                return await req.ConflictAsync(ex.Message);
             }
             catch (ArgumentException ex)
             {
-                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteAsJsonAsync(new { success = false, message = ex.Message });
-                return badReq;
+                return await req.BadRequestAsync(ex.Message);
             }
         }
 
@@ -189,9 +167,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             if (rule == null)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Rule not found" });
-                return notFound;
+                return await req.NotFoundAsync("Rule not found");
             }
 
             var success = await _ruleService.DeleteRuleAsync(tenantId, rule);

@@ -57,17 +57,13 @@ public class ProgressPortalFunction
             var query = HttpUtility.ParseQueryString(req.Url.Query);
             if (string.IsNullOrEmpty(query["tenantId"]))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "tenantId query parameter is required" });
-                return badRequest;
+                return await req.BadRequestAsync("tenantId query parameter is required");
             }
 
             var search = query["search"];
             if (string.IsNullOrWhiteSpace(search))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "search query parameter is required" });
-                return badRequest;
+                return await req.BadRequestAsync("search query parameter is required");
             }
 
             var tenantId = requestCtx.TargetTenantId;
@@ -92,16 +88,7 @@ public class ProgressPortalFunction
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in ProgressLookupSession");
-
-            var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-            await errorResponse.WriteAsJsonAsync(new
-            {
-                success = false,
-                message = "Internal server error",
-                found = false
-            });
-            return errorResponse;
+            return await req.InternalServerErrorAsync(_logger, ex, "ProgressLookupSession");
         }
     }
 
@@ -178,9 +165,7 @@ public class ProgressPortalFunction
     {
         if (string.IsNullOrEmpty(sessionId))
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { success = false, message = "SessionId is required" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("SessionId is required");
         }
 
         var sessionPrefix = $"[Session: {sessionId.Substring(0, Math.Min(8, sessionId.Length))}]";
@@ -198,31 +183,13 @@ public class ProgressPortalFunction
             var query = HttpUtility.ParseQueryString(req.Url.Query);
             if (string.IsNullOrEmpty(query["tenantId"]))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "tenantId query parameter is required",
-                    sessionId = sessionId,
-                    count = 0,
-                    events = Array.Empty<object>()
-                });
-                return badRequest;
+                return await req.BadRequestAsync("tenantId query parameter is required");
             }
 
             var serial = query["serial"];
             if (string.IsNullOrWhiteSpace(serial))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "serial query parameter is required",
-                    sessionId = sessionId,
-                    count = 0,
-                    events = Array.Empty<object>()
-                });
-                return badRequest;
+                return await req.BadRequestAsync("serial query parameter is required");
             }
 
             var requestedTenantId = requestCtx.TargetTenantId;
@@ -243,16 +210,7 @@ public class ProgressPortalFunction
                         sessionPrefix, userIdentifier);
                 }
 
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Session not found",
-                    sessionId = sessionId,
-                    count = 0,
-                    events = Array.Empty<object>()
-                });
-                return notFound;
+                return await req.NotFoundAsync("Session not found");
             }
 
             var events = await _sessionRepo.GetSessionEventsAsync(requestedTenantId, sessionId);
@@ -269,18 +227,7 @@ public class ProgressPortalFunction
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in ProgressGetSessionEvents for session {SessionId}", sessionId);
-
-            var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-            await errorResponse.WriteAsJsonAsync(new
-            {
-                success = false,
-                message = "Internal server error",
-                sessionId = sessionId,
-                count = 0,
-                events = Array.Empty<object>()
-            });
-            return errorResponse;
+            return await req.InternalServerErrorAsync(_logger, ex, "ProgressGetSessionEvents");
         }
     }
 }

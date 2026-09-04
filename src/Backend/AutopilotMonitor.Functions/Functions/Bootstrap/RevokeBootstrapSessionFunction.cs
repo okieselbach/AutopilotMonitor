@@ -50,18 +50,14 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
                 if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
-                    var disabled = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await disabled.WriteAsJsonAsync(new { error = "Bootstrap token feature is not enabled for this tenant" });
-                    return disabled;
+                    return await req.ForbiddenAsync("Bootstrap token feature is not enabled for this tenant");
                 }
 
                 var revoked = await _bootstrapService.RevokeAsync(tenantId, code);
 
                 if (!revoked)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = "Bootstrap session not found" });
-                    return notFound;
+                    return await req.NotFoundAsync("Bootstrap session not found");
                 }
 
                 await _maintenanceRepo.LogAuditEntryAsync(
@@ -78,10 +74,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error revoking bootstrap session {Code}", code);
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { error = "Failed to revoke bootstrap session" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "RevokeBootstrapSession");
             }
         }
     }

@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -112,9 +113,7 @@ public class IdentityBindingManagementFunction
         var previous = await _bindings.GetAsync(upn);
         if (previous == null)
         {
-            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFound.WriteAsJsonAsync(new { error = "Binding not found" });
-            return notFound;
+            return await req.NotFoundAsync("Binding not found");
         }
 
         await _bindings.RemoveAsync(upn);
@@ -128,16 +127,12 @@ public class IdentityBindingManagementFunction
         _logger.LogWarning("[IdentityBinding] Removed binding for {Upn} (was tenant {TenantId}) by {By}",
             upn, previous.TenantId, currentUpn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Binding removed" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Binding removed" });
     }
 
     private static async Task<HttpResponseData> Bad(HttpRequestData req, string error)
     {
-        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-        await bad.WriteAsJsonAsync(new { error });
-        return bad;
+        return await req.BadRequestAsync(error);
     }
 }
 

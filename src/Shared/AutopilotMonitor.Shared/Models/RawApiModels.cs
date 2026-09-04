@@ -5,6 +5,29 @@ namespace AutopilotMonitor.Shared.Models
 {
     // Declaration order == wire order.
     /// <summary>
+    /// Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query
+    /// (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the
+    /// store's own error code, HTTP status and — capped — its full response, so nothing the CLI would
+    /// print is lost. <c>hint</c> tells the caller how to fix the query.
+    /// </summary>
+    // Declaration order == wire order.
+    public class QueryBackendLogsErrorResponse : IApiErrorResponse
+    {
+        public string Error { get; set; } = default!;
+        public string Code { get; set; } = default!;
+        public string CorrelationId { get; set; } = string.Empty;
+        /// <summary>The store's error code (e.g. Kusto <c>SyntaxError</c>); absent when the store sent none.</summary>
+        public string? UpstreamCode { get; set; }
+        /// <summary>The store's HTTP status.</summary>
+        public int StatusCode { get; set; }
+        /// <summary>Which telemetry store answered (query_backend_logs <c>source</c>).</summary>
+        public string Source { get; set; } = default!;
+        public string? Hint { get; set; }
+        /// <summary>The store's response body, capped; absent when empty.</summary>
+        public string? Upstream { get; set; }
+    }
+
+    /// <summary>
     /// Success body of POST /api/global/raw/logs (QueryBackendLogs): the KQL result of one
     /// telemetry store in the Kusto REST shape (<c>tables[].columns/rows</c>), wrapped with the
     /// source it came from and the proxy's own observations. The table shape is kept verbatim so

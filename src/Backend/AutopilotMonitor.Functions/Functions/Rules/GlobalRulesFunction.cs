@@ -47,9 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             if (string.IsNullOrEmpty(tenantId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "tenantId query parameter is required" });
-                return badRequest;
+                return await req.BadRequestAsync("tenantId query parameter is required");
             }
 
             _logger.LogInformation("Global admin requesting gather rules for tenant {TenantId}", tenantId);
@@ -73,9 +71,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             if (string.IsNullOrEmpty(tenantId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "tenantId query parameter is required" });
-                return badRequest;
+                return await req.BadRequestAsync("tenantId query parameter is required");
             }
 
             _logger.LogInformation("Global admin requesting analyze rules for tenant {TenantId}", tenantId);
@@ -99,17 +95,17 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
             var tenantId = ResolveTenantId(req, out var tenantError);
             if (tenantError != null)
-                return await BadRequestAsync(req, tenantError);
+                return await req.BadRequestAsync(tenantError);
 
             var (rule, bodyError) = await ReadRuleBodyAsync<GatherRule>(req);
             if (bodyError != null)
-                return await BadRequestAsync(req, bodyError);
+                return await req.BadRequestAsync(bodyError);
 
             rule!.RuleId = ruleId;
 
             var scopeError = GatherRulesFunction.ValidateScopeAndEmitMode(rule);
             if (scopeError != null)
-                return await BadRequestAsync(req, scopeError);
+                return await req.BadRequestAsync(scopeError);
 
             // Same anti-spoof stamp as the tenant route: true updates keep the original
             // author (service-level preservation); a PUT-upsert with no existing row
@@ -135,16 +131,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
             var tenantId = ResolveTenantId(req, out var tenantError);
             if (tenantError != null)
-                return await BadRequestAsync(req, tenantError);
+                return await req.BadRequestAsync(tenantError);
 
             // Load the rule to determine its type (built-in/community vs. custom).
             var rules = await _gatherRuleService.GetAllRulesForTenantAsync(tenantId);
             var rule = rules.FirstOrDefault(r => r.RuleId == ruleId);
             if (rule == null)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Rule not found" });
-                return notFound;
+                return await req.NotFoundAsync("Rule not found");
             }
 
             _logger.LogInformation("Global admin deleting gather rule {RuleId} for tenant {TenantId}", ruleId, tenantId);
@@ -167,11 +161,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
             var tenantId = ResolveTenantId(req, out var tenantError);
             if (tenantError != null)
-                return await BadRequestAsync(req, tenantError);
+                return await req.BadRequestAsync(tenantError);
 
             var (rule, bodyError) = await ReadRuleBodyAsync<AnalyzeRule>(req);
             if (bodyError != null)
-                return await BadRequestAsync(req, bodyError);
+                return await req.BadRequestAsync(bodyError);
 
             rule!.RuleId = ruleId;
 
@@ -194,16 +188,14 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
             var tenantId = ResolveTenantId(req, out var tenantError);
             if (tenantError != null)
-                return await BadRequestAsync(req, tenantError);
+                return await req.BadRequestAsync(tenantError);
 
             // Load the rule to determine its type (built-in/community vs. custom).
             var rules = await _analyzeRuleService.GetAllRulesForTenantAsync(tenantId);
             var rule = rules.FirstOrDefault(r => r.RuleId == ruleId);
             if (rule == null)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Rule not found" });
-                return notFound;
+                return await req.NotFoundAsync("Rule not found");
             }
 
             _logger.LogInformation("Global admin deleting analyze rule {RuleId} for tenant {TenantId}", ruleId, tenantId);
@@ -243,11 +235,5 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             return rule == null ? (null, "Invalid rule data") : (rule, null);
         }
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { success = false, message });
-            return badRequest;
-        }
     }
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services.Ime;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -36,10 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error building IME pattern health");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Failed to build IME pattern health" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetImePatternHealth");
             }
         }
     }

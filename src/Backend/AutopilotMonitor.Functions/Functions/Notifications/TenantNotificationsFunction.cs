@@ -69,9 +69,7 @@ public class TenantNotificationsFunction
 
         if (!found)
         {
-            var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFoundResponse.WriteAsJsonAsync(new { success = false, message = "Notification not found" });
-            return notFoundResponse;
+            return await req.NotFoundAsync("Notification not found");
         }
 
         var response = req.CreateResponse(HttpStatusCode.OK);

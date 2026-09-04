@@ -52,9 +52,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var parsed = DateWindowPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 // Optional exact-match field filters (eventType / severity / minSeverity). Unlike
@@ -63,9 +61,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var fieldFilters = OpsEventFilterRequest.Parse(query);
                 if (fieldFilters.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = fieldFilters.Error });
-                    return bad;
+                    return await req.BadRequestAsync(fieldFilters.Error);
                 }
                 var filters = fieldFilters.Filters;
 
@@ -105,13 +101,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                             out var rejectReason))
                     {
                         _logger.LogWarning("GetOpsEvents: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 

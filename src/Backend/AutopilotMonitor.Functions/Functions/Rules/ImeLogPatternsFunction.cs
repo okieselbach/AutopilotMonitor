@@ -49,27 +49,21 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var globalEdit = req.Url.Query.Contains("global=true", StringComparison.OrdinalIgnoreCase);
             if (!globalEdit)
             {
-                var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                await forbidden.WriteAsJsonAsync(new { success = false, message = "IME log pattern edits require ?global=true" });
-                return forbidden;
+                return await req.ForbiddenAsync("IME log pattern edits require ?global=true");
             }
 
             if (req.Headers.TryGetValues("Content-Length", out var clValues)
                 && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                 && contentLength > 1_048_576)
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                return badRequest;
+                return await req.BadRequestAsync("Request body too large");
             }
             var body = await new StreamReader(req.Body).ReadToEndAsync();
             var pattern = JsonConvert.DeserializeObject<ImeLogPattern>(body);
 
             if (pattern == null)
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid pattern data" });
-                return badRequest;
+                return await req.BadRequestAsync("Invalid pattern data");
             }
 
             pattern.PatternId = patternId;
@@ -105,10 +99,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error reseeding IME log patterns");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { success = false, message = "Failed to reseed IME log patterns" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "ImeLogPatterns");
             }
         }
     }

@@ -286,6 +286,10 @@ namespace AutopilotMonitor.Shared
             public const string RateLimited = "RateLimited";
             public const string InternalError = "InternalError";
             public const string ServiceUnavailable = "ServiceUnavailable";
+            /// <summary>502: an upstream provider (mail, Graph, storage) refused or failed the request.</summary>
+            public const string UpstreamError = "UpstreamError";
+            /// <summary>504: the upstream call exceeded the request budget.</summary>
+            public const string UpstreamTimeout = "UpstreamTimeout";
 
             // ── policy / authentication (PolicyEnforcementMiddleware, AuthenticationMiddleware) ──
             public const string AuthenticationRequired = "AuthenticationRequired";
@@ -296,18 +300,38 @@ namespace AutopilotMonitor.Shared
             // ── MCP quota (McpQuotaEnforcementMiddleware) ──
             public const string QuotaExceeded = "QuotaExceeded";
 
+            /// <summary>413: an upload or download exceeds the configured size cap.</summary>
+            public const string PayloadTooLarge = "PayloadTooLarge";
+
             // ── identity binding (grant endpoints, HTTP 422) ──
             public const string HomeTenantUnresolved = "HomeTenantUnresolved";
 
-            // ── app homing (AppHomingFunction) ──
-            public const string InvalidTarget = "InvalidTarget";
-            public const string TenantNotFound = "TenantNotFound";
+            // ── self-service Pro trial (PlanManagementFunction, HTTP 409) ──
+            public const string TrialAlreadyConsumed = "TrialAlreadyConsumed";
+            public const string AlreadyPro = "AlreadyPro";
+            public const string ContactProfileRequired = "ContactProfileRequired";
 
             // ── session deletion cascade (DeleteSessionFunction) ──
             public const string CascadeAlreadyInFlight = "CascadeAlreadyInFlight";
             public const string CascadePoisonedUseRestore = "CascadePoisonedUseRestore";
             public const string KillSwitchActive = "KillSwitchActive";
             public const string CasExhaustedRetryLater = "CasExhaustedRetryLater";
+        }
+
+        /// <summary>
+        /// Machine-readable <c>code</c> values of the app-homing flip denials (<c>AppHomingDeniedResponse</c>).
+        /// Kebab-case is the persisted wire vocabulary the portal maps to user text — keep stable.
+        /// </summary>
+        public static class AppHomingReasonCodes
+        {
+            public const string InvalidTarget = "invalid-target";
+            public const string TenantNotFound = "tenant-not-found";
+            public const string ParallelWindowInactive = "parallel-window-inactive";
+            public const string RevertIsGlobalAdminOnly = "revert-is-ga-only";
+            public const string ForceIsGlobalAdminOnly = "force-is-ga-only";
+            public const string SelfServiceDisabled = "self-service-disabled";
+            public const string ProbeTransient = "probe-transient";
+            public const string ProbeFailed = "probe-failed";
         }
 
         /// <summary>

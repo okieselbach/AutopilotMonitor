@@ -85,16 +85,12 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 if (!Constants.TableNames.All.Contains(tableName) &&
                     !Constants.TableNames.All.Any(t => t.Equals(tableName, StringComparison.OrdinalIgnoreCase)))
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { error = $"Table '{tableName}' not found" });
-                    return notFound;
+                    return await req.NotFoundAsync($"Table '{tableName}' not found");
                 }
 
                 if (_blacklistedTables.Contains(tableName))
                 {
-                    var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await forbidden.WriteAsJsonAsync(new { error = $"Table '{tableName}' is not accessible" });
-                    return forbidden;
+                    return await req.ForbiddenAsync($"Table '{tableName}' is not accessible");
                 }
 
                 // Resolve actual table name (case-insensitive match)
@@ -109,9 +105,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 var pagination = RawTablePagination.ParsePagination(query);
                 if (pagination.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = pagination.Error });
-                    return bad;
+                    return await req.BadRequestAsync(pagination.Error);
                 }
 
                 // Build OData filter
@@ -128,12 +122,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                             out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("QueryRawTable: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            error = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -190,14 +179,9 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 // with the actionable Azure message so the caller fixes the filter,
                 // instead of the generic 500 ("retry / contact an operator").
                 _logger.LogInformation(rfe, "QueryRawTable: invalid query for table '{TableName}'", tableName);
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new
-                {
-                    error = "Invalid query parameters (filter / partitionKey / rowKeyPrefix). " +
-                            "Check the OData filter syntax and that the column names exist.",
-                    detail = rfe.Message,
-                });
-                return bad;
+                return await req.BadRequestAsync(
+                    $"Invalid query parameters (filter / partitionKey / rowKeyPrefix): {ResponseHelper.FirstLine(rfe.Message)}",
+                    hint: "Check the OData filter syntax and that the column names exist.");
             }
             catch (RequestFailedException rfe)
             {

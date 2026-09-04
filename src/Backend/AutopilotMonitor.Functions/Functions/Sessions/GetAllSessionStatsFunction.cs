@@ -39,9 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                 if (!GetSessionStatsFunction.TryParseDays(query["days"], out var days, out var error))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = error });
-                    return bad;
+                    return await req.BadRequestAsync(error!);
                 }
 
                 var tenantIdFilterRaw = query["tenantId"];
@@ -50,9 +48,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 {
                     if (!Guid.TryParse(tenantIdFilterRaw, out _))
                     {
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId format" });
-                        return bad;
+                        return await req.BadRequestAsync("Invalid tenantId format");
                     }
                     tenantIdFilter = tenantIdFilterRaw;
                 }
@@ -77,10 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing cross-tenant session stats");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAllSessionStats");
             }
         }
     }

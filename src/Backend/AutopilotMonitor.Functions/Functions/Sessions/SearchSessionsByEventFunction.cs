@@ -62,17 +62,13 @@ public class SearchSessionsByEventFunction
             var eventType = query["eventType"];
             if (string.IsNullOrEmpty(eventType))
             {
-                var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badReq.WriteAsJsonAsync(new { success = false, message = "eventType is required" });
-                return badReq;
+                return await req.BadRequestAsync("eventType is required");
             }
 
             var pagination = SearchSessionsByEventPagination.ParsePagination(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             string? azureToken = null;
@@ -83,13 +79,7 @@ public class SearchSessionsByEventFunction
                         out azureToken, out var rejectReason))
                 {
                     _logger.LogWarning("SearchSessionsByEvent: continuation rejected ({Reason})", rejectReason);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                 }
             }
 

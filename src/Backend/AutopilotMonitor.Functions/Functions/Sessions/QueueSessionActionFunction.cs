@@ -97,27 +97,21 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Invalid action payload for session {SessionId}", sessionId);
-                    return await BadRequestAsync(req, "Invalid JSON body");
+                    return await req.BadRequestAsync("Invalid JSON body");
                 }
 
                 if (action == null || string.IsNullOrWhiteSpace(action.Type))
-                    return await BadRequestAsync(req, "Action 'type' is required");
+                    return await req.BadRequestAsync("Action 'type' is required");
 
                 if (!AllowedTypes.Contains(action.Type))
-                    return await BadRequestAsync(req, $"Unknown action type '{action.Type}'. Allowed: {string.Join(", ", AllowedTypes)}");
+                    return await req.BadRequestAsync($"Unknown action type '{action.Type}'. Allowed: {string.Join(", ", AllowedTypes)}");
 
                 if (!IsTypeAllowedForCaller(action.Type, requestCtx.IsTenantAdmin, requestCtx.IsGlobalAdmin))
                 {
                     _logger.LogWarning(
                         "Operator {User} denied queueing admin-only action '{Type}' for session {SessionId}",
                         userIdentifier, action.Type, sessionId);
-                    var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await forbidden.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Action type '{action.Type}' requires the Tenant Admin role"
-                    });
-                    return forbidden;
+                    return await req.ForbiddenAsync($"Action type '{action.Type}' requires the Tenant Admin role");
                 }
 
                 // Stamp server-side fields — never trust client timestamps, and never let the caller
@@ -130,9 +124,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var success = await _sessionRepo.QueueServerActionAsync(tenantId, sessionId, action);
                 if (!success)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = $"Session {sessionId} not found for tenant" });
-                    return notFound;
+                    return await req.NotFoundAsync($"Session {sessionId} not found for tenant");
                 }
 
                 // Ops feed: who uses the on-demand session controls (Collect Logs, quick-config,
@@ -164,18 +156,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error queueing server action for session {SessionId}", sessionId);
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "QueueSessionAction");
             }
         }
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var response = req.CreateResponse(HttpStatusCode.BadRequest);
-            await response.WriteAsJsonAsync(new { success = false, message });
-            return response;
-        }
     }
 }

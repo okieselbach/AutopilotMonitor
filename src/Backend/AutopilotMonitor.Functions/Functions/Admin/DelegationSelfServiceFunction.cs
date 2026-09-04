@@ -292,9 +292,7 @@ public class DelegationSelfServiceFunction
     {
         if (failure.SlotViolation != null)
             return await DelegatedSlotResponses.ConflictAsync(req, failure.SlotViolation);
-        var response = req.CreateResponse((HttpStatusCode)failure.Status);
-        await response.WriteAsJsonAsync(new { error = failure.Message, code = failure.Code });
-        return response;
+        return await req.ErrorAsync((HttpStatusCode)failure.Status, failure.Code, failure.Message);
     }
 
     private static async Task<HttpResponseData> OkAsync(HttpRequestData req, object body)
@@ -306,8 +304,6 @@ public class DelegationSelfServiceFunction
 
     private static async Task<HttpResponseData> BadAsync(HttpRequestData req, string error)
     {
-        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-        await bad.WriteAsJsonAsync(new { error });
-        return bad;
+        return await req.BadRequestAsync(error);
     }
 }

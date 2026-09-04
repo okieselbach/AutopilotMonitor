@@ -37,18 +37,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576) // 1 MB limit
                 {
-                    var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await errorResponse.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return new RemoveFromGroupOutput { HttpResponse = errorResponse };
+                    return new RemoveFromGroupOutput { HttpResponse = await req.BadRequestAsync("Request body too large") };
                 }
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var request = JsonConvert.DeserializeObject<RemoveFromGroupRequest>(requestBody);
 
                 if (string.IsNullOrEmpty(request?.ConnectionId) || string.IsNullOrEmpty(request?.GroupName))
                 {
-                    var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await errorResponse.WriteAsJsonAsync(new { success = false, message = "ConnectionId and GroupName are required" });
-                    return new RemoveFromGroupOutput { HttpResponse = errorResponse };
+                    return new RemoveFromGroupOutput { HttpResponse = await req.BadRequestAsync("ConnectionId and GroupName are required") };
                 }
 
                 // Get user's tenant ID from RequestContext
@@ -67,9 +63,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     if (!requestCtx.HasGlobalScope)
                     {
                         _logger.LogWarning($"User {userEmail} (tenant {userTenantId}) attempted to leave global-admins group without platform scope");
-                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: platform scope (Global Admin or Global Reader) required for this group" });
-                        return new RemoveFromGroupOutput { HttpResponse = forbiddenResponse };
+                        return new RemoveFromGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: platform scope (Global Admin or Global Reader) required for this group") };
                     }
                     _logger.LogInformation($"Platform-scope user {userEmail} (role={requestCtx.UserRole}) leaving global-admins group");
                 }
@@ -79,9 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     if (string.IsNullOrEmpty(requestedTenantId))
                     {
                         _logger.LogWarning($"User {userEmail} attempted to leave unrecognized group format: {request.GroupName}");
-                        var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badRequestResponse.WriteAsJsonAsync(new { success = false, message = "Unrecognized group name format" });
-                        return new RemoveFromGroupOutput { HttpResponse = badRequestResponse };
+                        return new RemoveFromGroupOutput { HttpResponse = await req.BadRequestAsync("Unrecognized group name format") };
                     }
 
                     // Check if user is allowed to leave this tenant's group — platform scope (GA or
@@ -101,9 +93,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         if (!allowedCrossTenant)
                         {
                             _logger.LogWarning($"User {userEmail} (tenant {userTenantId}) attempted to leave group for tenant {requestedTenantId}");
-                            var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                            await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: You can only leave groups for your own tenant" });
-                            return new RemoveFromGroupOutput { HttpResponse = forbiddenResponse };
+                            return new RemoveFromGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: You can only leave groups for your own tenant") };
                         }
                         else
                         {
@@ -120,9 +110,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         var message = notifyDenial == SignalRGroupHelper.NotifyGroupDenial.AdminTier
                             ? "Access denied: Only Tenant Admins can leave the admin notification group"
                             : "Access denied: Only tenant members can leave the notification group";
-                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message });
-                        return new RemoveFromGroupOutput { HttpResponse = forbiddenResponse };
+                        return new RemoveFromGroupOutput { HttpResponse = await req.ForbiddenAsync(message) };
                     }
                 }
 
@@ -149,10 +137,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing from group");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return new RemoveFromGroupOutput { HttpResponse = errorResponse };
+                return new RemoveFromGroupOutput { HttpResponse = await req.InternalServerErrorAsync(_logger, ex, "SignalRRemoveFromGroup") };
             }
         }
 

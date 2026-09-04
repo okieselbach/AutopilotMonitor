@@ -51,9 +51,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 var parsedRaw = SessionAnnotationsPagination.ParseQuery(query);
                 if (parsedRaw.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsedRaw.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsedRaw.Error);
                 }
 
                 // The tenant filter is never caller-chosen here: TargetTenantId is the
@@ -79,13 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                             parsed, callerTenantId, out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("ListTenantSessionAnnotations: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -113,10 +105,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error listing tenant session annotations");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "ListTenantSessionAnnotations");
             }
         }
     }

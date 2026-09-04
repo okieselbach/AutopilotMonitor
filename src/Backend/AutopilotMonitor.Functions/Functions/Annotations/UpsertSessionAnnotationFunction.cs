@@ -58,8 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 var normalizedLane = lane?.ToLowerInvariant() ?? string.Empty;
                 if (!AnnotationLanes.All.Contains(normalizedLane))
                 {
-                    return await BadRequestAsync(req,
-                        $"lane must be one of: {string.Join(", ", AnnotationLanes.All)}");
+                    return await req.BadRequestAsync($"lane must be one of: {string.Join(", ", AnnotationLanes.All)}");
                 }
 
                 // Tenant identity: non-GA callers are pinned to their middleware-validated
@@ -82,22 +81,14 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     _logger.LogWarning(
                         "UpsertSessionAnnotation: BLOCKED lane={Lane} for user={User} role={Role} ownTenant={OwnTenant}",
                         normalizedLane, userIdentifier, requestCtx.UserRole, isOwnTenant);
-                    var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                    await forbidden.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = $"Your role does not permit writing the '{normalizedLane}' annotation lane.",
-                    });
-                    return forbidden;
+                    return await req.ForbiddenAsync($"Your role does not permit writing the '{normalizedLane}' annotation lane.");
                 }
 
                 // Annotations must not create junk rows for sessions that don't exist.
                 var session = await _sessionRepo.GetSessionAsync(effectiveTenantId, sessionId);
                 if (session == null)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = "Session not found." });
-                    return notFound;
+                    return await req.NotFoundAsync("Session not found.");
                 }
 
                 var body = await req.ReadAsStringAsync() ?? string.Empty;
@@ -108,7 +99,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 }
                 catch (JsonException)
                 {
-                    return await BadRequestAsync(req, "Invalid JSON body.");
+                    return await req.BadRequestAsync("Invalid JSON body.");
                 }
 
                 var verdict = ReadOptionalString(json, "verdict")?.ToLowerInvariant();
@@ -116,13 +107,11 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
 
                 if (verdict != null && !AnnotationVerdicts.All.Contains(verdict))
                 {
-                    return await BadRequestAsync(req,
-                        $"verdict must be one of: {string.Join(", ", AnnotationVerdicts.All)}");
+                    return await req.BadRequestAsync($"verdict must be one of: {string.Join(", ", AnnotationVerdicts.All)}");
                 }
                 if (note != null && note.Length > SessionAnnotation.MaxNoteLength)
                 {
-                    return await BadRequestAsync(req,
-                        $"note must be at most {SessionAnnotation.MaxNoteLength} characters.");
+                    return await req.BadRequestAsync($"note must be at most {SessionAnnotation.MaxNoteLength} characters.");
                 }
 
                 // Anti-spoof: author identity comes from the JWT, never from the body
@@ -174,10 +163,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving annotation for session {SessionId} lane {Lane}", sessionId, lane);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "UpsertSessionAnnotation");
             }
         }
 
@@ -258,11 +244,5 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             return value.Length == 0 ? null : value;
         }
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var response = req.CreateResponse(HttpStatusCode.BadRequest);
-            await response.WriteAsJsonAsync(new { success = false, message });
-            return response;
-        }
     }
 }

@@ -76,10 +76,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error listing bootstrap sessions");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { error = "Failed to list bootstrap sessions" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "ListBootstrapSessions");
             }
         }
     }

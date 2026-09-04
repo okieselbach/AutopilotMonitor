@@ -51,12 +51,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             var table = (req.Query["table"] ?? string.Empty).Trim().ToLowerInvariant();
             if (table != OccurredUtcBackfillService.TableAudit && table != OccurredUtcBackfillService.TableOps)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new
-                {
-                    error = $"table must be '{OccurredUtcBackfillService.TableAudit}' or '{OccurredUtcBackfillService.TableOps}'"
-                });
-                return bad;
+                return await req.BadRequestAsync($"table must be '{OccurredUtcBackfillService.TableAudit}' or '{OccurredUtcBackfillService.TableOps}'");
             }
 
             var dryRun = !string.Equals(req.Query["dryRun"], "false", StringComparison.OrdinalIgnoreCase);
@@ -67,9 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             {
                 if (!int.TryParse(req.Query["maxRows"], out maxRows) || maxRows < 1)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = $"maxRows must be a positive integer (max {MaxMaxRows})" });
-                    return bad;
+                    return await req.BadRequestAsync($"maxRows must be a positive integer (max {MaxMaxRows})");
                 }
                 maxRows = Math.Min(maxRows, MaxMaxRows);
             }
@@ -94,10 +87,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "OccurredUtc backfill run failed");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "BackfillOccurredUtc");
             }
         }
     }

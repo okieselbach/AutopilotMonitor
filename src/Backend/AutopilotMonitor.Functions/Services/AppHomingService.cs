@@ -8,6 +8,7 @@ using AutopilotMonitor.Functions.Services.GraphResolution;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Graph;
+using AutopilotMonitor.Shared;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 
@@ -299,7 +300,7 @@ namespace AutopilotMonitor.Functions.Services
         {
             if (!legacyConfigured)
             {
-                return AppHomingDecision.Deny("parallel-window-inactive", 409);
+                return AppHomingDecision.Deny(Constants.AppHomingReasonCodes.ParallelWindowInactive, 409);
             }
 
             if (currentlyPrimary == targetPrimary)
@@ -311,15 +312,15 @@ namespace AutopilotMonitor.Functions.Services
             {
                 if (!targetPrimary)
                 {
-                    return AppHomingDecision.Deny("revert-is-ga-only", 403);
+                    return AppHomingDecision.Deny(Constants.AppHomingReasonCodes.RevertIsGlobalAdminOnly, 403);
                 }
                 if (force)
                 {
-                    return AppHomingDecision.Deny("force-is-ga-only", 403);
+                    return AppHomingDecision.Deny(Constants.AppHomingReasonCodes.ForceIsGlobalAdminOnly, 403);
                 }
                 if (!selfServiceEnabled)
                 {
-                    return AppHomingDecision.Deny("self-service-disabled", 409);
+                    return AppHomingDecision.Deny(Constants.AppHomingReasonCodes.SelfServiceDisabled, 409);
                 }
             }
 
@@ -339,8 +340,8 @@ namespace AutopilotMonitor.Functions.Services
                 return AppHomingDecision.Allow;
             }
             return probe.IsTransient
-                ? AppHomingDecision.Deny("probe-transient", 503)
-                : AppHomingDecision.Deny("probe-failed", 409);
+                ? AppHomingDecision.Deny(Constants.AppHomingReasonCodes.ProbeTransient, 503)
+                : AppHomingDecision.Deny(Constants.AppHomingReasonCodes.ProbeFailed, 409);
         }
     }
 }

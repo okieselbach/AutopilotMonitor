@@ -6,6 +6,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -80,9 +81,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var target = request?.Target?.Trim().ToLowerInvariant();
                 if (target != "primary" && target != "legacy")
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, reason = "invalid-target", message = "Target must be \"primary\" or \"legacy\"." });
-                    return badRequest;
+                    return await req.ErrorAsync(HttpStatusCode.BadRequest, Constants.AppHomingReasonCodes.InvalidTarget,
+                        "Target must be \"primary\" or \"legacy\".");
                 }
                 var targetPrimary = target == "primary";
                 var force = request?.Force == true;
@@ -90,9 +90,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var config = await _tenantConfigService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, reason = "tenant-not-found", message = "Tenant configuration not found." });
-                    return notFound;
+                    return await req.ErrorAsync(HttpStatusCode.NotFound, Constants.AppHomingReasonCodes.TenantNotFound,
+                        "Tenant configuration not found.");
                 }
 
                 var currentlyPrimary = !_appRegistry.ResolveForTenant(config).IsLegacy;
@@ -119,14 +118,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     _logger.LogWarning(
                         "App-homing flip denied for tenant {TenantId} (target {Target}, force {Force}, by {User}): {Reason}",
                         requestCtx.TargetTenantId, target, force, requestCtx.UserPrincipalName, decision.ReasonCode);
-                    var denied = req.CreateResponse((HttpStatusCode)decision.StatusCode);
-                    await denied.WriteAsJsonAsync(new
+                    return await req.ErrorAsync((HttpStatusCode)decision.StatusCode, new AppHomingDeniedResponse
                     {
-                        success = false,
-                        reason = decision.ReasonCode,
-                        probe = ProbePayload(probe),
+                        Error = $"App-homing switch denied ({decision.ReasonCode}).",
+                        Code = decision.ReasonCode ?? Constants.ApiErrorCodes.Conflict,
+                        Probe = ProbePayload(probe),
                     });
-                    return denied;
                 }
 
                 var changed = decision.Kind == AppHomingDecisionKind.Allow;
@@ -162,10 +159,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating app homing for tenant {TenantId}", tenantId);
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "AppHoming");
             }
         }
 

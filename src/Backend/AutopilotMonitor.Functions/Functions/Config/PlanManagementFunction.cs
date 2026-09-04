@@ -6,6 +6,7 @@ using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Config;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -96,7 +97,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 }
                 catch (JsonException)
                 {
-                    return await BadRequestAsync(req, "Invalid JSON body");
+                    return await req.BadRequestAsync("Invalid JSON body");
                 }
 
                 string? newPlanTier = null;
@@ -112,19 +113,18 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 using (doc)
                 {
                     if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                        return await BadRequestAsync(req, "Body must be a JSON object");
+                        return await req.BadRequestAsync("Body must be a JSON object");
 
                     if (doc.RootElement.TryGetProperty("planTier", out var tierProp))
                     {
                         if (tierProp.ValueKind != JsonValueKind.String)
-                            return await BadRequestAsync(req, "planTier must be a string");
+                            return await req.BadRequestAsync("planTier must be a string");
 
                         newPlanTier = tierProp.GetString()!.Trim().ToLowerInvariant();
                         if (newPlanTier != FeatureEntitlementCatalog.CommunityTierName &&
                             newPlanTier != FeatureEntitlementCatalog.ProTierName)
                         {
-                            return await BadRequestAsync(req,
-                                $"Invalid planTier. Valid values: {FeatureEntitlementCatalog.CommunityTierName}, {FeatureEntitlementCatalog.ProTierName}");
+                            return await req.BadRequestAsync($"Invalid planTier. Valid values: {FeatureEntitlementCatalog.CommunityTierName}, {FeatureEntitlementCatalog.ProTierName}");
                         }
                     }
 
@@ -142,7 +142,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                         else
                         {
-                            return await BadRequestAsync(req, "trialExpiresUtc must be an ISO-8601 date-time string or null");
+                            return await req.BadRequestAsync("trialExpiresUtc must be an ISO-8601 date-time string or null");
                         }
                     }
 
@@ -159,7 +159,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                         else
                         {
-                            return await BadRequestAsync(req, "maxDelegatedTenants must be a non-negative integer or null");
+                            return await req.BadRequestAsync("maxDelegatedTenants must be a non-negative integer or null");
                         }
                     }
 
@@ -177,21 +177,21 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                         else
                         {
-                            return await BadRequestAsync(req, "mcpUsagePlan must be a plan name or null");
+                            return await req.BadRequestAsync("mcpUsagePlan must be a plan name or null");
                         }
                     }
 
                     if (doc.RootElement.TryGetProperty("payingCustomer", out var payingProp))
                     {
                         if (payingProp.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                            return await BadRequestAsync(req, "payingCustomer must be a boolean");
+                            return await req.BadRequestAsync("payingCustomer must be a boolean");
                         payingProvided = true;
                         newPayingCustomer = payingProp.GetBoolean();
                     }
                 }
 
                 if (newPlanTier == null && !trialProvided && !slotsProvided && !mcpPlanProvided && !payingProvided)
-                    return await BadRequestAsync(req, "Provide planTier, trialExpiresUtc, maxDelegatedTenants, mcpUsagePlan and/or payingCustomer");
+                    return await req.BadRequestAsync("Provide planTier, trialExpiresUtc, maxDelegatedTenants, mcpUsagePlan and/or payingCustomer");
 
                 if (newMcpUsagePlan != null)
                 {
@@ -202,16 +202,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     if (!IsKnownUsagePlan(newMcpUsagePlan, definitions))
                     {
                         var known = string.Join(", ", KnownUsagePlanNames(definitions));
-                        return await BadRequestAsync(req, $"Unknown mcpUsagePlan '{newMcpUsagePlan}'. Known plans: {known}");
+                        return await req.BadRequestAsync($"Unknown mcpUsagePlan '{newMcpUsagePlan}'. Known plans: {known}");
                     }
                 }
 
                 var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { error = "Tenant not found" });
-                    return notFound;
+                    return await req.NotFoundAsync("Tenant not found");
                 }
 
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
@@ -302,10 +300,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting plan tier");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "PlanManagement");
             }
         }
 
@@ -430,24 +425,24 @@ namespace AutopilotMonitor.Functions.Functions.Config
         /// admin UI warns. One verdict names everything that is missing, so a caller never has
         /// to fix the profile in two round trips.
         /// </summary>
-        internal static (string Error, string Message)? EvaluateTrialStart(TenantConfiguration config, DateTime nowUtc)
+        internal static (string Code, string Message)? EvaluateTrialStart(TenantConfiguration config, DateTime nowUtc)
         {
             if (config.TrialConsumed)
             {
-                return ("TrialAlreadyConsumed",
+                return (Constants.ApiErrorCodes.TrialAlreadyConsumed,
                     "This tenant has already used its one self-service Pro trial. Contact support to extend.");
             }
 
             // Effective edition, conferred Pro included: a tenant managed by a Pro tenant needs no trial.
             if (FeatureEntitlementCatalog.ResolveEdition(config, nowUtc) == TenantEdition.Pro)
             {
-                return ("AlreadyPro", "This tenant is already on the Pro plan.");
+                return (Constants.ApiErrorCodes.AlreadyPro, "This tenant is already on the Pro plan.");
             }
 
             var missing = MissingContactProfileParts(config);
             if (missing.Count > 0)
             {
-                return ("ContactProfileRequired",
+                return (Constants.ApiErrorCodes.ContactProfileRequired,
                     $"Pro requires a tenant contact profile so we can reach and identify you for service or security matters. Missing: {string.Join(" and ", missing)}. Set it under Settings → Tenant → Contact, then start the trial.");
             }
 
@@ -480,18 +475,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var config = await _configService.GetConfigurationIfExistsAsync(requestCtx.TargetTenantId);
                 if (config == null)
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { error = "Tenant not found" });
-                    return notFound;
+                    return await req.NotFoundAsync("Tenant not found");
                 }
 
                 var nowUtc = _time.GetUtcNow().UtcDateTime;
 
                 if (EvaluateTrialStart(config, nowUtc) is { } deny)
                 {
-                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                    await conflict.WriteAsJsonAsync(new { error = deny.Error, message = deny.Message });
-                    return conflict;
+                    return await req.ErrorAsync(HttpStatusCode.Conflict, deny.Code, deny.Message);
                 }
 
                 config.TrialStartedUtc = nowUtc;
@@ -541,10 +532,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error starting trial");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "PlanManagement");
             }
         }
 
@@ -567,10 +555,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting plan tier definitions");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "PlanManagement");
             }
         }
 
@@ -587,14 +572,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var body = await req.ReadFromJsonAsync<SetPlanTierDefinitionsRequest>();
                 if (body?.Tiers == null || body.Tiers.Count == 0)
                 {
-                    return await BadRequestAsync(req, "At least one tier definition is required");
+                    return await req.BadRequestAsync("At least one tier definition is required");
                 }
 
                 // Validate tier names are unique
                 var names = body.Tiers.Select(t => t.Name.ToLowerInvariant()).ToList();
                 if (names.Distinct().Count() != names.Count)
                 {
-                    return await BadRequestAsync(req, "Tier names must be unique");
+                    return await req.BadRequestAsync("Tier names must be unique");
                 }
 
                 // Normalize names to lowercase
@@ -611,22 +596,12 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving plan tier definitions");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "PlanManagement");
             }
         }
 
         private static string FormatUtc(DateTime? value)
             => value?.ToString("yyyy-MM-ddTHH:mm:ssZ") ?? "(none)";
-
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, string message)
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = message });
-            return badRequest;
-        }
 
         private class SetPlanTierDefinitionsRequest
         {

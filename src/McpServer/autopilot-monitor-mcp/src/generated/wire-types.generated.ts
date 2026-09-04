@@ -370,6 +370,15 @@ export interface AppFailureCodeCount {
   count: number;
 }
 
+/** Success response of PATCH config/{tenantId}/fields and POST config/{tenantId}/revert (both flow through the same outcome writer): which fields changed, the masked diff, and the pre-write backup id. */
+export interface AppHomingDeniedResponse {
+  error: string;
+  code: string;
+  correlationId: string;
+  /** The consent probe outcome; absent for pre-probe refusals (target/tenant/window checks). */
+  probe?: AppHomingProbeWire;
+}
+
 /** Consent-probe verdict embedded in app-homing responses (success and deny alike). Built by AppHomingFunction.ProbePayload. */
 export interface AppHomingProbeWire {
   /** False when the decision needed no probe (e.g. GA force flip). */
@@ -2471,6 +2480,11 @@ export interface McpUserEntry {
   usagePlan?: string;
 }
 
+/** Message-only acknowledgement: { "message": ... } — the 200 shape of the member, group, binding and MCP-user mutations (no success key: adding one would change the wire these sites have always written). */
+export interface MessageResponse {
+  message: string;
+}
+
 /** Per-tenant session-status tally envelope shared by MetricsSummary and MetricsSummaryGlobal. */
 export interface MetricsSummaryResponse {
   success: boolean;
@@ -2650,6 +2664,17 @@ export interface PlatformUsageMetrics {
   windowDays: number;
 }
 
+/** Acknowledgement of the preview-whitelist mutations (approve 201/200, revoke, save notification email, send welcome email): a message plus the echoed subject — each site sets only the keys its old anonymous body wrote (null keys vanish). */
+export interface PreviewWhitelistActionResponse {
+  message: string;
+  tenantId?: string;
+  /** Approve only: true when the tenant was already on the whitelist (idempotent success). */
+  alreadyApproved?: boolean;
+  email?: string;
+  /** Save-notification-email only: whether the once-only welcome mail went out with this save. */
+  welcomeEmailSent?: boolean;
+}
+
 /** One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31 wire carried synthetic PreviewWhitelistEntity rows whose only real datum was the tenant id in partitionKey (plus garbage defaults) — the contract is now just the id. */
 export interface PreviewWhitelistTenantEntry {
   tenantId: string;
@@ -2670,6 +2695,22 @@ export interface ProgressLookupSessionResponse {
   found: boolean;
   /** The matched session; null (key omitted on the wire) when nothing matched. */
   session?: SessionSummary;
+}
+
+/** Error body of POST /api/global/raw/logs when the telemetry store rejected or failed the query (400 for a caller-side KQL error, 502 for store/grant failures): the envelope prefix plus the store's own error code, HTTP status and — capped — its full response, so nothing the CLI would print is lost. hint tells the caller how to fix the query. */
+export interface QueryBackendLogsErrorResponse {
+  error: string;
+  code: string;
+  correlationId: string;
+  /** The store's error code (e.g. Kusto SyntaxError); absent when the store sent none. */
+  upstreamCode?: string;
+  /** The store's HTTP status. */
+  statusCode: number;
+  /** Which telemetry store answered (query_backend_logs source). */
+  source: string;
+  hint?: string;
+  /** The store's response body, capped; absent when empty. */
+  upstream?: string;
 }
 
 /** Success body of POST /api/global/raw/logs (QueryBackendLogs): the KQL result of one telemetry store in the Kusto REST shape (tables[].columns/rows), wrapped with the source it came from and the proxy's own observations. The table shape is kept verbatim so every consumer that parsed the raw App Insights body keeps working. */
@@ -3735,7 +3776,17 @@ export interface TenantConfigFieldSchema {
   revertProtected: boolean;
 }
 
-/** Success response of PATCH config/{tenantId}/fields and POST config/{tenantId}/revert (both flow through the same outcome writer): which fields changed, the masked diff, and the pre-write backup id. */
+/** Error body of PATCH config/{tenantId}/fields when the patch was not applied (400/404/409/503/500): envelope prefix plus the pre-write backup id and, on a rolled-back write, the fields that drifted. */
+export interface TenantConfigPatchFailedResponse {
+  error: string;
+  code: string;
+  correlationId: string;
+  /** Pre-write snapshot id when a backup was taken before the failure; absent otherwise. */
+  backupId?: string;
+  /** Fields whose post-write read-back differed from the intent (rolled back); absent otherwise. */
+  drift?: string[];
+}
+
 export interface TenantConfigPatchOutcomeResponse {
   success: boolean;
   appliedFields: string[];

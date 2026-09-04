@@ -95,9 +95,7 @@ public class AuthFunction
         if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
         {
             _logger.LogWarning("Missing required claims: tenantId or upn");
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "Missing required claims" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("Missing required claims");
         }
 
         // --- Parallel data fetch: all independent queries run concurrently ---
@@ -256,25 +254,19 @@ public class AuthFunction
         var body = await req.ReadFromJsonAsync<AddGlobalAdminRequest>();
         if (body == null || string.IsNullOrWhiteSpace(body.Upn))
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "UPN is required" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("UPN is required");
         }
         // The row is inert until the UPN is bound to the identity that may use it. The home tenant is resolved
         // automatically (sign-in history, then UPN domain → onboarded tenant); the body may override it.
         var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = bindingError });
-            return badRequestResponse;
+            return await req.BadRequestAsync(bindingError);
         }
         var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            var unresolved = req.CreateResponse(HttpStatusCode.UnprocessableEntity);
-            await unresolved.WriteAsJsonAsync(new { error = IdentityBindingRequest.HomeTenantUnresolvedMessage, code = IdentityBindingRequest.HomeTenantUnresolvedCode });
-            return unresolved;
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
         }
 
         GlobalAdminRow newAdmin;
@@ -284,9 +276,7 @@ public class AuthFunction
         }
         catch (IdentityBindingConflictException ex)
         {
-            var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-            await conflict.WriteAsJsonAsync(new { error = ex.Message });
-            return conflict;
+            return await req.ConflictAsync(ex.Message);
         }
 
         _logger.LogInformation($"Global Admin added: {body.Upn} by {currentUpn}");
@@ -314,9 +304,7 @@ public class AuthFunction
         // Prevent self-removal
         if (upn.Equals(currentUpn, StringComparison.OrdinalIgnoreCase))
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "You cannot remove yourself as a Global Admin" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("You cannot remove yourself as a Global Admin");
         }
 
         await _globalAdminService.RemoveGlobalAdminAsync(upn);
@@ -329,9 +317,7 @@ public class AuthFunction
 
         _logger.LogInformation($"Global Admin removed: {upn} by {currentUpn}");
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Global Admin removed successfully" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Global Admin removed successfully" });
     }
 
     /// <summary>

@@ -47,9 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
                 if (!TryParseDays(query["days"], out var days, out var error))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = error });
-                    return bad;
+                    return await req.BadRequestAsync(error!);
                 }
 
                 _logger.LogInformation(
@@ -61,10 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing session stats");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionStats");
             }
         }
 

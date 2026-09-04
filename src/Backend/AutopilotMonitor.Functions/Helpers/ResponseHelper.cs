@@ -1,6 +1,7 @@
 using System.Net;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Azure;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -175,7 +176,7 @@ public static class ResponseHelper
     /// Azure SDK messages dump the full HTTP response (RequestId, headers, body) after the
     /// first line — those details leak infrastructure info and must not be exposed.
     /// </summary>
-    private static string FirstLine(string message)
+    internal static string FirstLine(string message)
     {
         var idx = message.IndexOf('\n');
         return idx > 0 ? message[..idx].TrimEnd('\r') : message;

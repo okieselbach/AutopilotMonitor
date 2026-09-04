@@ -3,6 +3,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -72,12 +73,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 if (string.IsNullOrEmpty(tenantId))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new
-                    {
-                        error = "tenantId query parameter is required"
-                    });
-                    return badRequest;
+                    return await req.BadRequestAsync("tenantId query parameter is required");
                 }
 
                 // Validate request security (certificate, rate limit, hardware whitelist)
@@ -104,13 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting agent config");
-                var errorResp = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResp.WriteAsJsonAsync(new
-                {
-                    error = "Internal server error"
-                });
-                return errorResp;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAgentConfig");
             }
         }
 

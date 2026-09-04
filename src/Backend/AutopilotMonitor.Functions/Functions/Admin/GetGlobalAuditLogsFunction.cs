@@ -40,9 +40,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var parsed = DateWindowPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 // Optional tenantId filter — when set, GA scopes the cross-tenant view to one
@@ -99,13 +97,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                             out var rejectReason))
                     {
                         _logger.LogWarning("GetGlobalAuditLogs: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 

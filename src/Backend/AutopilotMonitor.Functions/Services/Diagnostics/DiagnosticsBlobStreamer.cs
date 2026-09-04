@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Net;
 using AutopilotMonitor.Functions.Functions.Diagnostics;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using Azure.Storage.Blobs;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -94,9 +96,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
                 if (string.IsNullOrEmpty(tenantConfig.DiagnosticsBlobSasUrl))
                 {
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = "No Blob Storage SAS URL configured for this tenant." });
-                    return notFound;
+                    return await req.NotFoundAsync("No Blob Storage SAS URL configured for this tenant.");
                 }
 
                 var blobUrl = BuildCustomerBlobUrl(tenantConfig.DiagnosticsBlobSasUrl, blobName);
@@ -118,13 +118,8 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
                     blobName, tenantId, destinationLabel, contentLength, maxSizeBytes);
                 content.Dispose();
 
-                var tooLarge = req.CreateResponse(HttpStatusCode.RequestEntityTooLarge);
-                await tooLarge.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = $"Diagnostics package size ({contentLength / (1024 * 1024)} MB) exceeds the maximum allowed size ({adminConfig.MaxDiagnosticsDownloadSizeMB} MB)."
-                });
-                return tooLarge;
+                return await req.ErrorAsync(HttpStatusCode.RequestEntityTooLarge, Constants.ApiErrorCodes.PayloadTooLarge,
+                    $"Diagnostics package size ({contentLength / (1024 * 1024)} MB) exceeds the maximum allowed size ({adminConfig.MaxDiagnosticsDownloadSizeMB} MB).");
             }
 
             _logger.LogInformation(

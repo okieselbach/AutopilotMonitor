@@ -38,9 +38,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 if (string.IsNullOrEmpty(reportId))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "reportId is required." });
-                    return badRequest;
+                    return await req.BadRequestAsync("reportId is required.");
                 }
 
                 string body = await req.ReadAsStringAsync() ?? string.Empty;
@@ -51,9 +49,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 }
                 catch (JsonException)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid JSON body." });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid JSON body.");
                 }
 
                 var adminNote = json["adminNote"]?.ToString() ?? string.Empty;
@@ -61,9 +57,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 var updated = await _sessionReportService.UpdateAdminNoteAsync(reportId, adminNote);
                 if (!updated)
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFoundResponse.WriteAsJsonAsync(new { success = false, message = "Report not found." });
-                    return notFoundResponse;
+                    return await req.NotFoundAsync("Report not found.");
                 }
 
                 _logger.LogInformation("Admin note updated for report {ReportId} by {User}", reportId, userIdentifier);
@@ -74,10 +68,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating admin note for report {ReportId}", reportId);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "UpdateSessionReportNote");
             }
         }
     }

@@ -41,18 +41,14 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576) // 1 MB limit
                 {
-                    var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await errorResponse.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return new AddToGroupOutput { HttpResponse = errorResponse };
+                    return new AddToGroupOutput { HttpResponse = await req.BadRequestAsync("Request body too large") };
                 }
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var request = JsonConvert.DeserializeObject<AddToGroupRequest>(requestBody);
 
                 if (string.IsNullOrEmpty(request?.ConnectionId) || string.IsNullOrEmpty(request?.GroupName))
                 {
-                    var errorResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await errorResponse.WriteAsJsonAsync(new { success = false, message = "ConnectionId and GroupName are required" });
-                    return new AddToGroupOutput { HttpResponse = errorResponse };
+                    return new AddToGroupOutput { HttpResponse = await req.BadRequestAsync("ConnectionId and GroupName are required") };
                 }
 
                 // Get user's tenant ID from RequestContext
@@ -73,9 +69,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     if (!requestCtx.HasGlobalScope)
                     {
                         _logger.LogWarning($"User {userEmail} (tenant {userTenantId}) attempted to join global-admins group without platform scope");
-                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: platform scope (Global Admin or Global Reader) required to join this group" });
-                        return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                        return new AddToGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: platform scope (Global Admin or Global Reader) required to join this group") };
                     }
                     _logger.LogInformation($"Platform-scope user {userEmail} (role={requestCtx.UserRole}) joining global-admins group");
                 }
@@ -85,9 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     if (string.IsNullOrEmpty(requestedTenantId))
                     {
                         _logger.LogWarning($"User {userEmail} attempted to join unrecognized group format: {request.GroupName}");
-                        var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await badRequestResponse.WriteAsJsonAsync(new { success = false, message = "Unrecognized group name format" });
-                        return new AddToGroupOutput { HttpResponse = badRequestResponse };
+                        return new AddToGroupOutput { HttpResponse = await req.BadRequestAsync("Unrecognized group name format") };
                     }
 
                     // Check if user is allowed to join this tenant's group. Cross-tenant joins require
@@ -116,9 +108,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         if (!allowedCrossTenant)
                         {
                             _logger.LogWarning($"User {userEmail} (tenant {userTenantId}) attempted to join group for tenant {requestedTenantId}");
-                            var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                            await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: You can only join groups for your own tenant" });
-                            return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                            return new AddToGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: You can only join groups for your own tenant") };
                         }
                         else if (requestCtx.HasGlobalScope)
                         {
@@ -135,9 +125,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                     if (SignalRGroupHelper.IsTenantBroadcastJoinDenied(request.GroupName, requestedTenantId, requestCtx))
                     {
                         _logger.LogWarning($"User {userEmail} (role={requestCtx.UserRole}) attempted to join tenant broadcast group without a member role: {request.GroupName}");
-                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: Only tenant members can join the tenant broadcast group" });
-                        return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                        return new AddToGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: Only tenant members can join the tenant broadcast group") };
                     }
 
                     // Notification groups carry the full per-tenant payload (the REST list is Member/Admin-tier
@@ -152,9 +140,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                             ? "Access denied: Only Tenant Admins can join the admin notification group"
                             : "Access denied: Only tenant members can join the notification group";
                         _logger.LogWarning($"User {userEmail} (role={requestCtx.UserRole}) attempted to join {notifyDenial} notification group for tenant {requestedTenantId}: {request.GroupName}");
-                        var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbiddenResponse.WriteAsJsonAsync(new { success = false, message });
-                        return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                        return new AddToGroupOutput { HttpResponse = await req.ForbiddenAsync(message) };
                     }
 
                     // Session groups stream one device's live enrollment telemetry. Members (and the
@@ -173,9 +159,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                         if (session == null || !SerialKnowledgeProof.Matches(session.SerialNumber, request.SerialNumber))
                         {
                             _logger.LogWarning($"User {userEmail} (role={requestCtx.UserRole}) denied session-group join without valid serial proof: {request.GroupName}");
-                            var forbiddenResponse = req.CreateResponse(HttpStatusCode.Forbidden);
-                            await forbiddenResponse.WriteAsJsonAsync(new { success = false, message = "Access denied: This session group requires the device's serial number" });
-                            return new AddToGroupOutput { HttpResponse = forbiddenResponse };
+                            return new AddToGroupOutput { HttpResponse = await req.ForbiddenAsync("Access denied: This session group requires the device's serial number") };
                         }
                     }
                 }
@@ -203,10 +187,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding to group");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return new AddToGroupOutput { HttpResponse = errorResponse };
+                return new AddToGroupOutput { HttpResponse = await req.InternalServerErrorAsync(_logger, ex, "SignalRAddToGroup") };
             }
         }
 

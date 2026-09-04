@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -77,23 +78,19 @@ public class PreviewWhitelistFunction
 
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "tenantId is required" });
-            return bad;
+            return await req.BadRequestAsync("tenantId is required");
         }
 
         // Whitelist add + auto-promote + welcome email — shared with the auto-approve worker.
         // False = already activated: idempotent success, but no duplicate mail/promote.
         var newlyApproved = await _tenantApprovalService.ApproveWithSideEffectsAsync(tenantId, upn!);
 
-        var response = req.CreateResponse(newlyApproved ? HttpStatusCode.Created : HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new
+        return await req.JsonAsync(newlyApproved ? HttpStatusCode.Created : HttpStatusCode.OK, new PreviewWhitelistActionResponse
         {
-            message = newlyApproved ? "Tenant approved for preview" : "Tenant was already approved",
-            tenantId,
-            alreadyApproved = !newlyApproved,
+            Message = newlyApproved ? "Tenant approved for preview" : "Tenant was already approved",
+            TenantId = tenantId,
+            AlreadyApproved = !newlyApproved,
         });
-        return response;
     }
 
     /// <summary>
@@ -115,9 +112,7 @@ public class PreviewWhitelistFunction
 
         _logger.LogInformation("Preview tenant revoked: {TenantId} by {Upn}", tenantId, upn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant removed from preview", tenantId });
-        return response;
+        return await req.OkAsync(new PreviewWhitelistActionResponse { Message = "Tenant removed from preview", TenantId = tenantId });
     }
 
     /// <summary>
@@ -176,9 +171,7 @@ public class PreviewWhitelistFunction
 
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "Could not determine tenant" });
-            return bad;
+            return await req.BadRequestAsync("Could not determine tenant");
         }
 
         if (!await MayWriteNotificationEmailAsync(req.GetRequestContext(), tenantId, _tenantAdminsService))
@@ -186,9 +179,7 @@ public class PreviewWhitelistFunction
             _logger.LogWarning(
                 "Preview notification email write denied for roleless caller {Upn} — tenant {TenantId} already has members",
                 principal?.GetUserPrincipalName() ?? "unknown", tenantId);
-            var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-            await forbidden.WriteAsJsonAsync(new { error = "A tenant member role is required to change the notification email" });
-            return forbidden;
+            return await req.ForbiddenAsync("A tenant member role is required to change the notification email");
         }
 
         var body = await req.ReadFromJsonAsync<SaveNotificationEmailRequest>();
@@ -196,9 +187,7 @@ public class PreviewWhitelistFunction
 
         if (!string.IsNullOrEmpty(email) && !email.Contains('@'))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "Invalid email address" });
-            return bad;
+            return await req.BadRequestAsync("Invalid email address");
         }
 
         await _previewWhitelistService.SaveNotificationEmailAsync(tenantId, email);
@@ -220,9 +209,7 @@ public class PreviewWhitelistFunction
             welcomeEmailSent = await _tenantApprovalService.TrySendWelcomeEmailAsync(tenantId);
         }
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Notification email saved", email, welcomeEmailSent });
-        return response;
+        return await req.OkAsync(new PreviewWhitelistActionResponse { Message = "Notification email saved", Email = email, WelcomeEmailSent = welcomeEmailSent });
     }
 
     /// <summary>
@@ -272,9 +259,7 @@ public class PreviewWhitelistFunction
 
         if (string.IsNullOrWhiteSpace(email))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "No notification email configured for this tenant" });
-            return bad;
+            return await req.BadRequestAsync("No notification email configured for this tenant");
         }
 
         var tenantConfig = await _tenantConfigurationService.GetConfigurationAsync(tenantId);
@@ -292,9 +277,8 @@ public class PreviewWhitelistFunction
                 "Welcome email to {Email} for tenant {TenantId} was not accepted by the provider (requested by {Upn})",
                 email, tenantId, upn);
 
-            var failed = req.CreateResponse(HttpStatusCode.BadGateway);
-            await failed.WriteAsJsonAsync(new { error = "The email provider did not accept the message", email });
-            return failed;
+            return await req.ErrorAsync(HttpStatusCode.BadGateway, Constants.ApiErrorCodes.UpstreamError,
+                $"The email provider did not accept the message to {email}.");
         }
 
         // Explicit GA send succeeded; consume the once-only marker (best-effort) so the
@@ -306,9 +290,7 @@ public class PreviewWhitelistFunction
             "Welcome email sent to {Email} for tenant {TenantId} by {Upn}",
             email, tenantId, upn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Welcome email sent", email });
-        return response;
+        return await req.OkAsync(new PreviewWhitelistActionResponse { Message = "Welcome email sent", Email = email });
     }
 
 }

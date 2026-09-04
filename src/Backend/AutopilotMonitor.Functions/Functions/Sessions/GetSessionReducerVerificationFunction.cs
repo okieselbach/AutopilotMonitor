@@ -59,9 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             if (string.IsNullOrWhiteSpace(sessionId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new { success = false, message = "SessionId is required" });
-                return badRequest;
+                return await req.BadRequestAsync("SessionId is required");
             }
 
             var sessionPrefix = $"[Session: {sessionId.Substring(0, Math.Min(8, sessionId.Length))}]";

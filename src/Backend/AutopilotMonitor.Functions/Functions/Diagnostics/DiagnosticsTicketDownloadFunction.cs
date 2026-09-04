@@ -3,6 +3,7 @@ using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Diagnostics;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -56,30 +57,21 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             catch (ArgumentException)
             {
                 // Malformed blob name inside a (signed) ticket — should not happen, fail closed.
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                return bad;
+                return await req.BadRequestAsync("Invalid blob name.");
             }
             catch (Azure.RequestFailedException ex) when (ex.Status == 404)
             {
                 _logger.LogWarning("DiagnosticsTicketDownload: Blob not found");
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Diagnostics package not found." });
-                return notFound;
+                return await req.NotFoundAsync("Diagnostics package not found.");
             }
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("DiagnosticsTicketDownload: timed out streaming blob");
-                var timeout = req.CreateResponse(HttpStatusCode.GatewayTimeout);
-                await timeout.WriteAsJsonAsync(new { success = false, message = "Diagnostics download timed out." });
-                return timeout;
+                return await req.ErrorAsync(HttpStatusCode.GatewayTimeout, Constants.ApiErrorCodes.UpstreamTimeout, "Diagnostics download timed out.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ticket-gated diagnostics download");
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "DiagnosticsTicketDownload");
             }
         }
     }

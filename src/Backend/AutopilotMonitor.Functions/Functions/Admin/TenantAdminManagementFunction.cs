@@ -91,15 +91,11 @@ public class TenantAdminManagementFunction
         var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
         if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "UPN or applicationId is required" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("UPN or applicationId is required");
         }
         if (isApplication && !Guid.TryParse(body.ApplicationId, out _))
         {
-            var badAppResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badAppResponse.WriteAsJsonAsync(new { error = "applicationId must be the application's (client) id GUID" });
-            return badAppResponse;
+            return await req.BadRequestAsync("applicationId must be the application's (client) id GUID");
         }
         var memberKey = isApplication
             ? AutopilotMonitor.Shared.Constants.PrincipalKeys.ForApplication(body.ApplicationId!)
@@ -114,15 +110,11 @@ public class TenantAdminManagementFunction
         var role = TryCanonicalizeRole(requestedRole);
         if (role == null)
         {
-            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
-            return badRoleResponse;
+            return await req.BadRequestAsync($"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer.");
         }
         if (isApplication && role != AutopilotMonitor.Shared.Constants.TenantRoles.Viewer)
         {
-            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRoleResponse.WriteAsJsonAsync(new { error = ApplicationRoleError });
-            return badRoleResponse;
+            return await req.BadRequestAsync(ApplicationRoleError);
         }
         var canManageBootstrapTokens = !isApplication && body.CanManageBootstrapTokens;
 
@@ -177,9 +169,7 @@ public class TenantAdminManagementFunction
                 var adminCount = members.Count(m => m.IsEnabled && (m.Role == null || m.Role == AutopilotMonitor.Shared.Constants.TenantRoles.Admin));
                 if (adminCount <= 1)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequestResponse.WriteAsJsonAsync(new { error = "Cannot remove yourself as the last admin. Please add another admin first." });
-                    return badRequestResponse;
+                    return await req.BadRequestAsync("Cannot remove yourself as the last admin. Please add another admin first.");
                 }
             }
         }
@@ -199,9 +189,7 @@ public class TenantAdminManagementFunction
 
         _logger.LogInformation($"Tenant Admin removed: {adminUpn} from tenant {requestCtx.TargetTenantId} by {upn}");
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant Admin removed successfully" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Tenant Admin removed successfully" });
     }
 
     /// <summary>
@@ -237,9 +225,7 @@ public class TenantAdminManagementFunction
 
         _logger.LogInformation($"Tenant Admin disabled: {adminUpn} for tenant {requestCtx.TargetTenantId} by {upn}");
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant Admin disabled successfully" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Tenant Admin disabled successfully" });
     }
 
     /// <summary>
@@ -273,9 +259,7 @@ public class TenantAdminManagementFunction
 
         _logger.LogInformation($"Tenant Admin enabled: {adminUpn} for tenant {requestCtx.TargetTenantId} by {upn}");
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Tenant Admin enabled successfully" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Tenant Admin enabled successfully" });
     }
     /// <summary>
     /// PATCH /api/tenants/{tenantId}/admins/{adminUpn}/permissions
@@ -297,24 +281,18 @@ public class TenantAdminManagementFunction
         var body = await req.ReadFromJsonAsync<UpdateMemberPermissionsRequest>();
         if (body == null || string.IsNullOrWhiteSpace(body.Role))
         {
-            var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequestResponse.WriteAsJsonAsync(new { error = "Role is required" });
-            return badRequestResponse;
+            return await req.BadRequestAsync("Role is required");
         }
 
         // Validate against the allow-list so arbitrary strings never reach storage
         var role = TryCanonicalizeRole(body.Role);
         if (role == null)
         {
-            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRoleResponse.WriteAsJsonAsync(new { error = $"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer." });
-            return badRoleResponse;
+            return await req.BadRequestAsync($"Invalid role '{body.Role}'. Valid roles: Admin, Operator, Viewer.");
         }
         if (AutopilotMonitor.Shared.Constants.PrincipalKeys.IsApplication(adminUpn) && role != AutopilotMonitor.Shared.Constants.TenantRoles.Viewer)
         {
-            var badRoleResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRoleResponse.WriteAsJsonAsync(new { error = ApplicationRoleError });
-            return badRoleResponse;
+            return await req.BadRequestAsync(ApplicationRoleError);
         }
 
         // Prevent demoting yourself if you're the last Admin
@@ -326,9 +304,7 @@ public class TenantAdminManagementFunction
                 var adminCount = members.Count(m => m.IsEnabled && (m.Role == null || m.Role == AutopilotMonitor.Shared.Constants.TenantRoles.Admin));
                 if (adminCount <= 1)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequestResponse.WriteAsJsonAsync(new { error = "Cannot demote yourself as the last admin. Please add another admin first." });
-                    return badRequestResponse;
+                    return await req.BadRequestAsync("Cannot demote yourself as the last admin. Please add another admin first.");
                 }
             }
         }
@@ -336,9 +312,7 @@ public class TenantAdminManagementFunction
         var updated = await _tenantAdminsService.UpdateMemberPermissionsAsync(requestCtx.TargetTenantId, adminUpn, role, body.CanManageBootstrapTokens);
         if (!updated)
         {
-            var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-            await notFoundResponse.WriteAsJsonAsync(new { error = "Member not found" });
-            return notFoundResponse;
+            return await req.NotFoundAsync("Member not found");
         }
 
         await _maintenanceRepo.LogAuditEntryAsync(
@@ -361,9 +335,7 @@ public class TenantAdminManagementFunction
 
         _logger.LogInformation("Member permissions updated: {AdminUpn} -> role={Role} in tenant {TenantId} by {Upn}", adminUpn, role, requestCtx.TargetTenantId, upn);
 
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Member permissions updated successfully" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Member permissions updated successfully" });
     }
 
     /// <summary>

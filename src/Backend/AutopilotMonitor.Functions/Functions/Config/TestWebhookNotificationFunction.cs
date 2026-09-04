@@ -70,15 +70,15 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 if (channel == null || string.IsNullOrEmpty(channel.Url))
                 {
-                    var noConfigResponse = req.CreateResponse(HttpStatusCode.OK);
-                    await noConfigResponse.WriteAsJsonAsync(new
+                    // 200 with success=false on purpose: a missing channel is a configuration state the
+                    // UI renders inline, not a failed request.
+                    return await req.OkAsync(new SuccessMessageResponse
                     {
-                        success = false,
-                        message = channelId != null
+                        Success = false,
+                        Message = channelId != null
                             ? "The selected channel was not found. Save your changes before testing."
-                            : "No notification channel is configured. Please add one first."
+                            : "No notification channel is configured. Please add one first.",
                     });
-                    return noConfigResponse;
                 }
 
                 var testAlert = NotificationAlertBuilder.BuildTestAlert();
@@ -95,10 +95,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending test webhook notification for tenant {TenantId}", tenantId);
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "TestWebhookNotification");
             }
         }
     }

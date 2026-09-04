@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Web;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -44,9 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
 
                 if (filterKind == TenantFilterKind.Invalid)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "Invalid tenantId format" });
-                    return bad;
+                    return await req.BadRequestAsync("Invalid tenantId format");
                 }
 
                 var blocked = filterKind == TenantFilterKind.Scoped
@@ -59,10 +58,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting all blocked devices");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAllBlockedDevices");
             }
         }
 

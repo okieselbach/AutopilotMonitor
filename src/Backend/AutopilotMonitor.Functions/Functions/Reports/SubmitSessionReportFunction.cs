@@ -52,22 +52,14 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 20_971_520)
                 {
-                    var tooLarge = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await tooLarge.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return tooLarge;
+                    return await req.BadRequestAsync("Request body too large");
                 }
 
                 // Parse request body
                 var request = await req.ReadFromJsonAsync<SubmitSessionReportRequest>();
                 if (request == null)
                 {
-                    var badRequestResponse = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequestResponse.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "Invalid request body."
-                    });
-                    return badRequestResponse;
+                    return await req.BadRequestAsync("Invalid request body.");
                 }
 
                 // Ensure sessionId consistency
@@ -85,25 +77,13 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                         _logger.LogWarning(
                             "SubmitSessionReport: BLOCKED cross-tenant body for non-GA user={User} jwtTenant={JwtTenant} bodyTenant={BodyTenant}",
                             userIdentifier, tenantId, request.TenantId);
-                        var forbidden = req.CreateResponse(HttpStatusCode.Forbidden);
-                        await forbidden.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = "Body tenantId must match your authenticated tenant."
-                        });
-                        return forbidden;
+                        return await req.ForbiddenAsync("Body tenantId must match your authenticated tenant.");
                     }
                     request.TenantId = tenantId;
                 }
                 else if (string.IsNullOrEmpty(request.TenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "tenantId is required in body for Global Admin submissions."
-                    });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId is required in body for Global Admin submissions.");
                 }
 
                 // Identifier format gate: both values become part of the report blob name.
@@ -114,9 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     _logger.LogWarning(
                         "SubmitSessionReport: BLOCKED non-GUID identifier user={User} tenant={TenantId} sessionIdLength={SessionIdLength}",
                         userIdentifier, request.TenantId, request.SessionId?.Length ?? 0);
-                    var invalid = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await invalid.WriteAsJsonAsync(new { success = false, message = "Invalid sessionId or tenantId." });
-                    return invalid;
+                    return await req.BadRequestAsync("Invalid sessionId or tenantId.");
                 }
 
                 // Submit report
@@ -171,15 +149,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error submitting session report for {SessionId}", sessionId);
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "SubmitSessionReport");
             }
         }
     }

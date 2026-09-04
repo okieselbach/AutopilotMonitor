@@ -50,9 +50,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var parsed = TenantConfigPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { error = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 // Delegated ("MSP") caller: the middleware (GlobalReadOrDelegatedSubset tier) admitted them
@@ -148,12 +146,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                             parsed.Continuation, callerTenantId, out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("GetAllTenantConfigurations: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            error = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -180,10 +173,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting all tenant configurations");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAllTenantConfigurations");
             }
         }
 

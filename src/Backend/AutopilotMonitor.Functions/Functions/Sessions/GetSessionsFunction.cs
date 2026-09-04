@@ -37,9 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var parsed = SessionListPagination.ParseQuery(query, acceptFilterTenantId: false);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 _logger.LogInformation(
@@ -55,13 +53,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                             out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("GetSessions: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -91,18 +83,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting sessions");
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Internal server error",
-                    count = 0,
-                    sessions = Array.Empty<object>()
-                });
-
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessions");
             }
         }
     }

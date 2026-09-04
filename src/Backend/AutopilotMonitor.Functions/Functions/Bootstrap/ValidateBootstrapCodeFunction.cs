@@ -5,6 +5,7 @@ using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -54,19 +55,15 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var rateLimitResult = _rateLimitService.CheckRateLimit(rateLimitKey, 20); // 20 req/min
                 if (!rateLimitResult.IsAllowed)
                 {
-                    var tooMany = req.CreateResponse(HttpStatusCode.TooManyRequests);
-                    if (rateLimitResult.RetryAfter.HasValue)
-                        tooMany.Headers.Add("Retry-After", ((int)rateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                    await tooMany.WriteAsJsonAsync(new { success = false, message = "Rate limit exceeded. Try again later." });
-                    return tooMany;
+                    return await req.ErrorAsync(HttpStatusCode.TooManyRequests, Constants.ApiErrorCodes.RateLimited,
+                        "Rate limit exceeded. Try again later.",
+                        retryAfterSeconds: rateLimitResult.RetryAfter is { } retryAfter ? (int)retryAfter.TotalSeconds : null);
                 }
 
                 // Validate code format (6 chars, alphanumeric)
                 if (string.IsNullOrEmpty(code) || code.Length < 4 || code.Length > 10)
                 {
-                    var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { success = false, message = "Invalid code format" });
-                    return badReq;
+                    return await req.BadRequestAsync("Invalid code format");
                 }
 
                 var session = await _bootstrapService.ValidateCodeAsync(code);
@@ -74,9 +71,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 if (session == null)
                 {
                     _logger.LogWarning("Bootstrap code validation failed for code {Code} from IP {ClientIp}", code, clientIp);
-                    var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFound.WriteAsJsonAsync(new { success = false, message = "Code not found, expired, or revoked" });
-                    return notFound;
+                    return await req.NotFoundAsync("Code not found, expired, or revoked");
                 }
 
                 // Check if the bootstrap feature is enabled for the session's tenant (Pro plan or GA flag)
@@ -84,9 +79,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 if (!TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow))
                 {
                     _logger.LogWarning("Bootstrap code {Code} rejected — feature disabled for tenant {TenantId}", code, session.TenantId);
-                    var disabled = req.CreateResponse(HttpStatusCode.NotFound);
-                    await disabled.WriteAsJsonAsync(new { success = false, message = "Code not found, expired, or revoked" });
-                    return disabled;
+                    return await req.NotFoundAsync("Code not found, expired, or revoked");
                 }
 
                 var responseData = new ValidateBootstrapCodeResponse
@@ -107,10 +100,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error validating bootstrap code {Code}", code);
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { success = false, message = "Validation failed" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "ValidateBootstrapCode");
             }
         }
     }

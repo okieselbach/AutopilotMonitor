@@ -3,6 +3,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -58,9 +59,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 // /api/bootstrap/* route; this is only the cheap early exit.
                 if (SecurityValidator.GetBootstrapToken(req) == null)
                 {
-                    var noToken = req.CreateResponse(HttpStatusCode.Unauthorized);
-                    await noToken.WriteAsJsonAsync(new { error = "X-Bootstrap-Token header is required" });
-                    return noToken;
+                    return await req.UnauthorizedAsync("X-Bootstrap-Token header is required");
                 }
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
@@ -68,9 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
 
                 if (string.IsNullOrEmpty(tenantId))
                 {
-                    var badReq = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badReq.WriteAsJsonAsync(new { error = "tenantId query parameter is required" });
-                    return badReq;
+                    return await req.BadRequestAsync("tenantId query parameter is required");
                 }
 
                 // Feature gate: bootstrap endpoints only available when explicitly enabled for this tenant
@@ -95,10 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in bootstrap get-config");
-                var error = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await error.WriteAsJsonAsync(new { error = "Internal server error" });
-                return error;
+                return await req.InternalServerErrorAsync(_logger, ex, "BootstrapGetAgentConfig");
             }
         }
     }

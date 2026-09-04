@@ -63,9 +63,7 @@ public class DelegationManagedTenantFunction
         var body = await req.ReadFromJsonAsync<RevokeTenantManagerRequest>();
         if (body == null || !Guid.TryParse(body.HomeTenantId, out _))
         {
-            var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-            await bad.WriteAsJsonAsync(new { error = "a valid homeTenantId (GUID) is required" });
-            return bad;
+            return await req.BadRequestAsync("a valid homeTenantId (GUID) is required");
         }
 
         var result = await _svc.RevokeManagerAsync(ctx.TenantId, body.HomeTenantId, ctx.UserPrincipalName);
@@ -73,8 +71,6 @@ public class DelegationManagedTenantFunction
             return await DelegationSelfServiceFunction.FailAsync(req, result.Failure!);
 
         _logger.LogInformation("[Delegation] {Tenant} revoked self-service access of {Home} by {By}", ctx.TenantId, body.HomeTenantId, ctx.UserPrincipalName);
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(new { message = "Access revoked" });
-        return response;
+        return await req.OkAsync(new MessageResponse { Message = "Access revoked" });
     }
 }

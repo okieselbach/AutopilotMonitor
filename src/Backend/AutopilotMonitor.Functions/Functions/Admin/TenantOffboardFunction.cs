@@ -91,9 +91,7 @@ public class TenantOffboardFunction
 
         if (string.IsNullOrEmpty(targetTenantId) || !SecurityValidator.IsValidGuid(targetTenantId))
         {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { error = "tenantId must be a valid GUID" });
-            return badRequest;
+            return await req.BadRequestAsync("tenantId must be a valid GUID");
         }
 
         var normalizedTenantId = targetTenantId.ToLowerInvariant();
@@ -742,12 +740,8 @@ public class TenantOffboardFunction
             $"OffboardingByTenant pointer CAS exhausted for tenant {normalizedTenantId} after {PointerCasMaxAttempts} attempts");
     }
 
-    private static async Task<HttpResponseData> Build500Async(HttpRequestData req, string message)
-    {
-        var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-        await response.WriteAsJsonAsync(new { success = false, error = message });
-        return response;
-    }
+    private static Task<HttpResponseData> Build500Async(HttpRequestData req, string message)
+        => req.ErrorAsync(HttpStatusCode.InternalServerError, Constants.ApiErrorCodes.InternalError, message);
 }
 
 // OffboardResponse (the 202/200 offboarding body) moved to AutopilotMonitor.Shared.Models

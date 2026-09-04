@@ -3,6 +3,7 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Diagnostics;
+using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -74,30 +75,21 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (ArgumentException)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                return bad;
+                return await req.BadRequestAsync("Invalid blob name.");
             }
             catch (Azure.RequestFailedException ex) when (ex.Status == 404)
             {
                 _logger.LogWarning("SessionReportTicketDownload: blob not found");
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Report blob not found." });
-                return notFound;
+                return await req.NotFoundAsync("Report blob not found.");
             }
             catch (OperationCanceledException)
             {
                 _logger.LogWarning("SessionReportTicketDownload: timed out streaming blob");
-                var timeout = req.CreateResponse(HttpStatusCode.GatewayTimeout);
-                await timeout.WriteAsJsonAsync(new { success = false, message = "Report download timed out." });
-                return timeout;
+                return await req.ErrorAsync(HttpStatusCode.GatewayTimeout, Constants.ApiErrorCodes.UpstreamTimeout, "Report download timed out.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ticket-gated session-report download");
-                var err = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await err.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return err;
+                return await req.InternalServerErrorAsync(_logger, ex, "SessionReportTicketDownload");
             }
         }
     }

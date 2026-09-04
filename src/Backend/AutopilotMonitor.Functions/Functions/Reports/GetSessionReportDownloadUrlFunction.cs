@@ -3,6 +3,7 @@ using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -41,17 +42,13 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 if (string.IsNullOrEmpty(blobName))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "blobName query parameter is required." });
-                    return badRequest;
+                    return await req.BadRequestAsync("blobName query parameter is required.");
                 }
 
                 // Prevent path traversal
                 if (!BlobNameGuard.IsFlat(blobName))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Invalid blob name." });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid blob name.");
                 }
 
                 var containerClient = _blobStorage.GetContainerClient(ContainerName);
@@ -59,9 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 if (!await blobClient.ExistsAsync())
                 {
-                    var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
-                    await notFoundResponse.WriteAsJsonAsync(new { success = false, message = "Blob not found." });
-                    return notFoundResponse;
+                    return await req.NotFoundAsync("Blob not found.");
                 }
 
                 // Generate time-limited download URL (15 minutes)
@@ -75,10 +70,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating session report download URL");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetSessionReportDownloadUrl");
             }
         }
     }

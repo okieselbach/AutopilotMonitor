@@ -65,18 +65,14 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
                     && contentLength > 1_048_576) // 1 MB limit
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = "Request body too large" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Request body too large");
                 }
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var config = JsonConvert.DeserializeObject<TenantConfiguration>(requestBody);
 
                 if (config == null)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { error = "Invalid configuration" });
-                    return badRequest;
+                    return await req.BadRequestAsync("Invalid configuration");
                 }
 
                 // Normalize so the stored value never carries surrounding whitespace, and an
@@ -96,13 +92,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // and re-onboarding starts from a fresh default config anyway.
                 if (TenantOffboardFunction.IsOffboardingTombstone(existingConfig))
                 {
-                    var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                    await conflict.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = "Tenant offboarding is in progress — the configuration is frozen until the cascade completes."
-                    });
-                    return conflict;
+                    return await req.ConflictAsync("Tenant offboarding is in progress — the configuration is frozen until the cascade completes.");
                 }
 
                 // Defense-in-depth: a read-only GlobalReader is served a redacted config (secrets replaced
@@ -127,9 +117,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var validationError = TenantConfigValidation.ValidateModel(config, existingConfig, requestCtx.IsGlobalAdmin);
                 if (validationError != null)
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new { success = false, message = validationError });
-                    return badRequest;
+                    return await req.BadRequestAsync(validationError);
                 }
 
                 // Ensure tenant ID matches
@@ -212,10 +200,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error updating configuration for tenant {tenantId}");
-                var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await response.WriteAsJsonAsync(new { error = "Internal server error" });
-                return response;
+                return await req.InternalServerErrorAsync(_logger, ex, "UpdateTenantConfiguration");
             }
         }
 

@@ -55,13 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // keeps a read-only GlobalReader from steering cross-tenant writes).
             if (reanalyze && !RecomputeTriggerGate.CanTriggerRecompute(requestCtx, effectiveTenantId))
             {
-                var forbidden = req.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-                await forbidden.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Your role does not permit triggering re-analysis.",
-                });
-                return forbidden;
+                return await req.ForbiddenAsync("Your role does not permit triggering re-analysis.");
             }
 
             // Rules whose StoreRuleResultAsync returned false during the on-demand reanalyze.

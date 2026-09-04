@@ -1,5 +1,6 @@
 using System.Net;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -46,9 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 if (string.IsNullOrWhiteSpace(tenantId))
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = "tenantId query parameter is required" });
-                    return bad;
+                    return await req.BadRequestAsync("tenantId query parameter is required");
                 }
 
                 if (int.TryParse(qs.Get("months"), out var parsedMonths))
@@ -73,15 +72,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error computing global SLA metrics for tenant {TenantId}", tenantId);
-
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to compute SLA metrics"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalSlaMetrics");
             }
         }
     }

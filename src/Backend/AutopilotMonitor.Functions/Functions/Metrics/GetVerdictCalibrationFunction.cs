@@ -48,9 +48,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 {
                     if (!Guid.TryParse(tenantIdFilter, out var parsed))
                     {
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new { success = false, message = "tenantId must be a GUID" });
-                        return bad;
+                        return await req.BadRequestAsync("tenantId must be a GUID");
                     }
                     partition = parsed.ToString("D");
                 }
@@ -69,10 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching verdict calibration");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetVerdictCalibration");
             }
         }
     }

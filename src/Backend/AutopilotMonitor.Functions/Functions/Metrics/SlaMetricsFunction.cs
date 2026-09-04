@@ -80,13 +80,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     ["Message"] = ex.Message
                 });
 
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new
-                {
-                    success = false,
-                    message = "Failed to compute SLA metrics"
-                });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "SlaMetrics");
             }
         }
     }

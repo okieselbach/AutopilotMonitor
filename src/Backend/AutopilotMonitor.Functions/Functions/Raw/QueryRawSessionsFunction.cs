@@ -37,9 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             }
             catch (UnauthorizedAccessException)
             {
-                var err = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await err.WriteAsJsonAsync(new { error = "Unauthorized" });
-                return err;
+                return await req.UnauthorizedAsync("Unauthorized");
             }
             catch (Exception ex)
             {
@@ -98,9 +96,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             var pagination = SearchSessionsPagination.ParsePagination(query);
             if (pagination.Error != null)
             {
-                var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                await bad.WriteAsJsonAsync(new { error = pagination.Error });
-                return bad;
+                return await req.BadRequestAsync(pagination.Error);
             }
 
             // Build search filter — Limit is ignored, pagination owns size.
@@ -146,12 +142,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                         out azureToken, out var rejectReason))
                 {
                     _logger.LogWarning("QueryRawSessions: continuation rejected ({Reason})", rejectReason);
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new
-                    {
-                        error = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                    });
-                    return bad;
+                    return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                 }
             }
 

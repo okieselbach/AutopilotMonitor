@@ -45,9 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 var parsed = SessionAnnotationsPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = parsed.Error });
-                    return bad;
+                    return await req.BadRequestAsync(parsed.Error);
                 }
 
                 string? azureToken = null;
@@ -57,13 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                             parsed, callerTenantId, out azureToken, out var rejectReason))
                     {
                         _logger.LogWarning("ListSessionAnnotations: continuation rejected ({Reason})", rejectReason);
-                        var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                        await bad.WriteAsJsonAsync(new
-                        {
-                            success = false,
-                            message = $"Invalid continuation token ({rejectReason}). Restart pagination from the first page.",
-                        });
-                        return bad;
+                        return await req.BadRequestAsync($"Invalid continuation token ({rejectReason}). Restart pagination from the first page.");
                     }
                 }
 
@@ -93,10 +85,7 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error listing session annotations");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error." });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "ListSessionAnnotations");
             }
         }
     }

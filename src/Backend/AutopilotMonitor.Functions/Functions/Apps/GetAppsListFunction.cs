@@ -41,9 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 var paging = AppsAnalyticsHelper.ParseAppsPaging(query);
                 if (paging.Error != null)
                 {
-                    var bad = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await bad.WriteAsJsonAsync(new { success = false, message = paging.Error });
-                    return bad;
+                    return await req.BadRequestAsync(paging.Error);
                 }
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
@@ -58,16 +56,11 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             catch (UnauthorizedAccessException ex)
             {
                 _logger.LogWarning(ex, "Unauthorized apps/list request");
-                var unauth = req.CreateResponse(HttpStatusCode.Unauthorized);
-                await unauth.WriteAsJsonAsync(new { success = false, message = "Unauthorized" });
-                return unauth;
+                return await req.UnauthorizedAsync("Unauthorized");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching apps list");
-                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { success = false, message = "Internal server error" });
-                return errorResponse;
+                return await req.InternalServerErrorAsync(_logger, ex, "GetAppsList");
             }
         }
     }

@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 
@@ -42,58 +43,24 @@ namespace AutopilotMonitor.Functions.Security
 
             if (!validation.IsValid)
             {
-                // Create appropriate error response
-                var response = req.CreateResponse(validation.StatusCode);
-
-                if (validation.StatusCode == HttpStatusCode.TooManyRequests)
+                // Agent-facing error envelope. The agent acts on the status and the Retry-After header
+                // (503 retry loop, 429 backoff) and never parses these bodies beyond `errorCode` on the
+                // RegisterSession response — so the envelope carries the human message (details folded
+                // in) plus the retry window, nothing agent-specific.
+                var message = string.IsNullOrEmpty(validation.Details)
+                    ? validation.ErrorMessage ?? "Request rejected."
+                    : $"{validation.ErrorMessage} ({validation.Details})";
+                int? retryAfterSeconds = validation.StatusCode switch
                 {
-                    // Rate limit error - include Retry-After header
-                    if (validation.RateLimitResult?.RetryAfter.HasValue == true)
-                    {
-                        response.Headers.Add("Retry-After", ((int)validation.RateLimitResult.RetryAfter.Value.TotalSeconds).ToString());
-                    }
+                    HttpStatusCode.TooManyRequests when validation.RateLimitResult?.RetryAfter is { } retryAfter
+                        => (int)retryAfter.TotalSeconds,
+                    HttpStatusCode.ServiceUnavailable => validation.RetryAfterSeconds,
+                    _ => null,
+                };
 
-                    await response.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = validation.ErrorMessage,
-                        rateLimitExceeded = true,
-                        rateLimitInfo = new
-                        {
-                            requestsInWindow = validation.RateLimitResult?.RequestsInWindow,
-                            maxRequests = validation.RateLimitResult?.MaxRequests,
-                            windowDurationSeconds = validation.RateLimitResult?.WindowDuration.TotalSeconds,
-                            retryAfterSeconds = validation.RateLimitResult?.RetryAfter?.TotalSeconds
-                        }
-                    });
-                }
-                else if (validation.StatusCode == HttpStatusCode.ServiceUnavailable)
-                {
-                    // Transient device validation failure — tell agent to retry
-                    if (validation.RetryAfterSeconds.HasValue)
-                    {
-                        response.Headers.Add("Retry-After", validation.RetryAfterSeconds.Value.ToString());
-                    }
-
-                    await response.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = validation.ErrorMessage,
-                        details = validation.Details,
-                        retryAfterSeconds = validation.RetryAfterSeconds
-                    });
-                }
-                else
-                {
-                    // Other security errors
-                    await response.WriteAsJsonAsync(new
-                    {
-                        success = false,
-                        message = validation.ErrorMessage,
-                        details = validation.Details
-                    });
-                }
-
+                var response = await req.ErrorAsync(
+                    validation.StatusCode, ApiErrorWriter.DefaultCode(validation.StatusCode), message,
+                    retryAfterSeconds: retryAfterSeconds);
                 return (validation, response);
             }
 

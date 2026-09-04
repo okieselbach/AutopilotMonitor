@@ -94,9 +94,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var session = await _sessionRepo.GetSessionAsync(effectiveTenantId, sessionId);
             if (session == null)
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new { success = false, message = "Session not found", sessionId });
-                return notFound;
+                return await req.NotFoundAsync($"Session {sessionId} not found");
             }
 
             var ruleEngine = new RuleEngine(_analyzeRuleService, _ruleRepo, _sessionRepo, _logger);
@@ -111,12 +109,8 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             return response;
         }
 
-        private static async Task<HttpResponseData> BadRequestAsync(HttpRequestData req, IReadOnlyList<string> errors)
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteAsJsonAsync(new { success = false, message = errors[0], errors });
-            return badRequest;
-        }
+        private static Task<HttpResponseData> BadRequestAsync(HttpRequestData req, IReadOnlyList<string> errors)
+            => req.BadRequestAsync(string.Join(" ", errors));
 
         // ===== Draft validation =====
 
