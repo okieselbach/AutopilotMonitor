@@ -1,4 +1,5 @@
-import { runWithToolName, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
+import { randomUUID } from 'node:crypto';
+import { runWithToolCall, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
 
 export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 
@@ -94,8 +95,11 @@ export async function withToolTelemetry<T>(
   fn: () => T | Promise<T>,
   argPolicy?: ArgPolicy,
 ): Promise<T> {
+  // One correlation id per tool call — sent on every backend request the call makes and written
+  // into the tool_call line below, so an MCP log line and the backend request rows join on it.
+  const correlationId = randomUUID();
   if (!toolLoggingEnabled) {
-    return runWithToolName(toolName, fn) as Promise<T>;
+    return runWithToolCall(toolName, correlationId, fn) as Promise<T>;
   }
 
   const start = Date.now();
@@ -103,7 +107,7 @@ export async function withToolTelemetry<T>(
   let thrownMessage: string | undefined;
   let result: T | undefined;
   try {
-    result = await runWithToolName(toolName, fn);
+    result = await runWithToolCall(toolName, correlationId, fn);
     return result;
   } catch (err) {
     threw = true;
@@ -124,6 +128,7 @@ export async function withToolTelemetry<T>(
       console.error(JSON.stringify({
         type: 'tool_call',
         tool: toolName,
+        correlationId,
         durationMs: Date.now() - start,
         isError,
         errorMessage,

@@ -15,8 +15,14 @@ export class ApiError extends Error {
   readonly status: number;
   readonly body: string;
   readonly parsed: Record<string, unknown> | null;
+  /**
+   * The request's correlation id: the X-Correlation-ID response header (every backend answer
+   * carries it — the MCP is server-side, no CORS in the way), else the error envelope's
+   * `correlationId`. The handle an operator pivots on in the backend logs.
+   */
+  readonly correlationId: string | null;
 
-  constructor(status: number, body: string) {
+  constructor(status: number, body: string, correlationIdHeader: string | null = null) {
     super(`API error ${status}: ${body}`);
     this.name = 'ApiError';
     this.status = status;
@@ -26,6 +32,8 @@ export class ApiError extends Error {
     } catch {
       this.parsed = null;
     }
+    const fromBody = typeof this.parsed?.correlationId === 'string' && this.parsed.correlationId ? this.parsed.correlationId : null;
+    this.correlationId = correlationIdHeader || fromBody;
   }
 }
 
@@ -287,17 +295,29 @@ export function enforceDelegatedTenantForPage(tenantId?: string, continuation?: 
 }
 
 /**
- * Per-request tool name store. Carries the MCP tool name through the async
- * context so apiFetch can send it as X-MCP-Tool-Name header to the backend.
+ * Per-tool-call context. Carries the MCP tool name and the call's correlation id through the
+ * async context so apiFetch can send them as X-MCP-Tool-Name / X-Correlation-ID: every backend
+ * request a tool call makes (pagination scans included) shares the call's id, which is also
+ * what the MCP_TOOL_LOGGING `tool_call` line records — the row-level join between the MCP log
+ * and the backend's App Insights requests.
  */
-const toolNameStore = new AsyncLocalStorage<string>();
+export interface ToolCallContext {
+  toolName: string;
+  correlationId: string;
+}
 
-export function runWithToolName<T>(toolName: string, fn: () => T | Promise<T>): T | Promise<T> {
-  return toolNameStore.run(toolName, fn);
+const toolCallStore = new AsyncLocalStorage<ToolCallContext>();
+
+export function runWithToolCall<T>(toolName: string, correlationId: string, fn: () => T | Promise<T>): T | Promise<T> {
+  return toolCallStore.run({ toolName, correlationId }, fn);
 }
 
 export function getCurrentToolName(): string | undefined {
-  return toolNameStore.getStore();
+  return toolCallStore.getStore()?.toolName;
+}
+
+export function getCurrentCorrelationId(): string | undefined {
+  return toolCallStore.getStore()?.correlationId;
 }
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<unknown> {
@@ -314,8 +334,10 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<unknow
     ...((options.headers as Record<string, string>) ?? {}),
   };
 
-  const toolName = getCurrentToolName();
-  if (toolName) headers['X-MCP-Tool-Name'] = toolName;
+  const call = toolCallStore.getStore();
+  if (call?.toolName) headers['X-MCP-Tool-Name'] = call.toolName;
+  // The backend honours an inbound id matching ^[A-Za-z0-9_-]{1,128}$ (a UUID does) and echoes it.
+  if (call?.correlationId) headers['X-Correlation-ID'] = call.correlationId;
 
   // Apply timeout to prevent hanging on unresponsive backend
   const signal = options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS);
@@ -323,7 +345,7 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<unknow
   const res = await fetch(url, { ...options, headers, signal });
   if (!res.ok) {
     const text = await res.text();
-    throw new ApiError(res.status, text);
+    throw new ApiError(res.status, text, res.headers?.get?.('x-correlation-id') ?? null);
   }
   return res.json();
 }

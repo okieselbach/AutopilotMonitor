@@ -108,6 +108,8 @@ describe('withToolTelemetry', () => {
     const line = lastLoggedJson(spy);
     expect(line.type).toBe('tool_call');
     expect(line.tool).toBe('search_sessions');
+    // The per-call correlation id: the join key to the backend's request rows (X-Correlation-ID).
+    expect(String(line.correlationId)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(typeof line.durationMs).toBe('number');
     expect(line.isError).toBe(false);
     expect(line.resultChars).toBe(10);

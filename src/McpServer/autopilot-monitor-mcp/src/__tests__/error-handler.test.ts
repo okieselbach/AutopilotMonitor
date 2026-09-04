@@ -3,6 +3,50 @@ import { toolError } from '../tools/error-handler.js';
 import { ApiError } from '../client.js';
 
 describe('toolError', () => {
+  it('names the correlation id from the response header on an unstructured 404 (no body id)', () => {
+    const err = new ApiError(404, 'not found', 'hdr-cid-1');
+    const text = toolError('get_session', { sessionId: 'x' }, err).content[0].text;
+    expect(text).toContain('Not found in get_session');
+    expect(text).toContain('**Correlation ID**: hdr-cid-1');
+  });
+
+  it('prefers the header id over the body id and reads the envelope `code`', () => {
+    const err = new ApiError(403, JSON.stringify({ error: 'Access denied.', code: 'CrossTenantAccessDenied', correlationId: 'body-cid' }), 'hdr-cid');
+    const text = toolError('search_sessions', {}, err).content[0].text;
+    expect(text).toContain('Access denied.');
+    expect(text).toContain('**Correlation ID**: hdr-cid');
+    expect(text).not.toContain('body-cid');
+    expect(text).toContain('**Error code**: CrossTenantAccessDenied');
+  });
+
+  it('names the correlation id and the envelope code on a sanitized 5xx', () => {
+    const err = new ApiError(500, JSON.stringify({ error: 'QueryTable failed.', code: 'InternalError', correlationId: 'cid-500', hint: 'internal' }), null);
+    const text = toolError('query_table', {}, err).content[0].text;
+    expect(text).toContain('**Correlation ID**: cid-500');
+    expect(text).toContain('**Error code**: InternalError');
+    expect(text).not.toContain('QueryTable failed.');
+    expect(text).not.toContain('internal');
+  });
+
+  it('renders the envelope quota body (error + correlationId) and the upstream code of a KQL rejection', () => {
+    const quota = new ApiError(429, JSON.stringify({
+      error: "MCP daily request quota exceeded for plan 'community'. Resets at 2026-09-06T00:00:00Z.",
+      code: 'QuotaExceeded', correlationId: 'cid-q', quotaExceeded: true, plan: 'community', scope: 'daily', level: 'user', limit: 200, used: 200, resetUtc: '2026-09-06T00:00:00Z',
+    }));
+    const quotaText = toolError('search_sessions', {}, quota).content[0].text;
+    expect(quotaText).toContain("quota exceeded for plan 'community'");
+    expect(quotaText).toContain('**Correlation ID**: cid-q');
+
+    const kql = new ApiError(400, JSON.stringify({
+      error: "Query could not be parsed at 'takee'", code: 'BadRequest', correlationId: 'cid-k',
+      upstreamCode: 'SyntaxError', statusCode: 400, source: 'web', hint: 'Fix the KQL.', upstream: '{"error":{"code":"BadArgumentError"}}',
+    }));
+    const kqlText = toolError('query_backend_logs', { query: 'x' }, kql).content[0].text;
+    expect(kqlText).toContain('**Error code**: BadRequest');
+    expect(kqlText).toContain('**Upstream code**: SyntaxError');
+    expect(kqlText).toContain('BadArgumentError');
+  });
+
   it('detects a real AbortSignal.timeout DOMException (name TimeoutError, non-matching message)', () => {
     // This is exactly what fetch rejects with under AbortSignal.timeout(): the
     // message does NOT contain "TimeoutError", only the name does — so a

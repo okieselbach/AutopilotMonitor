@@ -7,12 +7,27 @@ interface ToolErrorResult {
 }
 
 /**
+ * The correlation id line every backend failure carries — from the X-Correlation-ID response
+ * header (present on every backend answer) or the error envelope's `correlationId`. It is the
+ * one handle an operator needs to find the request in the backend logs, so no branch may drop it.
+ */
+function correlationLine(error: ApiError): string | null {
+  return error.correlationId ? `**Correlation ID**: ${error.correlationId}` : null;
+}
+
+/** Machine-readable code of the error envelope (`code`); `errorCode` is the pre-envelope spelling. */
+function errorCodeOf(p: Record<string, unknown> | null): string | null {
+  const code = p?.code ?? p?.errorCode;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
+/**
  * Format any error into an MCP-compliant `{ isError: true }` response with
  * structured, AI-consumable details. Never throws — always returns a result
  * the SDK can send back to the model.
  *
  * Handles:
- * - Structured backend errors (ApiError with parsed JSON body)
+ * - Structured backend errors (ApiError with the error envelope: error, code, correlationId, hint?)
  * - Authentication errors
  * - Timeouts (AbortError / timeout signals)
  * - Legacy unstructured errors (fallback formatting)
@@ -26,14 +41,15 @@ export function toolError(
 
   if (error instanceof ApiError && error.status >= 500) {
     // Sanitize ALL 5xx — structured or not. Even structured backend errors
-    // can carry internal fingerprints (CLR exception types, stack frames,
-    // hint strings that name internal services), and the model has no
-    // legitimate reason to act on them. correlationId + errorCode stay —
-    // those are operational handles the operator can pivot on, not
-    // internals.
+    // can carry internal fingerprints (stack frames, hint strings that name
+    // internal services), and the model has no legitimate reason to act on
+    // them. correlationId + code stay — those are operational handles the
+    // operator can pivot on, not internals.
     parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an error.`);
-    if (error.parsed?.correlationId) parts.push(`**Correlation ID**: ${error.parsed.correlationId}`);
-    if (error.parsed?.errorCode) parts.push(`**Error code**: ${error.parsed.errorCode}`);
+    const cid = correlationLine(error);
+    if (cid) parts.push(cid);
+    const code = errorCodeOf(error.parsed);
+    if (code) parts.push(`**Error code**: ${code}`);
     parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
   } else if (error instanceof ApiError && error.status === 429 && error.parsed?.quotaExceeded === true) {
     // Backend MCP quota (McpQuotaExceededResponse): the daily/monthly budget of the caller's own plan
@@ -48,7 +64,8 @@ export function toolError(
       ? p.targetTenantId
       : undefined;
     const whose = managedTenant ? `the managed tenant ${managedTenant}'s` : p.level === 'tenant' ? "your organization's" : 'your';
-    parts.push(`**Quota exceeded in ${toolName}**: ${p.message ?? `${whose} MCP ${p.scope ?? ''} request quota is exhausted.`}`);
+    // `error` is the envelope's message; `message` is the pre-envelope spelling.
+    parts.push(`**Quota exceeded in ${toolName}**: ${p.error ?? p.message ?? `${whose} MCP ${p.scope ?? ''} request quota is exhausted.`}`);
     if (p.limit != null && p.used != null) parts.push(`**Budget**: ${p.used} of ${p.limit} requests used (${p.scope ?? 'window'}, ${p.level ?? 'user'} level).`);
     if (p.resetUtc) parts.push(`**Resets at**: ${p.resetUtc}`);
     parts.push(
@@ -58,18 +75,20 @@ export function toolError(
           ? '**Suggestion**: do not retry before the reset — the window is shared by every member of the tenant; a tenant admin can review consumption under Configuration → Reporting → MCP Usage.'
           : '**Suggestion**: do not retry before the reset; narrow further queries, or ask an administrator about a larger usage plan.',
     );
+    const cid = correlationLine(error);
+    if (cid) parts.push(cid);
   } else if (error instanceof ApiError && error.parsed) {
-    // Structured backend error (4xx) — extract rich details
+    // Structured backend error (4xx) — the error envelope: error, code, correlationId, hint?
     const p = error.parsed;
     parts.push(`**Error in ${toolName}**: ${p.error ?? error.message}`);
     if (p.hint) parts.push(`**Suggestion**: ${p.hint}`);
-    if (p.correlationId) parts.push(`**Correlation ID**: ${p.correlationId}`);
-    // exceptionType (CLR type names) is an internal fingerprint the model has no
-    // legitimate reason to act on — deliberately NOT surfaced here, mirroring the
-    // 5xx sanitization above. correlationId + errorCode remain as operator handles.
-    if (p.errorCode) parts.push(`**Error code**: ${p.errorCode}`);
-    // The operator log proxy forwards the telemetry store's own error JSON (query_backend_logs):
-    // that is what `az monitor … query` prints, and the parity promise is that nothing of it is lost.
+    const cid = correlationLine(error);
+    if (cid) parts.push(cid);
+    const code = errorCodeOf(p);
+    if (code) parts.push(`**Error code**: ${code}`);
+    // The operator log proxy (query_backend_logs) forwards the telemetry store's own error code and
+    // JSON: that is what `az monitor … query` prints, and the parity promise is that nothing of it is lost.
+    if (typeof p.upstreamCode === 'string' && p.upstreamCode.length > 0) parts.push(`**Upstream code**: ${p.upstreamCode}`);
     if (typeof p.upstream === 'string' && p.upstream.length > 0) {
       parts.push(`**Upstream response**:\n\`\`\`json\n${p.upstream.length > 4000 ? p.upstream.slice(0, 4000) + '…' : p.upstream}\n\`\`\``);
     }
@@ -89,6 +108,8 @@ export function toolError(
       const truncated = body.length > 500 ? body.slice(0, 500) + '…' : body;
       parts.push(`**Error in ${toolName}** (HTTP ${error.status}): ${truncated}`);
     }
+    const cid = correlationLine(error);
+    if (cid) parts.push(cid);
   } else {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('No authentication token')) {
