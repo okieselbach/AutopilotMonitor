@@ -3,11 +3,11 @@
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { McpOrganizationUsageItem, McpUsageQuotaNode } from "@/utils/wire-types.generated";
+import type { GetMcpOrganizationUsageResponse, GetMyMcpUsageResponse, McpOrganizationUsageItem, McpUsageQuotaNode } from "@/utils/wire-types.generated";
 import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
 
 interface UsageRecord {
@@ -96,12 +96,10 @@ export function SectionMcpUsage() {
     try {
       const dateFrom = getDateFrom(range);
       const dateTo = getDateTo();
-      const res = await authenticatedFetch(
+      const data = await fetchJson<GetMyMcpUsageResponse>(
         api.mcpUsage.me(dateFrom, dateTo),
         getAccessToken
       );
-      if (!res.ok) throw new Error(`Failed to fetch usage: ${res.status}`);
-      const data = await res.json();
       setRecords(data.records || []);
       setUsagePlan(data.usagePlan || null);
       setEffectivePlan(data.effectivePlan || null);
@@ -111,20 +109,15 @@ export function SectionMcpUsage() {
       if (canSeeOrganization) {
         // Every account charged to this tenant's organization budget — including delegated (MSP)
         // administrators reading the tenant. A 403 (role changed mid-session) just hides the card.
-        const orgRes = await authenticatedFetch(api.mcpUsage.organization(dateFrom, dateTo), getAccessToken);
-        if (orgRes.ok) {
-          const org = await orgRes.json();
-          setOrgUsers(org.users ?? []);
-        } else {
-          setOrgUsers(null);
-        }
+        const org = await fetchJson<GetMcpOrganizationUsageResponse>(api.mcpUsage.organization(dateFrom, dateTo), getAccessToken)
+          .catch((err: unknown) => {
+            if (err instanceof ApiError) return null;
+            throw err;
+          });
+        setOrgUsers(org ? org.users ?? [] : null);
       }
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired. Please refresh the page.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to fetch usage data");
-      }
+      setError(apiErrorText(err, "Failed to fetch usage data"));
     } finally {
       setLoading(false);
     }

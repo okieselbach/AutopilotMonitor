@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchOk } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -269,19 +270,10 @@ function OffboardingInProgressBanner({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const response = await authenticatedFetch(
-        api.tenants.offboardFeedback(tenantId),
-        getAccessToken,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ comment: trimmed.slice(0, FEEDBACK_MAX_CHARS) }),
-        },
-      );
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Submit failed (HTTP ${response.status})`);
-      }
+      await fetchOk(api.tenants.offboardFeedback(tenantId), getAccessToken, {
+        method: "POST",
+        body: JSON.stringify({ comment: trimmed.slice(0, FEEDBACK_MAX_CHARS) }),
+      });
       try {
         window.localStorage.setItem(localStorageKey, "1");
       } catch {
@@ -292,7 +284,7 @@ function OffboardingInProgressBanner({
       if (err instanceof TokenExpiredError) {
         setSubmitError("Your session has expired. The offboarding will continue in the background.");
       } else {
-        setSubmitError(err instanceof Error ? err.message : "Failed to submit feedback");
+        setSubmitError(apiErrorText(err, "Failed to submit feedback"));
       }
     } finally {
       setSubmitting(false);

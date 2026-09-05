@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchOk } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/appInsights";
 
@@ -103,12 +103,11 @@ export function SectionSubmitLogs() {
       const logBundle = await bundleFiles(logFiles, "diag-files.zip");
       const screenshotBundle = await bundleFiles(screenshotFiles, "screenshots.zip");
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.diagFilesReports.submit(),
         getAccessToken,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenantId: user.tenantId,
             comment,
@@ -121,11 +120,6 @@ export function SectionSubmitLogs() {
         },
       );
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || `Failed to submit (${response.status}).`);
-      }
-
       trackEvent("diag_files_report_submitted");
       setSubmitResult("success");
       setComment("");
@@ -134,11 +128,7 @@ export function SectionSubmitLogs() {
       setScreenshotFiles([]);
       setLogError(null);
     } catch (err: unknown) {
-      if (err instanceof TokenExpiredError) {
-        setSubmitErrorMessage("Session expired. Please reload the page and try again.");
-      } else {
-        setSubmitErrorMessage(err instanceof Error ? err.message : "Failed to submit report.");
-      }
+      setSubmitErrorMessage(apiErrorText(err, "Failed to submit report."));
       setSubmitResult("error");
     } finally {
       setSubmitting(false);

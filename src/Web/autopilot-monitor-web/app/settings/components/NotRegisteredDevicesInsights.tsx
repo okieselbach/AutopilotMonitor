@@ -2,25 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { DeviceNotRegisteredResponse } from "@/utils/wire-types.generated";
 
-interface AggregatedNotRegistered {
-  serialNumber: string;
-  manufacturer: string;
-  model: string;
-  /** Agent-reported W365 marker verdict (unverified, like all distress fields). Absent on older backends. */
-  isCloudPc?: boolean;
-  attemptCount: number;
-  firstSeen: string;
-  lastSeen: string;
-}
 
-interface DeviceNotRegisteredResponse {
-  success: boolean;
-  aggregated: AggregatedNotRegistered[];
-  totalRawReports: number;
-  dataQualityNotice: string;
-}
 
 interface NotRegisteredDevicesInsightsProps {
   getAccessToken: () => Promise<string | null>;
@@ -50,12 +35,10 @@ export default function NotRegisteredDevicesInsights({
     try {
       setLoading(true);
       setError(null);
-      const res = await authenticatedFetch(api.distress.deviceNotRegistered(), getAccessToken);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: DeviceNotRegisteredResponse = await res.json();
+      const json = await fetchJson<DeviceNotRegisteredResponse>(api.distress.deviceNotRegistered(), getAccessToken);
       setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(apiErrorText(err, "Failed to load"));
     } finally {
       setLoading(false);
     }

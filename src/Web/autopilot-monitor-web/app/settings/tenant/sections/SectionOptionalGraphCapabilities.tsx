@@ -5,7 +5,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
 import { DOCS_URL } from "@/utils/config";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { ADD_ON_GRANT_SCRIPT_URL, buildAddOnGrantCommand } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 
@@ -39,13 +39,7 @@ export function SectionOptionalGraphCapabilities() {
     setLoading(true);
     setError(null);
     try {
-      const response = await authenticatedFetch(api.graphPermissions.status(tenantId), getAccessToken);
-      if (!response.ok) {
-        setError(`Failed to load status (HTTP ${response.status}).`);
-        setStatus(null);
-        return;
-      }
-      const body = (await response.json()) as StatusResponse;
+      const body = await fetchJson<StatusResponse>(api.graphPermissions.status(tenantId), getAccessToken);
       setStatus(body);
       // Tracks distinct admins/tenants looking at the capability page. The
       // backend's GraphAddOnStatusChecked event covers the same signal server-side
@@ -57,7 +51,7 @@ export function SectionOptionalGraphCapabilities() {
         grantedRoleCount: body.grantedRoles?.length ?? 0,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load status.");
+      setError(apiErrorText(err, "Failed to load status."));
       setStatus(null);
     } finally {
       setLoading(false);
@@ -78,17 +72,14 @@ export function SectionOptionalGraphCapabilities() {
     try {
       // Inspect the response — without the !res.ok guard a 403 or 500 would silently
       // fall through to fetchStatus() and pretend the cache invalidation worked.
-      const res = await authenticatedFetch(
+      await fetchOk(
         api.graphPermissions.refresh(tenantId),
         getAccessToken,
         { method: "POST" },
       );
-      if (!res.ok) {
-        throw new Error(`Refresh failed (HTTP ${res.status}).`);
-      }
       await fetchStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Refresh failed.");
+      setError(apiErrorText(err, "Refresh failed."));
     } finally {
       setRefreshing(false);
     }

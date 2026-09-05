@@ -2,24 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { HardwareRejectedResponse } from "@/utils/wire-types.generated";
 
-interface AggregatedRejection {
-  manufacturer: string;
-  model: string;
-  attemptCount: number;
-  uniqueSerials: number;
-  firstSeen: string;
-  lastSeen: string;
-  sampleSerialNumbers: string[];
-}
 
-interface HardwareRejectedResponse {
-  success: boolean;
-  aggregated: AggregatedRejection[];
-  totalRawReports: number;
-  dataQualityNotice: string;
-}
 
 interface HardwareRejectionInsightsProps {
   getAccessToken: () => Promise<string | null>;
@@ -105,12 +91,10 @@ export default function HardwareRejectionInsights({
     try {
       setLoading(true);
       setError(null);
-      const res = await authenticatedFetch(api.distress.hardwareRejected(), getAccessToken);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: HardwareRejectedResponse = await res.json();
+      const json = await fetchJson<HardwareRejectedResponse>(api.distress.hardwareRejected(), getAccessToken);
       setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(apiErrorText(err, "Failed to load"));
     } finally {
       setLoading(false);
     }

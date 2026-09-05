@@ -4,19 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantConfig } from "../../TenantConfigContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { isProViaMsp } from "@/lib/edition";
 import { buildInviteLink, describeDelegationError, holdRemainingLabel, invitationStatusLabel } from "@/lib/delegations";
 import { principalLabel } from "@/utils/principalKeys";
-import type {
-  DelegationAssigneeListResponse,
-  DelegationInvitationListResponse,
-  ManagedTenantListResponse,
-  TenantManagerListResponse,
-} from "@/utils/wire-types.generated";
+import type { CreateDelegationInvitationResponse, DelegationAssigneeListResponse, DelegationInvitationListResponse, ManagedTenantListResponse, TenantManagerListResponse } from "@/utils/wire-types.generated";
 
 type Confirm =
   | { kind: "revoke"; homeTenantId: string; label: string }
@@ -62,27 +57,24 @@ export function SectionDelegatedAccess() {
     setTimeout(() => setFlash(null), 4000);
   };
 
-  const handleError = useCallback((err: unknown, fallback: string) => {
-    setError(err instanceof TokenExpiredError ? "Session expired. Please refresh the page." : err instanceof Error ? err.message : fallback);
-  }, []);
+  const handleError = useCallback((err: unknown, fallback: string) => setError(apiErrorText(err, fallback)), []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const mgr = await authenticatedFetch(api.delegations.managers(), getAccessToken);
-      if (!mgr.ok) throw new Error(`Failed to load delegated access: ${mgr.status}`);
-      setManagers((await mgr.json()) as TenantManagerListResponse);
+      setManagers(await fetchJson<TenantManagerListResponse>(api.delegations.managers(), getAccessToken));
 
       if (canManage) {
+        // Each list degrades on its own: a refused read leaves that one section empty.
         const [m, i, a] = await Promise.all([
-          authenticatedFetch(api.delegations.managed(), getAccessToken),
-          authenticatedFetch(api.delegations.invitations(), getAccessToken),
-          authenticatedFetch(api.delegations.assignees(), getAccessToken),
+          fetchJson<ManagedTenantListResponse>(api.delegations.managed(), getAccessToken).catch(() => null),
+          fetchJson<DelegationInvitationListResponse>(api.delegations.invitations(), getAccessToken).catch(() => null),
+          fetchJson<DelegationAssigneeListResponse>(api.delegations.assignees(), getAccessToken).catch(() => null),
         ]);
-        setManaged(m.ok ? ((await m.json()) as ManagedTenantListResponse) : null);
-        setInvitations(i.ok ? ((await i.json()) as DelegationInvitationListResponse) : null);
-        setAssignees(a.ok ? ((await a.json()) as DelegationAssigneeListResponse) : null);
+        setManaged(m);
+        setInvitations(i);
+        setAssignees(a);
       }
     } catch (err) {
       handleError(err, "Failed to load delegated access");
@@ -101,7 +93,7 @@ export function SectionDelegatedAccess() {
 
   /** Runs a mutation; a structured error body ({ error, code }) is explained via describeDelegationError. */
   const mutate = useCallback(
-    async (key: string, url: string, method: string, body: unknown, ok: string): Promise<Response | null> => {
+    async (key: string, url: string, method: string, body: unknown, ok: string): Promise<boolean | null> => {
       setBusy(key);
       setError(null);
       try {
@@ -110,15 +102,17 @@ export function SectionDelegatedAccess() {
           init.headers = { "Content-Type": "application/json" };
           init.body = JSON.stringify(body);
         }
-        const response = await authenticatedFetch(url, getAccessToken, init);
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(describeDelegationError(data.code, data.error || `Request failed: ${response.statusText}`));
+        try {
+          await fetchOk(url, getAccessToken, init);
+        } catch (err) {
+          // A structured refusal ({ error, code }) is explained via describeDelegationError.
+          if (err instanceof ApiError) throw new Error(describeDelegationError(err.code, err.message));
+          throw err;
         }
         notify(ok);
         setConfirm(null);
         await load();
-        return response;
+        return true;
       } catch (err) {
         handleError(err, "Request failed");
         return null;
@@ -135,9 +129,7 @@ export function SectionDelegatedAccess() {
     setCreatedLink(null);
     setCopied(false);
     try {
-      const response = await authenticatedFetch(api.delegations.invitations(), getAccessToken, { method: "POST" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(describeDelegationError(data.code, data.error || `Request failed: ${response.statusText}`));
+      const data = await fetchJson<CreateDelegationInvitationResponse>(api.delegations.invitations(), getAccessToken, { method: "POST" });
       setCreatedLink(buildInviteLink(window.location.origin, data.token));
       notify("Invitation created — copy the link now; it is shown only once.");
       await load();

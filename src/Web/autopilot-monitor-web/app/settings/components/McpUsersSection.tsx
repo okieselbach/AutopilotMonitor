@@ -2,31 +2,21 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
-import { useNotifications } from "../../../contexts/NotificationContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { isApplicationKey, looksLikeGuid, principalLabel } from "@/utils/principalKeys";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { AdminConfiguration, GetMcpUsersResponse, McpUserEntry, PlanTierDefinition as PlanTierDefinitionWire, PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
 
-interface McpUser {
-  upn: string;
-  isEnabled: boolean;
-  addedAt: string;
-  addedBy: string;
-  usagePlan: string | null;
-}
-
-interface PlanTierDefinition {
-  name: string;
-  dailyRequestLimit: number;
-  monthlyRequestLimit: number;
-  description: string;
-}
+/** One MCP user row and one plan tier — the wire shapes. */
+type McpUser = McpUserEntry;
+type PlanTierDefinition = PlanTierDefinitionWire;
 
 type McpPolicy = "Disabled" | "WhitelistOnly" | "AllMembers";
+const isMcpPolicy = (v: string | undefined): v is McpPolicy => v === "Disabled" || v === "WhitelistOnly" || v === "AllMembers";
 
 const POLICY_LABELS: Record<McpPolicy, string> = {
   Disabled: "Disabled",
@@ -50,8 +40,7 @@ const LIST_PURPOSE: Record<Exclude<McpPolicy, "Disabled">, string> = {
 
 export default function McpUsersSection() {
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
-
+  
   const [users, setUsers] = useState<McpUser[]>([]);
   const [policy, setPolicy] = useState<McpPolicy>("WhitelistOnly");
   const [loading, setLoading] = useState(true);
@@ -82,29 +71,20 @@ export default function McpUsersSection() {
   const fetchMcpUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(api.mcpUsers.list(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load MCP users: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<GetMcpUsersResponse>(api.mcpUsers.list(), getAccessToken);
       setUsers(data.users ?? []);
-      setPolicy(data.policy ?? "WhitelistOnly");
+      setPolicy(isMcpPolicy(data.policy) ? data.policy : "WhitelistOnly");
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load MCP users");
-      }
+      setError(apiErrorText(err, "Failed to load MCP users"));
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken]);
 
   const fetchPlanTiers = useCallback(async () => {
     try {
-      const res = await authenticatedFetch(api.mcpUsage.planTiers(), getAccessToken);
-      if (res.ok) {
-        const data = await res.json();
-        setPlanTiers(data.tiers || []);
-      }
+      const data = await fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken);
+      setPlanTiers(data.tiers || []);
     } catch {
       // Plan tiers are optional — if we can't fetch them, just skip
     }
@@ -124,34 +104,22 @@ export default function McpUsersSection() {
       setSuccessMessage(null);
 
       // Read current global config, update McpAccessPolicy, save back
-      const getRes = await authenticatedFetch(api.globalConfig.get(), getAccessToken);
-      if (!getRes.ok) throw new Error(`Failed to load global config: ${getRes.statusText}`);
-      const config = await getRes.json();
+      const config = await fetchJson<AdminConfiguration>(api.globalConfig.get(), getAccessToken);
 
-      const saveRes = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
+      await fetchOk(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...config, mcpAccessPolicy: newPolicy }),
       });
-
-      if (!saveRes.ok) {
-        const data = await saveRes.json();
-        throw new Error(data.error || `Failed to save policy: ${saveRes.statusText}`);
-      }
 
       setPolicy(newPolicy);
       setSuccessMessage(`MCP access policy changed to "${POLICY_LABELS[newPolicy]}".`);
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to save policy");
-      }
+      setError(apiErrorText(err, "Failed to save policy"));
     } finally {
       setSavingPolicy(false);
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken]);
 
   const handleAddUser = useCallback(async () => {
     if (!newEntryValid || (homeTenantRequired && !homeTenantPick)) return;
@@ -163,18 +131,11 @@ export default function McpUsersSection() {
       const body = addingApplication
         ? { applicationId: newEmail.trim(), homeTenantId: homeTenantPick }
         : { upn: newEmail.trim(), homeTenantId: needHomeTenant ? homeTenantPick : undefined };
-      const response = await authenticatedFetch(api.mcpUsers.add(), getAccessToken, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED) {
-          setNeedHomeTenant(true);
-        }
-        throw new Error(data.error || `Failed to add user: ${response.statusText}`);
+      try {
+        await fetchOk(api.mcpUsers.add(), getAccessToken, { method: "POST", body: JSON.stringify(body) });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 422 && err.code === HOME_TENANT_UNRESOLVED) setNeedHomeTenant(true);
+        throw err;
       }
 
       setSuccessMessage(`MCP user ${newEmail} added successfully!`);
@@ -184,15 +145,11 @@ export default function McpUsersSection() {
       await fetchMcpUsers();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to add user");
-      }
+      setError(apiErrorText(err, "Failed to add user"));
     } finally {
       setAdding(false);
     }
-  }, [newEmail, newEntryValid, addingApplication, homeTenantRequired, needHomeTenant, homeTenantPick, getAccessToken, addNotification, fetchMcpUsers]);
+  }, [newEmail, newEntryValid, addingApplication, homeTenantRequired, needHomeTenant, homeTenantPick, getAccessToken, fetchMcpUsers]);
 
   const handleRemoveUser = useCallback(async (upn: string) => {
     if (!confirm(`Remove ${upn} from MCP users?`)) return;
@@ -201,28 +158,19 @@ export default function McpUsersSection() {
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.mcpUsers.remove(upn), getAccessToken, {
+      await fetchOk(api.mcpUsers.remove(upn), getAccessToken, {
         method: "DELETE",
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to remove user: ${response.statusText}`);
-      }
 
       setSuccessMessage(`MCP user ${upn} removed.`);
       await fetchMcpUsers();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to remove user");
-      }
+      setError(apiErrorText(err, "Failed to remove user"));
     } finally {
       setRemovingUpn(null);
     }
-  }, [getAccessToken, addNotification, fetchMcpUsers]);
+  }, [getAccessToken, fetchMcpUsers]);
 
   const handleToggleUser = useCallback(async (upn: string, currentlyEnabled: boolean) => {
     try {
@@ -230,56 +178,37 @@ export default function McpUsersSection() {
       setError(null);
 
       const url = currentlyEnabled ? api.mcpUsers.disable(upn) : api.mcpUsers.enable(upn);
-      const response = await authenticatedFetch(url, getAccessToken, { method: "PATCH" });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to update user: ${response.statusText}`);
-      }
+      await fetchOk(url, getAccessToken, { method: "PATCH" });
 
       setSuccessMessage(`MCP user ${upn} ${currentlyEnabled ? "disabled" : "enabled"}.`);
       await fetchMcpUsers();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to update user");
-      }
+      setError(apiErrorText(err, "Failed to update user"));
     } finally {
       setTogglingUpn(null);
     }
-  }, [getAccessToken, addNotification, fetchMcpUsers]);
+  }, [getAccessToken, fetchMcpUsers]);
 
   const handleSetUsagePlan = useCallback(async (upn: string, usagePlan: string) => {
     try {
       setChangingPlanUpn(upn);
       setError(null);
 
-      const response = await authenticatedFetch(api.mcpUsers.setUsagePlan(upn), getAccessToken, {
+      await fetchOk(api.mcpUsers.setUsagePlan(upn), getAccessToken, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usagePlan: usagePlan || null }),
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to set plan: ${response.statusText}`);
-      }
 
       setSuccessMessage(`Usage plan for ${upn} updated.`);
       await fetchMcpUsers();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to set usage plan");
-      }
+      setError(apiErrorText(err, "Failed to set usage plan"));
     } finally {
       setChangingPlanUpn(null);
     }
-  }, [getAccessToken, addNotification, fetchMcpUsers]);
+  }, [getAccessToken, fetchMcpUsers]);
 
   // Filter & paginate
   const filteredUsers = users.filter((u) =>

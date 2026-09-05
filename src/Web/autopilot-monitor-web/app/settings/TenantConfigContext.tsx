@@ -6,7 +6,8 @@ import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
 import { primaryClientId } from "@/lib/authApp";
@@ -31,6 +32,7 @@ import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChann
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
 import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
+import type { AutopilotConsentStatusResponse, AutopilotConsentUrlResponse, OffboardResponse, TenantFeatureFlagsResponse, TestWebhookNotificationResponse } from "@/utils/wire-types.generated";
 
 /**
  * Channels for display/editing from a loaded config: prefers notificationChannelsJson; while
@@ -538,35 +540,30 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // comes from flags, not the raw config. Non-admins (Operators) receive the
         // server-REDACTED copy: the backend clears secrets for every caller without write
         // authority over the target tenant, so showing it read-only is safe.
-        const [response, flagsResponse] = await Promise.all([
-          authenticatedFetch(api.config.tenant(tenantId), getAccessToken),
-          authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken),
-        ]);
+        // Flags and config load in parallel; the flags are best-effort (fail-closed: Community default).
+        const flagsPromise = fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(tenantId), getAccessToken).catch(() => null);
+        const applyFlags = (flags: TenantFeatureFlagsResponse | null) => {
+          if (!flags) return;
+          setEditionInfo(parseEditionInfo(flags));
+          setAppHomingFunnelActive(flags.appHomingFunnelActive === true);
+        };
 
-        let flags: unknown = null;
-        if (flagsResponse.ok) {
-          try {
-            flags = await flagsResponse.json();
-            setEditionInfo(parseEditionInfo(flags));
-            setAppHomingFunnelActive(
-              (flags as { appHomingFunnelActive?: boolean }).appHomingFunnelActive === true);
-          } catch { /* fail-closed: keep Community default */ }
-        }
-
-        if (!response.ok) {
+        let data: TenantConfiguration;
+        try {
+          data = await fetchJson<TenantConfiguration>(api.config.tenant(tenantId), getAccessToken);
+        } catch (err) {
+          const flags = await flagsPromise;
+          applyFlags(flags);
           // Deploy-order safety net: a backend that still gates the config GET admin-tier
           // 403s an Operator. Fall back to the feature-flags minimal view (pre-change
           // behavior for non-admins) instead of surfacing a load error.
-          if (response.status === 403 && !isAdminOrGA && flags && typeof flags === "object") {
-            setConfig({
-              bootstrapTokenEnabled: (flags as { bootstrapTokenEnabled?: boolean }).bootstrapTokenEnabled,
-            } as TenantConfiguration);
+          if (err instanceof ApiError && err.status === 403 && !isAdminOrGA && flags) {
+            setConfig({ bootstrapTokenEnabled: flags.bootstrapTokenEnabled } as TenantConfiguration);
             return;
           }
-          throw new Error(`Failed to load configuration: ${response.statusText}`);
+          throw err;
         }
-
-        const data: TenantConfiguration = await response.json();
+        applyFlags(await flagsPromise);
         setConfig(data);
 
         // Update form state
@@ -660,12 +657,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
           }
         }
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-        } else {
-          console.error("Error fetching configuration:", err);
-          setError(err instanceof Error ? err.message : "Failed to load configuration");
-        }
+        console.error("Error fetching configuration:", err);
+        setError(apiErrorText(err, "Failed to load configuration"));
       } finally {
         setLoading(false);
       }
@@ -681,23 +674,15 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     if (!tenantId) return;
     try {
       setLoadingAdmins(true);
-      const response = await authenticatedFetch(api.tenants.admins(tenantId), getAccessToken);
-      if (!response.ok) {
-        throw new Error(`Failed to load admins: ${response.statusText}`);
-      }
-      const data: TenantAdmin[] = await response.json();
+      const data = await fetchJson<TenantAdmin[]>(api.tenants.admins(tenantId), getAccessToken);
       setAdmins(data);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error("Error fetching admins:", err);
-        setError(err instanceof Error ? err.message : "Failed to load admins");
-      }
+      console.error("Error fetching admins:", err);
+      setError(apiErrorText(err, "Failed to load admins"));
     } finally {
       setLoadingAdmins(false);
     }
-  }, [tenantId, getAccessToken, addNotification]);
+  }, [tenantId, getAccessToken]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -715,14 +700,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     if (!tenantId) return;
     try {
       setBootstrapLoading(true);
-      const response = await authenticatedFetch(
-        api.bootstrap.sessions(tenantId),
-        getAccessToken,
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setBootstrapSessions(data.sessions || []);
-      }
+      const data = await fetchJson<{ sessions?: BootstrapSessionItem[] }>(api.bootstrap.sessions(tenantId), getAccessToken);
+      setBootstrapSessions(data.sessions || []);
     } catch (err) {
       console.error("Failed to fetch bootstrap sessions:", err);
     } finally {
@@ -845,20 +824,12 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       }
 
       if (Object.keys(patchFields).length > 0) {
-        const response = await authenticatedFetch(api.config.fields(tenantId), getAccessToken, {
+        // The PATCH response carries applied field names + masked diff, not the config: the
+        // backend verified exactly these fields changed, so merge them locally.
+        await fetchOk(api.config.fields(tenantId), getAccessToken, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fields: patchFields, reason: `settings:${sectionName}` }),
         });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || `Failed to save configuration: ${response.statusText}`);
-        }
-
-        // The PATCH response carries applied field names + masked diff, not the config —
-        // the backend verified exactly these fields changed, so merge them locally.
-        await response.json().catch(() => ({}));
         setConfig({ ...config, ...patchFields } as TenantConfiguration);
       }
 
@@ -876,19 +847,15 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setTimeout(() => setSuccessMessage(null), 3000);
       return true;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        const msg = err instanceof Error ? err.message : "Failed to save configuration";
-        trackEvent("settings_error", { action: "save", section: sectionName, error: msg });
-        setError(msg);
-      }
+      const msg = apiErrorText(err, "Failed to save configuration");
+      trackEvent("settings_error", { action: "save", section: sectionName, error: msg });
+      setError(msg);
       return false;
     } finally {
       setSavingSection(null);
     }
   }, [
-    tenantId, config, canEditConfig, getAccessToken, addNotification,
+    tenantId, config, canEditConfig, getAccessToken,
     manufacturerWhitelist, modelWhitelist, webhookNotifyOnHardwareRejection, validateAutopilotDevice, validateCorporateIdentifier, validateDeviceAssociation, validateCloudPcDevice, validateIntuneDeviceBinding,
     dataRetentionDays, sessionTimeoutHours, enablePerformanceCollector, performanceCollectorInterval,
     helloWaitTimeoutSeconds, selfDestructOnComplete, keepLogFile, rebootOnComplete, rebootDelaySeconds,
@@ -917,12 +884,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     let ok = false;
     let payload: AccessCheckPayload | undefined;
     try {
-      const response = await authenticatedFetch(api.config.autopilotAccessCheck(tenantId), getAccessToken);
-      ok = response.ok;
-      if (ok) payload = await response.json();
+      payload = await fetchJson<AccessCheckPayload>(api.config.autopilotAccessCheck(tenantId), getAccessToken);
+      ok = true;
     } catch (err) {
       if (err instanceof TokenExpiredError) throw err;
-      return "transient";
+      // A backend refusal is an access-check outcome; only a failed round trip is transient.
+      if (!(err instanceof ApiError)) return "transient";
+      ok = false;
     }
     // Side signal, orthogonal to the access classification: the probe may have auto-flipped
     // the tenant's app-reg homing (self-service migration), deferred it, or named what blocks it.
@@ -980,17 +948,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setSuccessMessage(null);
 
       const redirectUri = `${window.location.origin}/settings/tenant/autopilot`;
-      const response = await authenticatedFetch(
+      const data = await fetchJson<AutopilotConsentUrlResponse>(
         api.config.autopilotConsentUrl(tenantId, redirectUri),
         getAccessToken,
       );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to start consent flow: ${response.statusText}`);
-      }
-
-      const data = await response.json();
       if (!data.consentUrl) {
         throw new Error("Backend did not return a consent URL.");
       }
@@ -1003,18 +964,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       sessionStorage.setItem("consentTrigger", trigger);
       window.location.href = data.consentUrl;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        trackEvent("consent_flow_start_failed", {
-          trigger,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        setError(err instanceof Error ? err.message : "Failed to start admin consent flow");
-      }
+      trackEvent("consent_flow_start_failed", {
+        trigger,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      setError(apiErrorText(err, "Failed to start admin consent flow"));
       setAutopilotConsentInProgress(false);
     }
-  }, [tenantId, getAccessToken, addNotification]);
+  }, [tenantId, getAccessToken]);
 
   // Handle consent callback
   useEffect(() => {
@@ -1046,9 +1003,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // without this, Azure AD errors (e.g. AADSTS50011 redirect mismatch)
         // are invisible to our monitoring.
         try {
-          await authenticatedFetch(api.config.autopilotConsentFailure(tenantId), getAccessToken, {
+          await fetchOk(api.config.autopilotConsentFailure(tenantId), getAccessToken, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               error: consentError,
               errorDescription: consentErrorDescription ? decodeURIComponent(consentErrorDescription) : undefined,
@@ -1095,17 +1051,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       try {
         setAutopilotConsentInProgress(true);
 
-        const statusResponse = await authenticatedFetch(
+        const statusData = await fetchJson<AutopilotConsentStatusResponse>(
           api.config.autopilotConsentStatus(tenantId),
           getAccessToken,
         );
-
-        if (!statusResponse.ok) {
-          const errorData = await statusResponse.json().catch(() => ({}));
-          throw new Error(errorData.error || `Consent validation failed: ${statusResponse.statusText}`);
-        }
-
-        const statusData = await statusResponse.json();
         noteHomingProbe(statusData, "consent-status");
         if (!statusData.isConsented) {
           throw new Error(statusData.message || "Consent is not active yet for this tenant.");
@@ -1114,9 +1063,8 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // Best-effort ops-event: pairs with ConsentFlowStarted/Failed so admins can see
         // whether repeated failures eventually resolved. Don't block the UI if it fails.
         try {
-          await authenticatedFetch(api.config.autopilotConsentSuccess(tenantId), getAccessToken, {
+          await fetchOk(api.config.autopilotConsentSuccess(tenantId), getAccessToken, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ trigger }),
           });
         } catch {
@@ -1170,17 +1118,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         }
         router.replace("/settings/tenant/autopilot");
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-        } else {
-          // Covers consent-status non-ok and "not consented yet" (both throw above).
-          trackEvent("consent_verify_failed", {
-            trigger,
-            stage: "status-check",
-            error: err instanceof Error ? err.message : String(err),
-          });
-          setError(err instanceof Error ? err.message : "Failed to verify consent");
-        }
+        // Covers consent-status non-ok and "not consented yet" (both throw above).
+        trackEvent("consent_verify_failed", {
+          trigger,
+          stage: "status-check",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        setError(apiErrorText(err, "Failed to verify consent"));
       } finally {
         setAutopilotConsentInProgress(false);
       }
@@ -1210,15 +1154,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // "reconciled" => success message already set by the helper.
       // "failed" => access present but persist failed; saveConfiguration already set the error.
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to detect existing access");
-      }
+      setError(apiErrorText(err, "Failed to detect existing access"));
     } finally {
       setAutopilotConsentInProgress(false);
     }
-  }, [tenantId, tryReconcilePreApprovedConsent, addNotification]);
+  }, [tenantId, tryReconcilePreApprovedConsent]);
 
   // -----------------------------------------------------------------------
   // Test webhook channel
@@ -1228,15 +1168,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     setTestingChannelId(channelId);
     setTestChannelResult(null);
     try {
-      const response = await authenticatedFetch(api.config.testNotification(tenantId), getAccessToken, {
+      const data = await fetchJson<TestWebhookNotificationResponse>(api.config.testNotification(tenantId), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channelId }),
       });
-      const data = await response.json();
       setTestChannelResult({ channelId, success: data.success, message: data.message });
     } catch (err) {
-      setTestChannelResult({ channelId, success: false, message: err instanceof Error ? err.message : "Failed to send test notification." });
+      setTestChannelResult({ channelId, success: false, message: apiErrorText(err, "Failed to send test notification.") });
     } finally {
       setTestingChannelId(null);
     }
@@ -1404,16 +1342,10 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       const body = addingApplication
         ? { applicationId: newAdminEmail.trim(), role: "Viewer" }
         : { upn: newAdminEmail.trim(), role: newMemberRole };
-      const response = await authenticatedFetch(api.tenants.admins(tenantId), getAccessToken, {
+      await fetchOk(api.tenants.admins(tenantId), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to add member: ${response.statusText}`);
-      }
 
       trackEvent("admin_member_added", { role: body.role, kind: newMemberKind });
       setSuccessMessage(addingApplication
@@ -1424,18 +1356,14 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       await fetchAdmins();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error("Error adding admin:", err);
-        const msg = err instanceof Error ? err.message : "Failed to add admin";
-        trackEvent("settings_error", { action: "add_admin", error: msg });
-        setError(msg);
-      }
+      console.error("Error adding admin:", err);
+      const msg = apiErrorText(err, "Failed to add admin");
+      trackEvent("settings_error", { action: "add_admin", error: msg });
+      setError(msg);
     } finally {
       setAddingAdmin(false);
     }
-  }, [tenantId, newAdminEmail, newMemberRole, newMemberKind, getAccessToken, addNotification, fetchAdmins]);
+  }, [tenantId, newAdminEmail, newMemberRole, newMemberKind, getAccessToken, fetchAdmins]);
 
   const handleRemoveAdmin = useCallback(async (adminUpn: string) => {
     if (!tenantId) return;
@@ -1446,32 +1374,23 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.tenants.admin(tenantId, adminUpn), getAccessToken, {
+      await fetchOk(api.tenants.admin(tenantId, adminUpn), getAccessToken, {
         method: "DELETE",
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to remove admin: ${response.statusText}`);
-      }
 
       trackEvent("admin_member_removed");
       setSuccessMessage(`Admin ${adminUpn} removed successfully!`);
       await fetchAdmins();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error("Error removing admin:", err);
-        const msg = err instanceof Error ? err.message : "Failed to remove admin";
-        trackEvent("settings_error", { action: "remove_admin", error: msg });
-        setError(msg);
-      }
+      console.error("Error removing admin:", err);
+      const msg = apiErrorText(err, "Failed to remove admin");
+      trackEvent("settings_error", { action: "remove_admin", error: msg });
+      setError(msg);
     } finally {
       setRemovingAdmin(null);
     }
-  }, [tenantId, getAccessToken, addNotification, fetchAdmins]);
+  }, [tenantId, getAccessToken, fetchAdmins]);
 
   const handleToggleTenantAdmin = useCallback(async (adminUpn: string, isEnabled: boolean) => {
     if (!tenantId) return;
@@ -1482,35 +1401,21 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(
-        api.tenants.adminAction(tenantId, adminUpn, action),
-        getAccessToken,
-        { method: "PATCH" },
-      );
-
-      if (!response.ok) {
-        let errorData;
-        try { errorData = await response.json(); } catch { errorData = { error: `Failed to ${action} admin: ${response.statusText}` }; }
-        throw new Error(errorData.error || `Failed to ${action} admin: ${response.statusText}`);
-      }
+      await fetchOk(api.tenants.adminAction(tenantId, adminUpn, action), getAccessToken, { method: "PATCH" });
 
       trackEvent("admin_member_toggled", { action });
       setSuccessMessage(`Admin ${adminUpn} ${action}d successfully!`);
       await fetchAdmins();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error(`Error ${action}ing admin:`, err);
-        const msg = err instanceof Error ? err.message : `Failed to ${action} admin`;
-        trackEvent("settings_error", { action: `${action}_admin`, error: msg });
-        setError(msg);
-      }
+      console.error(`Error ${action}ing admin:`, err);
+      const msg = apiErrorText(err, `Failed to ${action} admin`);
+      trackEvent("settings_error", { action: `${action}_admin`, error: msg });
+      setError(msg);
     } finally {
       setTogglingAdmin(null);
     }
-  }, [tenantId, getAccessToken, addNotification, fetchAdmins]);
+  }, [tenantId, getAccessToken, fetchAdmins]);
 
   const handleUpdatePermissions = useCallback(async (adminUpn: string, role: string, canManageBootstrapTokens: boolean) => {
     if (!tenantId) return;
@@ -1519,38 +1424,28 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.tenants.adminPermissions(tenantId, adminUpn),
         getAccessToken,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ role, canManageBootstrapTokens }),
         },
       );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to update permissions: ${response.statusText}`);
-      }
 
       trackEvent("admin_permissions_updated", { role });
       setSuccessMessage(`Permissions for ${adminUpn} updated successfully!`);
       await fetchAdmins();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error("Error updating permissions:", err);
-        const msg = err instanceof Error ? err.message : "Failed to update permissions";
-        trackEvent("settings_error", { action: "update_permissions", error: msg });
-        setError(msg);
-      }
+      console.error("Error updating permissions:", err);
+      const msg = apiErrorText(err, "Failed to update permissions");
+      trackEvent("settings_error", { action: "update_permissions", error: msg });
+      setError(msg);
     } finally {
       setTogglingAdmin(null);
     }
-  }, [tenantId, getAccessToken, addNotification, fetchAdmins]);
+  }, [tenantId, getAccessToken, fetchAdmins]);
 
   // -----------------------------------------------------------------------
   // Bootstrap session handlers
@@ -1558,55 +1453,37 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
   const createBootstrapSession = useCallback(async (validityHours: number, label: string): Promise<string | null> => {
     if (!tenantId) return null;
     try {
-      const response = await authenticatedFetch(api.bootstrap.sessions(), getAccessToken, {
+      const data = await fetchJson<{ bootstrapUrl?: string }>(api.bootstrap.sessions(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantId, validityHours, label }),
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error((data as Record<string, string>).error || "Failed to create session");
-      }
-      const data = await response.json();
       trackEvent("bootstrap_session_created", { validityHours });
       await fetchBootstrapSessions();
       return data.bootstrapUrl || null;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        const msg = err instanceof Error ? err.message : "Failed to create bootstrap session";
-        trackEvent("settings_error", { action: "create_bootstrap", error: msg });
-        setError(msg);
-      }
+      const msg = apiErrorText(err, "Failed to create bootstrap session");
+      trackEvent("settings_error", { action: "create_bootstrap", error: msg });
+      setError(msg);
       return null;
     }
-  }, [tenantId, getAccessToken, addNotification, fetchBootstrapSessions]);
+  }, [tenantId, getAccessToken, fetchBootstrapSessions]);
 
   const revokeBootstrapSession = useCallback(async (code: string) => {
     if (!tenantId) return;
     try {
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.bootstrap.session(code, tenantId),
         getAccessToken,
         { method: "DELETE" },
       );
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error((data as Record<string, string>).error || "Failed to revoke session");
-      }
       trackEvent("bootstrap_session_revoked");
       await fetchBootstrapSessions();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        const msg = err instanceof Error ? err.message : "Failed to revoke bootstrap session";
-        trackEvent("settings_error", { action: "revoke_bootstrap", error: msg });
-        setError(msg);
-      }
+      const msg = apiErrorText(err, "Failed to revoke bootstrap session");
+      trackEvent("settings_error", { action: "revoke_bootstrap", error: msg });
+      setError(msg);
     }
-  }, [tenantId, getAccessToken, addNotification, fetchBootstrapSessions]);
+  }, [tenantId, getAccessToken, fetchBootstrapSessions]);
 
   // -----------------------------------------------------------------------
   // Offboard
@@ -1617,21 +1494,13 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setOffboarding(true);
       setOffboardError(null);
 
-      const response = await authenticatedFetch(api.tenants.offboard(tenantId), getAccessToken, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data?.error || `Offboard failed: ${response.statusText}`);
-      }
+      const body = await fetchJson<OffboardResponse>(api.tenants.offboard(tenantId), getAccessToken, { method: 'DELETE' });
 
       // Backend returns 202 (or 200 for idempotent re-clicks) with the History row pointer
       // and EarliestProcessingAt (cache-drain barrier deadline). Switch the UI into the
       // drain-barrier banner state; the banner's countdown will auto-logout once the
       // barrier elapses (by then the worker has started Phase 2 and the auth pipeline
       // returns 403 via the existing Disabled-flag gate).
-      const body = await response.json().catch(() => ({}));
       trackEvent("tenant_offboarded");
 
       setOffboardingInProgress({
@@ -1643,15 +1512,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       // Dismiss the confirmation dialog now that the banner has taken over.
       setShowOffboardDialog(false);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        setOffboardError(err instanceof Error ? err.message : 'Offboard failed');
-      }
+      setOffboardError(apiErrorText(err, 'Offboard failed'));
     } finally {
       setOffboarding(false);
     }
-  }, [tenantId, getAccessToken, addNotification]);
+  }, [tenantId, getAccessToken]);
 
   const handleDrainBarrierElapsed = useCallback(() => {
     // The cache-drain barrier has expired. The worker is starting Phase 2 right now and
@@ -1670,35 +1535,24 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
       setStartingTrial(true);
       setError(null);
 
-      const response = await authenticatedFetch(api.config.trial(tenantId), getAccessToken, {
+      await fetchOk(api.config.trial(tenantId), getAccessToken, {
         method: "POST",
       });
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.message || data.error || `Failed to start trial: ${response.statusText}`);
-      }
-
       // Refetch the authoritative edition surface (server-resolved).
-      const flagsResponse = await authenticatedFetch(api.config.featureFlags(tenantId), getAccessToken);
-      if (flagsResponse.ok) {
-        setEditionInfo(parseEditionInfo(await flagsResponse.json()));
-      }
+      const flags = await fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(tenantId), getAccessToken).catch(() => null);
+      if (flags) setEditionInfo(parseEditionInfo(flags));
       setSuccessMessage("Pro trial started — all Pro features are now active for 30 days.");
       setTimeout(() => setSuccessMessage(null), 5000);
       trackEvent("ProTrialStarted", { tenantId });
       return true;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to start trial");
-      }
+      setError(apiErrorText(err, "Failed to start trial"));
       return false;
     } finally {
       setStartingTrial(false);
     }
-  }, [tenantId, getAccessToken, addNotification]);
+  }, [tenantId, getAccessToken]);
 
   // -----------------------------------------------------------------------
   // Provider value

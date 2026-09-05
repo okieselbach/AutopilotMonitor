@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { fetchJson } from "@/lib/apiClient";
 
 interface AggregatedTpmPssUnsupported {
   serialNumber: string;
@@ -53,10 +53,7 @@ export default function TpmIncompatibleDevicesInsights({
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await authenticatedFetch(api.distress.tpmPssUnsupported(), getAccessToken);
-      if (!res.ok) return;
-      const json: TpmPssUnsupportedResponse = await res.json();
-      setData(json);
+      setData(await fetchJson<TpmPssUnsupportedResponse>(api.distress.tpmPssUnsupported(), getAccessToken));
     } catch {
       // Silent degrade — the panel is a secondary insight; the section stays usable without it.
     }
