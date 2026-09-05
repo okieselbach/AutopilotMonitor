@@ -22,6 +22,7 @@
 import { apiFetch, isGlobalAdmin, getCallerUpn } from './client.js';
 import { callerScope } from './telemetry.js';
 import { GA_STRICT_TOOL_NAMES } from './tools/admin.js';
+import type { AccessProbeResponse } from './generated/wire-types.generated.js';
 
 /** Backend route whose DENIAL is the alarm. Registered GlobalAdminOnly; a GA gets a typed OK. */
 export const ACCESS_PROBE_PATH = '/api/global/raw/access-probe';
@@ -50,7 +51,7 @@ export function observeGaToolProbe(body: unknown): void {
     const tool = isGaToolProbe(body);
     if (!tool) return;
     console.error(`[mcp-security] ga-tool-denied tool=${tool} upn=${getCallerUpn() ?? '?'} scope=${callerScope()}`);
-    void apiFetch(ACCESS_PROBE_PATH, { headers: { 'X-MCP-Tool-Name': tool } }).catch(() => {
+    void apiFetch<AccessProbeResponse>(ACCESS_PROBE_PATH, { headers: { 'X-MCP-Tool-Name': tool } }).catch(() => {
       // Expected: the backend answers 403 (that IS the signal). Nothing to do here.
     });
   } catch {

@@ -1,4 +1,5 @@
-import { ApiError, isTimeoutError } from '../client.js';
+import { ApiError, isTimeoutError, type ParsedErrorBody } from '../client.js';
+import type { McpQuotaExceededResponse } from '../generated/wire-types.generated.js';
 
 interface ToolErrorResult {
   [x: string]: unknown;
@@ -15,8 +16,13 @@ function correlationLine(error: ApiError): string | null {
   return error.correlationId ? `**Correlation ID**: ${error.correlationId}` : null;
 }
 
+/** The server's Retry-After (429/503) — apiFetch already waited it out once when it was short enough. */
+function retryAfterLine(error: ApiError): string | null {
+  return error.retryAfterSeconds !== null ? `**Retry after**: ${error.retryAfterSeconds} s` : null;
+}
+
 /** Machine-readable code of the error envelope (`code`); `errorCode` is the pre-envelope spelling. */
-function errorCodeOf(p: Record<string, unknown> | null): string | null {
+function errorCodeOf(p: ParsedErrorBody | null): string | null {
   const code = p?.code ?? p?.errorCode;
   return typeof code === 'string' && code.length > 0 ? code : null;
 }
@@ -45,18 +51,28 @@ export function toolError(
     // internal services), and the model has no legitimate reason to act on
     // them. correlationId + code stay — those are operational handles the
     // operator can pivot on, not internals.
-    parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an error.`);
+    if (error.status === 503) {
+      parts.push(`**Backend unavailable in ${toolName}** (HTTP 503): the server is temporarily unavailable.`);
+    } else {
+      parts.push(`**Backend error in ${toolName}** (HTTP ${error.status}): the server returned an error.`);
+    }
     const cid = correlationLine(error);
     if (cid) parts.push(cid);
     const code = errorCodeOf(error.parsed);
     if (code) parts.push(`**Error code**: ${code}`);
-    parts.push('**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.');
+    const retryAfter = retryAfterLine(error);
+    if (retryAfter) parts.push(retryAfter);
+    parts.push(
+      error.retryAfterSeconds !== null
+        ? `**Suggestion**: retry after ${error.retryAfterSeconds} s; if persistent, ask an operator to inspect backend logs.`
+        : '**Suggestion**: retry in a few seconds; if persistent, ask an operator to inspect backend logs.',
+    );
   } else if (error instanceof ApiError && error.status === 429 && error.parsed?.quotaExceeded === true) {
     // Backend MCP quota (McpQuotaExceededResponse): the daily/monthly budget of the caller's own plan
     // (level=user) or of the whole organization (level=tenant). Retrying is pointless until resetUtc —
     // say so, and say WHOSE budget it is, so a member blocked by the tenant window does not go and
     // create more accounts or ask for a bigger personal plan.
-    const p = error.parsed;
+    const p = error.parsed as Partial<McpQuotaExceededResponse> & Record<string, unknown>;
     // A delegated (MSP) read is charged to the MANAGED tenant ("the budget follows the data"): its plan
     // governs the window, so the fix is on that tenant's side — and the caller's other managed tenants
     // stay perfectly usable.
@@ -86,6 +102,8 @@ export function toolError(
     if (cid) parts.push(cid);
     const code = errorCodeOf(p);
     if (code) parts.push(`**Error code**: ${code}`);
+    const retryAfter = retryAfterLine(error);
+    if (retryAfter) parts.push(retryAfter);
     // The operator log proxy (query_backend_logs) forwards the telemetry store's own error code and
     // JSON: that is what `az monitor … query` prints, and the parity promise is that nothing of it is lost.
     if (typeof p.upstreamCode === 'string' && p.upstreamCode.length > 0) parts.push(`**Upstream code**: ${p.upstreamCode}`);
@@ -103,6 +121,8 @@ export function toolError(
       parts.push(`**Not found in ${toolName}**: The requested resource does not exist. Verify IDs, table names, or filters.`);
     } else if (error.status === 429) {
       parts.push(`**Rate limited in ${toolName}**: Too many requests. Wait a moment and retry.`);
+      const retryAfter = retryAfterLine(error);
+      if (retryAfter) parts.push(retryAfter);
     } else {
       const body = error.body || 'No response body';
       const truncated = body.length > 500 ? body.slice(0, 500) + '…' : body;

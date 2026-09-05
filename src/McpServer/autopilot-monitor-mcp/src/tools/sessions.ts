@@ -2,18 +2,25 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApiError, apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 import { API_BASE_URL } from '../config.js';
 import type {
+  AppMetricsResponse,
+  BlockedDeviceListResponse,
   DiagnosticsDownloadTicketResponse,
   EnrollmentEvent,
   GetRuleResultsResponse,
   GetSessionAnnotationsResponse,
   GetSessionEventsResponse,
   GetSessionResponse,
+  ImePatternHealthResponse,
+  ImeVersionHistoryEntry,
+  ImeVersionHistoryLeanEntry,
+  MetricsSummaryResponse,
+  SessionListResponse,
 } from '../generated/wire-types.generated.js';
 // Generated vocabularies (values, not just types) — see wire-vocabularies.generated.ts.
 import { EVENT_SEVERITIES, SESSION_STATUSES } from '../generated/wire-vocabularies.generated.js';
@@ -256,7 +263,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<SessionListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.indexSessions);
       } catch (error: unknown) {
         return toolError('search_sessions_by_event', args, error);
@@ -284,7 +291,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // rescue authorizes /api/sessions/{id}?tenantId=<managed>). No-op for GA/Reader/tenant users.
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-        const sessionPromise = apiFetch(`/api/sessions/${sessionId}${q}`);
+        const sessionPromise = apiFetch<GetSessionResponse>(`/api/sessions/${sessionId}${q}`);
         if (!includeAnalysis) {
           return toolResultText({ session: await sessionPromise, analysis: null }, MAX_RESULT_SIZE_CHARS.small);
         }
@@ -292,7 +299,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // {{token}} placeholders so the raw explanation/remediation text never
         // leaks literal {{reason}}/{{appName}}/…. Swallow ONLY 404 (analysis may
         // not exist yet) — a 403/500 is a real failure that must surface.
-        const analysisPromise = apiFetch(`/api/sessions/${sessionId}/analysis${q}`)
+        const analysisPromise = apiFetch<GetRuleResultsResponse>(`/api/sessions/${sessionId}/analysis${q}`)
           .then(interpolateAnalysisResults)
           .catch((err: unknown) => {
             if (err instanceof ApiError && err.status === 404) return null;
@@ -343,7 +350,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const q = buildQuery({ tenantId } as Record<string, string | undefined>);
         // The { success, session } envelope is the pinned wire contract (GetSessionResponse).
-        const sessionResp = await apiFetch(`/api/sessions/${sessionId}${q}`) as GetSessionResponse;
+        const sessionResp = await apiFetch<GetSessionResponse>(`/api/sessions/${sessionId}${q}`);
         const session = sessionResp.session;
 
         const blobName = session.diagnosticsBlobName || '';
@@ -364,10 +371,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // Mint a download ticket. MemberRead + cross-tenant scoping enforced backend-side;
         // ?tenantId= is the GA filter / tenant-user validation. blobName travels in the body.
         const ticketPath = `/api/diagnostics/download-ticket${buildQuery({ tenantId: resolvedTenantId } as Record<string, string | undefined>)}`;
-        const ticket = await apiFetch(ticketPath, {
+        const ticket = await apiFetch<DiagnosticsDownloadTicketResponse>(ticketPath, {
           method: 'POST',
           body: JSON.stringify({ blobName }),
-        }) as DiagnosticsDownloadTicketResponse;
+        });
 
         if (!ticket?.url) {
           return toolError('get_session_diagnostics', args,
@@ -442,14 +449,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       try {
         const { sessionId, tenantId: rawTenantId, continuation, eventType, severity, source, fields: explicitFields } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
-        // Default projection follows intent (30-day usage telemetry, 2026-09-02): an UNFILTERED read
-        // is a timeline skim — message-level, so the payload is left out; a read filtered by
-        // eventType/severity/source targets specific events and wants their payload about half the
-        // time, so it stays complete. Explicit fields win either way, and on a follow-up call an
-        // omitted fields keeps whatever projection the nextLink carries (same rule as pageSize).
-        const targeted = Boolean(eventType || severity || source);
-        const leanDefaultApplied = explicitFields === undefined && !continuation && !targeted;
-        const fields = explicitFields ?? (leanDefaultApplied ? LEAN_EVENT_FIELDS : undefined);
+        // Default projection follows intent — see leanFieldSelection.
+        const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, Boolean(eventType || severity || source), LEAN_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = `/api/sessions/${sessionId}/events`;
@@ -503,12 +504,12 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const fetchOpts = { signal: AbortSignal.timeout(90_000) };
 
         const [sessionData, eventsData, analysisData, annotationsData] = await Promise.all([
-          apiFetch(`/api/sessions/${sessionId}${q}`, fetchOpts) as Promise<GetSessionResponse>,
-          apiFetch(`/api/sessions/${sessionId}/events${eventsQuery}`, fetchOpts) as Promise<GetSessionEventsResponse>,
-          apiFetch(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null) as Promise<GetRuleResultsResponse | null>,
+          apiFetch<GetSessionResponse>(`/api/sessions/${sessionId}${q}`, fetchOpts),
+          apiFetch<GetSessionEventsResponse>(`/api/sessions/${sessionId}/events${eventsQuery}`, fetchOpts),
+          apiFetch<GetRuleResultsResponse>(`/api/sessions/${sessionId}/analysis${q}`, fetchOpts).catch(() => null),
           // Human annotations (verdict + note per lane). Backend filters the platform-internal
           // globaladmin lane for non-global callers — pass-through, no re-shaping needed.
-          apiFetch(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null) as Promise<GetSessionAnnotationsResponse | null>,
+          apiFetch<GetSessionAnnotationsResponse>(`/api/sessions/${sessionId}/annotations${q}`, fetchOpts).catch(() => null),
         ]);
 
         const s = sessionData.session;
@@ -716,8 +717,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const q = buildQuery(params);
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         const [summaryRes, appsRes] = await Promise.allSettled([
-          apiFetch(`${prefix}/summary${q}`),
-          apiFetch(`${prefix}/app${q}`),
+          apiFetch<MetricsSummaryResponse>(`${prefix}/summary${q}`),
+          apiFetch<AppMetricsResponse>(`${prefix}/app${q}`),
         ]);
         // Swallowing both failures as {summary:null, apps:null} reports a 403/500/
         // timeout as success. Only tolerate a partial failure (one endpoint down);
@@ -788,7 +789,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<SessionListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.indexSessions);
       } catch (error: unknown) {
         return toolError('search_sessions_by_cve', args, error);
@@ -819,7 +820,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // (backend will 403 — list is platform-wide and GA-only by policy).
         const basePath = pickGlobalOrTenantPath('/api/global/devices/blocked', '/api/devices/blocked');
         const endpoint = `${basePath}${buildQuery({ tenantId } as Record<string, string | undefined>)}`;
-        const data = await apiFetch(endpoint);
+        const data = await apiFetch<BlockedDeviceListResponse>(endpoint);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_blocked_devices', args, error);
@@ -849,7 +850,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     },
     async (args) => withToolTelemetry('get_ime_pattern_health', args, async () => {
       try {
-        const data = await apiFetch('/api/metrics/ime-pattern-health');
+        const data = await apiFetch<ImePatternHealthResponse>('/api/metrics/ime-pattern-health');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_ime_pattern_health', args, error);
@@ -875,7 +876,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     },
     async (args) => withToolTelemetry('get_ime_version_history', args, async () => {
       try {
-        const data = await apiFetch('/api/metrics/ime-versions');
+        const data = await apiFetch<Array<ImeVersionHistoryEntry | ImeVersionHistoryLeanEntry>>('/api/metrics/ime-versions');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_ime_version_history', args, error);

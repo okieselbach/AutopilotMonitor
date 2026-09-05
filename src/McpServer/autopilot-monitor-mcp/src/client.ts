@@ -1,10 +1,20 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { API_BASE_URL } from './config.js';
+import type { ApiErrorResponse } from './generated/wire-types.generated.js';
 
 const BASE_URL = API_BASE_URL;
 
 /** Default timeout for backend API requests (30 seconds) */
 const API_TIMEOUT_MS = 30_000;
+
+/**
+ * Longest Retry-After (seconds) apiFetch waits for before its one automatic retry on 429/503.
+ * A longer wait is the caller's decision: the error carries retryAfterSeconds instead.
+ */
+export const MAX_AUTO_RETRY_AFTER_SECONDS = 10;
+
+/** The error envelope as the MCP reads it: the generated shape plus whatever domain fields a specialised body adds. */
+export type ParsedErrorBody = Partial<ApiErrorResponse> & Record<string, unknown>;
 
 /**
  * Structured error thrown when the backend API returns a non-2xx response.
@@ -14,27 +24,40 @@ const API_TIMEOUT_MS = 30_000;
 export class ApiError extends Error {
   readonly status: number;
   readonly body: string;
-  readonly parsed: Record<string, unknown> | null;
+  readonly parsed: ParsedErrorBody | null;
   /**
    * The request's correlation id: the X-Correlation-ID response header (every backend answer
    * carries it — the MCP is server-side, no CORS in the way), else the error envelope's
    * `correlationId`. The handle an operator pivots on in the backend logs.
    */
   readonly correlationId: string | null;
+  /** Seconds the server asked us to wait (Retry-After header, else the envelope's retryAfterSeconds); null when it sent none. */
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, body: string, correlationIdHeader: string | null = null) {
+  constructor(status: number, body: string, correlationIdHeader: string | null = null, retryAfterHeader: string | null = null) {
     super(`API error ${status}: ${body}`);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
     try {
-      this.parsed = JSON.parse(body) as Record<string, unknown>;
+      this.parsed = JSON.parse(body) as ParsedErrorBody;
     } catch {
       this.parsed = null;
     }
     const fromBody = typeof this.parsed?.correlationId === 'string' && this.parsed.correlationId ? this.parsed.correlationId : null;
     this.correlationId = correlationIdHeader || fromBody;
+    this.retryAfterSeconds = parseRetryAfter(retryAfterHeader) ?? bodyRetryAfter(this.parsed);
   }
+}
+
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number.parseInt(header, 10);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+function bodyRetryAfter(parsed: ParsedErrorBody | null): number | null {
+  return typeof parsed?.retryAfterSeconds === 'number' && Number.isFinite(parsed.retryAfterSeconds) ? parsed.retryAfterSeconds : null;
 }
 
 /**
@@ -304,12 +327,23 @@ export function enforceDelegatedTenantForPage(tenantId?: string, continuation?: 
 export interface ToolCallContext {
   toolName: string;
   correlationId: string;
+  /** Automatic 429/503 retries apiFetch performed during this tool call (counted here, logged on the tool_call line). */
+  retries: number;
 }
 
 const toolCallStore = new AsyncLocalStorage<ToolCallContext>();
 
+export function createToolCallContext(toolName: string, correlationId: string): ToolCallContext {
+  return { toolName, correlationId, retries: 0 };
+}
+
+/** Run `fn` inside a tool-call context the caller keeps a reference to (withToolTelemetry reads `retries` afterwards). */
+export function runWithToolCallContext<T>(context: ToolCallContext, fn: () => T | Promise<T>): T | Promise<T> {
+  return toolCallStore.run(context, fn);
+}
+
 export function runWithToolCall<T>(toolName: string, correlationId: string, fn: () => T | Promise<T>): T | Promise<T> {
-  return toolCallStore.run({ toolName, correlationId }, fn);
+  return runWithToolCallContext(createToolCallContext(toolName, correlationId), fn);
 }
 
 export function getCurrentToolName(): string | undefined {
@@ -320,18 +354,54 @@ export function getCurrentCorrelationId(): string | undefined {
   return toolCallStore.getStore()?.correlationId;
 }
 
-async function apiFetch(path: string, options: RequestInit = {}): Promise<unknown> {
+export interface ApiFetchOptions extends RequestInit {
+  /**
+   * Retry once on 429 (rate limit — never the MCP quota) or 503 when the server's Retry-After is at
+   * most MAX_AUTO_RETRY_AFTER_SECONDS. Default: GET calls without a caller-supplied signal (a write
+   * is not known to be idempotent; a caller's signal keeps counting across the wait).
+   */
+  retry?: boolean;
+}
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Seconds to wait before the one automatic retry, or null when this answer gets none. */
+function autoRetryDelaySeconds(status: number, body: string, retryAfterHeader: string | null): number | null {
+  if (status !== 429 && status !== 503) return null;
+  let parsed: ParsedErrorBody | null = null;
+  try {
+    parsed = JSON.parse(body) as ParsedErrorBody;
+  } catch {
+    /* not JSON */
+  }
+  // The MCP quota window is hours or days; retrying it is pointless and the error text says so.
+  if (parsed?.quotaExceeded === true) return null;
+  const seconds = parseRetryAfter(retryAfterHeader) ?? bodyRetryAfter(parsed);
+  return seconds !== null && seconds <= MAX_AUTO_RETRY_AFTER_SECONDS ? seconds : null;
+}
+
+function headerOf(res: Response, name: string): string | null {
+  return res.headers?.get?.(name) ?? null;
+}
+
+/**
+ * The one backend call: token, tool headers, timeout, the error envelope as ApiError, the body
+ * parsed as T. Callers name the wire type (a guard test refuses an untyped call); an empty or
+ * malformed 2xx body is an ApiError, never a silent `undefined`.
+ */
+async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const token = getCurrentToken();
   if (!token) {
     throw new Error('No authentication token available. Ensure the request includes a valid Bearer token.');
   }
 
+  const { retry, ...init } = options;
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
     'X-Client-Source': 'mcp',
-    ...((options.headers as Record<string, string>) ?? {}),
+    ...((init.headers as Record<string, string>) ?? {}),
   };
 
   const call = toolCallStore.getStore();
@@ -339,15 +409,35 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<unknow
   // The backend honours an inbound id matching ^[A-Za-z0-9_-]{1,128}$ (a UUID does) and echoes it.
   if (call?.correlationId) headers['X-Correlation-ID'] = call.correlationId;
 
-  // Apply timeout to prevent hanging on unresponsive backend
-  const signal = options.signal ?? AbortSignal.timeout(API_TIMEOUT_MS);
+  const method = (init.method ?? 'GET').toUpperCase();
+  const mayRetry = retry ?? (method === 'GET' && !init.signal);
 
-  const res = await fetch(url, { ...options, headers, signal });
+  // Apply timeout to prevent hanging on unresponsive backend; a retry gets a fresh one.
+  const attempt = () => fetch(url, { ...init, headers, signal: init.signal ?? AbortSignal.timeout(API_TIMEOUT_MS) });
+
+  let res = await attempt();
   if (!res.ok) {
     const text = await res.text();
-    throw new ApiError(res.status, text, res.headers?.get?.('x-correlation-id') ?? null);
+    const retryAfterHeader = headerOf(res, 'retry-after');
+    const wait = mayRetry ? autoRetryDelaySeconds(res.status, text, retryAfterHeader) : null;
+    if (wait === null) {
+      throw new ApiError(res.status, text, headerOf(res, 'x-correlation-id'), retryAfterHeader);
+    }
+    if (call) call.retries += 1;
+    await delay(wait * 1000);
+    res = await attempt();
+    if (!res.ok) {
+      throw new ApiError(res.status, await res.text(), headerOf(res, 'x-correlation-id'), headerOf(res, 'retry-after'));
+    }
   }
-  return res.json();
+
+  const body = await res.text();
+  if (body.length === 0) throw new ApiError(res.status, 'Empty response body', headerOf(res, 'x-correlation-id'));
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new ApiError(res.status, 'Malformed response body', headerOf(res, 'x-correlation-id'));
+  }
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
@@ -518,8 +608,7 @@ export function scanBudgetForPageSize(pageSize: number): ScanBudget {
 /** Page fetcher seam — production hits the backend; tests inject a fake. */
 export type PageFetcher = (path: string) => Promise<Record<string, unknown>>;
 
-const defaultPageFetcher: PageFetcher = (path) =>
-  apiFetch(path) as Promise<Record<string, unknown>>;
+const defaultPageFetcher: PageFetcher = (path) => apiFetch<Record<string, unknown>>(path);
 
 /** Item-array keys that backend list envelopes use, in detection priority order. */
 const ITEM_ARRAY_KEYS = ['events', 'sessions', 'items', 'results'] as const;

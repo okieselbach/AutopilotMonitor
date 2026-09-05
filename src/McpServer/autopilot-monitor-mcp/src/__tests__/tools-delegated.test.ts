@@ -39,7 +39,8 @@ function stubFetchCapture(): { urls: string[] } {
   const urls: string[] = [];
   const fn = vi.fn(async (url: string) => {
     urls.push(String(url));
-    return { ok: true, status: 200, json: async () => ({ success: true, sessions: [], events: [], count: 0 }), text: async () => '{}' } as unknown as Response;
+    const body = { success: true, sessions: [], events: [], count: 0 };
+    return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) } as unknown as Response;
   });
   vi.stubGlobal('fetch', fn);
   return { urls };
@@ -186,7 +187,8 @@ describe('list_tenants is available to delegated callers (display-name resolutio
     const urls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       urls.push(String(url));
-      return { ok: true, status: 200, json: async () => ({ count: tenants.length, tenants, nextLink: null }), text: async () => '{}' } as unknown as Response;
+      const body = { count: tenants.length, tenants, nextLink: null };
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) } as unknown as Response;
     }));
     return { urls };
   }

@@ -6,7 +6,10 @@ import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } fro
 import { toolError } from './error-handler.js';
 import { validateRuleDraft } from '../rule-validation.js';
 import { interpolateRuleTemplate } from '../interpolate-rule-template.js';
-import type { DryRunAnalyzeRuleResponse } from '../generated/wire-types.generated.js';
+import type {
+  DryRunAnalyzeRuleResponse,
+  TestLogPatternResponse,
+} from '../generated/wire-types.generated.js';
 
 /**
  * Rule-authoring tools: validate a draft gather/analyze rule locally, and dry-run a
@@ -87,7 +90,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('test_log_pattern', args, async () => {
       try {
-        const data = await apiFetch('/api/rules/gather/test-pattern', {
+        const data = await apiFetch<TestLogPatternResponse>('/api/rules/gather/test-pattern', {
           method: 'POST',
           body: JSON.stringify({ pattern: args.pattern, format: args.format, sampleLines: args.sampleLines }),
         });
@@ -122,10 +125,10 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
     },
     async (args) => withToolTelemetry('test_analyze_rule', args, async () => {
       try {
-        const data = await apiFetch('/api/rules/analyze/dryrun', {
+        const data = await apiFetch<DryRunAnalyzeRuleResponse>('/api/rules/analyze/dryrun', {
           method: 'POST',
           body: JSON.stringify({ sessionId: args.sessionId, rule: args.rule }),
-        }) as DryRunAnalyzeRuleResponse;
+        });
 
         const rule = args.rule as Record<string, unknown>;
         const mc = data.result.matchedConditions;

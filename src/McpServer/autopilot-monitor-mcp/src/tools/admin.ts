@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
 import { collectDeploymentState } from '../deployment-state.js';
@@ -66,23 +66,44 @@ export function buildFleetOverview(
 }
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
 import type {
+  AgentEfficiencyMetricsResponse,
+  AppMetricsResponse,
+  AuditLogListResponse,
+  CveExposureSummary,
+  DeviceJourneyMetricsResponse,
   DiagnosticsDownloadTicketResponse,
   GeographicLocationSessionsLeanResponse,
+  GeographicMetricsResponse,
   GetAllTenantConfigurationsResponse,
+  GetDeviceHistoryResponse,
   GetGlobalMcpUsageDailyResponse,
   GetGlobalMcpUsageResponse,
   GetMcpUserUsageResponse,
   GetMyMcpUsageResponse,
+  GetSessionTimeAttributionResponse,
   GetTenantConfigFieldsSchemaResponse,
   GetUnmatchedSoftwareResponse,
+  ListRawTablesResponse,
+  ListTenantConfigBackupsResponse,
+  OpsEventListResponse,
   PlatformAgentMetricsResponse,
+  PlatformUsageMetrics,
+  QueryBackendLogsResponse,
+  QueryRawSessionsResponse,
   QueryRawTableResponse,
   RuleStatsResponse,
   RuleStatsRuleAggregate,
-  SoftwareInventoryResponse,
-  VerdictCalibrationResponse,
+  SessionAnnotationListResponse,
   SessionListResponse,
+  SessionReportListResponse,
   SessionStatsResponse,
+  SoftwareInventoryResponse,
+  TenantConfigPatchOutcomeResponse,
+  TenantConfiguration,
+  TimeAttributionMetricsResponse,
+  UpsertSessionAnnotationDeletedResponse,
+  UpsertSessionAnnotationResponse,
+  VerdictCalibrationResponse,
 } from '../generated/wire-types.generated.js';
 // Vocabularies as VALUES, generated from the C# constants (see wire-vocabularies.generated.ts).
 // Tool enums derive from these — a hand-typed list is what let get_ops_events advertise a
@@ -383,11 +404,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         let data: GetMcpUserUsageResponse | GetGlobalMcpUsageDailyResponse | GetGlobalMcpUsageResponse;
         const params: Record<string, string | undefined> = { tenantId: args.tenantId, dateFrom: args.dateFrom, dateTo: args.dateTo };
         if (args.userId) {
-          data = await apiFetch(`/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery(params)}`) as GetMcpUserUsageResponse;
+          data = await apiFetch<GetMcpUserUsageResponse>(`/api/metrics/mcp-usage/user/${encodeURIComponent(args.userId)}${buildQuery(params)}`);
         } else if (args.daily) {
-          data = await apiFetch(`/api/global/metrics/mcp-usage/daily${buildQuery(params)}`) as GetGlobalMcpUsageDailyResponse;
+          data = await apiFetch<GetGlobalMcpUsageDailyResponse>(`/api/global/metrics/mcp-usage/daily${buildQuery(params)}`);
         } else {
-          data = await apiFetch(`/api/global/metrics/mcp-usage${buildQuery(params)}`) as GetGlobalMcpUsageResponse;
+          data = await apiFetch<GetGlobalMcpUsageResponse>(`/api/global/metrics/mcp-usage${buildQuery(params)}`);
         }
         return toolResultText(paginateUsage(data, args.pageSize, args.continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
@@ -427,7 +448,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const params: Record<string, string | number | undefined> = { ...rest };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
-        const data = await apiFetch(`${prefix}/geographic${buildQuery(params)}`);
+        const data = await apiFetch<GeographicMetricsResponse>(`${prefix}/geographic${buildQuery(params)}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_geographic_metrics', args, error);
@@ -478,8 +499,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
         // Lean rows (the tool never passes ?full=1) — pinned by the wire contract.
-        const data = await apiFetch(`${prefix}/geographic/sessions${buildQuery(params)}`) as
-          GeographicLocationSessionsLeanResponse;
+        const data = await apiFetch<GeographicLocationSessionsLeanResponse>(`${prefix}/geographic/sessions${buildQuery(params)}`);
 
         // The location-sessions endpoint filters in-memory and returns the full
         // set in one shot (no server-side cursor). A single busy location can
@@ -539,9 +559,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // Backend fans out one storage query per session (bounded to 32 concurrent), so
         // 2000-session windows take longer than the default 30s client timeout — same
         // override precedent as get_session_summary. Warm (cached) calls return instantly.
-        const raw = await apiFetch(
+        const raw = await apiFetch<PlatformAgentMetricsResponse>(
           `/api/global/metrics/platform${buildQuery({ days: args.days, limit: args.maxSessions })}`,
-          { signal: AbortSignal.timeout(90_000) }) as PlatformAgentMetricsResponse;
+          { signal: AbortSignal.timeout(90_000) });
         const sessions = raw?.sessions ?? [];
         const requested = { days: args.days, limit: args.maxSessions };
         // Backend-computed blocks that exist independently of snapshot availability
@@ -657,7 +677,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // Server-side aggregation is the point of this endpoint — pass the payload through.
         // Cold 2000-session windows fan out one filtered storage query per session backend-side,
         // so give it more headroom than the 30s default; warm (cached) calls return instantly.
-        const data = await apiFetch(
+        const data = await apiFetch<AgentEfficiencyMetricsResponse>(
           `/api/global/metrics/agent-efficiency${buildQuery({ days: args.days, limit: args.maxSessions, tenantId: args.tenantId })}`,
           { signal: AbortSignal.timeout(120_000) });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
@@ -694,7 +714,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // (JWT-scoped; tenantId ignored). Routing by role unlocks the MemberRead tenant endpoint
         // for non-GA callers instead of a blanket 403.
         const path = pickGlobalOrTenantPath('/api/global/metrics/usage', '/api/metrics/usage', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
+        const data = await apiFetch<PlatformUsageMetrics>(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_usage_metrics', args, error);
@@ -744,9 +764,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const sessionsPath = followNextLink('/api/global/sessions', { days, pageSize }, continuation, { pageSize });
         const firstPage = !continuation;
         const [sessions, stats] = await Promise.all([
-          apiFetch(sessionsPath) as Promise<SessionListResponse>,
+          apiFetch<SessionListResponse>(sessionsPath),
           firstPage
-            ? (apiFetch(`/api/global/stats/sessions${buildQuery({ days })}`) as Promise<SessionStatsResponse>)
+            ? (apiFetch<SessionStatsResponse>(`/api/global/stats/sessions${buildQuery({ days })}`))
             : Promise.resolve(undefined),
         ]);
         return toolResultText(
@@ -832,7 +852,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           for (;;) {
             const path = followNextLink(
               '/api/config/all', { pageSize: TENANT_FILTER_PAGE_SIZE, fields: scanFields }, nextLink);
-            const data = await apiFetch(path) as GetAllTenantConfigurationsResponse;
+            const data = await apiFetch<GetAllTenantConfigurationsResponse>(path);
             let pageTenants = extractTenantList({ tenants: data?.tenants ?? [] });
             if (delegated) {
               pageTenants = delegatedTenantListView(
@@ -872,7 +892,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // pass-through once the backend has projected).
         const effectivePage = pageSizeForCall(pageSize, continuation, 100);
         const path = followNextLink('/api/config/all', { pageSize: effectivePage, fields }, continuation, { pageSize: effectivePage, fields });
-        const data = await apiFetch(path) as GetAllTenantConfigurationsResponse;
+        const data = await apiFetch<GetAllTenantConfigurationsResponse>(path);
         let tenants = extractTenantList({ tenants: data?.tenants ?? [] });
         if (delegated) {
           tenants = delegatedTenantListView(
@@ -930,7 +950,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<AuditLogListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_audit_logs', args, error);
@@ -996,7 +1016,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<OpsEventListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_ops_events', args, error);
@@ -1043,7 +1063,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('get_verdict_calibration', args, async () => {
       try {
         const { tenantId, days, minSharePct, top } = args;
-        const data = await apiFetch(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`) as VerdictCalibrationResponse;
+        const data = await apiFetch<VerdictCalibrationResponse>(`/api/global/metrics/verdict-calibration${buildQuery({ tenantId, days })}`);
         return toolResultText(shapeVerdictCalibration(data, { minSharePct, top }), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_verdict_calibration', args, error);
@@ -1081,7 +1101,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<SessionReportListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_session_reports', args, error);
@@ -1147,10 +1167,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('get_session_report_download', args, async () => {
       try {
         const { blobName } = args;
-        const ticket = await apiFetch('/api/global/session-reports/download-ticket', {
+        const ticket = await apiFetch<DiagnosticsDownloadTicketResponse>('/api/global/session-reports/download-ticket', {
           method: 'POST',
           body: JSON.stringify({ blobName }),
-        }) as DiagnosticsDownloadTicketResponse;
+        });
 
         if (!ticket?.url) {
           return toolError('get_session_report_download', args,
@@ -1225,7 +1245,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<SessionAnnotationListResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_session_annotations', args, error);
@@ -1261,7 +1281,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { sessionId, tenantId, verdict, note } = args;
         const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-        const data = await apiFetch(`/api/sessions/${sessionId}/annotations/globaladmin${query}`, {
+        const data = await apiFetch<UpsertSessionAnnotationResponse | UpsertSessionAnnotationDeletedResponse>(`/api/sessions/${sessionId}/annotations/globaladmin${query}`, {
           method: 'PUT',
           body: JSON.stringify({ verdict: verdict ?? null, note: note ?? null }),
         });
@@ -1331,14 +1351,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields: explicitFields, continuation } = args;
         const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
-        // Default projection follows intent (see get_session_events): an UNFILTERED read (a
-        // session's whole raw stream, or a bare cross-tenant walk) leaves DataJson out; a read
-        // filtered by eventType/severity/source targets specific events and stays complete.
-        // Explicit fields win either way; on a follow-up call an omitted fields keeps whatever
-        // projection the nextLink carries (same rule as pageSize).
-        const targeted = Boolean(eventType || severity || source);
-        const leanDefaultApplied = explicitFields === undefined && !continuation && !targeted;
-        const fields = explicitFields ?? (leanDefaultApplied ? LEAN_RAW_EVENT_FIELDS : undefined);
+        // Default projection follows intent — see leanFieldSelection (DataJson is the raw payload column).
+        const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, Boolean(eventType || severity || source), LEAN_RAW_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
@@ -1427,7 +1441,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize, fields },
         );
-        const data = await apiFetch(path);
+        const data = await apiFetch<QueryRawSessionsResponse>(path);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.sessions);
       } catch (error: unknown) {
         return toolError('query_raw_sessions', args, error);
@@ -1453,7 +1467,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('list_tables', args, async () => {
       try {
-        const data = await apiFetch('/api/global/raw/tables');
+        const data = await apiFetch<ListRawTablesResponse>('/api/global/raw/tables');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('list_tables', args, error);
@@ -1502,7 +1516,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           continuation,
           { pageSize },
         );
-        const data = await apiFetch(path) as QueryRawTableResponse;
+        const data = await apiFetch<QueryRawTableResponse>(path);
 
         // Client-side projection — TableEntity columns are dynamic so the backend
         // can't help. Always retain PartitionKey + RowKey (cursor stability +
@@ -1558,7 +1572,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('query_backend_logs', args, async () => {
       try {
         const budget = args.budgetSeconds ?? 30;
-        const data = await apiFetch('/api/global/raw/logs', {
+        const data = await apiFetch<QueryBackendLogsResponse>('/api/global/raw/logs', {
           method: 'POST',
           body: JSON.stringify({ query: args.query, timespan: args.timespan, source: args.source, budgetSeconds: budget }),
           // The backend enforces the budget; the client only needs to outlast it (token mint + transfer margin).
@@ -1603,7 +1617,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // view=redacted is load-bearing: without it the backend serves a GA the
         // clear-text secrets, which must never enter model context (pinned by
         // security-guards tests).
-        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}?view=redacted`);
+        const data = await apiFetch<TenantConfiguration>(`/api/config/${encodeURIComponent(args.tenantId)}?view=redacted`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_tenant_config', args, error);
@@ -1627,7 +1641,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('get_tenant_config_schema', args, async () => {
       try {
-        const data = await apiFetch('/api/config/fields-schema') as GetTenantConfigFieldsSchemaResponse;
+        const data = await apiFetch<GetTenantConfigFieldsSchemaResponse>('/api/config/fields-schema');
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_tenant_config_schema', args, error);
@@ -1662,7 +1676,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('update_tenant_config', args, async () => {
       try {
-        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/fields`, {
+        const data = await apiFetch<TenantConfigPatchOutcomeResponse>(`/api/config/${encodeURIComponent(args.tenantId)}/fields`, {
           method: 'PATCH',
           body: JSON.stringify({ fields: args.fields, reason: args.reason }),
         });
@@ -1695,7 +1709,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('list_tenant_config_backups', args, async () => {
       try {
         const query = args.max != null ? `?max=${encodeURIComponent(String(args.max))}` : '';
-        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/backups${query}`);
+        const data = await apiFetch<ListTenantConfigBackupsResponse>(`/api/config/${encodeURIComponent(args.tenantId)}/backups${query}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('list_tenant_config_backups', args, error);
@@ -1727,7 +1741,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     },
     async (args) => withToolTelemetry('revert_tenant_config', args, async () => {
       try {
-        const data = await apiFetch(`/api/config/${encodeURIComponent(args.tenantId)}/revert`, {
+        const data = await apiFetch<TenantConfigPatchOutcomeResponse>(`/api/config/${encodeURIComponent(args.tenantId)}/revert`, {
           method: 'POST',
           body: JSON.stringify({
             backupId: args.backupId,
@@ -1780,8 +1794,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         };
         if (tenantId) params.tenantId = tenantId;
         const prefix = pickGlobalOrTenantPath('/api/global/metrics', '/api/metrics', tenantId);
-        const data = await apiFetch(`${prefix}/rule-stats${buildQuery(params)}`) as
-          RuleStatsResponse & { trendsNote?: string };
+        const data = await apiFetch<RuleStatsResponse & { trendsNote?: string }>(`${prefix}/rule-stats${buildQuery(params)}`);
         // The per-rule daily trend arrays are the size driver (one row per rule
         // per day; a 30-day platform-scope response reaches 150k+ chars and gets
         // host-truncated). Aggregates stay intact — trends only on request.
@@ -1829,7 +1842,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { tenantId: rawTenantId, days, topN } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
         const prefix = pickGlobalOrTenantPath('/api/global/metrics/vulnerability', '/api/metrics/vulnerability', tenantId);
-        const data = await apiFetch(`${prefix}${buildQuery({ tenantId, days, topN })}`);
+        const data = await apiFetch<CveExposureSummary>(`${prefix}${buildQuery({ tenantId, days, topN })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_vulnerability_summary', args, error);
@@ -1874,7 +1887,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         // GA → /api/global/metrics/app (tenantId is a filter); Tenant-Admin → /api/metrics/app
         // (JWT-scoped; tenantId ignored).
         const path = pickGlobalOrTenantPath('/api/global/metrics/app', '/api/metrics/app', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
+        const data = await apiFetch<AppMetricsResponse>(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('get_app_install_metrics', args, error);
@@ -1920,11 +1933,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { sessionId, tenantId: rawTenantId } = args;
         const tenantId = enforceDelegatedTenant(rawTenantId);
         if (sessionId) {
-          const data = await apiFetch(`/api/sessions/${sessionId}/time-attribution${buildQuery({ tenantId })}`);
+          const data = await apiFetch<GetSessionTimeAttributionResponse>(`/api/sessions/${sessionId}/time-attribution${buildQuery({ tenantId })}`);
           return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
         }
         const path = pickGlobalOrTenantPath('/api/global/metrics/time-attribution', '/api/metrics/time-attribution', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId })}`);
+        const data = await apiFetch<TimeAttributionMetricsResponse>(`${path}${buildQuery({ tenantId })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_time_attribution', args, error);
@@ -1975,11 +1988,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         if (serialNumber) {
           // Member route with TenantScoping.QueryParam — the same route serves every role;
           // a GA/delegated caller passes tenantId for cross-tenant reads.
-          const data = await apiFetch(`/api/metrics/device-history${buildQuery({ serialNumber, tenantId })}`);
+          const data = await apiFetch<GetDeviceHistoryResponse>(`/api/metrics/device-history${buildQuery({ serialNumber, tenantId })}`);
           return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
         }
         const path = pickGlobalOrTenantPath('/api/global/metrics/device-journeys', '/api/metrics/device-journeys', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId, days })}`);
+        const data = await apiFetch<DeviceJourneyMetricsResponse>(`${path}${buildQuery({ tenantId, days })}`);
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_device_history', args, error);
@@ -2056,7 +2069,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         if (ga && scope === 'unmatched') {
           const m = continuation ? /^unmatched-offset:(\d+)$/.exec(continuation) : null;
           const skip = m ? parseInt(m[1], 10) : 0;
-          const data = await apiFetch(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`) as GetUnmatchedSoftwareResponse;
+          const data = await apiFetch<GetUnmatchedSoftwareResponse>(`/api/vulnerability/unmatched-software${buildQuery({ skip, take: pageSize })}`);
           const total = data?.total ?? 0;
           const nextOffset = skip + pageSize;
           const nextLink = nextOffset < total ? `unmatched-offset:${nextOffset}` : null;
@@ -2077,7 +2090,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         }
         // Endpoint returns the whole inventory in one shot, so page it client-side.
         const path = pickGlobalOrTenantPath('/api/vulnerability/software-inventory', '/api/metrics/software-inventory', tenantId);
-        const data = await apiFetch(`${path}${buildQuery({ tenantId })}`) as SoftwareInventoryResponse;
+        const data = await apiFetch<SoftwareInventoryResponse>(`${path}${buildQuery({ tenantId })}`);
         return toolResultText(paginateInventory(data, pageSize, continuation), MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('get_software_inventory', args, error);

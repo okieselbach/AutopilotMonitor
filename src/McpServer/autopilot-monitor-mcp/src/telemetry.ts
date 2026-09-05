@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { runWithToolCall, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
+import { createToolCallContext, runWithToolCallContext, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
 
 export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 
@@ -98,8 +98,9 @@ export async function withToolTelemetry<T>(
   // One correlation id per tool call — sent on every backend request the call makes and written
   // into the tool_call line below, so an MCP log line and the backend request rows join on it.
   const correlationId = randomUUID();
+  const context = createToolCallContext(toolName, correlationId);
   if (!toolLoggingEnabled) {
-    return runWithToolCall(toolName, correlationId, fn) as Promise<T>;
+    return runWithToolCallContext(context, fn) as Promise<T>;
   }
 
   const start = Date.now();
@@ -107,7 +108,7 @@ export async function withToolTelemetry<T>(
   let thrownMessage: string | undefined;
   let result: T | undefined;
   try {
-    result = await runWithToolCall(toolName, correlationId, fn);
+    result = await runWithToolCallContext(context, fn);
     return result;
   } catch (err) {
     threw = true;
@@ -136,6 +137,9 @@ export async function withToolTelemetry<T>(
         // Result exceeds the inline-size hint → the host truncates it. A tool
         // that is frequently overCap needs tighter defaults or projections.
         overCap: Number.isFinite(capValue) && capValue > 0 ? resultChars > capValue : false,
+        // Automatic 429/503 retries apiFetch made for this call (absent when none): a tool that
+        // retries often is hitting a rate limit its defaults should avoid.
+        retries: context.retries > 0 ? context.retries : undefined,
         scope: callerScope(),
         args: summarizeArgs(args, argPolicy),
         timestamp: new Date().toISOString(),

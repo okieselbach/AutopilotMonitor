@@ -48,6 +48,23 @@ export const LEAN_RAW_EVENT_OMISSION = {
 } as const;
 
 /**
+ * The default projection of an event read follows intent (30-day usage telemetry, 2026-09-02):
+ * an UNFILTERED first page is a timeline skim and leaves the payload out (the lean fields); a
+ * read filtered by eventType/severity/source targets specific events and stays complete; an
+ * explicit `fields` wins either way; a follow-up call keeps whatever projection the nextLink
+ * carries (same rule as pageSize). `leanDefaultApplied` tells the caller to announce the omission.
+ */
+export function leanFieldSelection(
+  explicitFields: string | undefined,
+  continuation: string | undefined,
+  targeted: boolean,
+  leanFields: string,
+): { fields: string | undefined; leanDefaultApplied: boolean } {
+  const leanDefaultApplied = explicitFields === undefined && !continuation && !targeted;
+  return { fields: explicitFields ?? (leanDefaultApplied ? leanFields : undefined), leanDefaultApplied };
+}
+
+/**
  * What get_session_summary reads per event, and nothing more: the triage fields plus the
  * handful of payload keys its two guards inspect (isBenignHealthDetectionReport,
  * isHistoricImeReplay), requested as `data.<key>` slices so the backend never ships the

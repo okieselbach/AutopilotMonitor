@@ -237,7 +237,7 @@ export function normalizeRawEvent(raw: RawEventRow): EventEntry {
 /** Injectable page fetcher — production hits the backend; tests pass a fake. */
 type PageFetcher = (path: string) => Promise<RawEventsPage>;
 
-const defaultPageFetcher: PageFetcher = async (path) => (await apiFetch(path)) as RawEventsPage;
+const defaultPageFetcher: PageFetcher = (path) => apiFetch<RawEventsPage>(path);
 
 /**
  * Candidate event types walked at the same time. One type's pages are a sequential nextLink
@@ -441,7 +441,7 @@ async function fetchSessionEvents(
   // No event-type pre-selection runs here, so ranking stays pure-keyword.
   if (sessionId) {
     const q = buildQuery({ tenantId } as Record<string, string | undefined>);
-    const data = await apiFetch(`/api/sessions/${sessionId}/events${q}`) as GetSessionEventsResponse;
+    const data = await apiFetch<GetSessionEventsResponse>(`/api/sessions/${sessionId}/events${q}`);
     return { events: data?.events ?? [], sessionIds: [sessionId], searchMethod: 'direct-session', truncated: false, semanticTypeScores: noSemanticScores };
   }
 
@@ -478,7 +478,7 @@ async function fetchSessionEvents(
   if (tenantId) searchParams.tenantId = tenantId;
   const searchQ = buildQuery(searchParams);
   const searchBase = pickGlobalOrTenantPath('/api/global/search/sessions', '/api/search/sessions', tenantId);
-  const sessions = await apiFetch(`${searchBase}${searchQ}`) as SearchSessionsResponse;
+  const sessions = await apiFetch<SearchSessionsResponse>(`${searchBase}${searchQ}`);
   // The backend ignores `limit`, so cap client-side to keep the N+1 fan-out bounded
   // and the recallNote honest.
   const ids = (sessions?.sessions ?? [])
@@ -489,7 +489,7 @@ async function fetchSessionEvents(
   const allEvents = await Promise.all(
     ids.map(async (sid) => {
       try {
-        const d = await apiFetch(`/api/sessions/${sid}/events${q}`) as GetSessionEventsResponse;
+        const d = await apiFetch<GetSessionEventsResponse>(`/api/sessions/${sid}/events${q}`);
         return (d?.events ?? []).map((e) => ({ ...e, _sessionId: sid }));
       } catch { return [] as EventEntry[]; }
     }),
