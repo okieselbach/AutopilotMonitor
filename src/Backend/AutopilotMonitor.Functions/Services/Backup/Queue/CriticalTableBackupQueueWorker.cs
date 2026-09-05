@@ -31,7 +31,7 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
     /// CAS Running→Completed (under lease) → Release Lease → SafeDelete.
     /// </para>
     /// <para>
-    /// <b>Queue-config differs from short-lived workers</b> (plan Wave6): <see cref="BatchSize"/>=1,
+    /// <b>Queue-config differs from short-lived workers</b> (plan Wave6):
     /// <see cref="VisibilityTimeout"/>=60min. The per-run service budget is 50min so the 60min
     /// visibility gives a 10min cushion.
     /// </para>
@@ -61,7 +61,6 @@ namespace AutopilotMonitor.Functions.Services.Backup.Queue
             _clock = clock ?? TimeProvider.System;
         }
 
-        protected override int BatchSize => 1;
         protected override TimeSpan VisibilityTimeout => TimeSpan.FromMinutes(60);
 
         protected override async Task ProcessOneAsync(QueueMessage msg, CancellationToken ct)

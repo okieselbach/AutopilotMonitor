@@ -60,7 +60,7 @@ namespace AutopilotMonitor.Functions.Services
         /// <b>Failure semantics:</b> storage-layer exceptions from rule loading, event reading
         /// or existing-results lookup propagate to the caller. The queue worker relies on this
         /// to leave its message un-deleted so a transient Table Storage failure can be retried
-        /// via visibility-timeout (<see cref="AutopilotMonitor.Functions.Services.Analyze.AnalyzeOnEnrollmentEndQueueWorker"/>).
+        /// via visibility-timeout (<c>AnalyzeOnEnrollmentEndQueueFunction</c>).
         /// The on-demand HTTP path (<see cref="AutopilotMonitor.Functions.Functions.Rules.GetRuleResultsFunction"/>)
         /// wraps the call in its own try/catch and logs failures as warnings — the user sees
         /// the previously-stored results until they re-trigger.

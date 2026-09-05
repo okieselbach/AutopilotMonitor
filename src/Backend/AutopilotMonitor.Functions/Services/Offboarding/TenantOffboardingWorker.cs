@@ -15,9 +15,9 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
     /// Background poll-loop for the <c>tenant-offboarding</c> queue (Plan §7.3). Built on the
     /// shared <see cref="QueuePollingWorker{TEnvelope}"/>:
     /// <list type="bullet">
-    ///   <item><see cref="BatchSize"/> = <b>1</b> — one tenant cascade per receive bounds memory
-    ///       (per-tenant enumerate + per-session enqueue is long-running) and limits the blast
-    ///       radius of a poison.</item>
+    ///   <item>One tenant cascade per receive (the base default) bounds memory — per-tenant
+    ///       enumerate + per-session enqueue is long-running — and limits the blast radius of a
+    ///       poison.</item>
     ///   <item>Heartbeat (<see cref="UseHeartbeat"/>) extends visibility while the handler runs so
     ///       concurrent re-delivery can't spawn a parallel offboarding for the same tenant.</item>
     ///   <item>Max-dequeue → poison queue, but <see cref="BeforePoisonMoveAsync"/> persists the
@@ -56,8 +56,6 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             _handler = handler ?? throw new ArgumentNullException(nameof(handler));
             _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
         }
-
-        protected override int BatchSize => 1;
 
         protected override bool UseHeartbeat => true;
 

@@ -15,10 +15,9 @@ namespace AutopilotMonitor.Functions.Services.Deletion
 {
     /// <summary>
     /// Background poll-loop for the <c>session-deletion</c> queue (plan §5 PR4). Built on the
-    /// shared <see cref="QueuePollingWorker{TEnvelope}"/> with four explicit deviations:
+    /// shared <see cref="QueuePollingWorker{TEnvelope}"/> with three explicit deviations (one
+    /// cascade per receive — tens of MB and minutes of wall-time — is the base default):
     /// <list type="bullet">
-    ///   <item><see cref="BatchSize"/> = <b>1</b> (not 32) — a single cascade can be tens of MB
-    ///       and minutes of wall-time; one-at-a-time bounds memory and poison blast radius.</item>
     ///   <item><b>Kill-switch on entry</b> via <see cref="ShouldPauseAsync"/>: every receive checks
     ///       <c>AdminConfiguration.SessionDeletionKillSwitch</c>; when active the worker idles
     ///       without dequeuing.</item>
@@ -82,13 +81,6 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             _blob = blob ?? throw new ArgumentNullException(nameof(blob));
             _opsEvents = opsEvents ?? throw new ArgumentNullException(nameof(opsEvents));
         }
-
-        /// <summary>
-        /// Explicit deviation from sibling workers — one cascade per receive bounds the worker's
-        /// memory footprint (a 35MB snapshot blob × 32 messages = 1.1GB) and limits poison-queue
-        /// blast radius on a corruption signal. Plan §5 PR4.
-        /// </summary>
-        protected override int BatchSize => 1;
 
         protected override bool UseHeartbeat => true;
 

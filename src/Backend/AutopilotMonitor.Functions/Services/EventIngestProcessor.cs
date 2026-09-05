@@ -38,7 +38,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly TenantConfigurationService _configService;
         private readonly AnalyzeRuleService _analyzeRuleService;
         private readonly GatherRuleService _gatherRuleService;
-        private readonly NotificationChannelDispatcher _channelDispatcher;
+        private readonly INotificationDispatchProducer _notificationProducer;
         private readonly AdminConfigurationService _adminConfigService;
         private readonly OpsEventService _opsEventService;
         private readonly SlaBreachEvaluationService _slaBreachService;
@@ -61,7 +61,7 @@ namespace AutopilotMonitor.Functions.Services
             TenantConfigurationService configService,
             AnalyzeRuleService analyzeRuleService,
             GatherRuleService gatherRuleService,
-            NotificationChannelDispatcher channelDispatcher,
+            INotificationDispatchProducer notificationProducer,
             AdminConfigurationService adminConfigService,
             OpsEventService opsEventService,
             SlaBreachEvaluationService slaBreachService,
@@ -81,7 +81,7 @@ namespace AutopilotMonitor.Functions.Services
             _configService = configService;
             _analyzeRuleService = analyzeRuleService;
             _gatherRuleService = gatherRuleService;
-            _channelDispatcher = channelDispatcher;
+            _notificationProducer = notificationProducer;
             _adminConfigService = adminConfigService;
             _opsEventService = opsEventService;
             _slaBreachService = slaBreachService;

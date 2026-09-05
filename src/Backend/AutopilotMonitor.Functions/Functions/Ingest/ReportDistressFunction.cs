@@ -37,7 +37,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly IDistressReportRepository _repository;
         private readonly TelemetryClient _telemetryClient;
         private readonly HardwareRejectionThrottleService _hardwareThrottle;
-        private readonly NotificationChannelDispatcher _channelDispatcher;
+        private readonly INotificationDispatchProducer _notificationProducer;
         private readonly IHardwareRejectionNotificationTracker _hardwareBellTracker;
         private readonly TenantNotificationService _tenantNotificationService;
 
@@ -77,7 +77,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             IDistressReportRepository repository,
             TelemetryClient telemetryClient,
             HardwareRejectionThrottleService hardwareThrottle,
-            NotificationChannelDispatcher channelDispatcher,
+            INotificationDispatchProducer notificationProducer,
             IHardwareRejectionNotificationTracker hardwareBellTracker,
             TenantNotificationService tenantNotificationService)
         {
@@ -87,7 +87,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _repository = repository;
             _telemetryClient = telemetryClient;
             _hardwareThrottle = hardwareThrottle;
-            _channelDispatcher = channelDispatcher;
+            _notificationProducer = notificationProducer;
             _hardwareBellTracker = hardwareBellTracker;
             _tenantNotificationService = tenantNotificationService;
         }
@@ -217,7 +217,9 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
 
                 await _repository.SaveDistressReportAsync(tenantId, entry);
 
-                // Notify tenant webhook for hardware whitelist rejections (fire-and-forget, opt-in)
+                // Notify tenant channels for hardware whitelist rejections (opt-in). Durable via
+                // the notification-dispatch queue — a fire-and-forget send after the response was
+                // not counted as open work by the host and could be dropped on scale-in.
                 if (report.ErrorType == DistressErrorType.HardwareNotAllowed
                     && _hardwareThrottle.ShouldNotify(tenantId, manufacturer, model))
                 {
@@ -232,7 +234,13 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                             if (hwChannels.Count > 0)
                             {
                                 var alert = NotificationAlertBuilder.BuildHardwareRejectedAlert(manufacturer, model, serialNumber);
-                                _ = _channelDispatcher.SendToChannelsAsync(hwChannels, alert);
+                                await _notificationProducer.EnqueueAsync(new NotificationDispatchEnvelope
+                                {
+                                    TenantId = tenantId,
+                                    ChannelIds = hwChannels.Select(c => c.Id).ToList(),
+                                    Alert = alert,
+                                    EnqueuedAt = DateTime.UtcNow,
+                                });
                             }
                         }
                     }

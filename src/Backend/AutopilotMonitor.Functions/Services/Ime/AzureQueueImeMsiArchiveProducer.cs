@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
             ILogger<AzureQueueImeMsiArchiveProducer> logger)
         {
             _logger = logger;
-            // Base64 encoding matches the consumer (BackgroundService) so messages round-trip.
+            // Base64 encoding matches the host's queue-trigger default so messages round-trip.
             _queueClient = queueFactory.Create(Constants.QueueNames.ImeMsiArchive);
         }
 
@@ -49,7 +49,10 @@ namespace AutopilotMonitor.Functions.Services.Ime
             _logger = logger;
         }
 
-        public async Task EnqueueAsync(ImeMsiArchiveEnvelope envelope, CancellationToken cancellationToken = default)
+        public async Task EnqueueAsync(
+            ImeMsiArchiveEnvelope envelope,
+            TimeSpan? visibilityDelay = null,
+            CancellationToken cancellationToken = default)
         {
             if (envelope is null) return;
             if (string.IsNullOrEmpty(envelope.Version))
@@ -63,10 +66,13 @@ namespace AutopilotMonitor.Functions.Services.Ime
             try
             {
                 var body = JsonConvert.SerializeObject(envelope);
-                await _queueClient.SendMessageAsync(body, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _queueClient.SendMessageAsync(
+                    body,
+                    visibilityTimeout: visibilityDelay,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
-                    "ImeMsiArchive enqueued (version={Version} urlPresent={UrlPresent} tenant={Tenant} session={Session})",
-                    envelope.Version, !string.IsNullOrEmpty(envelope.MsiDownloadUrl), envelope.TenantId, envelope.SessionId);
+                    "ImeMsiArchive enqueued (version={Version} urlPresent={UrlPresent} tenant={Tenant} session={Session} delay={Delay})",
+                    envelope.Version, !string.IsNullOrEmpty(envelope.MsiDownloadUrl), envelope.TenantId, envelope.SessionId, visibilityDelay);
             }
             catch (Exception ex)
             {

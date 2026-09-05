@@ -9,13 +9,20 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Services.Queueing
 {
     /// <summary>
-    /// Shared poll-loop skeleton for the project's Storage-Queue <see cref="BackgroundService"/>
-    /// workers (code-quality audit 2026-05-29, finding D2). Replaces the QueueTrigger binding —
-    /// which needs a Functions-host-specific <c>&lt;Connection&gt;__queueServiceUri</c> app-setting
-    /// the rest of the project's storage access does not use — with a pure DI poll loop that
-    /// reproduces the platform's retry semantics:
+    /// Shared poll-loop skeleton for the project's <b>self-managed</b> Storage-Queue
+    /// <see cref="BackgroundService"/> workers (code-quality audit 2026-05-29, finding D2).
+    /// <para>
+    /// Two classes of queue consumer exist on purpose. Stateless "envelope in, handler, done"
+    /// queues are <c>[QueueTrigger]</c> functions under <c>Functions/Queue/</c>: the Functions host
+    /// owns lease renewal, poison-move and, on Flex Consumption, the scale signal that wakes an
+    /// instance for a message. This base serves the cascade workers whose per-message lifecycle
+    /// the host cannot express — lease/CAS state machines, a poison-move veto, a kill-switch pause
+    /// and an in-flight heartbeat. Their accepted limit: after a scale-in the cascade resumes on the
+    /// next instance, at the latest when the next timer wakes one. The loop reproduces the
+    /// platform's retry semantics:
+    /// </para>
     /// <list type="bullet">
-    ///   <item>Receive up to <see cref="BatchSize"/> messages with <see cref="VisibilityTimeout"/>.</item>
+    ///   <item>Receive <see cref="BatchSize"/> message(s) with <see cref="VisibilityTimeout"/>.</item>
     ///   <item>Handler success → <c>DeleteMessageAsync</c>.</item>
     ///   <item>Handler failure → no delete; the message reappears after the visibility timeout and
     ///     <c>DequeueCount</c> increments (identical to platform retry).</item>
@@ -75,8 +82,14 @@ namespace AutopilotMonitor.Functions.Services.Queueing
 
         // ── Tunables (override per worker) ───────────────────────────────────────
 
-        /// <summary>Max messages received per poll. Storage Queue caps batch-receive at 32.</summary>
-        protected virtual int BatchSize => 32;
+        /// <summary>
+        /// Messages received per poll. Default <b>1</b>: the loop processes a batch sequentially and
+        /// the heartbeat only covers the in-flight message, so every message received beyond the
+        /// first would sit invisible with its clock running — with 32 × a 10-second handler the last
+        /// one reappears for another worker before this loop reaches it (audit 2026-09-05, F02).
+        /// A non-empty receive is followed by an immediate re-receive, so 1 costs no throughput.
+        /// </summary>
+        protected virtual int BatchSize => 1;
 
         /// <summary>Visibility timeout per received message — must cover the slowest handler path.</summary>
         protected virtual TimeSpan VisibilityTimeout => TimeSpan.FromMinutes(5);

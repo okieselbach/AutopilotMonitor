@@ -20,7 +20,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
     /// retried — the operator asked for "a run", and one is already active.
     /// </para>
     /// <para>
-    /// BatchSize=1 + VisibilityTimeout=60min (run budget is 50min plus cushion — same rationale
+    /// VisibilityTimeout=60min (run budget is 50min plus cushion — same rationale
     /// as <c>CriticalTableBackupQueueWorker</c>). Real exceptions rethrow → visibility-timeout
     /// retry → poison after <see cref="QueuePollingWorkerBase.MaxDequeueCount"/>.
     /// </para>
@@ -38,7 +38,6 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             _maintenance = maintenance ?? throw new ArgumentNullException(nameof(maintenance));
         }
 
-        protected override int BatchSize => 1;
         protected override TimeSpan VisibilityTimeout => TimeSpan.FromMinutes(60);
 
         protected override bool TryValidate(SessionDeletionMaintenanceTriggerEnvelope envelope)

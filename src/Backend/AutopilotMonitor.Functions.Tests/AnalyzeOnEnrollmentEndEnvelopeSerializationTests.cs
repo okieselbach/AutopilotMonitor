@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// JSON round-trip tests for <see cref="AnalyzeOnEnrollmentEndEnvelope"/>. The producer
 /// (<c>AzureQueueAnalyzeOnEnrollmentEndProducer</c>) serializes with Newtonsoft and the
-/// queue worker (<c>AnalyzeOnEnrollmentEndQueueWorker</c>) deserializes the same shape —
+/// queue worker (<c>AnalyzeOnEnrollmentEndQueueFunction</c>) deserializes the same shape —
 /// pinning the contract here keeps the queue from silently breaking when fields are added.
 /// </summary>
 public class AnalyzeOnEnrollmentEndEnvelopeSerializationTests

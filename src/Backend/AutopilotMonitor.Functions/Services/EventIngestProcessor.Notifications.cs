@@ -72,9 +72,7 @@ namespace AutopilotMonitor.Functions.Services
                         sessionUrl: sessionUrl);
                     NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                    _ = _channelDispatcher.SendToChannelsAsync(targets, alert)
-                        .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                            "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
+                    await EnqueueNotificationAsync(request, targets, alert).ConfigureAwait(false);
                 }
             }
 
@@ -94,9 +92,7 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _channelDispatcher.SendToChannelsAsync(successChannels, alert)
-                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                        "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
+                await EnqueueNotificationAsync(request, successChannels, alert).ConfigureAwait(false);
             }
 
             if (c.EspFailureEvent != null && updatedSession?.IsPreProvisioned == true && failureChannels.Count > 0)
@@ -115,11 +111,27 @@ namespace AutopilotMonitor.Functions.Services
                     sessionUrl: sessionUrl);
                 NotificationAlertBuilder.AddRuleResultSections(alert, ruleResults);
 
-                _ = _channelDispatcher.SendToChannelsAsync(failureChannels, alert)
-                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                        "Fire-and-forget webhook notification failed"), TaskContinuationOptions.OnlyOnFaulted);
+                await EnqueueNotificationAsync(request, failureChannels, alert).ConfigureAwait(false);
             }
         }
+
+        /// <summary>
+        /// Hands an alert to the notification-dispatch queue. The send used to be fire-and-forget
+        /// after the HTTP response; the host does not count such work at shutdown, so a Flex
+        /// scale-in could drop a customer's enrollment webhook. The envelope carries channel ids
+        /// only — the consumer re-resolves URLs and secrets from the tenant config at send time.
+        /// The producer is fail-soft, so the agent's response is never blocked.
+        /// </summary>
+        private Task EnqueueNotificationAsync(
+            IngestEventsRequest request, List<NotificationChannel> channels, NotificationAlert alert)
+            => _notificationProducer.EnqueueAsync(new NotificationDispatchEnvelope
+            {
+                TenantId = request.TenantId,
+                SessionId = request.SessionId,
+                ChannelIds = channels.Select(c => c.Id).ToList(),
+                Alert = alert,
+                EnqueuedAt = DateTime.UtcNow,
+            });
 
         private SignalRMessageAction[] BuildSignalRMessages(
             IngestEventsRequest request, SessionSummary? updatedSession, int processedCount,

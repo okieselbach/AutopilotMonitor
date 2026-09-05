@@ -322,32 +322,27 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Indexing.IndexReconcileHandler>();
 
-// Background poll-loop for the telemetry-index-reconcile queue (Plan §M5.d.3). Replaces the
-// earlier QueueTrigger function, which required a Functions-host-specific
-// `<Connection>__queueServiceUri` app-setting that diverged from the rest of the project's
-// AzureStorageAccountName + DefaultAzureCredential pattern. This worker uses the same
-// resolution as AzureQueueIndexReconcileProducer — Managed Identity by account name, with
-// connection-string fallback — and provides full QueueTrigger parity (visibility-timeout
-// retries, poison-queue move after 5 failed attempts).
-builder.Services.AddHostedService<
-    AutopilotMonitor.Functions.Services.Indexing.IndexReconcileQueueWorker>();
+// Consumer: Functions/Queue/IndexReconcileQueueFunction — a [QueueTrigger] on the
+// Constants.QueueNames.TriggerConnection connection (host-resolved app setting
+// `DataStorage__queueServiceUri`; see host.json extensions.queues). Stateless queue consumers
+// are host-managed so the Flex scale controller wakes an instance for a message and renews the
+// lease; only the cascade workers with lease/CAS state machines stay BackgroundServices.
 
 // Auto-analyze fan-out at session end. Replaces the previous in-function fire-and-forget
 // Task.Run that ran the rule engine after enrollment_complete / enrollment_failed / async
 // vulnerability correlation — Functions scale-in could kill the Task.Run mid-flight, leaving
 // rule results un-persisted (manual "Analyze Now" was the only recovery). Same producer +
-// worker pattern as IndexReconcile above.
+// handler pattern as IndexReconcile above; consumer = Functions/Queue/AnalyzeOnEnrollmentEndQueueFunction.
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer,
     AutopilotMonitor.Functions.Services.Analyze.AzureQueueAnalyzeOnEnrollmentEndProducer>();
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Analyze.AnalyzeOnEnrollmentEndHandler>();
-builder.Services.AddHostedService<
-    AutopilotMonitor.Functions.Services.Analyze.AnalyzeOnEnrollmentEndQueueWorker>();
 
 // Vulnerability-correlate fan-out triggered by the shutdown software_inventory_analysis
 // event. Replaces the in-function fire-and-forget Task.Run inside EventIngestProcessor.
-// Same producer + worker pattern as the analyze queue. Inventory loader is DI-shared with
+// Same producer + handler pattern as the analyze queue; consumer =
+// Functions/Queue/VulnerabilityCorrelateQueueFunction. Inventory loader is DI-shared with
 // the manual rescan endpoint (GetVulnerabilityReportFunction ?rescan=true).
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Vulnerability.IVulnerabilityCorrelateProducer,
@@ -357,13 +352,12 @@ builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityInventoryLoader>();
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateHandler>();
-builder.Services.AddHostedService<
-    AutopilotMonitor.Functions.Services.Vulnerability.VulnerabilityCorrelateQueueWorker>();
 
 // IME-installer archiving on first fleet-wide sighting of a new IME version (~monthly).
-// Producer sits in EventIngestProcessor's new-version continuation; the worker downloads
-// the MSI from the CSP-reported (allowlisted) URL into the permanent ime-archive container
-// and merges the outcome onto the ImeVersionHistory row. Typed HttpClient: no redirects
+// Producer sits in EventIngestProcessor's new-version continuation; the consumer
+// (Functions/Queue/ImeMsiArchiveQueueFunction) downloads the MSI from the CSP-reported
+// (allowlisted) URL into the permanent ime-archive container and merges the outcome onto the
+// ImeVersionHistory row. Typed HttpClient: no redirects
 // (SSRF posture — the allowlisted host must serve directly), long timeout owned by the
 // archiver's own CTS, transient retry via the shared external-data policy.
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Ime.ImeMsiArchiver>()
@@ -377,20 +371,17 @@ builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Ime.ImeMsiArc
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Ime.IImeMsiArchiveProducer,
     AutopilotMonitor.Functions.Services.Ime.AzureQueueImeMsiArchiveProducer>();
-builder.Services.AddHostedService<
-    AutopilotMonitor.Functions.Services.Ime.ImeMsiArchiveQueueWorker>();
 
 // Delayed tenant auto-approve (public availability). Producer fires at first-login signup
-// with a ~1-minute visibility delay; the worker activates the tenant via the shared
-// TenantApprovalService only if AdminConfiguration.AutoApproveNewTenants is enabled at
-// processing time. Same producer + worker pattern as the analyze queue above.
+// with a ~1-minute visibility delay; the consumer (Functions/Queue/TenantAutoApproveQueueFunction)
+// activates the tenant via the shared TenantApprovalService only if
+// AdminConfiguration.AutoApproveNewTenants is enabled at processing time. Same producer +
+// handler pattern as the analyze queue above.
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Activation.ITenantAutoApproveEnqueuer,
     AutopilotMonitor.Functions.Services.Activation.AzureQueueTenantAutoApproveEnqueuer>();
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveHandler>();
-builder.Services.AddHostedService<
-    AutopilotMonitor.Functions.Services.Activation.TenantAutoApproveQueueWorker>();
 
 // ── Critical-Table Backup (plan §PR1) ─────────────────────────────────────────
 // Lease-aware service registered separately from the timer/worker so the lease
@@ -406,8 +397,9 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Backup.BackupJ
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Backup.Queue.ICriticalTableBackupProducer,
     AutopilotMonitor.Functions.Services.Backup.Queue.AzureQueueCriticalTableBackupProducer>();
-// Worker = BackgroundService, not QueueTrigger (matches AnalyzeOnEnrollmentEndQueueWorker
-// pattern per plan §Wave4 #1 — avoids the QueueTrigger-specific connection app-setting).
+// Worker = self-managed BackgroundService, not QueueTrigger: the lease/CAS state machine
+// (Running→Completed under lease, Failed only on poison-move) is a per-message lifecycle the
+// host cannot express. See QueuePollingWorkerBase for the two-class rule.
 builder.Services.AddHostedService<
     AutopilotMonitor.Functions.Services.Backup.Queue.CriticalTableBackupQueueWorker>();
 // PR2: single-row restore. Both validators are pure / I/O-only; the restore
@@ -469,6 +461,14 @@ builder.Services.AddHttpClient<TelegramNotificationService>()
 // Channel-level send API — routes each NotificationChannel to its transport (webhook renderer
 // vs. the platform Telegram bot). Transient: both transports are typed HttpClients.
 builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelDispatcher>();
+// Durable channel notifications from the agent hot paths (ingest terminal alerts, hardware
+// rejection): the producer enqueues channel ids + alert, Functions/Queue/NotificationDispatchQueueFunction
+// re-resolves the channels from the tenant config and sends. Handler is transient because the
+// dispatcher it wraps is.
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Notifications.INotificationDispatchProducer,
+    AutopilotMonitor.Functions.Services.Notifications.AzureQueueNotificationDispatchProducer>();
+builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationDispatchHandler>();
 // Transactional email (welcome / farewell). Typed client like the other outbound notifiers;
 // the provider is an implementation detail of EmailService + the Email:* settings.
 builder.Services.AddSingleton<EmailTemplateService>();

@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Functions.Services;
 /// Shared tenant-activation path: whitelist approval plus the follow-up side effects
 /// (auto-promote of the onboarding user to TenantAdmin, welcome email). Used by both
 /// the Global Admin approve endpoint (<c>PreviewWhitelistFunction</c>) and the
-/// auto-approve queue worker (<c>TenantAutoApproveQueueWorker</c>) so the two
+/// auto-approve queue worker (<c>TenantAutoApproveQueueFunction</c>) so the two
 /// activation routes cannot drift.
 /// </summary>
 public class TenantApprovalService

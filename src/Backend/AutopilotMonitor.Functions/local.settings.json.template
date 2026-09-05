@@ -6,6 +6,9 @@
     "AzureTableStorageConnectionString": "UseDevelopmentStorage=true",
     "AzureBlobStorageConnectionString": "UseDevelopmentStorage=true",
 
+    "// DataStorage": "Connection the [QueueTrigger] functions under Functions/Queue bind to (Constants.QueueNames.TriggerConnection). Locally a connection string; in Azure the identity form 'DataStorage__queueServiceUri=https://<data-account>.queue.core.windows.net'. The Functions host resolves it, so it cannot be derived from AzureStorageAccountName in code.",
+    "DataStorage": "UseDevelopmentStorage=true",
+
     "// SignalR quota watcher": "Optional. Set to the full Azure resource id of the SignalR Service to enable hourly OpsEvents when the plan limits are approached (defaults: Standard S1 x1 unit = 1000 connections / 1M messages per day; override the limits when adding units or changing tier). Function App's managed identity needs 'Monitoring Reader' on this resource. Leave unset to skip the watcher.",
     "SignalRResourceId": "",
     "SignalRConnectionLimit": "1000",

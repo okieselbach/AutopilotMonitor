@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// Pins the queue-path retry contract: <see cref="RuleEngine.AnalyzeSessionAsync"/> must
 /// propagate storage exceptions to the caller. The previous outer try/catch swallowed all
 /// errors and returned an empty <see cref="AnalysisOutcome"/>, which caused
-/// <c>AnalyzeOnEnrollmentEndQueueWorker</c> to delete the message as success and never retry —
+/// <c>AnalyzeOnEnrollmentEndQueueFunction</c> to delete the message as success and never retry —
 /// rule results were silently lost on transient Table Storage failures.
 /// </summary>
 public class RuleEngineFailurePropagationTests

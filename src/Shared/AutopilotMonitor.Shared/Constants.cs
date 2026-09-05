@@ -1567,6 +1567,27 @@ namespace AutopilotMonitor.Shared
         public static class QueueNames
         {
             /// <summary>
+            /// Name of the host connection every <c>[QueueTrigger]</c> function binds to
+            /// (<c>Connection = TriggerConnection</c>). Resolved by the Functions HOST, not by the
+            /// worker's DI, so it is its own app setting: in Azure the identity form
+            /// <c>DataStorage__queueServiceUri</c> pointing at the data storage account (the
+            /// Managed Identity holds Storage Queue Data Contributor there); locally a plain
+            /// connection string under <c>DataStorage</c>. Producers keep using
+            /// <c>QueueClientFactory</c> — same account, same queues.
+            /// </summary>
+            public const string TriggerConnection = "DataStorage";
+
+            /// <summary>
+            /// Durable channel notifications from the agent hot paths (terminal enrollment alerts
+            /// in ingest, hardware rejection in distress). Producer = <c>INotificationDispatchProducer</c>;
+            /// consumer = <c>NotificationDispatchQueueFunction</c>, which re-resolves the envelope's
+            /// channel ids against the tenant config and sends. Replaced fire-and-forget sends the
+            /// host did not count as open work at shutdown. Poison suffix <c>-poison</c>,
+            /// max-dequeue 5.
+            /// </summary>
+            public const string NotificationDispatch = "notification-dispatch";
+
+            /// <summary>
             /// V2 Decision Engine index-table fan-out (Plan §2.8, §M5.d). One message per
             /// committed primary row (Signal or DecisionTransition); consumer writes the
             /// 0–3 applicable index rows. Eventual consistency; the 2h reconcile timer is
@@ -1621,7 +1642,7 @@ namespace AutopilotMonitor.Shared
             /// <summary>
             /// Delayed tenant auto-approve queue. Producer (AuthFunction first-login signup
             /// handler) enqueues one envelope per new tenant with a ~1-minute visibility delay;
-            /// consumer (<c>TenantAutoApproveQueueWorker</c>) activates the tenant via the shared
+            /// consumer (<c>TenantAutoApproveQueueFunction</c>) activates the tenant via the shared
             /// approval path if <c>AdminConfiguration.AutoApproveNewTenants</c> is enabled at
             /// processing time — otherwise the message is dropped and the tenant waits for
             /// manual approval. Poison suffix <c>-poison</c>, max-dequeue 5.
@@ -1631,8 +1652,8 @@ namespace AutopilotMonitor.Shared
             /// <summary>
             /// Critical-table backup job queue. Producer = HTTP trigger
             /// <c>/api/global/backups/trigger</c> (fail-hard); consumer =
-            /// <c>CriticalTableBackupQueueWorker</c> (BackgroundService, BatchSize=1,
-            /// VisibilityTimeout=60min with 25min PopReceipt-renewal). Carries a small
+            /// <c>CriticalTableBackupQueueWorker</c> (self-managed BackgroundService, one message
+            /// per receive, VisibilityTimeout=60min with 25min PopReceipt-renewal). Carries a small
             /// envelope <c>{ jobId }</c> — full state lives in <see cref="TableNames.BackupJobs"/>.
             /// Poison-suffix <c>-poison</c>, max-dequeue 5; Failed-state is persisted on
             /// Poison-Move (NOT on first throw — that would defeat retry).
@@ -1645,8 +1666,8 @@ namespace AutopilotMonitor.Shared
             /// <summary>
             /// Manual-trigger queue for the session-deletion maintenance run. Producer = HTTP
             /// trigger <c>/api/global/session-deletions/maintenance/trigger</c> (fail-hard);
-            /// consumer = <c>SessionDeletionMaintenanceQueueWorker</c> (BackgroundService,
-            /// BatchSize=1, VisibilityTimeout=60min — the run budget is 50min plus cushion).
+            /// consumer = <c>SessionDeletionMaintenanceQueueWorker</c> (self-managed
+            /// BackgroundService, VisibilityTimeout=60min — the run budget is 50min plus cushion).
             /// Carries a tiny envelope <c>{ triggeredBy }</c>; concurrency against the 12h timer
             /// is serialized by the session-deletion maintenance blob lease, not the queue.
             /// Poison-suffix <c>-poison</c>, max-dequeue 5.
@@ -1659,7 +1680,7 @@ namespace AutopilotMonitor.Shared
             /// <summary>
             /// IME-MSI archive fan-out. Producer = <c>EventIngestProcessor</c> when
             /// <c>RecordImeVersionAsync</c> reports a genuinely NEW IME version (first sighting
-            /// across the fleet — roughly monthly); consumer = <c>ImeMsiArchiveQueueWorker</c>,
+            /// across the fleet — roughly monthly); consumer = <c>ImeMsiArchiveQueueFunction</c>,
             /// which downloads the installer from the CSP-reported
             /// <c>msiDownloadUrl</c> (host-allowlisted, size-capped) into
             /// <see cref="BlobContainers.ImeArchive"/> and merges the outcome into the

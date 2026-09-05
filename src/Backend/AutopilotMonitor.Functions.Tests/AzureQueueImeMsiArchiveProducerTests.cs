@@ -61,7 +61,8 @@ public class AzureQueueImeMsiArchiveProducerTests
     public async Task EnqueueAsync_send_failure_is_swallowed()
     {
         var (producer, queue, _) = BuildSut();
-        queue.Setup(q => q.SendMessageAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        queue.Setup(q => q.SendMessageAsync(
+                It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new RequestFailedException(503, "queue busy"));
 
         // Fire-and-forget continuation on the ingest path — must never throw.
@@ -107,8 +108,9 @@ public class AzureQueueImeMsiArchiveProducerTests
         queue.Setup(q => q.CreateIfNotExistsAsync(
                 It.IsAny<IDictionary<string, string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Response?)null);
-        queue.Setup(q => q.SendMessageAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns<string, CancellationToken>((body, _) =>
+        queue.Setup(q => q.SendMessageAsync(
+                It.IsAny<string>(), It.IsAny<TimeSpan?>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+            .Returns<string, TimeSpan?, TimeSpan?, CancellationToken>((body, _, _, _) =>
             {
                 sentBodies.Add(body);
                 var receipt = QueuesModelFactory.SendReceipt(
