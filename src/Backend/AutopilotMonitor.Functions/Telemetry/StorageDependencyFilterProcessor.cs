@@ -9,7 +9,7 @@ namespace AutopilotMonitor.Functions.Telemetry;
 /// Drops successful Azure Storage dependency telemetry (Table / Queue / Blob) before it
 /// reaches Application Insights, to curb AppDependencies ingestion cost.
 ///
-/// Rationale: this backend is storage-I/O heavy (telemetry ingest, index dual-write, queues,
+/// Rationale: this backend is storage-I/O heavy (telemetry ingest, queues,
 /// diagnostics blobs), so the overwhelming majority of AppDependencies rows are high-frequency,
 /// successful storage calls with little diagnostic value. AppDependencies does NOT support the
 /// cheaper Basic table plan, so the only lever is reducing what is emitted.
