@@ -410,8 +410,17 @@ builder.Services.AddSingleton<ISignalRNotificationService>(sp => sp.GetRequiredS
 // Vulnerability correlation services
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.NvdApiClient>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+// KevDataService keeps the hydrated catalog as instance state, but AddHttpClient<T> registers T
+// transient: the cache warmer hydrated one instance while the correlation service and the sync
+// functions each held a cold one (audit 2026-09-05 F12). The typed-client registration stays for
+// the named handler pipeline; the singleton below is what every consumer resolves.
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.KevDataService>()
-    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi)
+    .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
+builder.Services.AddSingleton(sp => new AutopilotMonitor.Functions.Services.Vulnerability.KevDataService(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AutopilotMonitor.Functions.Services.Vulnerability.KevDataService)),
+    sp.GetRequiredService<BlobStorageService>(),
+    sp.GetRequiredService<ILogger<AutopilotMonitor.Functions.Services.Vulnerability.KevDataService>>()));
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.MsrcApiClient>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
 builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.Vulnerability.EpssApiClient>()

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,6 +23,10 @@ namespace AutopilotMonitor.Functions.Services
         private const string CacheKey = "admin-config";
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
+        // Concurrent misses (cold start, after invalidation) share one repository read instead of
+        // each issuing their own (audit 2026-09-05 F12). Lazy guarantees a single factory run.
+        private readonly ConcurrentDictionary<string, Lazy<Task<AdminConfiguration>>> _inFlight = new();
+
         public AdminConfigurationService(IConfigRepository configRepo, ILogger<AdminConfigurationService> logger, IMemoryCache cache)
         {
             _configRepo = configRepo;
@@ -43,6 +48,19 @@ namespace AutopilotMonitor.Functions.Services
                 return cachedConfig;
             }
 
+            var load = _inFlight.GetOrAdd(CacheKey, _ => new Lazy<Task<AdminConfiguration>>(LoadAndCacheAsync));
+            try
+            {
+                return await load.Value;
+            }
+            finally
+            {
+                _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<AdminConfiguration>>>(CacheKey, load));
+            }
+        }
+
+        private async Task<AdminConfiguration> LoadAndCacheAsync()
+        {
             try
             {
                 // Load from repository
@@ -213,6 +231,7 @@ namespace AutopilotMonitor.Functions.Services
         public void InvalidateCache()
         {
             _cache.Remove(CacheKey);
+            _inFlight.TryRemove(CacheKey, out _);
         }
     }
 }

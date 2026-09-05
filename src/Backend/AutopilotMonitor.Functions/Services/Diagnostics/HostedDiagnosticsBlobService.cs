@@ -53,6 +53,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
         private readonly BlobServiceClient _blobServiceClient;
         private readonly ILogger<HostedDiagnosticsBlobService> _logger;
         private readonly bool _usesManagedIdentity;
+        private readonly UserDelegationKeyCache _delegationKeys;
         private int _containerEnsured;
 
         public HostedDiagnosticsBlobService(IConfiguration configuration, ILogger<HostedDiagnosticsBlobService> logger)
@@ -84,6 +85,8 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
                 throw new InvalidOperationException(
                     "HostedDiagnosticsBlobService not configured. Set either 'AzureStorageAccountName' (Managed Identity) or 'AzureBlobStorageConnectionString'.");
             }
+
+            _delegationKeys = new UserDelegationKeyCache(_blobServiceClient);
         }
 
         /// <summary>
@@ -99,6 +102,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
             _blobServiceClient = blobServiceClient ?? throw new ArgumentNullException(nameof(blobServiceClient));
             _logger = logger;
             _usesManagedIdentity = usesManagedIdentity;
+            _delegationKeys = new UserDelegationKeyCache(_blobServiceClient);
         }
 
         // -------- Public API --------
@@ -330,8 +334,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
 
             if (UsesManagedIdentity)
             {
-                var delegationKey = await _blobServiceClient.GetUserDelegationKeyAsync(
-                    DateTimeOffset.UtcNow.AddMinutes(-5), expiresOn, cancellationToken);
+                var delegationKey = await _delegationKeys.GetAsync(expiresOn, cancellationToken);
 
                 var sasUri = new BlobUriBuilder(blobClient.Uri)
                 {

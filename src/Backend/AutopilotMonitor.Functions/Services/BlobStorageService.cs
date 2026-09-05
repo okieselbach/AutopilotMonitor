@@ -28,6 +28,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly BlobServiceClient _blobServiceClient;
         private readonly ILogger<BlobStorageService> _logger;
         private readonly bool _usesManagedIdentity;
+        private readonly UserDelegationKeyCache _delegationKeys;
 
         public BlobStorageService(IConfiguration configuration, ILogger<BlobStorageService> logger)
         {
@@ -54,6 +55,8 @@ namespace AutopilotMonitor.Functions.Services
                 throw new InvalidOperationException(
                     "Blob Storage not configured. Set either 'AzureStorageAccountName' (for Managed Identity) or 'AzureBlobStorageConnectionString'.");
             }
+
+            _delegationKeys = new UserDelegationKeyCache(_blobServiceClient);
         }
 
         /// <summary>
@@ -67,6 +70,7 @@ namespace AutopilotMonitor.Functions.Services
             _blobServiceClient = blobServiceClient;
             _logger = logger;
             _usesManagedIdentity = usesManagedIdentity;
+            _delegationKeys = new UserDelegationKeyCache(_blobServiceClient);
         }
 
         /// <summary>
@@ -121,8 +125,7 @@ namespace AutopilotMonitor.Functions.Services
             if (_usesManagedIdentity)
             {
                 // Generate User Delegation SAS (no account key needed)
-                var delegationKey = await _blobServiceClient.GetUserDelegationKeyAsync(
-                    DateTimeOffset.UtcNow.AddMinutes(-5), expiresOn);
+                var delegationKey = await _delegationKeys.GetAsync(expiresOn);
 
                 var sasBuilder = new BlobSasBuilder
                 {

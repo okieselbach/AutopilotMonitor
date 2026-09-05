@@ -4,6 +4,7 @@ using AutopilotMonitor.Functions.Functions.Diagnostics;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -81,15 +82,12 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
                 ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds))
                 : new CancellationTokenSource();
 
-            var sw = Stopwatch.StartNew();
-            long contentLength;
-            Stream content;
+            var openWatch = Stopwatch.StartNew();
+            BlobDownloadStreamingResult download;
 
             if (destination == DiagnosticsDownloadFunction.BlobDestination.Hosted)
             {
-                var download = await _hostedDiagnostics.OpenReadAsync(blobName, cts.Token);
-                contentLength = download.Value.Details.ContentLength;
-                content = download.Value.Content;
+                download = (await _hostedDiagnostics.OpenReadAsync(blobName, cts.Token)).Value;
             }
             else
             {
@@ -101,57 +99,79 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
 
                 var blobUrl = BuildCustomerBlobUrl(tenantConfig.DiagnosticsBlobSasUrl, blobName);
                 var blobClient = new BlobClient(new Uri(blobUrl));
-                var download = await blobClient.DownloadStreamingAsync(cancellationToken: cts.Token);
-                contentLength = download.Value.Details.ContentLength;
-                content = download.Value.Content;
+                download = (await blobClient.DownloadStreamingAsync(cancellationToken: cts.Token)).Value;
             }
-            sw.Stop();
+            openWatch.Stop();
 
-            var destinationLabel = destination == DiagnosticsDownloadFunction.BlobDestination.Hosted
-                ? "Hosted" : "CustomerSas";
-
-            // Enforce size cap before streaming (fast reject).
-            if (maxSizeBytes > 0 && contentLength > maxSizeBytes)
+            // The download result owns the network stream; disposing it on EVERY exit path
+            // (413, copy failure, client abort, success) returns the connection to the pool.
+            using (download)
             {
-                _logger.LogWarning(
-                    "DiagnosticsBlobStreamer: Blob {BlobName} for tenant {TenantId} (destination={Destination}) rejected — size {SizeBytes} exceeds limit {MaxSizeBytes}",
-                    blobName, tenantId, destinationLabel, contentLength, maxSizeBytes);
-                content.Dispose();
+                var contentLength = download.Details.ContentLength;
+                var destinationLabel = destination == DiagnosticsDownloadFunction.BlobDestination.Hosted
+                    ? "Hosted"
+                    : "CustomerSas";
 
-                return await req.ErrorAsync(HttpStatusCode.RequestEntityTooLarge, Constants.ApiErrorCodes.PayloadTooLarge,
-                    $"Diagnostics package size ({contentLength / (1024 * 1024)} MB) exceeds the maximum allowed size ({adminConfig.MaxDiagnosticsDownloadSizeMB} MB).");
-            }
-
-            _logger.LogInformation(
-                "DiagnosticsBlobStreamer: Proxying blob {BlobName} for tenant {TenantId} (destination={Destination}), size {SizeBytes} bytes, fetch took {DurationMs}ms",
-                blobName, tenantId, destinationLabel, contentLength, sw.ElapsedMilliseconds);
-
-            var props = new Dictionary<string, string>
-            {
-                ["TenantId"] = tenantId,
-                ["BlobName"] = blobName,
-                ["Destination"] = destinationLabel,
-            };
-            if (extraTelemetryProps != null)
-                foreach (var kv in extraTelemetryProps) props[kv.Key] = kv.Value;
-
-            _telemetryClient.TrackEvent("DiagnosticsDownloadProxied",
-                properties: props,
-                metrics: new Dictionary<string, double>
+                if (maxSizeBytes > 0 && contentLength > maxSizeBytes)
                 {
-                    ["BlobSizeBytes"] = contentLength,
-                    ["DurationMs"] = sw.ElapsedMilliseconds,
-                });
+                    _logger.LogWarning(
+                        "DiagnosticsBlobStreamer: Download of {BlobName} for tenant {TenantId} rejected — size {SizeBytes} exceeds limit {MaxSizeBytes}",
+                        blobName, tenantId, contentLength, maxSizeBytes);
+                    return await req.ErrorAsync(HttpStatusCode.RequestEntityTooLarge, Constants.ApiErrorCodes.PayloadTooLarge,
+                        $"Diagnostics package size ({contentLength / (1024 * 1024)} MB) exceeds the configured maximum ({adminConfig.MaxDiagnosticsDownloadSizeMB} MB).");
+                }
 
-            var downloadFilename = ExtractDownloadFilename(blobName);
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            response.Headers.Add("Content-Type", "application/octet-stream");
-            response.Headers.Add("Content-Disposition", $"attachment; filename=\"{downloadFilename}\"");
-            if (contentLength > 0)
-                response.Headers.Add("Content-Length", contentLength.ToString());
+                var downloadFilename = ExtractDownloadFilename(blobName);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                response.Headers.Add("Content-Type", "application/octet-stream");
+                response.Headers.Add("Content-Disposition", $"attachment; filename=\"{downloadFilename}\"");
+                if (contentLength > 0)
+                    response.Headers.Add("Content-Length", contentLength.ToString());
 
-            await content.CopyToAsync(response.Body, cts.Token);
-            return response;
+                // Open and transfer are measured separately: a slow open is the storage account,
+                // a slow transfer is the client or the proxy; the event fires after the copy so
+                // "proxied" means the bytes actually left, not that the blob merely opened.
+                var transferWatch = Stopwatch.StartNew();
+                var completed = false;
+                try
+                {
+                    await download.Content.CopyToAsync(response.Body, cts.Token);
+                    completed = true;
+                }
+                finally
+                {
+                    transferWatch.Stop();
+
+                    _logger.LogInformation(
+                        "DiagnosticsBlobStreamer: Proxied blob {BlobName} for tenant {TenantId} (destination={Destination}), size {SizeBytes} bytes, open {OpenMs}ms, transfer {TransferMs}ms, completed={Completed}",
+                        blobName, tenantId, destinationLabel, contentLength, openWatch.ElapsedMilliseconds, transferWatch.ElapsedMilliseconds, completed);
+
+                    var props = new Dictionary<string, string>
+                    {
+                        ["TenantId"] = tenantId,
+                        ["BlobName"] = blobName,
+                        ["Destination"] = destinationLabel,
+                        ["Completed"] = completed ? "true" : "false",
+                    };
+                    if (extraTelemetryProps != null)
+                    {
+                        foreach (var kv in extraTelemetryProps)
+                            props[kv.Key] = kv.Value;
+                    }
+
+                    _telemetryClient.TrackEvent("DiagnosticsDownloadProxied",
+                        properties: props,
+                        metrics: new Dictionary<string, double>
+                        {
+                            ["BlobSizeBytes"] = contentLength,
+                            ["OpenMs"] = openWatch.ElapsedMilliseconds,
+                            ["TransferMs"] = transferWatch.ElapsedMilliseconds,
+                            ["DurationMs"] = openWatch.ElapsedMilliseconds + transferWatch.ElapsedMilliseconds,
+                        });
+                }
+
+                return response;
+            }
         }
 
         /// <summary>

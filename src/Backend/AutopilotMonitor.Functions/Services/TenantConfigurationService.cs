@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -26,6 +27,10 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ManagedTenantProIndex _proIndex;
 
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+        // Concurrent misses for one tenant (cold start, after invalidation) share one repository
+        // read instead of each issuing their own (audit 2026-09-05 F12).
+        private readonly ConcurrentDictionary<string, Lazy<Task<TenantConfiguration>>> _inFlight = new();
 
         public TenantConfigurationService(
             IConfigRepository configRepo,
@@ -75,6 +80,19 @@ namespace AutopilotMonitor.Functions.Services
                 return (await ProjectAsync(cachedConfig))!;
             }
 
+            var load = _inFlight.GetOrAdd(cacheKey, _ => new Lazy<Task<TenantConfiguration>>(() => LoadAndCacheAsync(tenantId, cacheKey)));
+            try
+            {
+                return await load.Value;
+            }
+            finally
+            {
+                _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<TenantConfiguration>>>(cacheKey, load));
+            }
+        }
+
+        private async Task<TenantConfiguration> LoadAndCacheAsync(string tenantId, string cacheKey)
+        {
             try
             {
                 // Load from repository
@@ -210,6 +228,7 @@ namespace AutopilotMonitor.Functions.Services
         public void InvalidateCache(string tenantId)
         {
             _cache.Remove($"tenant-config:{tenantId}");
+            _inFlight.TryRemove($"tenant-config:{tenantId}", out _);
         }
 
         /// <summary>
