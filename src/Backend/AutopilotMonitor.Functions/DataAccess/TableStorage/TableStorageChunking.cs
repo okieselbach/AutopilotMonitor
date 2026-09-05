@@ -13,14 +13,19 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     /// </summary>
     public static class TableStorageChunking
     {
-        private const int DefaultMaxChunkSize = 30_000;
+        /// <summary>
+        /// Largest string kept in one property: 30,000 UTF-16 chars stay under the 64 KiB
+        /// per-property limit with headroom. The event writer truncates to the same bound;
+        /// <see cref="TableTransactionBatcher"/> guards the entity and transaction totals.
+        /// </summary>
+        public const int MaxPropertyChars = 30_000;
 
         /// <summary>
         /// Splits a string value into chunked properties if it exceeds maxChunkSize.
         /// Small values: { "Prop": value }
         /// Large values: { "Prop_0": chunk0, "Prop_1": chunk1, "Prop_ChunkCount": "2" }
         /// </summary>
-        public static Dictionary<string, string> ChunkProperty(string propertyName, string value, int maxChunkSize = DefaultMaxChunkSize)
+        public static Dictionary<string, string> ChunkProperty(string propertyName, string value, int maxChunkSize = MaxPropertyChars)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maxChunkSize)
                 return new Dictionary<string, string> { { propertyName, value ?? "" } };

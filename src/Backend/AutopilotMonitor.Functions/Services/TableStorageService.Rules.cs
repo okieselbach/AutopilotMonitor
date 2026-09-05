@@ -1067,19 +1067,10 @@ namespace AutopilotMonitor.Functions.Services
                     entitiesToUpsert[rowKey] = entity;
                 }
 
-                // Batch write (max 100 per batch, all same PK)
+                // Batch write (byte-aware, all same PK)
                 var upsertList = entitiesToUpsert.Values.ToList();
-                for (int i = 0; i < upsertList.Count; i += 100)
-                {
-                    var batch = upsertList.Skip(i).Take(100)
-                        .Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e))
-                        .ToList();
-
-                    if (batch.Count > 0)
-                    {
-                        await tableClient.SubmitTransactionAsync(batch);
-                    }
-                }
+                foreach (var batch in TableTransactionBatcher.Split(upsertList, TableTransactionActionType.UpsertReplace))
+                    await tableClient.SubmitTransactionAsync(batch);
 
                 _logger.LogInformation("Upserted {Count} software inventory entries for tenant {TenantId}", upsertList.Count, tenantId);
             }
@@ -1201,18 +1192,9 @@ namespace AutopilotMonitor.Functions.Services
                 });
             }
 
-            // Batch write (max 100 per batch, all same PK)
-            for (int i = 0; i < entities.Count; i += 100)
-            {
-                var batch = entities.Skip(i).Take(100)
-                    .Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e))
-                    .ToList();
-
-                if (batch.Count > 0)
-                {
-                    await tableClient.SubmitTransactionAsync(batch);
-                }
-            }
+            // Batch write (byte-aware, all same PK)
+            foreach (var batch in TableTransactionBatcher.Split(entities, TableTransactionActionType.UpsertReplace))
+                await tableClient.SubmitTransactionAsync(batch);
 
             _logger.LogInformation("Imported {Count} CPE seed mapping entries from GitHub JSON into VulnerabilityCache table", entities.Count);
             return entities.Count;
@@ -1270,18 +1252,9 @@ namespace AutopilotMonitor.Functions.Services
                 });
             }
 
-            // Batch write (max 100 per batch, all same PK)
-            for (int i = 0; i < entities.Count; i += 100)
-            {
-                var batch = entities.Skip(i).Take(100)
-                    .Select(e => new TableTransactionAction(TableTransactionActionType.UpsertReplace, e))
-                    .ToList();
-
-                if (batch.Count > 0)
-                {
-                    await tableClient.SubmitTransactionAsync(batch);
-                }
-            }
+            // Batch write (byte-aware, all same PK)
+            foreach (var batch in TableTransactionBatcher.Split(entities, TableTransactionActionType.UpsertReplace))
+                await tableClient.SubmitTransactionAsync(batch);
 
             _logger.LogInformation("Imported {Count} CPE community mapping entries from GitHub JSON into VulnerabilityCache table", entities.Count);
             return entities.Count;

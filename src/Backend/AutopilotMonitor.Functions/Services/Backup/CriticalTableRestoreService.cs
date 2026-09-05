@@ -12,6 +12,7 @@ using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Azure;
+using AutopilotMonitor.Functions.Helpers;
 using Azure.Data.Tables;
 using Microsoft.Extensions.Logging;
 
@@ -237,7 +238,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                     {
                         await tableClient.AddEntityAsync(entity, handlerCts.Token).ConfigureAwait(false);
                     }
-                    catch (RequestFailedException ex) when (IsAlreadyExistsStatus(ex))
+                    catch (RequestFailedException ex) when (StorageErrors.IsAlreadyExists(ex))
                     {
                         throw new BackupTerminalException(
                             "CurrentRowChanged",
@@ -484,11 +485,5 @@ namespace AutopilotMonitor.Functions.Services.Backup
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
-        private static bool IsAlreadyExistsStatus(RequestFailedException ex)
-        {
-            if (ex.Status == 409) return true;
-            if (ex.Status == 400 && string.Equals(ex.ErrorCode, "EntityAlreadyExists", StringComparison.Ordinal)) return true;
-            return false;
-        }
     }
 }

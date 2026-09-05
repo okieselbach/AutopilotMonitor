@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
+using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Helpers;
 using Azure.Data.Tables;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Deletion;
@@ -104,22 +106,16 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var group in rows.GroupBy(r => r.Pk, StringComparer.Ordinal))
             {
-                var rowsInGroup = group.ToList();
-                for (var i = 0; i < rowsInGroup.Count; i += RestoreBatchActionLimit)
+                var entities = group.Select(dump => ConvertDumpToEntity(dump, tableName)).ToList();
+                foreach (var actions in TableTransactionBatcher.Split(entities, TableTransactionActionType.Add))
                 {
-                    var chunk = rowsInGroup.Skip(i).Take(RestoreBatchActionLimit).ToList();
-                    var actions = chunk
-                        .Select(dump => new TableTransactionAction(
-                            TableTransactionActionType.Add,
-                            ConvertDumpToEntity(dump, tableName)))
-                        .ToList();
-
+                    var chunk = actions.Select(a => (TableEntity)a.Entity).ToList();
                     try
                     {
                         await tableClient.SubmitTransactionAsync(actions, cancellationToken);
                         restored += chunk.Count;
                     }
-                    catch (RequestFailedException ex) when (IsAlreadyExistsStatus(ex))
+                    catch (RequestFailedException ex) when (StorageErrors.IsAlreadyExists(ex))
                     {
                         // Azure rolls back the entire transaction when any Add hits an existing
                         // row. Fall back to per-row AddEntity so we can distinguish "row already
@@ -130,15 +126,15 @@ namespace AutopilotMonitor.Functions.Services
                         // retries after partial-failed restore). The `mode` parameter is kept for
                         // API readability but no longer changes behaviour here.
                         _ = mode; // intentional: relaxation documented above
-                        foreach (var dump in chunk)
+                        foreach (var entity in chunk)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             try
                             {
-                                await tableClient.AddEntityAsync(ConvertDumpToEntity(dump, tableName), cancellationToken);
+                                await tableClient.AddEntityAsync(entity, cancellationToken);
                                 restored++;
                             }
-                            catch (RequestFailedException rfe) when (IsAlreadyExistsStatus(rfe))
+                            catch (RequestFailedException rfe) when (StorageErrors.IsAlreadyExists(rfe))
                             {
                                 // Mirror the batch-level relaxation: some Azure deployments and
                                 // the Azurite emulator surface duplicate-row conflict as HTTP 400
@@ -245,10 +241,6 @@ namespace AutopilotMonitor.Functions.Services
             return entity;
         }
 
-        // Azure Tables batch transactions cap at 100 actions per submission, all sharing a
-        // PartitionKey. Mirrors the const in the deletion partial.
-        private const int RestoreBatchActionLimit = 100;
-
         /// <summary>
         /// Bulk-restore helper for the critical-table backup feature (plan §PR0). Symmetric to
         /// <see cref="RestoreRowsByExactKeysInBatchesAsync"/> but uses
@@ -275,37 +267,16 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var group in rows.GroupBy(r => r.Pk, StringComparer.Ordinal))
             {
-                var rowsInGroup = group.ToList();
-                for (var i = 0; i < rowsInGroup.Count; i += RestoreBatchActionLimit)
+                var entities = group.Select(dump => ConvertDumpToEntity(dump, tableName)).ToList();
+                foreach (var actions in TableTransactionBatcher.Split(entities, TableTransactionActionType.UpsertReplace))
                 {
-                    var chunk = rowsInGroup.Skip(i).Take(RestoreBatchActionLimit).ToList();
-                    var actions = chunk
-                        .Select(dump => new TableTransactionAction(
-                            TableTransactionActionType.UpsertReplace,
-                            ConvertDumpToEntity(dump, tableName)))
-                        .ToList();
-
                     await tableClient.SubmitTransactionAsync(actions, cancellationToken);
-                    upserted += chunk.Count;
+                    upserted += actions.Count;
                 }
             }
 
             return upserted;
         }
 
-        /// <summary>
-        /// True when the Azure SDK exception encodes a "row already exists" outcome — the only
-        /// case where we treat the failed Add as Skipped during restore. Production Azure Tables
-        /// reports this as HTTP 409 Conflict (ErrorCode <c>EntityAlreadyExists</c>), but the
-        /// Azurite emulator and some older service versions report HTTP 400 Bad Request with the
-        /// same ErrorCode. Anything else propagates so we don't silently swallow genuine errors.
-        /// </summary>
-        private static bool IsAlreadyExistsStatus(RequestFailedException ex)
-        {
-            if (ex.Status == 409) return true;
-            if (ex.Status == 400 && string.Equals(ex.ErrorCode, "EntityAlreadyExists", StringComparison.Ordinal))
-                return true;
-            return false;
-        }
     }
 }

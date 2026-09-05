@@ -1,5 +1,7 @@
 ﻿using System.IO;
 using System.Net;
+using Azure;
+using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -303,11 +305,47 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     SignalRMessages = outcome.SignalRMessages,
                 };
             }
+            catch (TableEntityTooLargeException ex)
+            {
+                // One item can never fit a table row. 413 makes the agent halve the batch and,
+                // once the item is alone, quarantine it — a 500 would be replayed forever.
+                _logger.LogWarning(ex, "IngestTelemetry: telemetry item {Partition}/{Row} exceeds the entity limit ({Bytes} bytes)",
+                    ex.PartitionKey, ex.RowKey, ex.EstimatedBytes);
+                return AsOutput(await WriteErrorAsync(req, HttpStatusCode.RequestEntityTooLarge,
+                    "A telemetry item exceeds the storage entity limit"));
+            }
+            catch (RequestFailedException ex)
+            {
+                var (status, message, retryAfter) = ClassifyStorageFailure(ex);
+                if (status == HttpStatusCode.InternalServerError)
+                    _logger.LogError(ex, "IngestTelemetry: storage request failed with status {Status} ({Code})", ex.Status, ex.ErrorCode);
+                else
+                    _logger.LogWarning(ex, "IngestTelemetry: storage request failed with status {Status} ({Code}) — answering {Http}", ex.Status, ex.ErrorCode, (int)status);
+                return AsOutput(await WriteErrorAsync(req, status, message, retryAfter));
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "IngestTelemetry: unhandled exception");
                 return AsOutput(await WriteErrorAsync(req, HttpStatusCode.InternalServerError, "Internal server error"));
             }
+        }
+
+        /// <summary>Seconds the agent should wait before replaying a batch after a storage outage.</summary>
+        internal const int StorageRetryAfterSeconds = 5;
+
+        /// <summary>
+        /// Maps a storage failure onto the status the agent's uploader understands: 413 makes it
+        /// halve the batch, 503 (with <c>Retry-After</c>) makes it replay later; the agent treats
+        /// 500 as transient too but never shrinks on it, so an oversize batch surfacing as 500
+        /// would wedge the device (audit 2026-09-05 F07).
+        /// </summary>
+        internal static (HttpStatusCode Status, string Message, int? RetryAfterSeconds) ClassifyStorageFailure(RequestFailedException ex)
+        {
+            if (StorageErrors.IsPayloadTooLarge(ex))
+                return (HttpStatusCode.RequestEntityTooLarge, "Telemetry batch exceeds the storage transaction limit; retry with a smaller batch", null);
+            if (StorageErrors.IsTransient(ex))
+                return (HttpStatusCode.ServiceUnavailable, "Storage temporarily unavailable; retry later", StorageRetryAfterSeconds);
+            return (HttpStatusCode.InternalServerError, "Internal server error", null);
         }
 
         private static IngestEventsOutput AsOutput(HttpResponseData response)
@@ -645,9 +683,11 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         private static async Task<HttpResponseData> WriteErrorAsync(
-            HttpRequestData req, HttpStatusCode status, string message)
+            HttpRequestData req, HttpStatusCode status, string message, int? retryAfterSeconds = null)
         {
             var response = req.CreateResponse(status);
+            if (retryAfterSeconds is int seconds)
+                response.Headers.Add("Retry-After", seconds.ToString());
             await response.WriteAsJsonAsync(new IngestEventsResponse
             {
                 Success = false,

@@ -1,4 +1,5 @@
 using Azure;
+using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
@@ -428,10 +429,10 @@ namespace AutopilotMonitor.Functions.Services
         };
 
         /// <summary>
-        /// Azure Table Storage limits string properties to 64KB (32K UTF-16 chars).
-        /// Truncate to 30,000 chars to leave buffer for multi-byte characters.
+        /// Azure Table Storage limits string properties to 64KB (32K UTF-16 chars). Events are
+        /// truncated rather than chunked; the bound is shared with <see cref="TableStorageChunking"/>.
         /// </summary>
-        private const int MaxTableStorageStringLength = 30000;
+        private const int MaxTableStorageStringLength = TableStorageChunking.MaxPropertyChars;
 
         private string TruncateForTableStorage(string value, string propertyName, string eventId)
         {
@@ -847,6 +848,60 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Stores an event
         /// </summary>
+        /// <summary>RowKey of an event row: device event time (ms) plus the agent sequence.</summary>
+        private static string BuildEventRowKey(EnrollmentEvent evt)
+            => $"{evt.Timestamp:yyyyMMddHHmmssfff}_{evt.Sequence:D10}";
+
+        /// <summary>
+        /// Projects an event onto its Events row. Shared by the single and the batched writer so
+        /// the two can never drift. PartitionKey <c>{TenantId}_{SessionId}</c>, RowKey
+        /// <see cref="BuildEventRowKey"/>.
+        /// </summary>
+        private TableEntity BuildEventEntity(EnrollmentEvent evt)
+        {
+            var entity = new TableEntity($"{evt.TenantId}_{evt.SessionId}", BuildEventRowKey(evt))
+            {
+                ["EventId"] = evt.EventId,
+                ["SessionId"] = evt.SessionId,
+                ["TenantId"] = evt.TenantId,
+                // "Timestamp" is a reserved system property — supplied values are ignored
+                // and any row rewrite (storage migration) resets it. The sanitized agent
+                // event time therefore lives in its own column.
+                [BusinessTimestamp.OccurredUtcColumn] = EnsureUtc(evt.Timestamp),
+                ["EventType"] = evt.EventType ?? string.Empty,
+                ["Severity"] = (int)evt.Severity,
+                ["Source"] = evt.Source ?? string.Empty,
+                ["Phase"] = (int)evt.Phase,
+                ["Message"] = TruncateForTableStorage(evt.Message ?? string.Empty, "Message", evt.EventId),
+                ["Sequence"] = evt.Sequence,
+                ["DataJson"] = TruncateForTableStorage(
+                    evt.Data != null && evt.Data.Count > 0
+                        ? JsonConvert.SerializeObject(evt.Data)
+                        : string.Empty,
+                    "DataJson", evt.EventId),
+                ["ReceivedAt"] = evt.ReceivedAt,
+                ["TimestampClamped"] = evt.TimestampClamped
+            };
+
+            // P14: request-level device-clock send time; column stays unset for
+            // events from agents that pre-date the X-Send-Time-Utc header.
+            if (evt.SentAt.HasValue)
+                entity["SentAt"] = EnsureUtc(evt.SentAt.Value);
+
+            if (evt.OriginalTimestamp.HasValue)
+                entity["OriginalTimestamp"] = EnsureUtc(evt.OriginalTimestamp.Value);
+
+            // Codex follow-up #3: forward-link columns. Null when absent on the agent
+            // payload (pre-#3 events, or events emitted outside the reducer pipeline);
+            // skip the entity setter in that case so the column stays unset.
+            if (evt.CausedByTransitionStepIndex.HasValue)
+                entity["CausedByTransitionStepIndex"] = evt.CausedByTransitionStepIndex.Value;
+            if (evt.CausedBySignalOrdinal.HasValue)
+                entity["CausedBySignalOrdinal"] = evt.CausedBySignalOrdinal.Value;
+
+            return entity;
+        }
+
         public async Task<bool> StoreEventAsync(EnrollmentEvent evt)
         {
             SecurityValidator.EnsureValidGuid(evt.TenantId, "TenantId");
@@ -856,52 +911,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.Events);
 
-                // PartitionKey: TenantId_SessionId for efficient querying
-                // RowKey: Timestamp_Sequence for ordering
-                var partitionKey = $"{evt.TenantId}_{evt.SessionId}";
-                var rowKey = $"{evt.Timestamp:yyyyMMddHHmmssfff}_{evt.Sequence:D10}";
-
-                var entity = new TableEntity(partitionKey, rowKey)
-                {
-                    ["EventId"] = evt.EventId,
-                    ["SessionId"] = evt.SessionId,
-                    ["TenantId"] = evt.TenantId,
-                    // "Timestamp" is a reserved system property — supplied values are ignored
-                    // and any row rewrite (storage migration) resets it. The sanitized agent
-                    // event time therefore lives in its own column.
-                    [BusinessTimestamp.OccurredUtcColumn] = EnsureUtc(evt.Timestamp),
-                    ["EventType"] = evt.EventType ?? string.Empty,
-                    ["Severity"] = (int)evt.Severity,
-                    ["Source"] = evt.Source ?? string.Empty,
-                    ["Phase"] = (int)evt.Phase,
-                    ["Message"] = TruncateForTableStorage(evt.Message ?? string.Empty, "Message", evt.EventId),
-                    ["Sequence"] = evt.Sequence,
-                    ["DataJson"] = TruncateForTableStorage(
-                        evt.Data != null && evt.Data.Count > 0
-                            ? JsonConvert.SerializeObject(evt.Data)
-                            : string.Empty,
-                        "DataJson", evt.EventId),
-                    ["ReceivedAt"] = evt.ReceivedAt,
-                    ["TimestampClamped"] = evt.TimestampClamped
-                };
-
-                // P14: request-level device-clock send time; column stays unset for
-                // events from agents that pre-date the X-Send-Time-Utc header.
-                if (evt.SentAt.HasValue)
-                    entity["SentAt"] = EnsureUtc(evt.SentAt.Value);
-
-                if (evt.OriginalTimestamp.HasValue)
-                    entity["OriginalTimestamp"] = EnsureUtc(evt.OriginalTimestamp.Value);
-
-                // Codex follow-up #3: forward-link columns. Null when absent on the agent
-                // payload (pre-#3 events, or events emitted outside the reducer pipeline);
-                // skip the entity setter in that case so the column stays unset.
-                if (evt.CausedByTransitionStepIndex.HasValue)
-                    entity["CausedByTransitionStepIndex"] = evt.CausedByTransitionStepIndex.Value;
-                if (evt.CausedBySignalOrdinal.HasValue)
-                    entity["CausedBySignalOrdinal"] = evt.CausedBySignalOrdinal.Value;
-
-                await tableClient.UpsertEntityAsync(entity);
+                await tableClient.UpsertEntityAsync(BuildEventEntity(evt));
                 _logger.LogDebug($"Stored event {evt.EventId}");
 
                 return true;
@@ -940,84 +950,55 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var group in groups)
             {
-                // Chunk into batches of 100 (Azure Table Storage limit)
-                var chunks = group.Select((evt, index) => new { evt, index })
-                    .GroupBy(x => x.index / 100)
-                    .Select(g => g.Select(x => x.evt).ToList());
+                // Dedup by RowKey within the partition. The RowKey is {Timestamp:ms}_{Sequence:D10};
+                // two events sharing the same millisecond AND Sequence map to one row and would
+                // collapse under UpsertReplace anyway — but Azure rejects the WHOLE transaction
+                // with InvalidDuplicateRow if both appear in one batch. Keeping the last
+                // occurrence (matches UpsertReplace last-wins) lets the batch succeed cleanly.
+                var deduped = group
+                    .GroupBy(BuildEventRowKey)
+                    .Select(g => g.Last())
+                    .ToList();
 
-                foreach (var rawChunk in chunks)
+                // Byte-aware batching: 100 actions, 3.5 MB per transaction, 1 MB per entity.
+                // An entity that can never fit throws TableEntityTooLargeException — permanent,
+                // the ingest maps it to 413 so the agent isolates the item.
+                var eventsByEntity = new Dictionary<TableEntity, EnrollmentEvent>(ReferenceEqualityComparer.Instance);
+                foreach (var evt in deduped)
+                    eventsByEntity[BuildEventEntity(evt)] = evt;
+
+                foreach (var actions in TableTransactionBatcher.Split(eventsByEntity.Keys, TableTransactionActionType.UpsertReplace))
                 {
-                    // Dedup by RowKey within the chunk. The RowKey is {Timestamp:ms}_{Sequence:D10};
-                    // two events sharing the same millisecond AND Sequence map to one row and would
-                    // collapse under UpsertReplace anyway — but Azure rejects the WHOLE transaction
-                    // with InvalidDuplicateRow if both appear in one batch (then we degrade to slow
-                    // per-event writes and track a noisy TableTransactionFailedException). Keeping the
-                    // last occurrence (matches UpsertReplace last-wins) lets the batch succeed cleanly.
-                    var chunk = rawChunk
-                        .GroupBy(evt => $"{evt.Timestamp:yyyyMMddHHmmssfff}_{evt.Sequence:D10}")
-                        .Select(g => g.Last())
-                        .ToList();
-
+                    var chunk = actions.Select(a => eventsByEntity[(TableEntity)a.Entity]).ToList();
                     try
                     {
-                        var actions = chunk.Select(evt =>
-                        {
-                            var partitionKey = $"{evt.TenantId}_{evt.SessionId}";
-                            var rowKey = $"{evt.Timestamp:yyyyMMddHHmmssfff}_{evt.Sequence:D10}";
-
-                            var entity = new TableEntity(partitionKey, rowKey)
-                            {
-                                ["EventId"] = evt.EventId,
-                                ["SessionId"] = evt.SessionId,
-                                ["TenantId"] = evt.TenantId,
-                                // Reserved-name caveat: see StoreEventAsync.
-                                [BusinessTimestamp.OccurredUtcColumn] = EnsureUtc(evt.Timestamp),
-                                ["EventType"] = evt.EventType ?? string.Empty,
-                                ["Severity"] = (int)evt.Severity,
-                                ["Source"] = evt.Source ?? string.Empty,
-                                ["Phase"] = (int)evt.Phase,
-                                ["Message"] = TruncateForTableStorage(evt.Message ?? string.Empty, "Message", evt.EventId),
-                                ["Sequence"] = evt.Sequence,
-                                ["DataJson"] = TruncateForTableStorage(
-                                    evt.Data != null && evt.Data.Count > 0
-                                        ? JsonConvert.SerializeObject(evt.Data)
-                                        : string.Empty,
-                                    "DataJson", evt.EventId),
-                                ["ReceivedAt"] = evt.ReceivedAt,
-                                ["TimestampClamped"] = evt.TimestampClamped
-                            };
-
-                            // P14: see StoreEventAsync.
-                            if (evt.SentAt.HasValue)
-                                entity["SentAt"] = EnsureUtc(evt.SentAt.Value);
-
-                            if (evt.OriginalTimestamp.HasValue)
-                                entity["OriginalTimestamp"] = EnsureUtc(evt.OriginalTimestamp.Value);
-
-                            // Codex follow-up #3: forward-link columns (see StoreEventAsync).
-                            if (evt.CausedByTransitionStepIndex.HasValue)
-                                entity["CausedByTransitionStepIndex"] = evt.CausedByTransitionStepIndex.Value;
-                            if (evt.CausedBySignalOrdinal.HasValue)
-                                entity["CausedBySignalOrdinal"] = evt.CausedBySignalOrdinal.Value;
-
-                            return new TableTransactionAction(TableTransactionActionType.UpsertReplace, entity);
-                        }).ToList();
-
                         await tableClient.SubmitTransactionAsync(actions);
                         storedEvents.AddRange(chunk);
                         _logger.LogDebug($"Batch stored {chunk.Count} events for partition {group.Key}");
                     }
-                    catch (Exception ex)
+                    catch (RequestFailedException ex) when (StorageErrors.IsTransient(ex) || StorageErrors.IsPayloadTooLarge(ex))
                     {
-                        // Batch failed - fall back to individual writes for this chunk
-                        _logger.LogWarning(ex, $"Batch write failed for {chunk.Count} events, falling back to individual writes");
+                        // Throttling / outage / oversize: per-row retries would only multiply the
+                        // pressure (100 upserts × SDK retries against a partition that just said
+                        // no). Propagate; the ingest answers 503 or 413 and the agent replays the
+                        // batch — every row is an idempotent UpsertReplace.
+                        _logger.LogWarning(ex,
+                            "Batch write of {Count} events for {Partition} failed with status {Status} ({Code}) — propagating, no per-row fallback",
+                            chunk.Count, group.Key, ex.Status, ex.ErrorCode);
+                        throw;
+                    }
+                    catch (RequestFailedException ex)
+                    {
+                        // Data-shaped rejection (one bad row spoils the transaction): fall back to
+                        // per-row writes so the good rows land and the bad one is isolated.
+                        _logger.LogWarning(ex,
+                            "Batch write of {Count} events for {Partition} rejected with status {Status} ({Code}) — falling back to individual writes",
+                            chunk.Count, group.Key, ex.Status, ex.ErrorCode);
 
                         foreach (var evt in chunk)
                         {
                             if (await StoreEventAsync(evt))
-                            {
                                 storedEvents.Add(evt);
-                            }
                         }
                     }
                 }

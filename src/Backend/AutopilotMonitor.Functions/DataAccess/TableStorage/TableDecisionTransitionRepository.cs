@@ -20,8 +20,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
     /// </summary>
     public sealed class TableDecisionTransitionRepository : IDecisionTransitionRepository
     {
-        /// <summary>Azure Table Storage limit per entity-group-transaction.</summary>
-        internal const int TransactionChunkSize = 100;
 
         private readonly TableStorageService _storage;
         private readonly ILogger<TableDecisionTransitionRepository> _logger;
@@ -60,18 +58,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                         "DecisionTransitions: dropped {Dropped} duplicate-RowKey row(s) (last-wins) for {Tenant}_{Session} — agent likely replayed overlapping StepIndex",
                         dropped, group.Key.TenantId, group.Key.SessionId);
 
-                for (var offset = 0; offset < deduped.Count; offset += TransactionChunkSize)
+                // Byte-aware batching (100 actions / 3.5 MB per transaction / 1 MB per entity);
+                // storage failures propagate classified — the ingest maps them to 413 / 503 / 500.
+                foreach (var actions in TableTransactionBatcher.Split(deduped, TableTransactionActionType.UpsertReplace))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-
-                    var chunk = deduped.Skip(offset).Take(TransactionChunkSize).ToList();
-                    var actions = chunk
-                        .Select(e => new TableTransactionAction(
-                            TableTransactionActionType.UpsertReplace, e))
-                        .ToList();
-
                     await table.SubmitTransactionAsync(actions, cancellationToken).ConfigureAwait(false);
-                    committed += chunk.Count;
+                    committed += actions.Count;
                 }
 
                 _logger.LogDebug(
