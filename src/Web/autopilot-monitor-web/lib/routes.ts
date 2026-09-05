@@ -35,10 +35,6 @@ export function sessionUrl(
   return withQuery("/sessions", { id: sessionId, tenantId: opts?.tenantId }, opts?.hash);
 }
 
-export function inspectorUrl(sessionId: string, opts?: { tab?: string }): Route {
-  return withQuery("/sessions/inspector", { id: sessionId, tab: opts?.tab });
-}
-
 export function networkTimelineUrl(
   sessionId: string,
   opts?: { tenantId?: string },

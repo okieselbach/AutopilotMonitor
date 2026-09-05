@@ -34,7 +34,6 @@ const nextConfig: NextConfig = {
     // tree-shaken out of the route chunks that touch them.
     optimizePackageImports: [
       "recharts",
-      "@xyflow/react",
       "@microsoft/signalr",
       "@azure/msal-react",
     ],

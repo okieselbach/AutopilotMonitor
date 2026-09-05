@@ -1319,7 +1319,7 @@ namespace AutopilotMonitor.Shared
 
             // V2 Decision Engine primary tables (Plan §M5).
             // SignalLog (input-truth) and Journal (decision-truth) projected to the backend for
-            // the Inspector + Reducer-Verifier. Both partitioned by {TenantId}_{SessionId}.
+            // operator analysis (read directly, no API reader). Both partitioned by {TenantId}_{SessionId}.
             public const string Signals             = "Signals";
             public const string DecisionTransitions = "DecisionTransitions";
 

@@ -21,8 +21,6 @@
     "@microsoft/applicationinsights-web": "^3.4.3",
     "@microsoft/signalr": "^10.0.11",
     "@types/leaflet": "^1.9.22",
-    "@xyflow/react": "^12.11.5",
-    "dagre": "^0.8.5",
     "fflate": "^0.8.3",
     "jspdf": "^4.2.1",
     "leaflet": "^1.9.4",
@@ -34,7 +32,6 @@
   },
   "devDependencies": {
     "@next/bundle-analyzer": "^16.3.3",
-    "@types/dagre": "^0.7.54",
     "@types/node": "^22.20.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

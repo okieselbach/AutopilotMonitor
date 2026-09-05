@@ -278,31 +278,6 @@ public class EndpointPolicyCatalogCompletenessTests
     }
 
     /// <summary>
-    /// Inspector v1 endpoints (signals, decision-graph, reducer-verification) MUST stay locked to a
-    /// platform-scope tier while the UI matures (Plan §M6 — primary use case is modelling 2-stage
-    /// WhiteGlove deployments). They are now GlobalReadOrAdmin (GA + read-only GlobalReader): still
-    /// invisible to tenant admins/members, but visible to the read-only platform tier. Defense-in-depth
-    /// against an accidental downgrade to a tenant tier (MemberRead/TenantAdminOrGA) that would expose
-    /// decision internals before the lift.
-    ///
-    /// When the v2 adminMode lift happens, signals+decision-graph move to MemberRead with
-    /// TenantScoping.QueryParam. reducer-verification stays platform-scope (never tenant-visible).
-    /// </summary>
-    [Theory]
-    [InlineData("GET", "/api/sessions/abc-123/signals",              "sessions/{sessionId}/signals")]
-    [InlineData("GET", "/api/sessions/abc-123/decision-graph",       "sessions/{sessionId}/decision-graph")]
-    [InlineData("GET", "/api/sessions/abc-123/reducer-verification", "sessions/{sessionId}/reducer-verification")]
-    public void InspectorRoutes_AreGlobalReadOrAdmin(string method, string path, string expectedTemplate)
-    {
-        var entry = EndpointAccessPolicyCatalog.FindPolicy(method, path);
-
-        Assert.NotNull(entry);
-        Assert.Equal(expectedTemplate, entry!.RouteTemplate);
-        Assert.Equal(EndpointPolicy.GlobalReadOrAdmin, entry.Policy);
-        Assert.Equal(TenantScoping.None, entry.TenantScoping);
-    }
-
-    /// <summary>
     /// SignalR group join/leave MUST be AuthenticatedUserWithRole — NOT MemberRead and NOT plain
     /// AuthenticatedUser. The Progress Portal admits non-member end users, so MemberRead 403s them
     /// (no live updates). Plain AuthenticatedUser would admit them but leaves IsGlobalAdmin/

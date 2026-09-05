@@ -89,16 +89,6 @@ export const api = {
       `${API_BASE_URL}/api/stats/sessions${qs({ days: opts?.days?.toString() })}`,
   },
 
-  // ── Inspector v1 (global admin only — Plan §M6) ───────────────────────────
-  inspector: {
-    signals: (sessionId: string, opts?: { tenantId?: string; maxResults?: number }) =>
-      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/signals${qs({ tenantId: opts?.tenantId, maxResults: opts?.maxResults?.toString() })}`,
-    decisionGraph: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/decision-graph${qs({ tenantId })}`,
-    reducerVerification: (sessionId: string, tenantId?: string) =>
-      `${API_BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}/reducer-verification${qs({ tenantId })}`,
-  },
-
   // ── Global Sessions (global admin) ────────────────────────────────────────
   globalSessions: {
     list: (

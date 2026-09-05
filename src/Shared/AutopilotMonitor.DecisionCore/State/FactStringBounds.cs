@@ -7,12 +7,10 @@ namespace AutopilotMonitor.DecisionCore.State
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The reducer runs on the device AND server-side in <c>ReducerVerifier</c> (semantic
-    /// replay of the uploaded signal stream). Replay folds up to 5000 device-uploaded payloads
-    /// through the engine, so an unbounded payload string becomes an unbounded state string —
-    /// copied into every snapshot persist, every audit trail and every dedupe comparison.
-    /// Bounding at the reducer boundary keeps state size and per-signal work independent of
-    /// what a forged payload carries.
+    /// An unbounded payload string becomes an unbounded state string — copied into every
+    /// snapshot persist, every audit trail and every dedupe comparison. Bounding at the
+    /// reducer boundary keeps state size and per-signal work independent of what a forged
+    /// or corrupted payload carries.
     /// </para>
     /// <para>
     /// The bound never truncates real telemetry: the strings it covers are registry key names

@@ -20,13 +20,5 @@ namespace AutopilotMonitor.Shared.DataAccess
         /// Upserts a batch of transition records. Returns the number of rows committed.
         /// </summary>
         Task<int> StoreBatchAsync(IReadOnlyList<DecisionTransitionRecord> records, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Reads up to <paramref name="maxResults"/> transition records for a single session,
-        /// ordered by <see cref="DecisionTransitionRecord.StepIndex"/> ascending. Used by the
-        /// Inspector decision-graph endpoint (<c>GET /api/sessions/{id}/decision-graph</c>, Plan §M5).
-        /// </summary>
-        Task<List<DecisionTransitionRecord>> QueryBySessionAsync(
-            string tenantId, string sessionId, int maxResults = 1000, CancellationToken cancellationToken = default);
     }
 }

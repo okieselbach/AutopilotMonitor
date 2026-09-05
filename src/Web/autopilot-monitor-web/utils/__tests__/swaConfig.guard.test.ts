@@ -12,7 +12,7 @@ import { API_URL_PROD, BLOB_URL_PROD, DOCS_URL, ENTRA_LOGIN_URL } from "../confi
  *      registry (no drift when a host migrates),
  *  (b) the CSP never ships 'unsafe-eval' (dev-only concession),
  *  (c) route order: /docs specifics before the /docs/* catch-all, and each
- *      exact detail/inspector rewrite before its family wildcard (SWA matches
+ *      exact detail rewrite before its family wildcard (SWA matches
  *      in array order — a wrong order silently shadows routes).
  */
 
@@ -81,7 +81,7 @@ describe("staticwebapp.config.json guard", () => {
     }
   });
 
-  it("exact list/detail/inspector rewrites precede their family wildcard", () => {
+  it("exact list/detail rewrites precede their family wildcard", () => {
     const routes = config.routes.map((r) => r.route);
     // The base LIST routes must be exact entries BEFORE the wildcard: SWA's
     // trailingSlash:auto normalizes /apps to /apps/, which the /apps/* wildcard
@@ -94,7 +94,6 @@ describe("staticwebapp.config.json guard", () => {
     // every /admin/backups navigation).
     const pairs: Array<[string, string]> = [
       ["/sessions/index.txt", "/sessions/*"],
-      ["/sessions/inspector/index.txt", "/sessions/*"],
       ["/diagnosis/index.txt", "/diagnosis/*"],
       ["/apps/index.txt", "/apps/*"],
       ["/apps/detail/index.txt", "/apps/*"],
@@ -103,7 +102,6 @@ describe("staticwebapp.config.json guard", () => {
       ["/admin/customs-archive/index.txt", "/admin/customs-archive/*"],
       ["/admin/customs-archive/detail/index.txt", "/admin/customs-archive/*"],
       ["/sessions", "/sessions/*"],
-      ["/sessions/inspector", "/sessions/*"],
       ["/diagnosis", "/diagnosis/*"],
       ["/apps", "/apps/*"],
       ["/apps/detail", "/apps/*"],

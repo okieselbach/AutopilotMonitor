@@ -262,8 +262,6 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "stats/sessions",            EndpointPolicy.MemberRead),
         new("GET",    "sessions/{sessionId}",      EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         new("GET",    "sessions/{sessionId}/events", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
-        // sessions/{sessionId}/signals + /decision-graph live in the GlobalAdminOnly block below
-        // (Inspector v1 — Plan §M6). Lift back to MemberRead+QueryParam at the v2 adminMode lift.
         new("GET",    "sessions/{sessionId}/analysis", EndpointPolicy.MemberRead, TenantScoping.QueryParam),
         // Member tier: annotation reads are safe for every tenant member because the handler
         // filters the platform-internal globaladmin lane for callers without global scope
@@ -414,13 +412,6 @@ public static class EndpointAccessPolicyCatalog
         // tenant (they fan out over ALL tenants) MUST stay TenantScoping.None so delegated callers can
         // never reach them. Before adding QueryParam scoping to a global route, verify the handler honors
         // the filter — a wrong scoping here is a cross-tenant data leak.
-        //
-        // Inspector v1 endpoints (Plan §M6 — lift to MemberRead+QueryParam scoping at the v2 adminMode
-        // lift). Cross-tenant resolution for global-scope callers happens inside the functions via
-        // SessionsIndex, so TenantScoping.None on the catalog is fine.
-        new("GET",    "sessions/{sessionId}/signals",              EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "sessions/{sessionId}/decision-graph",       EndpointPolicy.GlobalReadOrAdmin),
-        new("GET",    "sessions/{sessionId}/reducer-verification", EndpointPolicy.GlobalReadOrAdmin),
         // Cascade-delete admin endpoints live under /api/global/* (not /api/admin/*) because the
         // latter prefix collides with the Azure Functions runtime's own admin routes, which are
         // mTLS-gated — browsers triggering preflight on /api/admin/* get TLS-renegotiation

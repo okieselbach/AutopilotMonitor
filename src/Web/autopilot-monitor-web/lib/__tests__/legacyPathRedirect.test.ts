@@ -22,12 +22,6 @@ describe("legacyTarget", () => {
     );
   });
 
-  it("maps /sessions/{id}/inspector incl. ?tab=", () => {
-    expect(legacyTarget("/sessions/abc/inspector", q("tab=signals"), "")).toBe(
-      "/sessions/inspector?id=abc&tab=signals",
-    );
-  });
-
   it("maps /diagnosis/{id}", () => {
     expect(legacyTarget("/diagnosis/abc", q(""), "")).toBe("/diagnosis?id=abc");
   });
@@ -47,12 +41,11 @@ describe("legacyTarget", () => {
 
   it("tolerates trailing slashes (SWA trailingSlash auto)", () => {
     expect(legacyTarget("/sessions/abc/", q(""), "")).toBe("/sessions?id=abc");
-    expect(legacyTarget("/sessions/abc/inspector/", q(""), "")).toBe("/sessions/inspector?id=abc");
+    expect(legacyTarget("/diagnosis/abc/", q(""), "")).toBe("/diagnosis?id=abc");
   });
 
   it("leaves canonical and unrelated paths alone", () => {
     expect(legacyTarget("/sessions", q("id=abc"), "")).toBeNull();
-    expect(legacyTarget("/sessions/inspector", q("id=abc"), "")).toBeNull();
     expect(legacyTarget("/sessions/network-timeline", q("id=abc&tenantId=t"), "")).toBeNull();
     expect(legacyTarget("/apps/detail", q("name=x"), "")).toBeNull();
     expect(legacyTarget("/admin/backups/detail", q("id=x"), "")).toBeNull();

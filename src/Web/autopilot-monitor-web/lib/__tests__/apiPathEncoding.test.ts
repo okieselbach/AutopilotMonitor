@@ -31,9 +31,6 @@ describe("api path ids are percent-encoded", () => {
       (id) => api.sessions.report(id),
       (id) => api.sessions.annotations(id),
       (id) => api.sessions.annotation(id, "lane"),
-      (id) => api.inspector.signals(id),
-      (id) => api.inspector.decisionGraph(id),
-      (id) => api.inspector.reducerVerification(id),
     ];
     for (const build of builders) {
       const url = build(HOSTILE);

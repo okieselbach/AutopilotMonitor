@@ -232,7 +232,6 @@ describe("nav ↔ route-guard consistency", () => {
    * Independent oracle of the layout guards (NOT derived from the components):
    *  - app/admin/layout.tsx → ProtectedRoute requireGlobalScope; the deeper GA-only
    *    layouts (settings/ops/backups/customs-archive/software) → requireGlobalAdmin,
-   *  - app/sessions/inspector/layout.tsx → requireGlobalAdmin,
    *  - app/fleet/layout.tsx → requireFleetScope,
    *  - app/settings/layout.tsx → any own-tenant role or platform scope
    *    (hasOwnTenantOrPlatformRole; user decision 2026-08-13 — mirrors the sidebar's
@@ -245,7 +244,6 @@ describe("nav ↔ route-guard consistency", () => {
     { prefix: "/admin/backups", admits: (_i, f) => f.isGlobalAdmin },
     { prefix: "/admin/customs-archive", admits: (_i, f) => f.isGlobalAdmin },
     { prefix: "/admin/software", admits: (_i, f) => f.isGlobalAdmin },
-    { prefix: "/sessions/inspector", admits: (_i, f) => f.isGlobalAdmin },
     { prefix: "/admin", admits: (_i, f) => f.hasGlobalScope },
     { prefix: "/fleet", admits: (_i, f) => f.hasFleetScope },
     {
@@ -302,7 +300,7 @@ describe("nav ↔ route-guard consistency", () => {
       ...EXPANDABLE_NAV_GROUPS.flatMap((g) => g.items.flatMap((i) => i.items.map((s) => s.href))),
     ];
     for (const href of allHrefs) {
-      if (/^\/(admin|fleet|settings)(\/|$)/.test(href) || href.startsWith("/sessions/inspector")) {
+      if (/^\/(admin|fleet|settings)(\/|$)/.test(href)) {
         expect(guardFor(href), `no guard oracle entry covers '${href}'`).toBeTruthy();
       }
     }

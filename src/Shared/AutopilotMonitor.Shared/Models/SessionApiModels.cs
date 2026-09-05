@@ -784,37 +784,6 @@ namespace AutopilotMonitor.Shared.Models
         public string? NextLink { get; set; }
     }
 
-    /// <summary>SignalLog read envelope (GetSessionSignals).</summary>
-    // Declaration order == wire order.
-    public class GetSessionSignalsResponse : IApiResponse
-    {
-        public bool Success { get; set; }
-        public string SessionId { get; set; } = default!;
-        public int Count { get; set; }
-        /// <summary>True when the result hit the row cap or the cumulative payload budget.</summary>
-        public bool Truncated { get; set; }
-        public IReadOnlyList<SignalRecord> Signals { get; set; } = default!;
-    }
-
-    /// <summary>Reducer-verification envelope (GetSessionReducerVerification).</summary>
-    // Declaration order == wire order.
-    public class GetSessionReducerVerificationResponse : IApiResponse
-    {
-        public bool Success { get; set; }
-        /// <summary>True when signals or transitions hit a load cap or the payload budget.</summary>
-        public bool Truncated { get; set; }
-        public ReducerVerificationReport Report { get; set; } = default!;
-    }
-
-    /// <summary>Decision-graph envelope (GetSessionDecisionGraph).</summary>
-    // Declaration order == wire order.
-    public class GetSessionDecisionGraphResponse : IApiResponse
-    {
-        public bool Success { get; set; }
-        public bool Truncated { get; set; }
-        public DecisionGraphProjection Graph { get; set; } = default!;
-    }
-
     /// <summary>Cross-tenant listing of sessions in a cascade-deletion state (GetSessionDeletionsList).</summary>
     // Declaration order == wire order.
     public class GetSessionDeletionsListResponse : IApiResponse

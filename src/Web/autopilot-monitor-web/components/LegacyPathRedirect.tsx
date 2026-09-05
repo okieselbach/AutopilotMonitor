@@ -8,7 +8,6 @@ import {
   backupUrl,
   customsArchiveUrl,
   diagnosisUrl,
-  inspectorUrl,
   sessionUrl,
 } from "@/lib/routes";
 
@@ -20,8 +19,8 @@ import {
  *
  * It is mounted GLOBALLY in the root layout on purpose: the SWA rewrite rules
  * are wildcard-per-family (e.g. /sessions/* serves the sessions page HTML), so
- * /sessions/{id}/inspector is served the WRONG page's HTML — only a global
- * matcher sees every legacy pathname regardless of which page hydrated.
+ * a legacy path under another family is served the WRONG page's HTML — only a
+ * global matcher sees every legacy pathname regardless of which page hydrated.
  *
  * Existing query params (e.g. ?tenantId=) and the fragment (#event-…) are
  * preserved; the canonical builders in lib/routes.ts are the single source of
@@ -31,15 +30,11 @@ import {
 // Real static pages under /sessions/ — never legacy session ids. Every new
 // /sessions/<subpage> route MUST be added here, or the legacy rewrite below
 // hijacks it into /sessions?id=<subpage>.
-const SESSIONS_STATIC_SIBLINGS = new Set(["inspector", "network-timeline"]);
+const SESSIONS_STATIC_SIBLINGS = new Set(["network-timeline"]);
 
 function legacyTarget(pathname: string, search: URLSearchParams, hash: string): Route | null {
   const seg = pathname.replace(/\/+$/, "").split("/").filter(Boolean).map(decodeURIComponent);
 
-  // /sessions/{id}/inspector
-  if (seg.length === 3 && seg[0] === "sessions" && seg[2] === "inspector") {
-    return inspectorUrl(seg[1], { tab: search.get("tab") ?? undefined });
-  }
   // /sessions/{id} — a static sibling as an id cannot occur (the static page wins)
   if (seg.length === 2 && seg[0] === "sessions" && !SESSIONS_STATIC_SIBLINGS.has(seg[1])) {
     return sessionUrl(seg[1], {

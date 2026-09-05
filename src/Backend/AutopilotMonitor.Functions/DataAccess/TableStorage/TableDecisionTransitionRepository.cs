@@ -82,31 +82,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return committed;
         }
 
-        public async Task<List<DecisionTransitionRecord>> QueryBySessionAsync(
-            string tenantId, string sessionId, int maxResults = 1000, CancellationToken cancellationToken = default)
-        {
-            SecurityValidator.EnsureValidGuid(tenantId, "TenantId");
-            SecurityValidator.EnsureValidGuid(sessionId, "SessionId");
-
-            var table = _storage.GetTableClient(Constants.TableNames.DecisionTransitions);
-            var pk = BuildPartitionKey(tenantId, sessionId);
-
-            var results = new List<DecisionTransitionRecord>(capacity: Math.Min(maxResults, 128));
-            var pages = table.QueryAsync<TableEntity>(
-                filter: $"PartitionKey eq '{pk}'",
-                maxPerPage: Math.Min(maxResults, 1000),
-                cancellationToken: cancellationToken);
-
-            await foreach (var entity in pages.ConfigureAwait(false))
-            {
-                if (results.Count >= maxResults) break;
-                results.Add(FromEntity(entity));
-            }
-
-            results.Sort((a, b) => a.StepIndex.CompareTo(b.StepIndex));
-            return results;
-        }
-
         /// <summary>
         /// Projects an Azure <see cref="TableEntity"/> back into a <see cref="DecisionTransitionRecord"/>,
         /// reassembling chunked <c>PayloadJson</c> if present. Internal for mapping tests.

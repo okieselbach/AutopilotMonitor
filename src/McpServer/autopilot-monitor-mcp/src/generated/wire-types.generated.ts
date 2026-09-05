@@ -891,43 +891,6 @@ export interface CveExposureSummary {
   truncated: boolean;
 }
 
-/** One reducer step. Taken false = dead-end edge (guard blocked the transition) so the Inspector can render the blocked path in a different style. */
-export interface DecisionGraphEdge {
-  stepIndex: number;
-  fromStage: string;
-  toStage: string;
-  trigger: string;
-  taken: boolean;
-  deadEndReason?: string;
-  signalOrdinalRef: number;
-  occurredAtUtc: string;
-  classifierVerdictId?: string;
-  classifierHypothesisLevel?: string;
-}
-
-/** One stage the session visited. Identified by the !:SessionStage enum name so JSON payloads stay forward-compatible with new stages (string, not int ordinal). */
-export interface DecisionGraphNode {
-  /** Stage enum name (e.g. "EspInProgress"). Also used as the graph-node ID. */
-  id: string;
-  isTerminal: boolean;
-  /** Outcome label derived from the terminal Id — "Succeeded", "Failed", "PausedForPart2", or null for non-terminal nodes. The richer termination metadata (TerminationReason + TerminationOutcome from the enrollment_terminated event in M4.6.β) is not inlined here — a future revision can enrich terminal nodes by joining the Events table if the UI needs it. Today's Inspector gets the high-level label. */
-  terminalOutcome?: string;
-  /** Number of edges that target this node (for UI sizing / heat-map rendering). */
-  visitCount: number;
-}
-
-/** Server-side projection of a session's DecisionTransitionRecords into a renderable DAG for the Inspector (Plan §M5, §M6). Pre-computed on the backend so the UI receives one structured shape instead of rebuilding the graph from the raw journal. */
-export interface DecisionGraphProjection {
-  tenantId: string;
-  sessionId: string;
-  /** Unique stages reached in the session (de-duplicated from Transition From/To stages). */
-  nodes: DecisionGraphNode[];
-  /** One entry per transition — edges preserve chronological order via StepIndex. */
-  edges: DecisionGraphEdge[];
-  /** Plan §2.10 — lets the UI flag sessions running on an older ReducerVersion than current. */
-  reducerVersion: string;
-}
-
 /** One delegated-admin assignment: UPN X may access tenant Y at role Role. The "scoped global" tier (subset of tenants) between a single-tenant member and a platform GlobalAdmin. Surfaced as "MSP mode". */
 export interface DelegatedAdminEntry {
   upn: string;
@@ -1758,13 +1721,6 @@ export interface GetSessionAnnotationsResponse {
   writableLanes: string[];
 }
 
-/** Decision-graph envelope (GetSessionDecisionGraph). */
-export interface GetSessionDecisionGraphResponse {
-  success: boolean;
-  truncated: boolean;
-  graph: DecisionGraphProjection;
-}
-
 /** Dry-run cascade-delete preview envelope (GetSessionDeletePreview, mode=summary). */
 export interface GetSessionDeletePreviewResponse {
   success: boolean;
@@ -1822,28 +1778,10 @@ export interface GetSessionEventsResponse {
   nextLink?: string;
 }
 
-/** Reducer-verification envelope (GetSessionReducerVerification). */
-export interface GetSessionReducerVerificationResponse {
-  success: boolean;
-  /** True when signals or transitions hit a load cap or the payload budget. */
-  truncated: boolean;
-  report: ReducerVerificationReport;
-}
-
 /** Single-session detail envelope (GetSession). */
 export interface GetSessionResponse {
   success: boolean;
   session: SessionSummary;
-}
-
-/** SignalLog read envelope (GetSessionSignals). */
-export interface GetSessionSignalsResponse {
-  success: boolean;
-  sessionId: string;
-  count: number;
-  /** True when the result hit the row cap or the cumulative payload budget. */
-  truncated: boolean;
-  signals: SignalRecord[];
 }
 
 /** Per-session time-attribution envelope (GetSessionTimeAttribution). A missing breakdown is a NORMAL outcome (pre-feature session, non-terminal, Incomplete — no wall clock). */
@@ -2829,40 +2767,6 @@ export interface ReclassifyJobRunResponse {
   triggeredAt: string;
 }
 
-/** Structural health report for a session's persisted SignalLog + DecisionTransitions journal. Produced by GET /api/sessions/{id}/reducer-verification (Plan §M5, admin/ops endpoint, not tenant-exposed). Scope: this report covers structural invariants that can be checked without running the reducer — ordinal contiguity, cross-references, ReducerVersion drift, counts. A full engine replay with per-step diff would require polymorphic deserialisation of the DecisionSignal.Evidence payload and is a dedicated follow-up. */
-export interface ReducerVerificationReport {
-  tenantId: string;
-  sessionId: string;
-  signalCount: number;
-  transitionCount: number;
-  /** First transition's ReducerVersion (null when no transitions present). */
-  storedReducerVersion?: string;
-  /** The current live backend DecisionEngine.ReducerVersion. */
-  currentReducerVersion: string;
-  /** True when stored ≠ current — the session was journaled under a different reducer build. Plan §2.10 calls this out as a known drift signal rather than a bug; the report surfaces it so ops can decide if replay is still meaningful. */
-  reducerVersionDrift: boolean;
-  signalOrdinalsContiguous: boolean;
-  signalOrdinalFirst: number;
-  signalOrdinalLast: number;
-  stepIndicesContiguous: boolean;
-  stepIndexFirst: number;
-  stepIndexLast: number;
-  /** Transitions whose SignalOrdinalRef does not match any loaded signal row. A non-zero count indicates either a corrupted journal or — more likely — truncated data on the query (the verifier loaded a subset of transitions and the referenced signals fell outside the slice). */
-  orphanedTransitionCount: number;
-  /** True when the verifier re-played the persisted signal stream through the live backend DecisionEngine and compared the produced transitions to the stored journal. False when the replay was skipped — see SemanticReplaySkipReason. */
-  semanticReplayPerformed: boolean;
-  /** Discriminator when SemanticReplayPerformed is false. Known values: "empty_session", "reducer_version_drift", "non_contiguous_signal_ordinals", "non_contiguous_step_indices", "deserialization_failure". */
-  semanticReplaySkipReason?: string;
-  /** True when the replayed Stage matches the ToStage of the last stored transition. Only meaningful when SemanticReplayPerformed is true. */
-  semanticReplayFinalStageMatches: boolean;
-  /** The stage the replay arrived at (stringified SessionStage); null on skip. */
-  replayedFinalStage?: string;
-  /** Number of positions where the replayed transition diverged from the stored one on the compared fields (Trigger, FromStage, ToStage, Taken, DeadEndReason, StepIndex). 0 means perfect agreement. Individual divergences are emitted as replay_divergenceVerificationIssues up to a cap of 20. */
-  transitionDivergenceCount: number;
-  /** Human-readable issue stream for the Inspector's verification panel. */
-  issues: VerificationIssue[];
-}
-
 /** A link to related documentation */
 export interface RelatedDoc {
   /** Display title for the link */
@@ -3570,23 +3474,6 @@ export interface SeverityBreakdown {
 export interface SignalRNegotiateResponse {
   url: string;
   accessToken: string;
-}
-
-/** Backend storage record for a single DecisionSignal (Plan §M5). Flat shape projected from the agent's DecisionSignal so the Backend doesn't need to reference DecisionCore just to persist and serve it back out. Keys (authoritative, supplied by the agent for idempotent upsert via (PartitionKey, RowKey)): PK = {TenantId}_{SessionId}, RK = {SessionSignalOrdinal:D19}. Fidelity: carries the complete agent-serialized DecisionSignal (including Evidence + Payload dictionary). Typed columns exist only for query/projection; replay is driven off the JSON blob. */
-export interface SignalRecord {
-  tenantId: string;
-  sessionId: string;
-  /** Monotonic per SignalLog. Drives table RowKey ordering. */
-  sessionSignalOrdinal: number;
-  /** Session-wide monotonic across Event + Signal + Transition. Inspector correlation only. */
-  sessionTraceOrdinal: number;
-  /** DecisionSignalKind enum name — stored as string for forward-compat. */
-  kind: string;
-  kindSchemaVersion: number;
-  occurredAtUtc: string;
-  sourceOrigin: string;
-  /** Agent-serialized DecisionSignal JSON (Evidence + Payload included). */
-  payloadJson: string;
 }
 
 /** SLA metrics response for a given tenant and time window. */
@@ -4506,12 +4393,4 @@ export interface VerdictCalibrationTrendWindow {
   count: number;
   sessions: number;
   sharePct: number;
-}
-
-export interface VerificationIssue {
-  /** Info / Warning / Error. */
-  severity: string;
-  /** Discriminator string: reducer_version_drift, signal_ordinal_gap, step_index_gap, orphaned_transition, empty_session, … */
-  kind: string;
-  message: string;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { diagnosisUrl, inspectorUrl } from "@/lib/routes";
+import { diagnosisUrl } from "@/lib/routes";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -46,7 +46,6 @@ import DeviceDetailsCard from "./components/DeviceDetailsCard";
 import { generateUiExport, generateCsvExport, generateSessionCsvExport, generateRuleResultsCsvExport, SessionExportEvent } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
-import { useGlobalAdminUi } from "@/hooks/useGlobalAdminUi";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
@@ -90,9 +89,6 @@ function SessionDetailContent() {
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
 
   const { adminMode, globalAdminMode } = useAdminMode();
-  // The Decision Inspector is operator-only diagnostics on a page shown in every demo, so the link
-  // follows the Global-Admin VIEW rather than the identity alone. The route itself stays gated.
-  const showInspectorLink = useGlobalAdminUi();
 
   // Global contexts
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
@@ -173,7 +169,7 @@ function SessionDetailContent() {
   // permits the reads (MemberRead + ?tenantId=, rescued by the delegated scope) but rejects the mutations
   // (mark-failed/succeeded/report are TenantAdminOrGA). A Global Admin keeps write rights cross-tenant, and
   // own-tenant viewers are unaffected. `tenantIdOverride` seeds this before the session object has loaded so
-  // the write controls never flash in. Inspector is already gated to Global Admins separately.
+  // the write controls never flash in.
   const viewedTenantId = (session?.tenantId ?? sessionTenantId ?? tenantIdOverride ?? "").toLowerCase();
   const isCrossTenantView = !!viewedTenantId && !!tenantId && viewedTenantId !== tenantId.toLowerCase();
   const isReadOnlyView = isCrossTenantView && !user?.isGlobalAdmin;
@@ -562,18 +558,6 @@ function SessionDetailContent() {
                 </svg>
                 Report Session
               </button>
-            )}
-            {showInspectorLink && sessionId && (
-              <a
-                href={inspectorUrl(sessionId)}
-                className="px-4 py-2 bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50 transition-colors flex items-center gap-2 text-sm"
-                title="Open Decision Inspector (Global Admin only — Plan §M6)"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                </svg>
-                Inspector
-              </a>
             )}
             <DocsLink path={DOCS_PATHS.sessionDetails} label="Docs" />
           </div>

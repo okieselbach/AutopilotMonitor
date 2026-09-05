@@ -11,9 +11,8 @@ namespace AutopilotMonitor.DecisionCore.Tests.State
 {
     /// <summary>
     /// Every payload-derived string that lands in <see cref="DecisionState"/> is bounded by
-    /// <see cref="FactStringBounds"/> at the reducer boundary. The server-side semantic replay
-    /// (<c>ReducerVerifier</c>) folds device-uploaded payloads through the same engine, so an
-    /// unbounded string there is a per-request memory/CPU amplifier. These tests pin that the
+    /// <see cref="FactStringBounds"/> at the reducer boundary — an unbounded string there is a
+    /// per-signal memory/CPU amplifier in every snapshot persist. These tests pin that the
     /// bound is applied BEFORE any dedupe comparison (so a forged multi-hundred-KB key neither
     /// costs a full-length compare nor lands in state) and that real-sized values pass through
     /// unchanged.
