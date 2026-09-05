@@ -107,33 +107,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return results;
         }
 
-        public async Task<List<DecisionTransitionRecord>> QueryByTimestampAtOrAfterAsync(
-            DateTime cutoffUtc, int maxResults = 50_000, CancellationToken cancellationToken = default)
-        {
-            var table = _storage.GetTableClient(Constants.TableNames.DecisionTransitions);
-            var filter = $"Timestamp ge datetime'{cutoffUtc.ToUniversalTime():yyyy-MM-ddTHH:mm:ss.fffffffZ}'";
-
-            var results = new List<DecisionTransitionRecord>(capacity: 128);
-            var pages = table.QueryAsync<TableEntity>(
-                filter: filter,
-                maxPerPage: 1000,
-                cancellationToken: cancellationToken);
-
-            await foreach (var entity in pages.ConfigureAwait(false))
-            {
-                if (results.Count >= maxResults)
-                {
-                    _logger.LogWarning(
-                        "DecisionTransitions: time-range query reached maxResults cap {Cap} at cutoff {Cutoff:o} — narrow window or bump cap",
-                        maxResults, cutoffUtc);
-                    break;
-                }
-                results.Add(FromEntity(entity));
-            }
-
-            return results;
-        }
-
         /// <summary>
         /// Projects an Azure <see cref="TableEntity"/> back into a <see cref="DecisionTransitionRecord"/>,
         /// reassembling chunked <c>PayloadJson</c> if present. Internal for mapping tests.

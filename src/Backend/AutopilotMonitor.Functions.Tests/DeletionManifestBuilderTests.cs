@@ -46,12 +46,7 @@ public class DeletionManifestBuilderTests
             .WithSignals(15)
             .WithDecisionTransitions(4)
             .WithEventTypeIndex(5)
-            .WithCveIndex(2)
-            .WithSessionsByTerminal(1)
-            .WithSessionsByStage(3)
-            .WithDeadEndsByReason(0)
-            .WithClassifierVerdictsByIdLevel(2)
-            .WithSignalsByKind(11));
+            .WithCveIndex(2));
 
         var manifest = await NewBuilder(reader).BuildAsync(
             TenantId, SessionId, "admin_delete",
@@ -69,15 +64,10 @@ public class DeletionManifestBuilderTests
         Assert.Equal(4,  c["decisionTransitions"]);
         Assert.Equal(5,  c["eventTypeIndex"]);
         Assert.Equal(2,  c["cveIndex"]);
-        Assert.Equal(1,  c["sessionsByTerminal"]);
-        Assert.Equal(3,  c["sessionsByStage"]);
-        Assert.Equal(0,  c["deadEndsByReason"]);
-        Assert.Equal(2,  c["classifierVerdictsByIdLevel"]);
-        Assert.Equal(11, c["signalsByKind"]);
 
-        // 20 cascade tables (incl. SessionTimeBreakdowns F1 PR2, 3 SessionAnnotations lanes +
-        // SessionTenantLookup P6.1) + tombstone = 21 steps; no inventory steps when no contributions row.
-        Assert.Equal(21, manifest.Steps.Count);
+        // 15 cascade tables (incl. SessionTimeBreakdowns F1 PR2, 3 SessionAnnotations lanes +
+        // SessionTenantLookup P6.1) + tombstone = 16 steps; no inventory steps when no contributions row.
+        Assert.Equal(16, manifest.Steps.Count);
         Assert.Equal(DeletionStepClass.Final, manifest.Steps.Last().Class);
     }
 
@@ -99,11 +89,6 @@ public class DeletionManifestBuilderTests
             .WithDecisionTransitions(1, propValue: "transitions_marker")
             .WithEventTypeIndex(1, propValue: "eti_marker")
             .WithCveIndex(1, propValue: "cve_marker")
-            .WithSessionsByTerminal(1, propValue: "terminal_marker")
-            .WithSessionsByStage(1, propValue: "stage_marker")
-            .WithDeadEndsByReason(1, propValue: "deadend_marker")
-            .WithClassifierVerdictsByIdLevel(1, propValue: "classifier_marker")
-            .WithSignalsByKind(1, propValue: "signalkind_marker")
             .WithSessionTimeBreakdown(propValue: "breakdown_marker")
             .WithSessionAnnotations(propValue: "annotation_marker")
             .WithSessionTenantLookup(propValue: "lookup_marker"));
@@ -149,9 +134,9 @@ public class DeletionManifestBuilderTests
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
         var nonTombstoneSteps = manifest.Steps.Where(s => s.Class != DeletionStepClass.Final).ToList();
-        // Without a contributions row, neither inventory step is emitted → exactly 20 cascade-table steps
-        // (16 + the 3 SessionAnnotations lane steps + SessionTenantLookup).
-        Assert.Equal(20, nonTombstoneSteps.Count);
+        // Without a contributions row, neither inventory step is emitted → exactly 15 cascade-table steps
+        // (11 + the 3 SessionAnnotations lane steps + SessionTenantLookup).
+        Assert.Equal(15, nonTombstoneSteps.Count);
         foreach (var step in nonTombstoneSteps)
         {
             Assert.Equal(0, step.RowCount);
@@ -180,8 +165,8 @@ public class DeletionManifestBuilderTests
             new DeletionActor { Type = "admin", Actor = "alice@example.com" },
             new DeletionRetentionContext { TenantRetentionDays = 90 });
 
-        // Expect: 20 cascade + 2 inventory + 1 tombstone = 23 steps.
-        Assert.Equal(23, manifest.Steps.Count);
+        // Expect: 15 cascade + 2 inventory + 1 tombstone = 18 steps.
+        Assert.Equal(18, manifest.Steps.Count);
 
         var aggregate = manifest.Steps.Single(s => s.Class == DeletionStepClass.Aggregate);
         Assert.Equal(DeletionStepNames.SoftwareInventoryDecrement, aggregate.Step);
@@ -310,8 +295,7 @@ public class DeletionManifestBuilderTests
             .WithSessionsRow()
             .WithSessionsIndexRow()
             .WithEvents(3)
-            .WithSignals(5)
-            .WithSessionsByTerminal(1));
+            .WithSignals(5));
 
         var first  = await NewBuilder(reader).BuildAsync(TenantId, SessionId, "admin_delete",
             new DeletionActor { Type = "admin", Actor = "alice@example.com" },
@@ -345,7 +329,6 @@ public class DeletionManifestBuilderTests
             .WithSessionsIndexRow()
             .WithEvents(2, propValue: "events_check")
             .WithRuleResults(1, propValue: "rules_check")
-            .WithSessionsByTerminal(1, propValue: "terminal_check")
             .WithSessionInventoryContributions(MakeContributionsRow(new List<DeletionDecrementKey>
             {
                 new DeletionDecrementKey { Vendor = "Contoso", Name = "App", Version = "1.0" },
@@ -778,12 +761,6 @@ public class DeletionManifestBuilderTests
             return this;
         }
 
-        public ReaderSeed WithSessionsByTerminal(int n, string propValue = "term") => SeedDiscriminatorPkProp(Constants.TableNames.SessionsByTerminal, n, propValue, "Failed");
-        public ReaderSeed WithSessionsByStage(int n, string propValue = "stg")    => SeedDiscriminatorPkProp(Constants.TableNames.SessionsByStage, n, propValue, "AccountSetup");
-        public ReaderSeed WithDeadEndsByReason(int n, string propValue = "de")    => SeedDiscriminatorPkProp(Constants.TableNames.DeadEndsByReason, n, propValue, "Timeout");
-        public ReaderSeed WithClassifierVerdictsByIdLevel(int n, string propValue = "cls") => SeedDiscriminatorPkProp(Constants.TableNames.ClassifierVerdictsByIdLevel, n, propValue, "EspApps_High");
-        public ReaderSeed WithSignalsByKind(int n, string propValue = "sk")        => SeedDiscriminatorPkProp(Constants.TableNames.SignalsByKind, n, propValue, "EspPhaseChanged");
-
         public ReaderSeed WithSessionAnnotations(string propValue = "anno")
         {
             // One row per lane — the builder emits one exact-RK step per lane.
@@ -887,22 +864,5 @@ public class DeletionManifestBuilderTests
             return this;
         }
 
-        private ReaderSeed SeedDiscriminatorPkProp(string tableName, int n, string propValue, string discriminator)
-        {
-            // PK = {tenantId}_{discriminator}, server-side filter on PK prefix + SessionId == sessionId.
-            var rows = new List<TableEntity>(n);
-            for (int i = 0; i < n; i++)
-            {
-                var e = new TableEntity($"{TenantId}_{discriminator}", $"{tableName}_{i:D5}")
-                {
-                    ["Marker"] = propValue,
-                    ["SessionId"] = SessionId,
-                };
-                e.ETag = new ETag("0x" + tableName + i);
-                rows.Add(e);
-            }
-            _query[tableName] = rows;
-            return this;
-        }
     }
 }

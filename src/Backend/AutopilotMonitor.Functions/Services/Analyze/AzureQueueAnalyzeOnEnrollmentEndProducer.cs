@@ -12,8 +12,8 @@ namespace AutopilotMonitor.Functions.Services.Analyze
 {
     /// <summary>
     /// Azure Storage Queue implementation of <see cref="IAnalyzeOnEnrollmentEndProducer"/>.
-    /// Mirrors <c>AzureQueueIndexReconcileProducer</c>: Managed Identity preferred, connection
-    /// string fallback, Base64 encoding (matches the consumer worker).
+    /// Managed Identity preferred, connection string fallback, Base64 encoding (matches the
+    /// consumer function).
     /// <para>
     /// <b>Fault tolerance:</b> queue-side exceptions (network, throttling, queue missing) are
     /// logged but never rethrown. The agent's HTTP 200 must not be blocked. A missed enqueue

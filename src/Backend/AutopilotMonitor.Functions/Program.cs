@@ -311,19 +311,8 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.Se
 builder.Services.AddSingleton<SessionReportService>();
 builder.Services.AddSingleton<BootstrapSessionService>();
 
-// V2 Decision Engine index-table dual-write producer (Plan §2.8, §M5.d). Gated by
-// AdminConfiguration.EnableIndexDualWrite (default false) inside the implementation.
-builder.Services.AddSingleton<
-    AutopilotMonitor.Shared.DataAccess.IIndexReconcileProducer,
-    AutopilotMonitor.Functions.Services.Indexing.AzureQueueIndexReconcileProducer>();
-
-// V2 Decision Engine index-table reconcile consumer (Plan §M5.d.3). Plain class, not
-// interface-abstracted — Cosmos swap would reshape around IIndexTableRepository, not here.
-builder.Services.AddSingleton<
-    AutopilotMonitor.Functions.Services.Indexing.IndexReconcileHandler>();
-
-// Consumer: Functions/Queue/IndexReconcileQueueFunction — a [QueueTrigger] on the
-// Constants.QueueNames.TriggerConnection connection (host-resolved app setting
+// Queue producers + handlers. Consumers are [QueueTrigger] functions under Functions/Queue/
+// on the Constants.QueueNames.TriggerConnection connection (host-resolved app setting
 // `DataStorage__queueServiceUri`; see host.json extensions.queues). Stateless queue consumers
 // are host-managed so the Flex scale controller wakes an instance for a message and renews the
 // lease; only the cascade workers with lease/CAS state machines stay BackgroundServices.
@@ -331,8 +320,8 @@ builder.Services.AddSingleton<
 // Auto-analyze fan-out at session end. Replaces the previous in-function fire-and-forget
 // Task.Run that ran the rule engine after enrollment_complete / enrollment_failed / async
 // vulnerability correlation — Functions scale-in could kill the Task.Run mid-flight, leaving
-// rule results un-persisted (manual "Analyze Now" was the only recovery). Same producer +
-// handler pattern as IndexReconcile above; consumer = Functions/Queue/AnalyzeOnEnrollmentEndQueueFunction.
+// rule results un-persisted (manual "Analyze Now" was the only recovery).
+// Consumer = Functions/Queue/AnalyzeOnEnrollmentEndQueueFunction.
 builder.Services.AddSingleton<
     AutopilotMonitor.Functions.Services.Analyze.IAnalyzeOnEnrollmentEndProducer,
     AutopilotMonitor.Functions.Services.Analyze.AzureQueueAnalyzeOnEnrollmentEndProducer>();

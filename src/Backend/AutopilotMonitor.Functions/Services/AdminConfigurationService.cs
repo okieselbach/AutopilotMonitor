@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Functions.Services
         /// Gets global admin configuration (uses cache with 5-minute TTL).
         /// <para>
         /// Virtual so it can be mocked via Moq in consumer tests that need controlled
-        /// flag values (e.g. <c>IndexReconcileTimer</c> flag-gate tests).
+        /// flag values (e.g. queue-function flag-gate tests).
         /// </para>
         /// </summary>
         public virtual async Task<AdminConfiguration> GetConfigurationAsync()

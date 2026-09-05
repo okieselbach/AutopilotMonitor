@@ -116,35 +116,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return results;
         }
 
-        public async Task<List<SignalRecord>> QueryByTimestampAtOrAfterAsync(
-            DateTime cutoffUtc, int maxResults = 50_000, CancellationToken cancellationToken = default)
-        {
-            var table = _storage.GetTableClient(Constants.TableNames.Signals);
-            // Timestamp is the Azure Tables system-managed server-side property. Filter shape
-            // follows OData datetime literal format.
-            var filter = $"Timestamp ge datetime'{cutoffUtc.ToUniversalTime():yyyy-MM-ddTHH:mm:ss.fffffffZ}'";
-
-            var results = new List<SignalRecord>(capacity: 128);
-            var pages = table.QueryAsync<TableEntity>(
-                filter: filter,
-                maxPerPage: 1000,
-                cancellationToken: cancellationToken);
-
-            await foreach (var entity in pages.ConfigureAwait(false))
-            {
-                if (results.Count >= maxResults)
-                {
-                    _logger.LogWarning(
-                        "Signals: time-range query reached maxResults cap {Cap} at cutoff {Cutoff:o} — narrow window or bump cap",
-                        maxResults, cutoffUtc);
-                    break;
-                }
-                results.Add(FromEntity(entity));
-            }
-
-            return results;
-        }
-
         /// <summary>
         /// Projects an Azure <see cref="TableEntity"/> back into a <see cref="SignalRecord"/>,
         /// reassembling chunked <c>PayloadJson</c> if present. Internal for mapping tests.

@@ -46,7 +46,6 @@ namespace AutopilotMonitor.Functions.DataAccess
             // V2 Decision Engine repositories (Plan §M5).
             services.AddSingleton<ISignalRepository, TableSignalRepository>();
             services.AddSingleton<IDecisionTransitionRepository, TableDecisionTransitionRepository>();
-            services.AddSingleton<IIndexTableRepository, TableIndexRepository>();
 
             // Tenant-offboarding audit (Marker / History / ByTenant pointer).
             services.AddSingleton<IOffboardingAuditRepository, TableOffboardingAuditRepository>();

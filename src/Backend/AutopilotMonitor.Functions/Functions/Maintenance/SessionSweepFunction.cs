@@ -25,7 +25,7 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
     public class SessionSweepFunction
     {
         // Minute 30 — deliberately offset from the 2h Maintenance timer (minute 0) so the two
-        // never fire together. const per repo convention (see IndexReconcileTimer.cs).
+        // never fire together. const per repo convention (see MaintenanceFunction.cs).
         private const string Cron = "0 30 * * * *";
 
         private readonly MaintenanceService _maintenanceService;

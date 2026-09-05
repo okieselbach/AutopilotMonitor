@@ -75,7 +75,7 @@ public class HealthCheckServicePoisonQueueTests
         var probe = new FakePoisonQueueProbe();
         probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 3;
         probe.Counts[Constants.QueueNames.VulnerabilityCorrelate + "-poison"] = 0;
-        probe.Counts[Constants.QueueNames.TelemetryIndexReconcile + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 0;
 
         var svc = BuildService(probe);
         var check = await svc.CheckPoisonQueuesAsync();
@@ -94,7 +94,7 @@ public class HealthCheckServicePoisonQueueTests
         var probe = new FakePoisonQueueProbe();
         probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 15;
         probe.Counts[Constants.QueueNames.VulnerabilityCorrelate + "-poison"] = 0;
-        probe.Counts[Constants.QueueNames.TelemetryIndexReconcile + "-poison"] = 2;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 2;
 
         var svc = BuildService(probe);
         var check = await svc.CheckPoisonQueuesAsync();
@@ -117,7 +117,7 @@ public class HealthCheckServicePoisonQueueTests
             }
         };
         probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 0;
-        probe.Counts[Constants.QueueNames.TelemetryIndexReconcile + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 0;
 
         var svc = BuildService(probe);
         var check = await svc.CheckPoisonQueuesAsync();
@@ -134,7 +134,7 @@ public class HealthCheckServicePoisonQueueTests
         var probe = new FakePoisonQueueProbe();
         probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 4;
         probe.Counts[Constants.QueueNames.VulnerabilityCorrelate + "-poison"] = 0;
-        probe.Counts[Constants.QueueNames.TelemetryIndexReconcile + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 0;
 
         // warn=5 → 4 messages now classifies as healthy (would be warning under defaults)
         var svc = BuildService(probe, new Dictionary<string, string?>
@@ -153,7 +153,7 @@ public class HealthCheckServicePoisonQueueTests
         var probe = new FakePoisonQueueProbe();
         probe.Counts[Constants.QueueNames.AnalyzeOnEnrollmentEnd + "-poison"] = 1;
         probe.Counts[Constants.QueueNames.VulnerabilityCorrelate + "-poison"] = 0;
-        probe.Counts[Constants.QueueNames.TelemetryIndexReconcile + "-poison"] = 0;
+        probe.Counts[Constants.QueueNames.TenantAutoApprove + "-poison"] = 0;
 
         var svc = BuildService(probe);
         var check = await svc.CheckPoisonQueuesAsync();

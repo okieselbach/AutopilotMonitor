@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
     /// existing producer is the production binding, tests substitute a fake.
     /// <para>
     /// Mirrors the sibling queue producers (<c>IAnalyzeOnEnrollmentEndProducer</c>,
-    /// <c>IVulnerabilityCorrelateProducer</c>, <c>IIndexReconcileProducer</c>): one method
+    /// <c>IVulnerabilityCorrelateProducer</c>): one method
     /// returning an outcome enum so callers translate to HTTP statuses without coupling to
     /// internal CAS / blob mechanics.
     /// </para>

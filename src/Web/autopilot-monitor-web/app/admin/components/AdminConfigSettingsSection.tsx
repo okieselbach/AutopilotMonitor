@@ -29,8 +29,6 @@ interface AdminConfigSettingsSectionProps {
   setAllowAgentDowngrade: (value: boolean) => void;
   modernDeploymentHarmlessEventIds: string;
   setModernDeploymentHarmlessEventIds: (value: string) => void;
-  enableIndexDualWrite: boolean;
-  setEnableIndexDualWrite: (value: boolean) => void;
   sessionDeletionKillSwitch: boolean;
   setSessionDeletionKillSwitch: (value: boolean) => void;
   autoApproveNewTenants: boolean;
@@ -71,8 +69,6 @@ export function AdminConfigSettingsSection({
   setAllowAgentDowngrade,
   modernDeploymentHarmlessEventIds,
   setModernDeploymentHarmlessEventIds,
-  enableIndexDualWrite,
-  setEnableIndexDualWrite,
   sessionDeletionKillSwitch,
   setSessionDeletionKillSwitch,
   autoApproveNewTenants,
@@ -303,34 +299,6 @@ export function AdminConfigSettingsSection({
                   placeholder="100, 1005, 1010"
                   className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors font-mono text-sm"
                 />
-              </label>
-            </div>
-
-            <div>
-              <label className="flex items-start space-x-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={enableIndexDualWrite}
-                  onChange={(e) => setEnableIndexDualWrite(e.target.checked)}
-                  className="mt-1 h-5 w-5 rounded border-indigo-300 dark:border-indigo-600 text-green-600 focus:ring-green-500"
-                />
-                <span>
-                  <span className="text-indigo-900 dark:text-indigo-100 font-medium">V2 Decision Engine: Enable index-table dual-write</span>
-                  <p className="text-sm text-indigo-800 dark:text-gray-300 mt-1">
-                    Feature flag for the M5.d secondary-index fan-out. When <strong>off</strong> (default), the V2 telemetry
-                    ingest path writes only the primary <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">Signals</code> and
-                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">DecisionTransitions</code> tables. When
-                    <strong> on</strong>, each committed primary row is also enqueued onto the <code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">telemetry-index-reconcile</code> queue
-                    and fanned out into the 5 cross-session index tables
-                    (<code className="text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">SessionsByTerminal</code>,
-                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">SessionsByStage</code>,
-                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">DeadEndsByReason</code>,
-                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">ClassifierVerdictsByIdLevel</code>,
-                    <code className="ml-1 text-xs bg-indigo-100 dark:bg-indigo-900 dark:text-indigo-200 px-1 rounded">SignalsByKind</code>).
-                    A 2h timer re-scans the last 4h as a safety net against queue failures. Flip this on only after the
-                    M5.d release-gate tests have been verified in the target environment.
-                  </p>
-                </span>
               </label>
             </div>
 

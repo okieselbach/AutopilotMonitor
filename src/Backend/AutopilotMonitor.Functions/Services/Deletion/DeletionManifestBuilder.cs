@@ -98,7 +98,7 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             var safeSessionId = ODataSanitizer.EscapeValue(sessionId);
             var compositeSessionPk = $"{tenantId}_{sessionId}";
 
-            // ---- Steps 1-15: cascade tables, in the §3 order. ----
+            // ---- Steps 1-10: cascade tables, in the §3 order. ----
             await AddPkBySessionStepAsync(manifest, order: 1, table: Constants.TableNames.Events, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
             await AddPkBySessionStepAsync(manifest, order: 2, table: Constants.TableNames.RuleResults, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
             await AddPropTenantPkStepAsync(manifest, order: 3, table: Constants.TableNames.AppInstallSummaries, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
@@ -109,39 +109,34 @@ namespace AutopilotMonitor.Functions.Services.Deletion
             await AddPkBySessionStepAsync(manifest, order: 8, table: Constants.TableNames.DecisionTransitions, compositeSessionPk, safeTenantId, safeSessionId, cancellationToken);
             await AddDiscriminatorPkRkSuffixStepAsync(manifest, order: 9, table: Constants.TableNames.EventTypeIndex, tenantId, sessionId, safeTenantId, cancellationToken);
             await AddDiscriminatorPkRkExactStepAsync(manifest, order: 10, table: Constants.TableNames.CveIndex, tenantId, sessionId, safeTenantId, cancellationToken);
-            await AddDiscriminatorPkPropStepAsync(manifest, order: 11, table: Constants.TableNames.SessionsByTerminal, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
-            await AddDiscriminatorPkPropStepAsync(manifest, order: 12, table: Constants.TableNames.SessionsByStage, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
-            await AddDiscriminatorPkPropStepAsync(manifest, order: 13, table: Constants.TableNames.DeadEndsByReason, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
-            await AddDiscriminatorPkPropStepAsync(manifest, order: 14, table: Constants.TableNames.ClassifierVerdictsByIdLevel, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
-            await AddDiscriminatorPkPropStepAsync(manifest, order: 15, table: Constants.TableNames.SignalsByKind, tenantId, sessionId, safeTenantId, safeSessionId, cancellationToken);
 
-            // ---- Step 16: F1 time-attribution breakdown (PK=tenant, RK=sessionId; PR2). ----
-            await AddPkRkExactStepAsync(manifest, order: 16, table: Constants.TableNames.SessionTimeBreakdowns, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
+            // ---- Step 11: F1 time-attribution breakdown (PK=tenant, RK=sessionId; PR2). ----
+            await AddPkRkExactStepAsync(manifest, order: 11, table: Constants.TableNames.SessionTimeBreakdowns, partitionKey: tenantId, rowKey: sessionId, cancellationToken);
 
-            // ---- Steps 17-19: session annotations (PK=tenant, RK="{sessionId}_{lane}"). ----
+            // ---- Steps 12-14: session annotations (PK=tenant, RK="{sessionId}_{lane}"). ----
             // Lanes are a closed set of 3, so exact-RK steps cover every possible row.
-            var annotationOrder = 17;
+            var annotationOrder = 12;
             foreach (var lane in AnnotationLanes.All)
             {
                 await AddPkRkExactStepAsync(manifest, order: annotationOrder++, table: Constants.TableNames.SessionAnnotations, partitionKey: tenantId, rowKey: $"{sessionId}_{lane}", cancellationToken);
             }
 
-            // ---- Steps 20 + 21: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
+            // ---- Steps 15 + 16: SoftwareInventory side-row (omit both for pre-side-row sessions). ----
             var contributionsRow = await _reader.GetEntityOrNullAsync(
                 Constants.TableNames.SessionInventoryContributions, tenantId, sessionId, cancellationToken);
             if (contributionsRow != null)
             {
-                AddSoftwareInventoryDecrementStep(manifest, order: 20, contributionsRow);
-                AddContributionsRowStep(manifest, order: 21, contributionsRow);
+                AddSoftwareInventoryDecrementStep(manifest, order: 15, contributionsRow);
+                AddContributionsRowStep(manifest, order: 16, contributionsRow);
             }
 
-            // ---- Step 22: sessionId → tenantId lookup row (PK=sessionId, RK="tenant"). ----
+            // ---- Step 17: sessionId → tenantId lookup row (PK=sessionId, RK="tenant"). ----
             // Deleted just before the tombstone so cross-tenant resolution keeps working for
             // as long as the session itself exists; absent for legacy sessions (0-row step).
-            await AddPkRkExactStepAsync(manifest, order: 22, table: Constants.TableNames.SessionTenantLookup, partitionKey: sessionId, rowKey: "tenant", cancellationToken);
+            await AddPkRkExactStepAsync(manifest, order: 17, table: Constants.TableNames.SessionTenantLookup, partitionKey: sessionId, rowKey: "tenant", cancellationToken);
 
-            // ---- Step 23: Tombstone (SessionsIndex first, then Sessions). ----
-            AddTombstoneStep(manifest, order: 23, sessionsIndexRow, sessionRow);
+            // ---- Step 18: Tombstone (SessionsIndex first, then Sessions). ----
+            AddTombstoneStep(manifest, order: 18, sessionsIndexRow, sessionRow);
 
             // PreflightCounts derive from each step's RowCount, plus the AGGREGATE decrements length.
             manifest.PreflightCounts = ComputePreflightCounts(manifest);
@@ -264,30 +259,6 @@ namespace AutopilotMonitor.Functions.Services.Deletion
                 Order = order,
                 Table = table,
                 Class = DeletionStepClass.DiscriminatorPkRkExact,
-                RowCount = rows.Count,
-                Rows = rows,
-            });
-        }
-
-        private async Task AddDiscriminatorPkPropStepAsync(
-            DeletionManifest manifest, int order, string table,
-            string tenantId, string sessionId, string safeTenantId, string safeSessionId,
-            CancellationToken cancellationToken)
-        {
-            // Server-side: PK prefix scan AND SessionId eq '{sessionId}'. Eligible because every
-            // DISCRIMINATOR_PK_PROP table writes the SessionId property explicitly (see IndexRowKeys
-            // call sites; the writers project SessionId so the server-side filter is reliable).
-            var filter = $"PartitionKey ge '{safeTenantId}_' and PartitionKey lt '{safeTenantId}_~' and SessionId eq '{safeSessionId}'";
-            var rows = new List<DeletionRowDump>();
-            await foreach (var entity in _reader.QueryAsync(table, filter, cancellationToken))
-            {
-                rows.Add(TableEntityDumpConverter.MapEntityToDump(entity));
-            }
-            manifest.Steps.Add(new DeletionStep
-            {
-                Order = order,
-                Table = table,
-                Class = DeletionStepClass.DiscriminatorPkProp,
                 RowCount = rows.Count,
                 Rows = rows,
             });

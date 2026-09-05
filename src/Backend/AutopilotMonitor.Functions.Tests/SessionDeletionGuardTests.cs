@@ -106,10 +106,10 @@ public class SessionDeletionGuardTests
               .ReturnsAsync(row);
 
         var ex = await Assert.ThrowsAsync<SessionDeletionLockedException>(
-            () => guard.EnsureWritableAsync(TenantId, SessionId, callerContext: "IndexReconcile"));
+            () => guard.EnsureWritableAsync(TenantId, SessionId, callerContext: "AnalyzeQueue"));
 
         Assert.Equal(SessionDeletionState.Running, ex.CurrentState);
-        Assert.Equal("IndexReconcile", ex.CallerContext);
+        Assert.Equal("AnalyzeQueue", ex.CallerContext);
         Assert.Equal("MANIFEST-ABC", ex.ManifestId);
     }
 

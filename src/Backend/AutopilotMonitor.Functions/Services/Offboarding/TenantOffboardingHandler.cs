@@ -127,11 +127,6 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.DecisionTransitions,
             Constants.TableNames.EventTypeIndex,
             Constants.TableNames.CveIndex,
-            Constants.TableNames.SessionsByTerminal,
-            Constants.TableNames.SessionsByStage,
-            Constants.TableNames.DeadEndsByReason,
-            Constants.TableNames.ClassifierVerdictsByIdLevel,
-            Constants.TableNames.SignalsByKind,
         };
 
         // Plan §6.3.1 — Variant B (Discriminator + TenantId property).

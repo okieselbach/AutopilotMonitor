@@ -135,8 +135,6 @@ export interface AdminConfiguration {
   whiteGloveSealingPatternIdsJson: string;
   /** Whether vulnerability correlation is globally enabled. When false, agents still collect inventory but backend skips correlation. Default: true */
   vulnerabilityCorrelationEnabled: boolean;
-  /** Feature flag for V2 Decision Engine index-table dual-write (Plan §M5.d). When true, IngestTelemetryFunction enqueues telemetry-index-reconcile envelopes after committing each primary Signals / DecisionTransitions row; a queue-triggered handler (M5.d.3) then writes the 0–3 applicable index rows. Default: false — enables controlled rollout. The 2h reconcile timer (M5.d.4) is the safety-net for queue failures even once the flag is on. */
-  enableIndexDualWrite: boolean;
   /** When true, new tenant signups are activated automatically ~1 minute after first sign-in (tenant-auto-approve queue worker). When false, every signup waits for a manual Global Admin approval in Tenant Management. Default false — the operator opts into auto-activation and can flip it off at any time (e.g. on abuse) to return to manual vetting; messages already in the queue are then dropped, not parked. Round-tripped via the 4-file web chain (memory feedback_admin_config_ui_roundtrip). */
   autoApproveNewTenants: boolean;
   /** When true, the first fleet-wide sighting of a new IME version enqueues an archive job (ime-msi-archive queue) that downloads the installer from the CSP-reported URL into the ime-archive blob container. Roughly one download per Microsoft IME release (~monthly). Default true — flip off to pause archiving (queued messages then wait, they are not dropped). Round-tripped via the 4-file web chain (memory feedback_admin_config_ui_roundtrip). */

@@ -20,7 +20,6 @@ export function SectionGlobalSettings() {
     slaNotificationCooldownHours, setSlaNotificationCooldownHours,
     allowAgentDowngrade, setAllowAgentDowngrade,
     modernDeploymentHarmlessEventIds, setModernDeploymentHarmlessEventIds,
-    enableIndexDualWrite, setEnableIndexDualWrite,
     sessionDeletionKillSwitch, setSessionDeletionKillSwitch,
     autoApproveNewTenants, setAutoApproveNewTenants,
     selfServiceAppHomingEnabled, setSelfServiceAppHomingEnabled,
@@ -60,8 +59,6 @@ export function SectionGlobalSettings() {
         setAllowAgentDowngrade={setAllowAgentDowngrade}
         modernDeploymentHarmlessEventIds={modernDeploymentHarmlessEventIds}
         setModernDeploymentHarmlessEventIds={setModernDeploymentHarmlessEventIds}
-        enableIndexDualWrite={enableIndexDualWrite}
-        setEnableIndexDualWrite={setEnableIndexDualWrite}
         sessionDeletionKillSwitch={sessionDeletionKillSwitch}
         setSessionDeletionKillSwitch={setSessionDeletionKillSwitch}
         autoApproveNewTenants={autoApproveNewTenants}

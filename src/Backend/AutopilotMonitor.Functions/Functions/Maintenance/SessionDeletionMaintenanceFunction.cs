@@ -50,7 +50,7 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
     /// </summary>
     public sealed class SessionDeletionMaintenanceFunction
     {
-        // Plan §16 R14: every 12h. const per repo convention (see IndexReconcileTimer.cs:33).
+        // Plan §16 R14: every 12h. const per repo convention (see SessionSweepFunction.cs).
         private const string Cron = "0 0 */12 * * *";
 
         // Plan §10: Preparing-GC threshold. Producer wall-clock for manifest build of even a

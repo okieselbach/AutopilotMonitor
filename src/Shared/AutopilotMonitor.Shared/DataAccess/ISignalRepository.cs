@@ -70,19 +70,5 @@ namespace AutopilotMonitor.Shared.DataAccess
             int maxResults = 1000,
             CancellationToken cancellationToken = default,
             long maxTotalPayloadChars = SignalQueryLimits.DefaultMaxTotalPayloadChars);
-
-        /// <summary>
-        /// Cross-partition scan of all signals whose Azure Tables server-side <c>Timestamp</c>
-        /// is at or after <paramref name="cutoffUtc"/>. Used by the
-        /// <c>IndexReconcileTimer</c> (Plan §M5.d.4) to re-enqueue the last 4h of primary
-        /// rows as a safety-net against queue failures.
-        /// <para>
-        /// <b>Perf note:</b> Azure Tables has no PK-bound filter here, so this is a scan;
-        /// <paramref name="maxResults"/> bounds memory. If the cap is reached the caller
-        /// should log + narrow the window rather than trust completeness.
-        /// </para>
-        /// </summary>
-        Task<List<SignalRecord>> QueryByTimestampAtOrAfterAsync(
-            DateTime cutoffUtc, int maxResults = 50_000, CancellationToken cancellationToken = default);
     }
 }

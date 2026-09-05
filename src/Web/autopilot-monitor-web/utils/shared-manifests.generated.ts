@@ -50,7 +50,6 @@ export const SHARED_MANIFEST = {
       "modernDeploymentHarmlessEventIdsJson",
       "whiteGloveSealingPatternIdsJson",
       "vulnerabilityCorrelationEnabled",
-      "enableIndexDualWrite",
       "autoApproveNewTenants",
       "imeMsiArchivingEnabled",
       "maxImeMsiDownloadSizeMB",

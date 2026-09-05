@@ -10,11 +10,9 @@ namespace AutopilotMonitor.Shared.Models
     /// PK = <c>{TenantId}_{SessionId}</c>, RK = <c>{StepIndex:D10}</c>.
     /// </para>
     /// <para>
-    /// The index-discriminator columns (<see cref="IsTerminal"/>, <see cref="ClassifierVerdictId"/>,
-    /// <see cref="ClassifierHypothesisLevel"/>) are projected eagerly so index-table fan-out
-    /// (SessionsByTerminal / ClassifierVerdictsByIdLevel / …) can happen without re-parsing
-    /// <see cref="PayloadJson"/>. The primary write stores them inline; the queue-driven
-    /// index writer reads them straight off the primary row.
+    /// The discriminator columns (<see cref="IsTerminal"/>, <see cref="ClassifierVerdictId"/>,
+    /// <see cref="ClassifierHypothesisLevel"/>) are projected eagerly so readers such as the
+    /// decision-graph builder never re-parse <see cref="PayloadJson"/>.
     /// </para>
     /// </summary>
     public sealed class DecisionTransitionRecord

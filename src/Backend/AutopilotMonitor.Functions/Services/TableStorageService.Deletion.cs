@@ -379,28 +379,6 @@ namespace AutopilotMonitor.Functions.Services
             return DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.CveIndex, keys, ct);
         }
 
-        // ---------------- DISCRIMINATOR_PK_PROP -----------------------------------------------
-
-        public Task<DeletionBatchResult> DeleteSessionsByTerminalAsync(
-            IReadOnlyList<(string Pk, string Rk)> keys, CancellationToken ct = default)
-            => DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.SessionsByTerminal, keys, ct);
-
-        public Task<DeletionBatchResult> DeleteSessionsByStageAsync(
-            IReadOnlyList<(string Pk, string Rk)> keys, CancellationToken ct = default)
-            => DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.SessionsByStage, keys, ct);
-
-        public Task<DeletionBatchResult> DeleteDeadEndsByReasonAsync(
-            IReadOnlyList<(string Pk, string Rk)> keys, CancellationToken ct = default)
-            => DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.DeadEndsByReason, keys, ct);
-
-        public Task<DeletionBatchResult> DeleteClassifierVerdictsByIdLevelAsync(
-            IReadOnlyList<(string Pk, string Rk)> keys, CancellationToken ct = default)
-            => DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.ClassifierVerdictsByIdLevel, keys, ct);
-
-        public Task<DeletionBatchResult> DeleteSignalsByKindAsync(
-            IReadOnlyList<(string Pk, string Rk)> keys, CancellationToken ct = default)
-            => DeleteByExactKeysInBatchesAsync(Shared.Constants.TableNames.SignalsByKind, keys, ct);
-
         // ---------------- PK_RK_EXACT (single-row) --------------------------------------------
 
         public async Task DeleteDeviceSnapshotAsync(string tenantId, string sessionId, CancellationToken ct = default)

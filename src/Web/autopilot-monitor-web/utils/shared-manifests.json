@@ -46,7 +46,6 @@
       "modernDeploymentHarmlessEventIdsJson",
       "whiteGloveSealingPatternIdsJson",
       "vulnerabilityCorrelationEnabled",
-      "enableIndexDualWrite",
       "autoApproveNewTenants",
       "imeMsiArchivingEnabled",
       "maxImeMsiDownloadSizeMB",
@@ -1090,14 +1089,6 @@
             "name": "boolean"
           },
           "doc": "Whether vulnerability correlation is globally enabled. When false, agents still collect inventory but backend skips correlation. Default: true"
-        },
-        {
-          "name": "enableIndexDualWrite",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Feature flag for V2 Decision Engine index-table dual-write (Plan §M5.d). When true, IngestTelemetryFunction enqueues telemetry-index-reconcile envelopes after committing each primary Signals / DecisionTransitions row; a queue-triggered handler (M5.d.3) then writes the 0–3 applicable index rows. Default: false — enables controlled rollout. The 2h reconcile timer (M5.d.4) is the safety-net for queue failures even once the flag is on."
         },
         {
           "name": "autoApproveNewTenants",

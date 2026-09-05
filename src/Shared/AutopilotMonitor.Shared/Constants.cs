@@ -1323,16 +1323,6 @@ namespace AutopilotMonitor.Shared
             public const string Signals             = "Signals";
             public const string DecisionTransitions = "DecisionTransitions";
 
-            // V2 Decision Engine index tables (Plan §2.8 query matrix + §M5.d). Secondary
-            // projections written asynchronously via the `telemetry-index-reconcile` queue
-            // after the primary Signals / DecisionTransitions row has committed. Eventual
-            // consistency; a 2h timer re-indexes the last 4h as a safety-net on queue failures.
-            public const string SessionsByTerminal          = "SessionsByTerminal";
-            public const string SessionsByStage             = "SessionsByStage";
-            public const string DeadEndsByReason            = "DeadEndsByReason";
-            public const string ClassifierVerdictsByIdLevel = "ClassifierVerdictsByIdLevel";
-            public const string SignalsByKind               = "SignalsByKind";
-
             // Tenant offboarding audit (cascade-worker plan, Rev 9). Houses three
             // PartitionKey patterns side-by-side:
             //   - "OffboardingMarker"   (1 row/tenant,  RK=tenantId) active 403-gate marker
@@ -1458,11 +1448,6 @@ namespace AutopilotMonitor.Shared
                 SessionTombstones,
                 Signals,
                 DecisionTransitions,
-                SessionsByTerminal,
-                SessionsByStage,
-                DeadEndsByReason,
-                ClassifierVerdictsByIdLevel,
-                SignalsByKind,
                 OffboardingAudit,
                 TenantOffboardingCustomsArchive,
                 ScriptNameCache,
@@ -1586,14 +1571,6 @@ namespace AutopilotMonitor.Shared
             /// max-dequeue 5.
             /// </summary>
             public const string NotificationDispatch = "notification-dispatch";
-
-            /// <summary>
-            /// V2 Decision Engine index-table fan-out (Plan §2.8, §M5.d). One message per
-            /// committed primary row (Signal or DecisionTransition); consumer writes the
-            /// 0–3 applicable index rows. Eventual consistency; the 2h reconcile timer is
-            /// the safety net on queue failures.
-            /// </summary>
-            public const string TelemetryIndexReconcile = "telemetry-index-reconcile";
 
             /// <summary>
             /// Auto-analyze fan-out at session end (enrollment_complete / enrollment_failed)
