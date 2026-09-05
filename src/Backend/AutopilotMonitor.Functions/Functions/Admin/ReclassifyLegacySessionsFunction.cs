@@ -59,15 +59,11 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 return await req.BadRequestAsync("tenantId must be a GUID");
             }
 
-            var maxSessions = DefaultMaxSessions;
-            if (!string.IsNullOrEmpty(req.Query["maxSessions"]))
+            if (!QueryParams.TryInt(req.Query["maxSessions"], "maxSessions", 1, MaxMaxSessions, out var maxSessionsOrNull, out var maxSessionsError))
             {
-                if (!int.TryParse(req.Query["maxSessions"], out maxSessions) || maxSessions < 1)
-                {
-                    return await req.BadRequestAsync($"maxSessions must be a positive integer (max {MaxMaxSessions})");
-                }
-                maxSessions = Math.Min(maxSessions, MaxMaxSessions);
+                return await req.BadRequestAsync(maxSessionsError!);
             }
+            var maxSessions = maxSessionsOrNull ?? DefaultMaxSessions;
 
             _logger.LogInformation(
                 "Legacy reclassification requested by {User}: mode={Mode} dryRun={DryRun} tenantScope={TenantScope} maxSessions={MaxSessions}",

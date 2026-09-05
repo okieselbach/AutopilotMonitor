@@ -289,13 +289,4 @@ public class VerdictCalibrationTests
         Assert.Equal(0, json.GetProperty("totals").GetProperty("sessions").GetInt32());
         Assert.Equal(JsonValueKind.Null, json.GetProperty("computedAt").ValueKind);
     }
-
-    [Theory]
-    [InlineData(null, 30)]
-    [InlineData("abc", 30)]
-    [InlineData("0", 1)]
-    [InlineData("500", 180)]
-    [InlineData("14", 14)]
-    public void ClampDays_bounds_the_window(string? raw, int expected)
-        => Assert.Equal(expected, VerdictCalibrationResponseBuilder.ClampDays(raw));
 }

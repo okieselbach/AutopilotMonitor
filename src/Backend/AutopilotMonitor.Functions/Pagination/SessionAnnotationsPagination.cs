@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -19,7 +20,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class SessionAnnotationsPagination
     {
         public const int DefaultPageSize = 200;
-        public const int MaxPageSize = 1000;
         /// <summary>
         /// Cap on the free-text note search (<c>?q=</c>). Notes themselves are capped at 4096
         /// characters; a search term longer than this is never a real query.
@@ -62,16 +62,10 @@ namespace AutopilotMonitor.Functions.Pagination
 
         public static Parsed ParseQuery(NameValueCollection? query)
         {
-            var pageSize = DefaultPageSize;
             var pageSizeRaw = query?["pageSize"];
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSizeOrNull, out var pageSizeError))
+                return new Parsed { Error = pageSizeError };
+            var pageSize = pageSizeOrNull ?? DefaultPageSize;
 
             var lane = Normalize(query?["lane"]);
             if (lane != null && !AnnotationLanes.All.Contains(lane))
@@ -81,10 +75,10 @@ namespace AutopilotMonitor.Functions.Pagination
             if (verdict != null && !AnnotationVerdicts.All.Contains(verdict))
                 return new Parsed { Error = $"verdict must be one of: {string.Join(", ", AnnotationVerdicts.All)}" };
 
-            if (!TryParseDate(query?["dateFrom"], out var dateFrom))
-                return new Parsed { Error = "dateFrom must be an ISO 8601 date" };
-            if (!TryParseDate(query?["dateTo"], out var dateTo))
-                return new Parsed { Error = "dateTo must be an ISO 8601 date" };
+            if (!QueryParams.TryUtcInstant(query?["dateFrom"], "dateFrom", out var dateFrom, out var dateError))
+                return new Parsed { Error = dateError };
+            if (!QueryParams.TryUtcInstant(query?["dateTo"], "dateTo", out var dateTo, out dateError))
+                return new Parsed { Error = dateError };
 
             var search = NullIfEmpty(query?["q"]?.Trim());
             if (search != null && search.Length > MaxQueryLength)
@@ -147,18 +141,6 @@ namespace AutopilotMonitor.Functions.Pagination
         {
             if (!string.IsNullOrEmpty(value))
                 sb.Append('&').Append(name).Append('=').Append(Uri.EscapeDataString(value!));
-        }
-
-        private static bool TryParseDate(string? raw, out DateTime? value)
-        {
-            value = null;
-            if (string.IsNullOrEmpty(raw)) return true;
-            if (!DateTime.TryParse(
-                    raw, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-                return false;
-            value = parsed;
-            return true;
         }
 
         private static string? Normalize(string? raw) =>

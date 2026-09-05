@@ -46,21 +46,15 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 }
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                int days = 30;
-                if (int.TryParse(query["days"], out var parsedDays) && parsedDays > 0 && parsedDays <= 365)
-                    days = parsedDays;
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var statusFilter = (query["status"] ?? "all").Trim().ToLowerInvariant();
                 var modelFilter = query["model"];
                 var versionFilter = query["version"];
 
-                int offset = 0;
-                if (int.TryParse(query["offset"], out var parsedOffset) && parsedOffset >= 0)
-                    offset = parsedOffset;
+                var offset = QueryParams.Int(query["offset"], @default: 0, min: 0, max: int.MaxValue);
 
-                int limit = DefaultLimit;
-                if (int.TryParse(query["limit"], out var parsedLimit) && parsedLimit > 0)
-                    limit = Math.Min(parsedLimit, MaxLimit);
+                var limit = QueryParams.Int(query["limit"], DefaultLimit, 1, MaxLimit);
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 var body = await AppsAnalyticsHelper.BuildSessionsResponseAsync(

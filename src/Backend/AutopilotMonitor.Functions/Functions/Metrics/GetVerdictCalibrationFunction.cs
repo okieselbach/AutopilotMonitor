@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
                 var tenantIdFilter = query["tenantId"];
-                var days = VerdictCalibrationResponseBuilder.ClampDays(query["days"]);
+                var days = QueryParams.Int(query["days"], VerdictCalibrationResponseBuilder.DefaultWindowDays, 1, VerdictCalibrationResponseBuilder.MaxWindowDays);
                 var partition = "global";
                 if (!string.IsNullOrWhiteSpace(tenantIdFilter))
                 {
@@ -84,12 +84,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         internal const int TrendWindowDays = 7;
         internal const int TrendBaselineDays = 28;
         internal const int TrendHorizonDays = TrendWindowDays + TrendBaselineDays;
-
-        internal static int ClampDays(string? raw)
-        {
-            if (!int.TryParse(raw, out var days)) return DefaultWindowDays;
-            return Math.Clamp(days, 1, MaxWindowDays);
-        }
 
         /// <summary>"Last N days" = exactly N calendar day keys including today (both range ends inclusive).</summary>
         internal static DateTime InclusiveWindowStart(DateTime today, int days) => today.AddDays(-(days - 1));

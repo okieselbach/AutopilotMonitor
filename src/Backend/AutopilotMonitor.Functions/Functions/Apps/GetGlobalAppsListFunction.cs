@@ -39,9 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 {
                     return await req.BadRequestAsync("tenantId must be a valid GUID");
                 }
-                int days = 30;
-                if (int.TryParse(query["days"], out var parsedDays) && parsedDays > 0 && parsedDays <= 365)
-                    days = parsedDays;
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 _logger.LogInformation(
                     "Global apps/list requested (user: {User}, tenantId: {TenantId}, days: {Days})",

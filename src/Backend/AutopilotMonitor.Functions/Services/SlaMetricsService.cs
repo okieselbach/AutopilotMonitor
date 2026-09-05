@@ -55,9 +55,12 @@ namespace AutopilotMonitor.Functions.Services
                 _cache.TryRemove(key, out _);
         }
 
+        /// <summary>Widest window the SLA aggregates serve; the HTTP layer caps <c>months</c> at this too.</summary>
+        public const int MaxMonths = 6;
+
         public async Task<SlaMetricsResponse> ComputeSlaMetricsAsync(string tenantId, int months = 3, bool fresh = false)
         {
-            months = Math.Clamp(months, 1, 6);
+            months = Math.Clamp(months, 1, MaxMonths);
 
             var cacheKey = $"{tenantId}:{months}";
 

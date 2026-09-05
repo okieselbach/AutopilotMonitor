@@ -158,10 +158,10 @@ public class SearchSessionsFunction
         if (bool.TryParse(query["isHybridJoin"], out var ihj)) filter.IsHybridJoin = ihj;
         if (bool.TryParse(query["isSelfDeployingProfile"], out var isdp)) filter.IsSelfDeployingProfile = isdp;
         if (bool.TryParse(query["isCloudPc"], out var icp)) filter.IsCloudPc = icp;
-        if (DateTime.TryParse(query["startedAfter"], out var sa)) filter.StartedAfter = sa;
-        if (DateTime.TryParse(query["startedBefore"], out var sb)) filter.StartedBefore = sb;
-        if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
-        if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
+        filter.StartedAfter = QueryParams.UtcInstant(query["startedAfter"]);
+        filter.StartedBefore = QueryParams.UtcInstant(query["startedBefore"]);
+        filter.RebootCountMin = QueryParams.IntOrNull(query["rebootCountMin"]);
+        filter.RebootCountMax = QueryParams.IntOrNull(query["rebootCountMax"]);
 
         // Dynamic device property filters: any query param starting with "prop."
         var deviceProperties = new Dictionary<string, string>();

@@ -47,9 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 }
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                int days = 30;
-                if (int.TryParse(query["days"], out var parsedDays) && parsedDays > 0 && parsedDays <= 365)
-                    days = parsedDays;
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var summaries = await AppsAnalyticsHelper.LoadSummariesAsync(_metricsRepo, tenantId, days);
                 // Active duration-regression episodes for this app (fail-soft: empty on error).

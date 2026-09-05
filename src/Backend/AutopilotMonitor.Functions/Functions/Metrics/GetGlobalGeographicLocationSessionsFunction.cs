@@ -45,10 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     return await req.BadRequestAsync("locationKey or country parameter is required");
                 }
 
-                var daysParam = query["days"];
-                int days = 30;
-                if (!string.IsNullOrEmpty(daysParam) && int.TryParse(daysParam, out var parsedDays) && parsedDays > 0)
-                    days = parsedDays;
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var groupBy = query["groupBy"] ?? "city";
                 var full = string.Equals(query["full"], "1", StringComparison.Ordinal);

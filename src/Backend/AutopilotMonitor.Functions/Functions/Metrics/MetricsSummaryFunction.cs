@@ -26,7 +26,7 @@ public class MetricsSummaryFunction
         try
         {
             var tenantId = TenantHelper.GetTenantId(req);
-            var days = ParseDays(req);
+            var days = QueryParams.Int(req.Query["days"], @default: 30, min: 1, max: 365);
             var summary = await _metricsRepo.GetMetricsSummaryAsync(tenantId, days);
 
             var response = req.CreateResponse(HttpStatusCode.OK);
@@ -45,7 +45,7 @@ public class MetricsSummaryFunction
     {
         try
         {
-            var days = ParseDays(req);
+            var days = QueryParams.Int(req.Query["days"], @default: 30, min: 1, max: 365);
             // Optional tenantId filter — when set, GA scopes the cross-tenant summary to one
             // tenant. When absent, returns the full cross-tenant view (null → all tenants).
             var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
@@ -72,17 +72,5 @@ public class MetricsSummaryFunction
         {
             return await req.InternalServerErrorAsync(_logger, ex, "Get global metrics summary");
         }
-    }
-
-    private static int ParseDays(HttpRequestData req)
-    {
-        var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-        var raw = query["days"];
-        var days = 30;
-        if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
-            days = parsed;
-        if (days < 1) days = 1;
-        if (days > 365) days = 365;
-        return days;
     }
 }

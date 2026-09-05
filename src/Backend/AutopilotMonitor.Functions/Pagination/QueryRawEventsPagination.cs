@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -32,7 +33,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class QueryRawEventsPagination
     {
         public const int DefaultPageSize = 200;
-        public const int MaxPageSize = 1000;
 
         /// <summary>
         /// Slack between an event's sanitized time and the write time of its EventTypeIndex
@@ -47,22 +47,6 @@ namespace AutopilotMonitor.Functions.Pagination
         /// <summary>Lower bound on index-row write time implied by <paramref name="startedAfterUtc"/>; null when no lower bound was given.</summary>
         public static DateTime? IndexWrittenAfterHint(DateTime? startedAfterUtc)
             => startedAfterUtc.HasValue ? startedAfterUtc.Value - IndexWriteTimeSlack : null;
-
-        /// <summary>
-        /// Parses an ISO-8601 query value as a UTC instant. Returns false only for a non-empty
-        /// value that does not parse — an absent/empty value yields <c>null</c> and true.
-        /// A bare (offset-less) value is taken as UTC, never as server-local time.
-        /// </summary>
-        public static bool TryParseUtc(string? raw, out DateTime? utc)
-        {
-            utc = null;
-            if (string.IsNullOrWhiteSpace(raw)) return true;
-            if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-                return false;
-            utc = parsed;
-            return true;
-        }
 
         public static string Fingerprint(
             string scope,
@@ -104,15 +88,9 @@ namespace AutopilotMonitor.Functions.Pagination
             var pageSizeRaw = query?["pageSize"];
             var continuationRaw = query?["continuation"];
 
-            int pageSize = DefaultPageSize;
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { PageSize = DefaultPageSize, Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { PageSize = DefaultPageSize, Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSizeOrNull, out var pageSizeError))
+                return new Parsed { PageSize = DefaultPageSize, Error = pageSizeError };
+            var pageSize = pageSizeOrNull ?? DefaultPageSize;
 
             return new Parsed
             {

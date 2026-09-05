@@ -10,21 +10,6 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class RuleHitSessionsFunctionTests
 {
-    [Theory]
-    [InlineData(null, 14)]        // not supplied → default window
-    [InlineData("", 14)]          // empty → default
-    [InlineData("garbage", 14)]   // non-numeric → default
-    [InlineData("14", 14)]
-    [InlineData("1", 1)]
-    [InlineData("0", 1)]          // below range → clamped up
-    [InlineData("-5", 1)]
-    [InlineData("90", 90)]
-    [InlineData("365", 90)]       // above range → clamped down
-    public void ParseDays_Defaults_And_Clamps(string? raw, int expected)
-    {
-        Assert.Equal(expected, RuleHitSessionsFunction.ParseDays(raw));
-    }
-
     [Fact]
     public void MaxSessionIds_Matches_Repository_Default_Cap()
     {

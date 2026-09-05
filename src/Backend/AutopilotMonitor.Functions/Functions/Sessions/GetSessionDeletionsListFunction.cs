@@ -61,19 +61,14 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     return await req.BadRequestAsync("Query parameter 'state' must be one of: Preparing, Queued, Running, Poisoned.");
                 }
 
-                int? strandedSinceMinutes = null;
-                var strandedRaw = query["strandedSinceMinutes"];
-                if (!string.IsNullOrEmpty(strandedRaw))
+                // 10080 minutes = 7 days.
+                if (!QueryParams.TryInt(query["strandedSinceMinutes"], "strandedSinceMinutes", 1, 10080, out var strandedSinceMinutes, out var strandedError))
                 {
-                    if (state != SessionDeletionState.Queued)
-                    {
-                        return await req.BadRequestAsync("strandedSinceMinutes is only valid with state=Queued.");
-                    }
-                    if (!int.TryParse(strandedRaw, out var minutes) || minutes <= 0 || minutes > 10080)
-                    {
-                        return await req.BadRequestAsync("strandedSinceMinutes must be a positive integer up to 10080 (7 days).");
-                    }
-                    strandedSinceMinutes = minutes;
+                    return await req.BadRequestAsync(strandedError!);
+                }
+                if (strandedSinceMinutes.HasValue && state != SessionDeletionState.Queued)
+                {
+                    return await req.BadRequestAsync("strandedSinceMinutes is only valid with state=Queued.");
                 }
 
                 var cutoffUtc = strandedSinceMinutes.HasValue

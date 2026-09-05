@@ -44,9 +44,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var requestCtx = req.GetRequestContext();
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var max = int.TryParse(query["max"], out var parsed)
-                    ? Math.Clamp(parsed, 1, MaxListSize)
-                    : MaxListSize;
+                var max = QueryParams.Int(query["max"], MaxListSize, 1, MaxListSize);
 
                 var backups = await _backupRepo.ListByPartitionAsync(requestCtx.TargetTenantId, max);
 

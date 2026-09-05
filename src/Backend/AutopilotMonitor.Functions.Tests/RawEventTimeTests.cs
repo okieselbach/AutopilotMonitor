@@ -116,30 +116,4 @@ public class RawEventTimeTests
         Assert.Equal(Occurred - expectedSlack, QueryRawEventsPagination.IndexWrittenAfterHint(Occurred));
         Assert.Null(QueryRawEventsPagination.IndexWrittenAfterHint(null));
     }
-
-    // ===== TryParseUtc =====
-
-    [Fact]
-    public void TryParseUtc_reads_offset_and_bare_values_as_utc()
-    {
-        Assert.True(QueryRawEventsPagination.TryParseUtc("2026-08-29T20:11:00Z", out var z));
-        Assert.True(QueryRawEventsPagination.TryParseUtc("2026-08-29T22:11:00+02:00", out var offset));
-        Assert.True(QueryRawEventsPagination.TryParseUtc("2026-08-29T20:11:00", out var bare));
-
-        Assert.Equal(Occurred, z);
-        Assert.Equal(Occurred, offset);
-        Assert.Equal(Occurred, bare);
-        Assert.Equal(DateTimeKind.Utc, z!.Value.Kind);
-        Assert.Equal(DateTimeKind.Utc, bare!.Value.Kind);
-    }
-
-    [Fact]
-    public void TryParseUtc_treats_empty_as_no_filter_and_garbage_as_error()
-    {
-        Assert.True(QueryRawEventsPagination.TryParseUtc(null, out var none));
-        Assert.Null(none);
-        Assert.True(QueryRawEventsPagination.TryParseUtc("  ", out var blank));
-        Assert.Null(blank);
-        Assert.False(QueryRawEventsPagination.TryParseUtc("yesterday", out _));
-    }
 }

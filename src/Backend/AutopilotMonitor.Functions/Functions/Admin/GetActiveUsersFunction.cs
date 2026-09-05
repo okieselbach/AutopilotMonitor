@@ -36,9 +36,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             try
             {
                 var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
-                var windowMinutes = DefaultWindowMinutes;
-                if (int.TryParse(query["windowMinutes"], out var parsed))
-                    windowMinutes = Math.Clamp(parsed, MinWindowMinutes, MaxWindowMinutes);
+                var windowMinutes = QueryParams.Int(query["windowMinutes"], DefaultWindowMinutes, MinWindowMinutes, MaxWindowMinutes);
 
                 var now = DateTime.UtcNow;
                 var active = await _metricsRepo.GetActivePresenceAsync(TimeSpan.FromMinutes(windowMinutes));

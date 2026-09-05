@@ -87,10 +87,13 @@ namespace AutopilotMonitor.Functions.Functions.Raw
 
             // Date window: an unparsable value is an error, not a silently dropped filter —
             // a caller that believes it narrowed the window must never get the whole table.
-            if (!QueryRawEventsPagination.TryParseUtc(startedAfter, out var afterUtc)
-                || !QueryRawEventsPagination.TryParseUtc(startedBefore, out var beforeUtc))
+            if (!QueryParams.TryUtcInstant(startedAfter, "startedAfter", out var afterUtc, out var dateError))
             {
-                return await req.BadRequestAsync("startedAfter/startedBefore must be ISO 8601 datetimes");
+                return await req.BadRequestAsync(dateError!);
+            }
+            if (!QueryParams.TryUtcInstant(startedBefore, "startedBefore", out var beforeUtc, out dateError))
+            {
+                return await req.BadRequestAsync(dateError!);
             }
 
             var callerTenantId = TenantHelper.GetTenantId(req);

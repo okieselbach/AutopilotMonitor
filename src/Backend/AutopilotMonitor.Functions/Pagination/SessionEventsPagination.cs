@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -14,7 +15,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class SessionEventsPagination
     {
         public const int DefaultPageSize = 200;
-        public const int MaxPageSize = 1000;
 
         /// <summary>Fingerprint binding tokens to <c>(tenantId, sessionId)</c>.</summary>
         public static string Fingerprint(string tenantId, string sessionId) =>
@@ -51,19 +51,8 @@ namespace AutopilotMonitor.Functions.Pagination
             var rawPageSize = query["pageSize"];
             var rawContinuation = query["continuation"];
 
-            int? pageSize = null;
-            if (!string.IsNullOrEmpty(rawPageSize))
-            {
-                if (!int.TryParse(rawPageSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                {
-                    return new Parsed { Error = "pageSize must be an integer" };
-                }
-                if (n < 1 || n > MaxPageSize)
-                {
-                    return new Parsed { Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                }
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(rawPageSize, out var pageSize, out var pageSizeError))
+                return new Parsed { Error = pageSizeError };
 
             // continuation without pageSize is meaningless — silently drop it
             // rather than 400, so a caller that toggles pageSize off does not get

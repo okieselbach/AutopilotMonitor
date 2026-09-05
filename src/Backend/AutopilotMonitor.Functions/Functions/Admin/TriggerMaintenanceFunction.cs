@@ -51,18 +51,14 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 var dateParam = req.Query["date"];
                 var aggregateOnlyParam = req.Query["aggregateOnly"];
 
-                DateTime? targetDate = null;
-                if (!string.IsNullOrEmpty(dateParam))
+                if (!QueryParams.TryUtcInstant(dateParam, "date", out var dateInstant, out _))
                 {
-                    if (DateTime.TryParse(dateParam, out var parsedDate))
-                    {
-                        targetDate = parsedDate.Date;
-                        _logger.LogInformation($"Manual maintenance for date: {targetDate:yyyy-MM-dd}");
-                    }
-                    else
-                    {
-                        return await req.BadRequestAsync("Invalid date format. Use yyyy-MM-dd");
-                    }
+                    return await req.BadRequestAsync("Invalid date format. Use yyyy-MM-dd");
+                }
+                DateTime? targetDate = dateInstant?.Date;
+                if (targetDate.HasValue)
+                {
+                    _logger.LogInformation($"Manual maintenance for date: {targetDate:yyyy-MM-dd}");
                 }
 
                 bool aggregateOnly = aggregateOnlyParam?.ToLower() == "true";

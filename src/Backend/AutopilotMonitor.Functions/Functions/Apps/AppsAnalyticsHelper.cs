@@ -51,19 +51,15 @@ namespace AutopilotMonitor.Functions.Functions.Apps
         /// </summary>
         public static AppsPaging ParseAppsPaging(NameValueCollection query)
         {
-            var pageSizeRaw = query["pageSize"];
-            if (string.IsNullOrEmpty(pageSizeRaw))
+            if (!QueryParams.TryInt(query["pageSize"], "pageSize", 1, MaxAppsPageSize, out var pageSize, out var error))
+                return new AppsPaging { Error = error };
+            if (pageSize == null)
                 return new AppsPaging { PageSize = null, Skip = 0 };
 
-            if (!int.TryParse(pageSizeRaw, out var pageSize) || pageSize < 1 || pageSize > MaxAppsPageSize)
-                return new AppsPaging { Error = $"pageSize must be between 1 and {MaxAppsPageSize}" };
+            if (!QueryParams.TryInt(query["skip"], "skip", 0, int.MaxValue, out var skip, out error))
+                return new AppsPaging { Error = error };
 
-            var skip = 0;
-            var skipRaw = query["skip"];
-            if (!string.IsNullOrEmpty(skipRaw) && (!int.TryParse(skipRaw, out skip) || skip < 0))
-                return new AppsPaging { Error = "skip must be a non-negative integer" };
-
-            return new AppsPaging { PageSize = pageSize, Skip = skip };
+            return new AppsPaging { PageSize = pageSize, Skip = skip ?? 0 };
         }
 
         // ── Data loaders ────────────────────────────────────────────────────

@@ -726,17 +726,6 @@ public class DeviceJourneyAndFtrTests
         Assert.Equal(3, totals.ExcludedSessions);
     }
 
-    [Theory]
-    [InlineData(null, 30)]     // default window
-    [InlineData("garbage", 30)]
-    [InlineData("7", 7)]
-    [InlineData("0", 1)]       // clamped low
-    [InlineData("999", 180)]   // clamped to aggregate retention
-    public void ClampDays_DefaultsAndClamps(string? raw, int expected)
-    {
-        Assert.Equal(expected, DeviceJourneyMetricsResponseBuilder.ClampDays(raw));
-    }
-
     [Fact]
     public void InclusiveWindowStart_YieldsExactlyNCalendarDays()
     {

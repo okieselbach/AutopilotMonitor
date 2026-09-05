@@ -65,19 +65,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
         internal static bool TryParseDays(string? raw, out int days, out string? error)
         {
-            days = DefaultDays;
-            error = null;
-            if (string.IsNullOrEmpty(raw)) return true;
-
-            if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-                || parsed < 1 || parsed > MaxDays)
-            {
-                error = $"days must be a positive integer between 1 and {MaxDays}";
-                return false;
-            }
-
-            days = parsed;
-            return true;
+            var ok = QueryParams.TryInt(raw, "days", 1, MaxDays, out var parsed, out error);
+            days = parsed ?? DefaultDays;
+            return ok;
         }
     }
 }

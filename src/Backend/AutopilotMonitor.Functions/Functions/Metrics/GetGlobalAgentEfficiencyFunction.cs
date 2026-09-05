@@ -35,8 +35,8 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var days = ParseIntParam(query["days"], defaultValue: 30, min: 1, max: 365);
-                var limit = ParseIntParam(query["limit"], defaultValue: 500, min: 1, max: 2000);
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
+                var limit = QueryParams.Int(query["limit"], @default: 500, min: 1, max: 2000);
 
                 var tenantIdRaw = query["tenantId"];
                 string? tenantId = null;
@@ -61,16 +61,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalAgentEfficiency");
             }
-        }
-
-        private static int ParseIntParam(string? raw, int defaultValue, int min, int max)
-        {
-            var value = defaultValue;
-            if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
-                value = parsed;
-            if (value < min) value = min;
-            if (value > max) value = max;
-            return value;
         }
     }
 }

@@ -34,8 +34,13 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
-                var days = ParseDays(req);
-                var limit = ParseLimit(req);
+                var days = QueryParams.Int(req.Query["days"], @default: 90, min: 1, max: 365);
+                // limit drives the per-session work the service performs (each session
+                // triggers its own GetSessionEventsAsync call). The UI dropdown sets it
+                // explicitly so the user controls the analysis depth (e.g. 90 days x 1000
+                // sessions); the service bounds its concurrency internally, and the hard
+                // ceiling of 2000 protects against runaway query strings.
+                var limit = QueryParams.Int(req.Query["limit"], @default: 100, min: 1, max: 2000);
                 var metrics = await _platformMetricsService.ComputePlatformMetricsAsync(days, limit);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -47,36 +52,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "GetGlobalPlatformMetrics");
             }
-        }
-
-        private static int ParseDays(HttpRequestData req)
-        {
-            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-            var raw = query["days"];
-            var days = 90;
-            if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
-                days = parsed;
-            if (days < 1) days = 1;
-            if (days > 365) days = 365;
-            return days;
-        }
-
-        // Drives the per-session work the service performs (each session
-        // triggers its own GetSessionEventsAsync call). The UI dropdown sets
-        // this explicitly so the user controls the analysis depth (e.g.
-        // 90 days × 1000 sessions). The service uses bounded concurrency
-        // internally so even large limits don't blow the Function timeout.
-        // Hard ceiling 2000 protects against runaway query strings.
-        private static int ParseLimit(HttpRequestData req)
-        {
-            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-            var raw = query["limit"];
-            var limit = 100;
-            if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
-                limit = parsed;
-            if (limit < 1) limit = 1;
-            if (limit > 2000) limit = 2000;
-            return limit;
         }
     }
 }

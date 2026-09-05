@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -16,7 +17,8 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class SessionListPagination
     {
         public const int DefaultPageSize = 100;
-        public const int MaxPageSize = 1000;
+        /// <summary>Scan-cost cap on <c>days</c>; a wider window is a 400, never a silent narrowing.</summary>
+        public const int MaxDays = 365;
 
         /// <summary>
         /// Fingerprint binding the token to <c>(scope, callerTenantId, days, filterTenantId)</c>.
@@ -47,23 +49,12 @@ namespace AutopilotMonitor.Functions.Pagination
             var daysRaw = query?["days"];
             var filterTenantIdRaw = acceptFilterTenantId ? query?["tenantId"] : null;
 
-            int pageSize = DefaultPageSize;
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { PageSize = DefaultPageSize, Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { PageSize = DefaultPageSize, Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSizeOrNull, out var pageSizeError))
+                return new Parsed { PageSize = DefaultPageSize, Error = pageSizeError };
+            var pageSize = pageSizeOrNull ?? DefaultPageSize;
 
-            int? days = null;
-            if (!string.IsNullOrEmpty(daysRaw))
-            {
-                if (!int.TryParse(daysRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) || d < 1)
-                    return new Parsed { PageSize = pageSize, Error = "days must be a positive integer" };
-                days = d;
-            }
+            if (!QueryParams.TryInt(daysRaw, "days", 1, MaxDays, out var days, out var daysError))
+                return new Parsed { PageSize = pageSize, Error = daysError };
 
             return new Parsed
             {

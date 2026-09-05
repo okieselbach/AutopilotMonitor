@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Optional tenantId query parameter: when provided, return tenant-specific metrics
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
                 var tenantId = query["tenantId"];
-                var days = ParseDays(query);
+                var days = QueryParams.Int(query["days"], @default: 90, min: 1, max: 365);
 
                 var metrics = !string.IsNullOrEmpty(tenantId)
                     ? await _usageMetricsService.ComputeTenantUsageMetricsAsync(tenantId, days)
@@ -56,17 +56,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "PlatformUsageMetrics");
             }
-        }
-
-        private static int ParseDays(System.Collections.Specialized.NameValueCollection query)
-        {
-            var raw = query["days"];
-            var days = 90;
-            if (!string.IsNullOrEmpty(raw) && int.TryParse(raw, out var parsed) && parsed > 0)
-                days = parsed;
-            if (days < 1) days = 1;
-            if (days > 365) days = 365;
-            return days;
         }
     }
 }

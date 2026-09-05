@@ -57,15 +57,11 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             var dryRun = !string.Equals(req.Query["dryRun"], "false", StringComparison.OrdinalIgnoreCase);
             var continuation = req.Query["continuation"];
 
-            var maxRows = DefaultMaxRows;
-            if (!string.IsNullOrEmpty(req.Query["maxRows"]))
+            if (!QueryParams.TryInt(req.Query["maxRows"], "maxRows", 1, MaxMaxRows, out var maxRowsOrNull, out var maxRowsError))
             {
-                if (!int.TryParse(req.Query["maxRows"], out maxRows) || maxRows < 1)
-                {
-                    return await req.BadRequestAsync($"maxRows must be a positive integer (max {MaxMaxRows})");
-                }
-                maxRows = Math.Min(maxRows, MaxMaxRows);
+                return await req.BadRequestAsync(maxRowsError!);
             }
+            var maxRows = maxRowsOrNull ?? DefaultMaxRows;
 
             _logger.LogInformation(
                 "OccurredUtc backfill requested by {User}: table={Table} dryRun={DryRun} maxRows={MaxRows} hasContinuation={HasContinuation}",

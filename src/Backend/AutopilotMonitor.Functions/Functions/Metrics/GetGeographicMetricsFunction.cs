@@ -36,12 +36,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 _logger.LogInformation("Fetching geographic metrics for tenant {TenantId}", tenantId);
 
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var daysParam = query["days"];
-                int days = 30;
-                if (!string.IsNullOrEmpty(daysParam) && int.TryParse(daysParam, out var parsedDays) && parsedDays > 0)
-                    days = parsedDays;
-                if (days < 1) days = 1;
-                if (days > 365) days = 365;
+                var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var groupBy = query["groupBy"] ?? "city";
 

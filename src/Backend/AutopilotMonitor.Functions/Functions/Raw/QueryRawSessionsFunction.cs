@@ -115,10 +115,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 OsBuild = string.IsNullOrEmpty(osBuild) ? null : osBuild,
                 GeoCountry = string.IsNullOrEmpty(geoCountry) ? null : geoCountry,
             };
-            if (!string.IsNullOrEmpty(startedAfter) && DateTime.TryParse(startedAfter, out var after))
-                filter.StartedAfter = after;
-            if (!string.IsNullOrEmpty(startedBefore) && DateTime.TryParse(startedBefore, out var before))
-                filter.StartedBefore = before;
+            filter.StartedAfter = QueryParams.UtcInstant(startedAfter);
+            filter.StartedBefore = QueryParams.UtcInstant(startedBefore);
             if (!string.IsNullOrEmpty(isPreProvisioned) && bool.TryParse(isPreProvisioned, out var pp))
                 filter.IsPreProvisioned = pp;
             if (!string.IsNullOrEmpty(isHybridJoin) && bool.TryParse(isHybridJoin, out var hj))
@@ -127,8 +125,8 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 filter.IsSelfDeployingProfile = sdp;
             if (!string.IsNullOrEmpty(isCloudPc) && bool.TryParse(isCloudPc, out var icp))
                 filter.IsCloudPc = icp;
-            if (int.TryParse(query["rebootCountMin"], out var rcMin)) filter.RebootCountMin = rcMin;
-            if (int.TryParse(query["rebootCountMax"], out var rcMax)) filter.RebootCountMax = rcMax;
+            filter.RebootCountMin = QueryParams.IntOrNull(query["rebootCountMin"]);
+            filter.RebootCountMax = QueryParams.IntOrNull(query["rebootCountMax"]);
             var connectionType = query["connectionType"];
             if (!string.IsNullOrEmpty(connectionType)) filter.ConnectionType = connectionType;
 

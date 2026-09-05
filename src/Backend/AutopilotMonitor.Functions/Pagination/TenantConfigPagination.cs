@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -17,7 +18,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class TenantConfigPagination
     {
         public const int DefaultPageSize = 200;
-        public const int MaxPageSize = 1000;
 
         public static string Fingerprint(string callerTenantId) =>
             ContinuationToken.ComputeFingerprint(new[]
@@ -46,15 +46,8 @@ namespace AutopilotMonitor.Functions.Pagination
             var continuationRaw = query?["continuation"];
             var fieldsRaw = query?["fields"];
 
-            int? pageSize = null;
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSize, out var pageSizeError))
+                return new Parsed { Error = pageSizeError };
 
             // continuation is meaningless without pageSize — silently drop.
             var continuation = pageSize.HasValue && !string.IsNullOrEmpty(continuationRaw)

@@ -124,7 +124,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var days = DeviceJourneyMetricsResponseBuilder.ClampDays(query["days"]);
+                var days = QueryParams.Int(query["days"], DeviceJourneyMetricsResponseBuilder.DefaultWindowDays, 1, DeviceJourneyMetricsResponseBuilder.MaxWindowDays);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(await DeviceJourneyMetricsResponseBuilder.BuildAsync(
@@ -169,7 +169,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
                 var tenantIdFilter = query["tenantId"];
-                var days = DeviceJourneyMetricsResponseBuilder.ClampDays(query["days"]);
+                var days = QueryParams.Int(query["days"], DeviceJourneyMetricsResponseBuilder.DefaultWindowDays, 1, DeviceJourneyMetricsResponseBuilder.MaxWindowDays);
                 var partition = string.IsNullOrWhiteSpace(tenantIdFilter) ? "global" : tenantIdFilter!;
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -195,12 +195,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
         internal const int DefaultWindowDays = 30;
         internal const int MaxWindowDays = 180; // aggregate retention — older rows no longer exist
         internal const int MaxRepeatDevices = 10;
-
-        internal static int ClampDays(string? raw)
-        {
-            if (!int.TryParse(raw, out var days)) return DefaultWindowDays;
-            return Math.Clamp(days, 1, MaxWindowDays);
-        }
 
         /// <summary>
         /// "Last N days" = exactly N calendar day keys including today — both range ends are

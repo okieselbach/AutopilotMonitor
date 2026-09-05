@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -20,7 +21,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class SearchSessionsPagination
     {
         public const int DefaultPageSize = 50;
-        public const int MaxPageSize = 1000;
 
         public static string Fingerprint(string scope, string callerTenantId, string? filterTenantId, SessionSearchFilter filter)
         {
@@ -79,15 +79,9 @@ namespace AutopilotMonitor.Functions.Pagination
             var pageSizeRaw = query?["pageSize"];
             var continuationRaw = query?["continuation"];
 
-            int pageSize = DefaultPageSize;
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { PageSize = DefaultPageSize, Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { PageSize = DefaultPageSize, Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSizeOrNull, out var pageSizeError))
+                return new Parsed { PageSize = DefaultPageSize, Error = pageSizeError };
+            var pageSize = pageSizeOrNull ?? DefaultPageSize;
             return new Parsed
             {
                 PageSize = pageSize,

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using AutopilotMonitor.Shared.Pagination;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Pagination
 {
@@ -35,7 +36,6 @@ namespace AutopilotMonitor.Functions.Pagination
     public static class DateWindowPagination
     {
         public const int DefaultPageSize = 200;
-        public const int MaxPageSize = 1000;
         public static readonly TimeSpan DefaultWindow = TimeSpan.FromDays(30);
 
         /// <summary>
@@ -67,19 +67,10 @@ namespace AutopilotMonitor.Functions.Pagination
             var pageSizeRaw = query?["pageSize"];
             var continuationRaw = query?["continuation"];
 
-            DateTime? dateFrom = null, dateTo = null;
-            if (!string.IsNullOrEmpty(dateFromRaw))
-            {
-                if (!TryParseUtc(dateFromRaw!, out var parsed))
-                    return new Parsed { Error = "dateFrom must be ISO 8601" };
-                dateFrom = parsed;
-            }
-            if (!string.IsNullOrEmpty(dateToRaw))
-            {
-                if (!TryParseUtc(dateToRaw!, out var parsed))
-                    return new Parsed { Error = "dateTo must be ISO 8601" };
-                dateTo = parsed;
-            }
+            if (!QueryParams.TryUtcInstant(dateFromRaw, "dateFrom", out var dateFrom, out var dateError))
+                return new Parsed { Error = dateError };
+            if (!QueryParams.TryUtcInstant(dateToRaw, "dateTo", out var dateTo, out dateError))
+                return new Parsed { Error = dateError };
             if (dateFrom.HasValue && dateTo.HasValue && dateFrom > dateTo)
             {
                 return new Parsed { Error = "dateFrom must be <= dateTo" };
@@ -97,15 +88,8 @@ namespace AutopilotMonitor.Functions.Pagination
                 dateTo = anchor;
             }
 
-            int? pageSize = null;
-            if (!string.IsNullOrEmpty(pageSizeRaw))
-            {
-                if (!int.TryParse(pageSizeRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n))
-                    return new Parsed { Error = "pageSize must be an integer" };
-                if (n < 1 || n > MaxPageSize)
-                    return new Parsed { Error = $"pageSize must be between 1 and {MaxPageSize}" };
-                pageSize = n;
-            }
+            if (!QueryParams.TryPageSize(pageSizeRaw, out var pageSize, out var pageSizeError))
+                return new Parsed { Error = pageSizeError };
 
             // continuation is meaningless without pageSize — silently drop.
             var continuation = pageSize.HasValue && !string.IsNullOrEmpty(continuationRaw)
@@ -195,24 +179,6 @@ namespace AutopilotMonitor.Functions.Pagination
                 }
             }
             return sb.ToString();
-        }
-
-        private static bool TryParseUtc(string s, out DateTime result)
-        {
-            // Accept ISO 8601 in any of the standard forms; force UTC.
-            // AdjustToUniversal + AssumeUniversal handles strings without a TZ
-            // offset (treat as UTC) and converts strings with an offset to UTC;
-            // RoundtripKind is mutually exclusive with these and not needed.
-            if (DateTime.TryParse(
-                    s, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-                    out var parsed))
-            {
-                result = parsed.Kind == DateTimeKind.Utc ? parsed : DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
-                return true;
-            }
-            result = default;
-            return false;
         }
     }
 }

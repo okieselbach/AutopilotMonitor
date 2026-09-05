@@ -48,7 +48,9 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     return await req.BadRequestAsync("ruleId is required");
                 }
 
-                var days = ParseDays(query["days"]);
+                // Window in days: default 14, capped at 90 (RuleResults follow the session
+                // retention cascade, so anything past 90 days cannot widen the result).
+                var days = QueryParams.Int(query["days"], @default: 14, min: 1, max: 90);
                 var sinceUtc = DateTime.UtcNow.AddDays(-days);
                 var sessionIds = await _ruleRepo.GetRuleHitSessionIdsAsync(
                     requestCtx.TargetTenantId, ruleId, sinceUtc, MaxSessionIds);
@@ -67,17 +69,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "RuleHitSessions");
             }
-        }
-
-        /// <summary>
-        /// Window in days: default 14, clamped to 1..90 (RuleResults follow the session
-        /// retention cascade, so anything past 90 days cannot widen the result).
-        /// </summary>
-        internal static int ParseDays(string? raw)
-        {
-            if (string.IsNullOrEmpty(raw) || !int.TryParse(raw, out var parsed))
-                return 14;
-            return Math.Clamp(parsed, 1, 90);
         }
     }
 }
