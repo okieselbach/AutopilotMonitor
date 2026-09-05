@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Transport
 {

@@ -1,5 +1,6 @@
-﻿using System.Net;
+using System.Net;
 using System.Web;
+using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Deletion;
@@ -108,24 +109,20 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 }
                 catch
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                    return await req.JsonAsync(HttpStatusCode.BadRequest, new GetDiagnosticsUploadUrlResponse
                     {
                         Success = false,
                         Message = "Invalid request body"
                     });
-                    return badRequest;
                 }
 
                 if (requestBody == null || string.IsNullOrEmpty(requestBody.TenantId))
                 {
-                    var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                    await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                    return await req.JsonAsync(HttpStatusCode.BadRequest, new GetDiagnosticsUploadUrlResponse
                     {
                         Success = false,
                         Message = "tenantId is required"
                     });
-                    return badRequest;
                 }
 
                 // Validate request security (certificate, rate limit, hardware whitelist)
@@ -168,24 +165,20 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 _logger.LogWarning(
                     "GetDiagnosticsUploadUrl: tenant {TenantId} has unknown DiagnosticsUploadDestination={Destination}; rejecting",
                     requestBody.TenantId, tenantConfig.DiagnosticsUploadDestination);
-                var unknownResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await unknownResponse.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.InternalServerError, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "Diagnostics upload destination is misconfigured for this tenant"
                 });
-                return unknownResponse;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting diagnostics upload URL");
-                var errorResp = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResp.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.InternalServerError, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "Internal server error"
                 });
-                return errorResp;
             }
         }
 
@@ -194,13 +187,11 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             if (string.IsNullOrEmpty(tenantConfig.DiagnosticsBlobSasUrl))
             {
-                var notFound = req.CreateResponse(HttpStatusCode.NotFound);
-                await notFound.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.NotFound, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "Diagnostics storage not configured for this tenant"
                 });
-                return notFound;
             }
 
             // Defense-in-depth: the save path validates the SAS URL host, but a row
@@ -213,13 +204,11 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 _logger.LogWarning(
                     "GetDiagnosticsUploadUrl: tenant {TenantId} has invalid DiagnosticsBlobSasUrl: {Reason}; rejecting",
                     requestBody.TenantId, sasFormatError);
-                var misconfigured = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await misconfigured.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.InternalServerError, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "Diagnostics storage is misconfigured for this tenant"
                 });
-                return misconfigured;
             }
 
             var sasExpiry = ParseSasExpiry(tenantConfig.DiagnosticsBlobSasUrl);
@@ -230,8 +219,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 requestBody.TenantId, requestBody.SessionId, requestBody.FileName,
                 sasExpiry?.ToString("O") ?? "unknown");
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+            return await req.OkAsync(new GetDiagnosticsUploadUrlResponse
             {
                 Success = true,
                 // Container-scoped SAS — accepted risk, see class docstring for rationale
@@ -242,7 +230,6 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 ExpiresAt = sasExpiry ?? DateTime.UtcNow.AddHours(1),
                 Message = null
             });
-            return response;
         }
 
         private async Task<HttpResponseData> IssueHostedSasAsync(
@@ -250,26 +237,22 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
         {
             if (string.IsNullOrEmpty(requestBody.FileName))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.BadRequest, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "fileName is required for hosted destination"
                 });
-                return badRequest;
             }
 
             // The blob name is bound to the session below, so the session id has to be a real
             // one — and it is the coordinate for the owner-binding observation.
             if (!SecurityValidator.IsValidGuid(requestBody.SessionId))
             {
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.BadRequest, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "sessionId is required for hosted destination"
                 });
-                return badRequest;
             }
 
             // SESSION-OWNER-BINDING-SHADOW: same observation as the session-scoped writes, so
@@ -289,13 +272,11 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 _logger.LogWarning(
                     "GetDiagnosticsUploadUrl: rejecting hosted SAS for tenant {TenantId}, session {SessionId}, file {FileName}: {Reason}",
                     requestBody.TenantId, requestBody.SessionId, requestBody.FileName, ex.Message);
-                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.BadRequest, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "Invalid file name"
                 });
-                return badRequest;
             }
             catch (HostedBlobAlreadyExistsException ex)
             {
@@ -304,21 +285,18 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 _logger.LogWarning(
                     "GetDiagnosticsUploadUrl: rejecting hosted SAS for tenant {TenantId}, session {SessionId}: blob {BlobPath} already exists",
                     requestBody.TenantId, requestBody.SessionId, ex.BlobPath);
-                var conflict = req.CreateResponse(HttpStatusCode.Conflict);
-                await conflict.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+                return await req.JsonAsync(HttpStatusCode.Conflict, new GetDiagnosticsUploadUrlResponse
                 {
                     Success = false,
                     Message = "A diagnostics package with this name already exists"
                 });
-                return conflict;
             }
 
             _logger.LogInformation(
                 "GetDiagnosticsUploadUrl: Issuing Hosted upload URL for tenant {TenantId}, session {SessionId}, blob {BlobPath}, SAS expires {ExpiresAt}",
                 requestBody.TenantId, requestBody.SessionId, sasResult.BlobPath, sasResult.ExpiresAt.ToString("O"));
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new GetDiagnosticsUploadUrlResponse
+            return await req.OkAsync(new GetDiagnosticsUploadUrlResponse
             {
                 Success = true,
                 UploadUrl = sasResult.UploadUrl,
@@ -327,7 +305,6 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 ExpiresAt = sasResult.ExpiresAt,
                 Message = null
             });
-            return response;
         }
 
         private async Task ObserveSessionOwnerAsync(

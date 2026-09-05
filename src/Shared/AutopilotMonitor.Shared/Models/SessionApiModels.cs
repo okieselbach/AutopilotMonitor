@@ -6,6 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Request to register a new session
     /// </summary>
+    [WireContract]
     public class RegisterSessionRequest
     {
         public SessionRegistration Registration { get; set; } = default!;
@@ -27,9 +28,10 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response from session registration
+    /// Response from session registration. Also the body of the 409/410 refusals — the agent
+    /// reads <see cref="ErrorCode"/> from it, so the error envelope is NOT used on this route.
     /// </summary>
-    public class RegisterSessionResponse
+    public class RegisterSessionResponse : IApiResponse
     {
         public string SessionId { get; set; } = default!;
         public bool Success { get; set; }
@@ -82,9 +84,12 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response from event ingestion
+    /// 2xx body of <c>agent/telemetry</c>. The agent reads only the control signals
+    /// (<see cref="DeviceBlocked"/>, <see cref="UnblockAt"/>, <see cref="DeviceKillSignal"/>,
+    /// <see cref="AdminAction"/>, <see cref="Actions"/>) from it; a 200 with
+    /// <c>DeviceBlocked = true</c> deliberately carries <c>Success = false</c>.
     /// </summary>
-    public class IngestEventsResponse
+    public class IngestEventsResponse : IApiResponse
     {
         public bool Success { get; set; }
         public int EventsReceived { get; set; }
@@ -133,6 +138,32 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// 422 body of <c>agent/telemetry</c> when one or more items of a batch cannot be routed
+    /// (unknown <see cref="TelemetryItemDto.Kind"/>) or parsed (unusable payload). This is the
+    /// backend end of the agent's poison protocol: <see cref="Poison"/> plus a non-empty
+    /// <see cref="RejectedRowKeys"/> authorise the agent to drop exactly those items and
+    /// re-upload the rest of the batch; NOTHING of the batch was stored. Without this body the
+    /// agent retains the batch forever (a bare 4xx never infers poison) — and before it existed
+    /// the ingest answered 200 and the items were lost when the agent cleared its spool.
+    /// </summary>
+    public class TelemetryItemsRejectedResponse : IApiErrorResponse
+    {
+        public string Error { get; set; } = default!;
+        public string Code { get; set; } = Constants.ApiErrorCodes.TelemetryItemsRejected;
+        public string CorrelationId { get; set; } = string.Empty;
+        /// <summary>Always true — the flag the agent's poison parser requires.</summary>
+        public bool Poison { get; set; } = true;
+        /// <summary>RowKeys of the rejected items, batch order; the agent drops exactly these.</summary>
+        public List<string> RejectedRowKeys { get; set; } = new List<string>();
+        /// <summary>Compact per-cause summary for the agent's poison report, e.g. <c>unknown_kind=1;unparseable=2</c>.</summary>
+        public string Reason { get; set; } = default!;
+        /// <summary>Items in the batch.</summary>
+        public int Received { get; set; }
+        /// <summary>Items named in <see cref="RejectedRowKeys"/>.</summary>
+        public int Rejected { get; set; }
+    }
+
+    /// <summary>
     /// Rate limit information for UI display
     /// </summary>
     public class RateLimitInfo
@@ -162,6 +193,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Request to get a short-lived SAS URL for diagnostics package upload.
     /// Called by the agent just before upload — the URL is never cached in config.
     /// </summary>
+    [WireContract]
     public class GetDiagnosticsUploadUrlRequest
     {
         public string TenantId { get; set; } = default!;
@@ -170,9 +202,11 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response containing a short-lived SAS URL for diagnostics package upload.
+    /// Response containing a short-lived SAS URL for diagnostics package upload. Also the body
+    /// of the route's 4xx/5xx refusals (<c>Success = false</c> + <see cref="Message"/>), which
+    /// the agent reads as-is.
     /// </summary>
-    public class GetDiagnosticsUploadUrlResponse
+    public class GetDiagnosticsUploadUrlResponse : IApiResponse
     {
         public bool Success { get; set; }
         public string? UploadUrl { get; set; }

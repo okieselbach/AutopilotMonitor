@@ -9,6 +9,7 @@ using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 #pragma warning disable xUnit1031
 

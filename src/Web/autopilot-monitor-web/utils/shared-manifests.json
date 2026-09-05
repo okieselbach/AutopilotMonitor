@@ -302,6 +302,7 @@
     "ImePatternDriftSuspected",
     "BlobStorageMissing",
     "BlobStorageUnreachable",
+    "TelemetryItemsRejected",
     "SlaBreachNotification",
     "SlaConsecutiveFailures",
     "SlaEvaluationCompleted",
@@ -331,6 +332,7 @@
     "TenantSuspended",
     "QuotaExceeded",
     "PayloadTooLarge",
+    "TelemetryItemsRejected",
     "HomeTenantUnresolved",
     "TrialAlreadyConsumed",
     "AlreadyPro",
@@ -1224,6 +1226,329 @@
         }
       ]
     },
+    "AgentConfigResponse": {
+      "kind": "object",
+      "doc": "Response from the agent configuration endpoint Contains collector toggles and active gather rules for the tenant",
+      "fields": [
+        {
+          "name": "configVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Semantic config version from backend. Used for debugging and future schema evolution."
+        },
+        {
+          "name": "uploadIntervalSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Event upload debounce interval in seconds. Sourced from the shared constant so the served value, the offline fallback and this deserialization default can never diverge."
+        },
+        {
+          "name": "selfDestructOnComplete",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to self-destruct after enrollment completion (remove Scheduled Task and all files)."
+        },
+        {
+          "name": "keepLogFile",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Preserve logs during self-destruct."
+        },
+        {
+          "name": "enableGeoLocation",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to enable geo-location detection."
+        },
+        {
+          "name": "enableImeMatchLog",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to write a log of every IME log line matched by a pattern. When true, the default path is used: Constants.ImeMatchLogPath."
+        },
+        {
+          "name": "enableGatherRuleDebugLog",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to write a local gather-rule evaluation trace file. When true, the default path is used: Constants.GatherRuleDebugLogPath."
+        },
+        {
+          "name": "enableEspContinueAnywayObservation",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Continue-Anyway observation mode (operator-set tenant opt-in): a Device-phase ESP terminal failure on a Continue-Anyway-enabled profile is observed for up to 60 minutes instead of failing immediately — the real-user desktop then completes the session with an esp-soft-failure marker. Default false = immediate hard fail."
+        },
+        {
+          "name": "collectors",
+          "type": {
+            "kind": "ref",
+            "name": "CollectorConfiguration"
+          }
+        },
+        {
+          "name": "gatherRules",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "GatherRule"
+            }
+          },
+          "doc": "User-defined ad-hoc gather rules (minimal set, not for IME log parsing)"
+        },
+        {
+          "name": "imeLogPatterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ImeLogPattern"
+            }
+          },
+          "doc": "IME log regex patterns for smart enrollment tracking. Delivered from backend so patterns can be updated without agent rebuild."
+        },
+        {
+          "name": "whiteGloveSealingPatternIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "Pattern-IDs (aus ImeLogPatterns), deren Match vom V2-Agent als WhiteGloveSealingPatternDetected-DecisionSignal re-emittiert wird (zusätzlich zum normalen ime_pattern_match-Event). Plan §4.x M4.4.4 / M4.4.5.e. Default null/leer = Feature off (M3-kompatibel, kein Regressions-Risiko). Nur Pattern-IDs in dieser Liste werden als Sealing-Signal gewertet — alle anderen IME-Pattern-Matches laufen den normalen Event-Pfad."
+        },
+        {
+          "name": "maxAuthFailures",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum consecutive authentication failures (401/403) before the agent shuts down. Prevents endless retry traffic when the device is not authorized. 0 = disabled (retry forever). Default: 5."
+        },
+        {
+          "name": "authFailureTimeoutMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum time in minutes the agent keeps retrying after the first auth failure. 0 = disabled (no time limit, only MaxAuthFailures applies). Default: 0."
+        },
+        {
+          "name": "logLevel",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Log verbosity level for the agent. \"Info\" = normal messages, \"Debug\" = component state/decisions, \"Verbose\" = per-event tracing, \"Trace\" = full diagnostic output. Default: \"Info\""
+        },
+        {
+          "name": "rebootOnComplete",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to reboot the device after enrollment completes (and cleanup/self-destruct). Default: false"
+        },
+        {
+          "name": "rebootDelaySeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Delay in seconds before the reboot is initiated (shutdown.exe /r /t X). Gives the user a short window to see what is happening. Default: 10 seconds"
+        },
+        {
+          "name": "showEnrollmentSummary",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to show a visual enrollment summary dialog to the end user after enrollment completes (success or failure). Default: false (opt-in)"
+        },
+        {
+          "name": "enrollmentSummaryTimeoutSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Auto-close timeout in seconds for the enrollment summary dialog. 0 = no auto-close. Default: 60"
+        },
+        {
+          "name": "enrollmentSummaryBrandingImageUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Optional URL to a branding image displayed as a banner at the top of the enrollment summary dialog. Expected size: 540 x 80 px. Larger images will be center-cropped. null = no banner."
+        },
+        {
+          "name": "enrollmentSummaryLaunchRetrySeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum time in seconds the agent retries launching the enrollment summary dialog when the user's desktop is locked by a credential UI (e.g. Windows Hello). 0 = no retry (single attempt). Default: 120 (2 minutes)."
+        },
+        {
+          "name": "maxBatchSize",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum number of events per upload batch. Default: 100"
+        },
+        {
+          "name": "diagnosticsUploadEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether diagnostics upload is configured for this tenant. When true, the agent should request a short-lived upload URL via the API just before uploading. The SAS URL itself is never included in this config response — it is fetched on-demand."
+        },
+        {
+          "name": "diagnosticsUploadMode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When to upload diagnostics packages: \"Off\", \"Always\", \"OnFailure\". Default: \"Off\""
+        },
+        {
+          "name": "diagnosticsLogPaths",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "DiagnosticsLogPath"
+            }
+          },
+          "doc": "Merged list of log paths/wildcards to include in the diagnostics ZIP package. Global entries (IsBuiltIn=true) come first, followed by tenant-specific additions. The agent validates each path against DiagnosticsPathGuards before collection."
+        },
+        {
+          "name": "analyzers",
+          "type": {
+            "kind": "ref",
+            "name": "AnalyzerConfiguration"
+          },
+          "doc": "Configuration for agent-side security and configuration analyzers. Controls which analyzers run and their per-analyzer parameters."
+        },
+        {
+          "name": "sendTraceEvents",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the agent should send Trace-severity events to the backend. Trace events capture key agent decisions (e.g. \"AccountSetup suppressed — no real user profile\") for backend troubleshooting without relying on the agent log file. Default: true (on in preview)."
+        },
+        {
+          "name": "unrestrictedMode",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "When true, agent guardrails are relaxed: all registry, WMI, and command targets are allowed. File/diagnostics paths allow everything except C:\\Users. Default: false."
+        },
+        {
+          "name": "latestAgentSha256",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "SHA-256 hash (lowercase hex) of the latest published agent ZIP, provided by the backend. Used for integrity verification during self-update as a second trust channel (separate from the hash in version.json on blob storage). null = backend does not have a hash (backward compat with older backend deployments)."
+        },
+        {
+          "name": "latestAgentExeSha256",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "SHA-256 hash (lowercase hex) of the latest published agent EXE, provided by the backend. Used for post-config binary integrity verification: the agent compares this against the hash of its own running executable. null = backend does not have an EXE hash (backward compat with older backend deployments)."
+        },
+        {
+          "name": "allowAgentDowngrade",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "When true, the self-updater will install a lower version if the backend advertises one. Default: false (forward-only). Gated per tenant via the admin configuration. Only honoured by the runtime force-update path (hash mismatch) — startup version comparison never downgrades regardless of this flag."
+        },
+        {
+          "name": "ntpServer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "NTP server address for time check during enrollment. Default: \"time.windows.com\""
+        },
+        {
+          "name": "enableTimezoneAutoSet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to automatically set the device timezone based on IP geolocation. Requires EnableGeoLocation to be true. Uses tzutil /s to apply. Default: false"
+        },
+        {
+          "name": "enableDoGroupIdAutoSet",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a deterministic network fingerprint (default gateway IP + MAC, RealmJoin-compatible byte layout). Existing DOGroupId/DOGroupIdSource policies are never overwritten. Default: false"
+        },
+        {
+          "name": "deviceBlocked",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Control-channel mirror of the telemetry-response block signal: the calling device (serial) or agent version matched an active admin Block/Kill rule. Delivered on the config channel because config is fetched at every agent start (boot via Scheduled Task) — the telemetry channel alone cannot reach an agent whose upload loop is paused, empty or gone. Kill is only honoured from a LIVE fetch; the on-disk config cache strips these fields on both write and read."
+        },
+        {
+          "name": "deviceKillSignal",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Hard kill by administrator — the agent must terminate and self-destruct (overrides SelfDestructOnComplete=false), same semantics as the telemetry response's DeviceKillSignal."
+        },
+        {
+          "name": "unblockAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When DeviceBlocked is a temporary block: UTC time the block auto-expires. null = indefinite (or kill)."
+        },
+        {
+          "name": "migrateToApiBaseUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Endpoint migration on the control channel: when set, the agent abandons its compiled-in API base URL and re-runs backend-client construction + config fetch against this URL (backend move without a custom domain in front of the API, or a per-tenant region move). Honoured only from a LIVE fetch (the on-disk cache strips the field on write and read), validated against AgentEndpointMigrationRules on both sides, single hop (the re-fetched config cannot chain another migration), and a kill signal always wins over it. Old binaries ignore the field. null = no migration."
+        }
+      ]
+    },
     "AgentEfficiencyMetricsResponse": {
       "kind": "object",
       "doc": "Response of GET global/metrics/agent-efficiency (GetGlobalAgentEfficiency).",
@@ -1748,6 +2073,71 @@
               "name": "AnalyzeRule"
             }
           }
+        }
+      ]
+    },
+    "AnalyzerConfiguration": {
+      "kind": "object",
+      "doc": "Configuration for agent-side analyzers (security and configuration checks). Analyzers differ from collectors: they run checks, produce a confidence-scored finding, and emit a single structured event — rather than streaming raw telemetry data.",
+      "fields": [
+        {
+          "name": "enableLocalAdminAnalyzer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to run the LocalAdminAnalyzer at startup and shutdown. Detects pre-enrollment local admin account creation (Autopilot bypass technique). Default: true"
+        },
+        {
+          "name": "localAdminAllowedAccounts",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "Additional local account names considered expected on a newly enrolled device. These are merged (union) with the built-in defaults: Administrator, Guest, DefaultAccount, WDAGUtilityAccount, Public, Default. Any local account not in the merged list will be flagged. Default: empty list (built-in defaults only)"
+        },
+        {
+          "name": "enableSoftwareInventoryAnalyzer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to run the SoftwareInventoryAnalyzer at startup and shutdown. Collects installed software registry inventory, normalizes entries, and emits a baseline snapshot (startup) plus delta (shutdown) for vulnerability insight. Default: true"
+        },
+        {
+          "name": "enableIntegrityBypassAnalyzer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to run the IntegrityBypassAnalyzer at startup and shutdown. Detects Windows 11 TPM/SecureBoot/CPU/RAM/Disk install-time bypass keys, the MoSetup upgrade bypass flag, the per-user PCHC UpgradeEligibility flag, and suspicious post-OOBE SetupComplete/ErrorHandler scripts. Default: true"
+        },
+        {
+          "name": "enableRealmJoinWatcher",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to enable the RealmJoin watcher, which tracks RealmJoin deployment state and enrollment packages during provisioning. This is not an IAgentAnalyzer; the flag gates creation of the RealmJoin collector host in the agent runtime. Default: false (opt-in; most tenants do not deploy via RealmJoin)."
+        },
+        {
+          "name": "keepAwakeDuringUserEsp",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to keep the device awake (system + display) during the User-ESP (AccountSetup) phase so idle standby/sleep cannot stall app installs or account provisioning. This is not an IAgentAnalyzer; the flag gates creation of the UserEspKeepAwake host in the agent runtime. Reboots are unaffected (the hold only resets idle timers). Default: false (opt-in per tenant)."
+        },
+        {
+          "name": "enableConsoleBypassDetection",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether to detect an interactive console opened during enrollment — the classic Shift+F10 OOBE bypass. Gates BOTH the live ConsoleBypass host (an interactive-session cmd.exe with a bare, non-scripted command line; stopped on real-user desktop arrival) and the startup ConsolePrefetchScanner (CMD.EXE-*.pf ran after boot). Detection is best-effort, not gapless — a press before the agent installs is only coarsely covered by the prefetch artifact. Security-sensitive; not an IAgentAnalyzer toggle in the usual sense (it also gates a collector host). Default: true (opt-out per tenant — a Shift+F10 console during enrollment is a finding worth surfacing by default; tenants that knowingly use Shift+F10 for support can disable it)."
         }
       ]
     },
@@ -4035,6 +4425,275 @@
           },
           "optional": true,
           "doc": "\"DelegatedAdmin\" | \"DelegatedReader\"; omitted without delegated scope."
+        }
+      ]
+    },
+    "CollectorConfiguration": {
+      "kind": "object",
+      "doc": "Configuration for optional agent collectors",
+      "fields": [
+        {
+          "name": "enablePerformanceCollector",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable CPU, memory, disk, network performance monitoring (always on for UI chart) Generates traffic: ~1 event per interval"
+        },
+        {
+          "name": "performanceIntervalSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Interval in seconds for performance snapshots Default: 30 seconds"
+        },
+        {
+          "name": "collectorIdleTimeoutMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Idle timeout in minutes for periodic collectors (Performance, AgentSelfMetrics). Collectors stop after this many minutes without real enrollment activity and restart automatically when new activity is detected. 0 = disabled (collectors run indefinitely). Default: 15 minutes."
+        },
+        {
+          "name": "desktopDetectorNoCandidateTimeoutMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "DAD liveness threshold (minutes). After this many minutes of polling without detecting either an excluded-user explorer.exe or a real user desktop, the V2 DesktopArrivalDetector emits a single desktop_detector_no_candidate event (state-change-only, NOT periodic). Distinguishes \"user never logged in\" from \"detector wiring dead post-reboot\" in sessions missing desktop_arrived. 0 = disabled. Default: 10 minutes."
+        },
+        {
+          "name": "enableAgentSelfMetrics",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable the agent self-metrics collector (process CPU, memory, network traffic). Default: true"
+        },
+        {
+          "name": "agentSelfMetricsIntervalSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Interval in seconds for agent self-metrics snapshots. Default: 60 seconds"
+        },
+        {
+          "name": "helloWaitTimeoutSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Seconds to wait for the Windows Hello wizard after ESP exit. Default: 30 seconds"
+        },
+        {
+          "name": "agentMaxLifetimeMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum agent lifetime in minutes. Safety net to prevent zombie agents. 0 = disabled (no lifetime limit). Default: 360 (6 hours)."
+        },
+        {
+          "name": "enableDeliveryOptimizationCollector",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable OS-level Delivery Optimization status polling via Get-DeliveryOptimizationStatus. Captures DO peer caching telemetry for app downloads, especially when newer IME versions no longer emit [DO TEL] log entries. Default: true"
+        },
+        {
+          "name": "deliveryOptimizationIntervalSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Interval in seconds for polling Get-DeliveryOptimizationStatus. Only polls when active downloads are detected (dormant otherwise). Default: 3 seconds"
+        },
+        {
+          "name": "enableOfficeInstallDetector",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable the Microsoft 365 Apps (Office Click-to-Run) install detector. Event-driven (no idle polling): woken by a WMI Win32_ProcessStartTrace push on OfficeC2RClient.exe, progress via RegNotifyChangeKeyValue, stop via Process.Exited. Surfaces the real background install lifecycle (+ Office's Delivery-Optimization download telemetry) even when the Intune \"integrated\" Office app reports done to IME within 1-2 min. High-value package → on by default, kept as a kill-switch. DO sampling reuses DeliveryOptimizationIntervalSeconds. Default: true"
+        },
+        {
+          "name": "officeInstallSettleSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Settle window (seconds) for the Office install detector. C2R spawns several short-lived OfficeC2RClient.exe workers (with small gaps) during one install; after the last worker exits the detector waits this long before deciding terminal completed/failed, so a brief gap before the next worker does not produce a premature office_install_failed. A new worker within the window keeps the install window open. 0 = decide immediately. Default: 10."
+        },
+        {
+          "name": "enablePowerStateWatcher",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable the live AC/battery power-state watcher. Event-driven (no polling): a WMI Win32_PowerManagementEvent (EventCode 10) push triggers a GetSystemPowerStatus re-probe; emits power_state_change on AC↔battery transitions and downward battery threshold crossings (50/30/15 %). Never armed on devices without a battery. Cheap and high-value → on by default, kept as a kill-switch. Default: true"
+        },
+        {
+          "name": "stallProbeEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the stall probe mechanism. When enabled, probes run at idle-time thresholds (see StallProbeThresholdsMinutes) to detect stuck enrollments via registry, EventLog and AppWorkload log scans. Default: true"
+        },
+        {
+          "name": "stallProbeThresholdsMinutes",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "Idle-time thresholds in minutes at which probes run. Each probe is fire-once per idle window; the counter resets on any real (non-periodic) event. Default: [2, 15, 30, 60, 180] Probe 1 (2 min): early quick-response, silent unless anomaly found. Probe 2 (15 min): main gate with guaranteed trace heartbeat. Probe 3 (30 min): silent unless found. Probe 4 (60 min): fires session_stalled event → backend sets status to Stalled. Probe 5 (180 min): last-chance scan before 5h backend timeout, silent unless found."
+        },
+        {
+          "name": "stallProbeTraceIndices",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "Probe indices (1-based) that emit a stall_probe_check trace event even when no anomaly is found. Default: [2] — only Probe 2 (15 min) sends a heartbeat. Set to [1, 2] for more observability at the cost of extra trace events."
+        },
+        {
+          "name": "stallProbeSources",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "Which sources to scan per probe. Any source can be removed from the list to disable it individually without affecting the others. Default: all four sources enabled."
+        },
+        {
+          "name": "sessionStalledAfterProbeIndex",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "After which probe index (1-based) the fire-once session_stalled event is emitted. Default: 4 → after Probe 4 (60 min idle)."
+        },
+        {
+          "name": "modernDeploymentWatcherEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the ModernDeployment EventLog watcher. When enabled, the agent subscribes to two Windows event channels and forwards matching events as modern_deployment_log events to the backend. Default: true"
+        },
+        {
+          "name": "modernDeploymentLogLevelMax",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum Windows event level to capture from ModernDeployment channels. Windows levels: 1=Critical, 2=Error, 3=Warning, 4=Information, 5=Verbose. Default: 3 → captures Critical, Error and Warning."
+        },
+        {
+          "name": "modernDeploymentBackfillEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Enable backfill for targeted ModernDeployment events (e.g. Event 509 / WhiteGlove start) that may have been written before the agent started during OOBE. Uses EventLogReader to scan the event log for recent occurrences on startup. Default: true"
+        },
+        {
+          "name": "modernDeploymentHarmlessEventIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "List of Windows ModernDeployment EventIDs that are considered harmless. Matching Level 2 (Error) and Level 3 (Warning) events are downgraded to Debug severity and skipped by the stall-probe anomaly scan. Level 1 (Critical) is never downgraded. Default: [100, 1005, 1010] — known noise EventIDs with no enrollment impact (1010 = Autopilot.dll WIL hardwareinfo.cpp HRESULT 0x80070002 / file-not-found probe). Configurable per Admin in the global settings."
+        },
+        {
+          "name": "modernDeploymentBackfillLookbackMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Lookback window in minutes for the ModernDeployment backfill scan. Only events within this window are considered. Set generously because the gap between WhiteGlove initiation and MDM enroll (when the agent starts) can be 5–15 minutes depending on TPM attestation and disk encryption setup. Default: 30 minutes."
+        },
+        {
+          "name": "windowsUpdateWatcherEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the Windows Update watcher. When enabled the agent subscribes to Microsoft-Windows-WindowsUpdateClient/Operational and forwards update install/failure events (windows_update_succeeded / _failed / _started) so quality and cumulative updates that run DURING enrollment become visible with evidence. Default: true."
+        },
+        {
+          "name": "windowsUpdateTargetedEventIds",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "number"
+            }
+          },
+          "doc": "WindowsUpdateClient/Operational EventIDs to capture. Kept configurable so additional IDs can be enabled after real-device validation WITHOUT an agent redeploy. Verified set: 19=install success, 20=install failure (carries HRESULT), 43=install started, 44=download started. IDs whose semantics are still unverified (25/26/31, restart-required 21 vs 41) are intentionally excluded until confirmed on a device trace. Default: [19, 20, 43, 44]."
+        },
+        {
+          "name": "windowsUpdateBackfillLookbackMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Lookback window in minutes for the Windows Update backfill scan on startup. OOBE quality updates run at the early \"Getting updates\" screen — often BEFORE the agent starts — but the WindowsUpdateClient/Operational .evtx persists across the mid-OOBE reboot, so a generous backfill catches them. Set higher than the ModernDeployment backfill because the update scan/download can begin well before MDM enrollment. 0 = backfill disabled. Default: 60 minutes."
+        },
+        {
+          "name": "windowsUpdateChannelCensusEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Self-evidencing blind-spot census (session 7443317c: an OOBE quality update installed — OS build changed across the reboot — yet the WindowsUpdateClient channel carried NONE of the targeted EventIDs). When enabled and the OS build changed across an agent restart while zero targeted WU events were captured, the tracker emits a one-shot windows_update_channel_census event with an unfiltered EventID histogram of the WindowsUpdateClient AND UpdateOrchestrator channels over the backfill lookback window — field evidence for which EventIDs/channel to add to WindowsUpdateTargetedEventIds via remote config, without diagnostics upload access. Default: true."
+        },
+        {
+          "name": "mdmRebootPolicyWatcherEnabled",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the MDM reboot-policy watcher. When enabled the agent subscribes to Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin EventID 2800 and emits one mdm_policy_reboot_required event per device-assigned policy URI that forces a coalesced reboot during ESP DeviceSetup (the \"unexpected reboot + second sign-in\" pattern). Internal steering lever only — not surfaced in any admin UI; disable by pushing config server-side. Default: true."
+        },
+        {
+          "name": "mdmRebootPolicyBackfillLookbackMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Lookback window in minutes for the MDM reboot-policy backfill scan on startup. Device policies can apply before the agent starts, and after the coalesced reboot the restarted agent must re-scan past the reboot gap (the cross-restart watermark keeps re-reads from re-emitting). 0 = backfill disabled. Default: 60 minutes."
+        },
+        {
+          "name": "enableSystemTimelineWatcher",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Master switch for the system timeline watcher. When enabled the agent subscribes to the System event log for Kernel-General EventID 1 (system clock stepped — ground truth for time jumps incl. old/new time, delta and the setting process) and completed sleep episodes (Power-Troubleshooter EventID 1 for classic sleep/hibernate, Kernel-Power EventID 507 for Modern Standby) and emits system_clock_changed / system_sleep_episode events. Explains timeline gaps and time jumps that are otherwise blind spots. Default: true."
+        },
+        {
+          "name": "systemEventBackfillLookbackMinutes",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Lookback window in minutes for the system timeline backfill scan on startup. The decisive clock correction (w32time fixing a wrong BIOS clock) and pre-agent standby episodes happen early in OOBE, often before the agent starts; the System .evtx persists across reboots, so a generous backfill recovers them. Bounded well inside the backend's 168 h past-tolerance clamp. 0 = backfill disabled. Default: 1440 minutes (24 h)."
         }
       ]
     },
@@ -7500,6 +8159,87 @@
         }
       ]
     },
+    "GetDiagnosticsUploadUrlRequest": {
+      "kind": "object",
+      "doc": "Request to get a short-lived SAS URL for diagnostics package upload. Called by the agent just before upload — the URL is never cached in config.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "fileName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "GetDiagnosticsUploadUrlResponse": {
+      "kind": "object",
+      "doc": "Response containing a short-lived SAS URL for diagnostics package upload. Also the body of the route's 4xx/5xx refusals (Success = false + Message), which the agent reads as-is.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "uploadUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "expiresAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "blobName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Canonical blob path the agent MUST persist as SessionSummary.DiagnosticsBlobName after a successful upload. Encodes the destination-specific path layout so the download path can find the blob later without having to reconstruct it: CustomerSas: equal to the request filename (e.g. AgentDiagnostics-...zip).Hosted: tenant-prefixed (e.g. {tenantId}/AgentDiagnostics-...zip). Null for older backends that predate this field — the agent then falls back to the request filename for back-compat."
+        },
+        {
+          "name": "destination",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Which destination minted the SAS in UploadUrl: \"CustomerSas\" or \"Hosted\". Surfaced so the agent's ingest path can attach it to the next telemetry batch (the download path needs the per-session destination, NOT the current tenant setting — those can diverge if the admin switches modes after some sessions have already uploaded)."
+        }
+      ]
+    },
     "GetGlobalAdminsResponse": {
       "kind": "object",
       "doc": "Response of GET auth/global-admins: every Global Admin/Reader row.",
@@ -9759,6 +10499,110 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "IngestEventsResponse": {
+      "kind": "object",
+      "doc": "2xx body of agent/telemetry. The agent reads only the control signals (DeviceBlocked, UnblockAt, DeviceKillSignal, AdminAction, Actions) from it; a 200 with DeviceBlocked = true deliberately carries Success = false.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "eventsReceived",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "eventsProcessed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "processedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "rateLimitExceeded",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the request was rejected due to rate limiting"
+        },
+        {
+          "name": "rateLimitInfo",
+          "type": {
+            "kind": "ref",
+            "name": "RateLimitInfo"
+          },
+          "optional": true,
+          "doc": "Rate limit details (only populated if RateLimitExceeded is true)"
+        },
+        {
+          "name": "deviceBlocked",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the device has been temporarily blocked by an admin"
+        },
+        {
+          "name": "unblockAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When the block expires (only populated if DeviceBlocked is true)"
+        },
+        {
+          "name": "deviceKillSignal",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the device has been issued a remote kill signal (graceful self-destruct). The agent should execute its self-destruct routine and exit."
+        },
+        {
+          "name": "adminAction",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Non-null when an admin has externally changed the session status. Values: \"Succeeded\", \"Failed\". Agent should treat as terminal signal and run cleanup."
+        },
+        {
+          "name": "actions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "ServerAction"
+            }
+          },
+          "optional": true,
+          "doc": "Generic server→agent action channel. Null/empty when no actions are pending. Delivered at-least-once; agents must handle actions idempotently. Unknown action types should be logged and skipped (forward-compatibility)."
         }
       ]
     },
@@ -12764,6 +13608,44 @@
         }
       ]
     },
+    "RateLimitInfo": {
+      "kind": "object",
+      "doc": "Rate limit information for UI display",
+      "fields": [
+        {
+          "name": "requestsInWindow",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Number of requests in current window"
+        },
+        {
+          "name": "maxRequests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Maximum allowed requests"
+        },
+        {
+          "name": "windowDurationSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Window duration in seconds"
+        },
+        {
+          "name": "retryAfterSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Seconds to wait before retrying"
+        }
+      ]
+    },
     "RebootSpan": {
       "kind": "object",
       "doc": "One observed reboot outage: the gap between the last pre-reboot event and the first post-reboot event, located via the lastBootUtc payload (audit Q7: the system_reboot_detected event itself is detection-time-stamped by the NEXT agent run and is never used as the reboot moment).",
@@ -12972,6 +13854,79 @@
             "kind": "primitive",
             "name": "string"
           }
+        }
+      ]
+    },
+    "RegisterSessionRequest": {
+      "kind": "object",
+      "doc": "Request to register a new session",
+      "fields": [
+        {
+          "name": "registration",
+          "type": {
+            "kind": "ref",
+            "name": "SessionRegistration"
+          }
+        }
+      ]
+    },
+    "RegisterSessionResponse": {
+      "kind": "object",
+      "doc": "Response from session registration. Also the body of the 409/410 refusals — the agent reads ErrorCode from it, so the error envelope is NOT used on this route.",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "registeredAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "adminAction",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Non-null when the session was already marked as terminal by an admin before agent restart. Values: \"Succeeded\", \"Failed\". Agent should run cleanup instead of starting monitoring."
+        },
+        {
+          "name": "validatedBy",
+          "type": {
+            "kind": "enum",
+            "name": "ValidatorType"
+          },
+          "doc": "Authoritative signal: which validator accepted this device. Lets the agent reconcile its registry-based enrollment-type detection against the backend's verdict (e.g. AutopilotV1 → Classic flow, DeviceAssociation → DevPrep flow). Older backends that do not set this return Unknown — agent falls back to its own detection."
+        },
+        {
+          "name": "errorCode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Machine-readable reason on a failure response (see AgentErrorCodes). Null on success and on failures that carry no agent-actionable code."
         }
       ]
     },
@@ -14263,6 +15218,57 @@
         }
       ]
     },
+    "ServerAction": {
+      "kind": "object",
+      "doc": "Server-issued action that the agent should execute. Delivered piggy-backed on ingest responses — no extra polling required. Actions are queued on the session row (Sessions.PendingActionsJson) by server-side writers (admin endpoints, rule engine, maintenance) and picked up on the agent's next ingest call. Delivery is best-effort at-least-once: the agent must be idempotent for its intended operation.",
+      "fields": [
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Action type — one of ServerActionTypes. Unknown types are logged and skipped by the agent so rolling out a new type doesn't require a synchronous agent update."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Human-readable reason for this action. Surfaced in logs and agent telemetry. Do not include secrets — values flow through Application Insights."
+        },
+        {
+          "name": "ruleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Optional rule that triggered this action. Set when queued from the RuleEngine, null for admin/manual triggers."
+        },
+        {
+          "name": "params",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Free-form string parameters for the action. Each action type defines its own keys. Using string values (not nested objects) keeps the on-wire shape flat and predictable and sidesteps JSON deserialization quirks in the net48 agent. Conventions: terminate_session: gracePeriodSeconds — (optional) seconds the agent keeps collecting before shutdown; default 30 uploadDiagnostics — (optional) \"true\"/\"false\"; attempt a best-effort diagnostics upload pre-shutdown rotate_config: (no parameters) request_diagnostics: (no parameters)"
+        },
+        {
+          "name": "queuedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "When this action was queued. Used for TTL / staleness detection and telemetry."
+        }
+      ]
+    },
     "SessionAgentMetric": {
       "kind": "object",
       "fields": [
@@ -14998,6 +16004,172 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "SessionRegistration": {
+      "kind": "object",
+      "doc": "Registration payload for a new enrollment session",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Unique session identifier (GUID)"
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Tenant identifier"
+        },
+        {
+          "name": "serialNumber",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Device serial number"
+        },
+        {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Device manufacturer"
+        },
+        {
+          "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Device model"
+        },
+        {
+          "name": "deviceName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Device name"
+        },
+        {
+          "name": "osName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "OS product name, e.g. \"Microsoft Windows 11 Pro\""
+        },
+        {
+          "name": "osBuild",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Real OS build number, e.g. \"26220.7934\" (CurrentBuild.UBR from registry)"
+        },
+        {
+          "name": "osDisplayVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "OS display version, e.g. \"25H2\", \"24H2\""
+        },
+        {
+          "name": "osEdition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "OS edition (e.g., \"Pro\", \"Enterprise\")"
+        },
+        {
+          "name": "osLanguage",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "OS language"
+        },
+        {
+          "name": "isUserDriven",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether this is user-driven enrollment"
+        },
+        {
+          "name": "isPreProvisioned",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether this is pre-provisioned"
+        },
+        {
+          "name": "startedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Timestamp when enrollment started (UTC)"
+        },
+        {
+          "name": "agentVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Agent version"
+        },
+        {
+          "name": "enrollmentType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Enrollment type detected by the agent: \"v1\" (Autopilot Classic/ESP) or \"v2\" (Windows Device Preparation)"
+        },
+        {
+          "name": "isHybridJoin",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the Autopilot profile indicates Hybrid Azure AD Join (CloudAssignedDomainJoinMethod == 1). Derived from the profile at registration time."
+        },
+        {
+          "name": "isSelfDeployingProfile",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the Autopilot profile carries the self-deploying/kiosk OOBE marker (CloudAssignedOobeConfig bits 0x20|0x40; validated platform-wide 2026-07-02 as exclusive to self-deploying profiles). Display/filter metadata only — the DecisionCore behavioural gate consumes the EnrollmentFactsObserved signal, not this flag."
+        },
+        {
+          "name": "isCloudPc",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Whether the agent identified the device as a Windows 365 Cloud PC (marker AND: HKLM\\SOFTWARE\\Microsoft\\Windows365 key + installed CloudManagedDesktopExtension service — the evidence set field-verified by bootstrap v2.3-dev.2). Display/filter metadata only, agent-reported and NOT server-verified; the authoritative Cloud PC auth signal is ValidatedBy == CloudPc (cert-CN-bound Graph lookup). The two can legitimately disagree, e.g. when a Cloud PC is admitted via Autopilot validation."
+        },
+        {
+          "name": "validatedBy",
+          "type": {
+            "kind": "enum",
+            "name": "ValidatorType"
+          },
+          "doc": "Which backend device-validation path accepted this registration (Autopilot S/N, Corporate Identifier, Device Association, or Bootstrap token). SERVER-POPULATED: RegisterSessionFunction overwrites this unconditionally from its own SecurityValidationResult — any agent-sent value is ignored."
         }
       ]
     },
@@ -16712,6 +17884,160 @@
             "name": "string"
           },
           "doc": "The data field to join on — must have the same value in both the matched event and the suppressing event (e.g., \"appId\")."
+        }
+      ]
+    },
+    "TelemetryItemDto": {
+      "kind": "object",
+      "doc": "The wire shape of one telemetry item sent by the V2 agent to POST /api/agent/telemetry (Plan §2.7a / §M5). This class IS the contract on both ends: the agent maps its ctor-validated, immutable TelemetryItem through TelemetryItem.ToWire() and serialises a list of these; the ingest deserialises the same class. Two tests pin it — the agent's TelemetryWireContractTests (round trip plus the frozen body under tests/fixtures/telemetry-wire/) and the backend's TelemetryWireFixtureTests (every frozen body must dispatch with zero rejections). Serialisation: Newtonsoft.Json defaults on both sides — PascalCase member names, ISO-8601 UTC dates, as the name. A value the ingest cannot route or parse is answered with 422 + a poison body naming the RowKeys (), never dropped silently.",
+      "fields": [
+        {
+          "name": "kind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "TelemetryItemKind name — routes to the destination table. Kept as a string on the wire so an unknown value fails ONE item (poison), not the whole batch."
+        },
+        {
+          "name": "partitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Azure-Table PartitionKey, typically {tenantId}_{sessionId}."
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "telemetryItemId",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Transport-cursor — monotonic per session across all item kinds."
+        },
+        {
+          "name": "sessionTraceOrdinal",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Null for agent-global items (no session)."
+        },
+        {
+          "name": "payloadJson",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Already-serialised JSON of the wrapped payload (EnrollmentEvent / DecisionSignal / DecisionTransition)."
+        },
+        {
+          "name": "requiresImmediateFlush",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "enqueuedAtUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "retryCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "TelemetryItemKind": {
+      "kind": "enum",
+      "doc": "Kind of a telemetry item on the agent → backend wire (POST /api/agent/telemetry). One vocabulary for both ends: the agent's spool and TelemetryItem.ToWire() write the enum NAME (\"Event\", \"Signal\", \"DecisionTransition\"), the ingest routes by TelemetryItemKind@). Names are the contract — never the ordinal — so a future member can be appended without touching the routing of existing agents (L.14). Three destination tables: → Events (full event pipeline), → Signals, → DecisionTransitions.",
+      "members": [
+        "Event",
+        "Signal",
+        "DecisionTransition"
+      ]
+    },
+    "TelemetryItemsRejectedResponse": {
+      "kind": "object",
+      "doc": "422 body of agent/telemetry when one or more items of a batch cannot be routed (unknown Kind) or parsed (unusable payload). This is the backend end of the agent's poison protocol: Poison plus a non-empty RejectedRowKeys authorise the agent to drop exactly those items and re-upload the rest of the batch; NOTHING of the batch was stored. Without this body the agent retains the batch forever (a bare 4xx never infers poison) — and before it existed the ingest answered 200 and the items were lost when the agent cleared its spool.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "code",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "correlationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "poison",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Always true — the flag the agent's poison parser requires."
+        },
+        {
+          "name": "rejectedRowKeys",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "doc": "RowKeys of the rejected items, batch order; the agent drops exactly these."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Compact per-cause summary for the agent's poison report, e.g. unknown_kind=1;unparseable=2."
+        },
+        {
+          "name": "received",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Items in the batch."
+        },
+        {
+          "name": "rejected",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Items named in RejectedRowKeys."
         }
       ]
     },
@@ -19695,6 +21021,18 @@
             "name": "string"
           }
         }
+      ]
+    },
+    "ValidatorType": {
+      "kind": "enum",
+      "doc": "Identifies which validator authorized the device during session registration. Surfaced in the RegisterSession response so the agent can reconcile against its own registry-based detection and, when needed, switch its enrollment flow.",
+      "members": [
+        "Unknown",
+        "AutopilotV1",
+        "CorporateIdentifier",
+        "DeviceAssociation",
+        "Bootstrap",
+        "CloudPc"
       ]
     },
     "VerdictCalibrationAlert": {

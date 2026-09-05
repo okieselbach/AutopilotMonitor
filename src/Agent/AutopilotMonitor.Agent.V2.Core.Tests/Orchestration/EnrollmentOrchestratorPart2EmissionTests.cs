@@ -8,6 +8,7 @@ using AutopilotMonitor.Agent.V2.Core.Tests.Harness;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 #pragma warning disable xUnit1031
 
@@ -42,7 +43,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             // items must be a whiteglove_resumed event.
             Assert.DoesNotContain(
                 rig.Uploader.Received.SelectMany(b => b),
-                item => item.Kind == AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.TelemetryItemKind.Event &&
+                item => item.Kind == TelemetryItemKind.Event &&
                         item.PayloadJson != null &&
                         item.PayloadJson.Contains("\"whiteglove_resumed\""));
         }
@@ -75,7 +76,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             var resumedEvents = rig.Uploader.Received
                 .SelectMany(b => b)
                 .Where(item =>
-                    item.Kind == AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.TelemetryItemKind.Event &&
+                    item.Kind == TelemetryItemKind.Event &&
                     item.PayloadJson != null &&
                     item.PayloadJson.Contains("\"whiteglove_resumed\""))
                 .ToList();

@@ -5,6 +5,7 @@ using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Classifiers;
 using AutopilotMonitor.DecisionCore.State;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 #pragma warning disable xUnit1031 // SpinWait.SpinUntil for uploader-batch-arrival assertion
 

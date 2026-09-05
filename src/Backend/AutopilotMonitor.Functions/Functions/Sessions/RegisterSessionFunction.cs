@@ -261,8 +261,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     registration.SessionId, adminAction, adminAction);
             }
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            var responseData = new RegisterSessionResponse
+            var response = await req.OkAsync(new RegisterSessionResponse
             {
                 SessionId = registration.SessionId,
                 Success = true,
@@ -270,9 +269,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 RegisteredAt = DateTime.UtcNow,
                 AdminAction = adminAction,
                 ValidatedBy = validation.ValidatedBy
-            };
-
-            await response.WriteAsJsonAsync(responseData);
+            });
 
             // Send SignalR notification for new session registration
             // This is sent to BOTH tenant-specific group AND global-admins group
@@ -417,18 +414,17 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
         }
 
-        private async Task<HttpResponseData> CreateErrorResponse(HttpRequestData req, HttpStatusCode statusCode, string message)
-        {
-            var response = req.CreateResponse(statusCode);
-            var errorResponse = new RegisterSessionResponse
+        /// <summary>
+        /// Refusals keep the <see cref="RegisterSessionResponse"/> shape (not the error envelope):
+        /// the agent reads <c>Success</c>/<c>Message</c>/<c>ErrorCode</c> from this body.
+        /// </summary>
+        private static Task<HttpResponseData> CreateErrorResponse(HttpRequestData req, HttpStatusCode statusCode, string message)
+            => req.JsonAsync(statusCode, new RegisterSessionResponse
             {
                 Success = false,
                 Message = message,
                 RegisteredAt = DateTime.UtcNow
-            };
-            await response.WriteAsJsonAsync(errorResponse);
-            return response;
-        }
+            });
 
         /// <summary>
         /// 410 Gone response for the cascade-delete guard. Mirrors the V2 ingest 410 contract so
@@ -464,30 +460,22 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         /// is the same as for an owner-binding refusal: rotate the SessionId and register afresh.
         /// The owning tenant is deliberately NOT disclosed to the caller.
         /// </summary>
-        private static async Task<HttpResponseData> WriteSessionTenantConflictAsync(HttpRequestData req)
-        {
-            var response = req.CreateResponse(HttpStatusCode.Conflict);
-            await response.WriteAsJsonAsync(new RegisterSessionResponse
+        private static Task<HttpResponseData> WriteSessionTenantConflictAsync(HttpRequestData req)
+            => req.JsonAsync(HttpStatusCode.Conflict, new RegisterSessionResponse
             {
                 Success = false,
                 Message = "Session id is already registered to another tenant; register with a new session id.",
                 RegisteredAt = DateTime.UtcNow,
                 ErrorCode = Constants.AgentErrorCodes.SessionOwnerMismatch,
             });
-            return response;
-        }
 
-        private static async Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
-        {
-            var response = req.CreateResponse(HttpStatusCode.Gone);
-            await response.WriteAsJsonAsync(new RegisterSessionResponse
+        private static Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
+            => req.JsonAsync(HttpStatusCode.Gone, new RegisterSessionResponse
             {
                 Success = false,
                 Message = $"Session is being deleted by an administrator (state={locked.CurrentState}); registration is rejected.",
                 RegisteredAt = DateTime.UtcNow,
             });
-            return response;
-        }
     }
 
     public class RegisterSessionOutput

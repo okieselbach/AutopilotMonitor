@@ -291,8 +291,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     tenantId, rejectedMigrateCandidate);
             }
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new AgentConfigResponse
+            var response = await req.OkAsync(new AgentConfigResponse
             {
                 ConfigVersion = 40, // EnableDoGroupIdAutoSet (Delivery Optimization group ID from network fingerprint)
                 UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,

@@ -13,6 +13,7 @@ using AutopilotMonitor.DecisionCore.Classifiers;
 using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Integration
 {

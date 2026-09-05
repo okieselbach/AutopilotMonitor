@@ -4,6 +4,7 @@ using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Signals;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Telemetry.Signals
 {

@@ -115,6 +115,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string ImePatternDriftSuspected     = "ImePatternDriftSuspected";
         public const string BlobStorageMissing           = "BlobStorageMissing";
         public const string BlobStorageUnreachable       = "BlobStorageUnreachable";
+        /// <summary>
+        /// The telemetry ingest answered a batch with 422 poison: items with an unknown Kind or an
+        /// unparseable payload were named back to the agent instead of being dropped silently.
+        /// One event per rejected batch — a burst across sessions of one agent version is a
+        /// wire-contract drift between that agent line and the deployed backend.
+        /// </summary>
+        public const string TelemetryItemsRejected       = "TelemetryItemsRejected";
 
         // ── Sla ── SLA evaluation outcomes.
         public const string SlaBreachNotification  = "SlaBreachNotification";
@@ -131,7 +138,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen,
             OffboardingFeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
-            SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable,
+            SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert,
         };

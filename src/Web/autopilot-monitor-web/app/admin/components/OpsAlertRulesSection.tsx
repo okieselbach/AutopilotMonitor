@@ -216,6 +216,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // EventIngestProcessor (RecordCmTraceTimeSkewRegressionAsync). Dual-register per memory
     // feedback_ops_event_types_dual_register.
     "CmTraceTimeSkewRegression",
+    // The telemetry ingest refused items of a batch with 422 poison (unknown Kind or an
+    // unparseable payload) and named them back to the agent instead of dropping them. A burst
+    // across sessions of one agent version = wire-contract drift between that agent line and
+    // the deployed backend. Emitted by IngestTelemetryFunction
+    // (RecordTelemetryItemsRejectedAsync). Dual-register per memory
+    // feedback_ops_event_types_dual_register.
+    "TelemetryItemsRejected",
     // A portal user queued a server action for a live session — Collect Logs
     // (request_diagnostics), quick-config (rotate_config) or terminate_session. Emitted by
     // QueueSessionActionFunction (RecordSessionActionQueuedAsync); rule-engine actions are

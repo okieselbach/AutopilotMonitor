@@ -3,21 +3,26 @@ using System;
 namespace AutopilotMonitor.Shared.Models
 {
     /// <summary>
-    /// Wire-format DTO for a single telemetry item sent by the V2 agent to
-    /// <c>POST /api/agent/telemetry</c> (Plan §2.7a / §M5). The agent's in-memory class
-    /// <c>AutopilotMonitor.Agent.V2.Core.Transport.Telemetry.TelemetryItem</c> is ctor-validated
-    /// and immutable; this DTO mirrors the JSON shape so the backend can deserialise without
-    /// depending on agent assemblies.
+    /// The wire shape of one telemetry item sent by the V2 agent to
+    /// <c>POST /api/agent/telemetry</c> (Plan §2.7a / §M5). This class IS the contract on both
+    /// ends: the agent maps its ctor-validated, immutable <c>TelemetryItem</c> through
+    /// <c>TelemetryItem.ToWire()</c> and serialises a list of these; the ingest deserialises the
+    /// same class. Two tests pin it — the agent's <c>TelemetryWireContractTests</c> (round trip
+    /// plus the frozen body under <c>tests/fixtures/telemetry-wire/</c>) and the backend's
+    /// <c>TelemetryWireFixtureTests</c> (every frozen body must dispatch with zero rejections).
     /// <para>
-    /// <b>Serialisation:</b> Newtonsoft.Json, PascalCase, <see cref="Kind"/> as string
-    /// (<c>"Event"</c>/<c>"Signal"</c>/<c>"DecisionTransition"</c>) for forward-compat.
+    /// <b>Serialisation:</b> Newtonsoft.Json defaults on both sides — PascalCase member names,
+    /// ISO-8601 UTC dates, <see cref="Kind"/> as the <see cref="TelemetryItemKind"/> name. A
+    /// value the ingest cannot route or parse is answered with 422 + a poison body naming the
+    /// RowKeys (<see cref="TelemetryItemsRejectedResponse"/>), never dropped silently.
     /// </para>
     /// </summary>
+    [WireContract]
     public sealed class TelemetryItemDto
     {
         /// <summary>
-        /// Item type — routes to the destination table. Values: <c>Event</c>, <c>Signal</c>,
-        /// <c>DecisionTransition</c>. Unknown values are rejected at parse time.
+        /// <see cref="TelemetryItemKind"/> name — routes to the destination table. Kept as a
+        /// string on the wire so an unknown value fails ONE item (poison), not the whole batch.
         /// </summary>
         public string Kind { get; set; } = string.Empty;
 

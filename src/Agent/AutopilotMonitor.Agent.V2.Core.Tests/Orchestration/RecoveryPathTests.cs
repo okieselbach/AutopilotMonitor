@@ -15,6 +15,7 @@ using AutopilotMonitor.DecisionCore.Engine;
 using AutopilotMonitor.DecisionCore.Signals;
 using AutopilotMonitor.DecisionCore.State;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 #pragma warning disable xUnit1031
 

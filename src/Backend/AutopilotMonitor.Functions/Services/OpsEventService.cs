@@ -936,6 +936,20 @@ namespace AutopilotMonitor.Functions.Services
                 $"CMTrace time-skew tripwire on session {sessionId} (agent {agentVersion ?? "?"}): {message}",
                 tenantId, "System.Ingest", details);
 
+        /// <summary>
+        /// The telemetry ingest refused items of a batch with 422 poison (unknown Kind or an
+        /// unparseable payload) and named them back to the agent. One event per refused batch;
+        /// a burst across sessions of one agent version means the agent line and the deployed
+        /// backend disagree on the wire shape. Dual-register per memory feedback_ops_event_types_dual_register.
+        /// </summary>
+        public Task RecordTelemetryItemsRejectedAsync(
+            string tenantId, string sessionId, string? agentVersion,
+            int received, int rejected, int unknownKind, int unparseable, long? firstRejectedItemId, string reason)
+            => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.TelemetryItemsRejected, OpsEventSeverity.Warning,
+                $"Telemetry ingest refused {rejected} of {received} item(s) from session {sessionId} (agent {agentVersion ?? "?"}): {reason}",
+                tenantId, "System.Ingest",
+                new { sessionId, agentVersion, received, rejected, unknownKind, unparseable, firstRejectedItemId });
+
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
             => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.ExcessiveSessionEvents, OpsEventSeverity.Warning,
                 $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",

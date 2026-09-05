@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Response from the agent configuration endpoint
     /// Contains collector toggles and active gather rules for the tenant
     /// </summary>
-    public class AgentConfigResponse
+    public class AgentConfigResponse : IApiResponse
     {
         /// <summary>
         /// Semantic config version from backend.

@@ -395,12 +395,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
             }
         }
 
-        private static string SerializeBatch(IReadOnlyList<TelemetryItem> items)
+        /// <summary>
+        /// The batch body: a JSON array of <see cref="TelemetryItemDto"/> — the Shared class the
+        /// ingest deserialises — with Newtonsoft defaults (PascalCase, ISO-8601 UTC, Kind by name).
+        /// Internal so <c>TelemetryWireContractTests</c> can freeze the real output as a fixture.
+        /// </summary>
+        internal static string SerializeBatch(IReadOnlyList<TelemetryItem> items)
         {
-            // Newtonsoft PascalCase default + TelemetryItemKind carries [StringEnumConverter] →
-            // Backend routes by string "Event"/"Signal"/"DecisionTransition". Wire-format
-            // matches Plan §4.x M5 contract (PascalCase, StringEnum, ISO-8601 UTC).
-            return JsonConvert.SerializeObject(items, Formatting.None);
+            var wire = new TelemetryItemDto[items.Count];
+            for (var i = 0; i < items.Count; i++) wire[i] = items[i].ToWire();
+            return JsonConvert.SerializeObject(wire, Formatting.None);
         }
 
         private static byte[] CompressWithGzip(string text)

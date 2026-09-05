@@ -56,6 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         private readonly KillSwitchEvaluator _killSwitchEvaluator;
         private readonly SessionDeletionGuard _deletionGuard;
         private readonly SessionOwnerBindingObserver _ownerBinding;
+        private readonly OpsEventService _opsEventService;
 
         public IngestTelemetryFunction(
             ILogger<IngestTelemetryFunction> logger,
@@ -74,7 +75,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             BootstrapSessionService bootstrapSessionService,
             KillSwitchEvaluator killSwitchEvaluator,
             SessionDeletionGuard deletionGuard,
-            SessionOwnerBindingObserver ownerBinding)
+            SessionOwnerBindingObserver ownerBinding,
+            OpsEventService opsEventService)
         {
             _logger = logger;
             _sessionRepo = sessionRepo;
@@ -93,6 +95,7 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             _killSwitchEvaluator = killSwitchEvaluator;
             _deletionGuard = deletionGuard;
             _ownerBinding = ownerBinding;
+            _opsEventService = opsEventService;
         }
 
         [Function("IngestTelemetry")]
@@ -278,17 +281,26 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     : null;
                 var sentAt = ParseSendTimeHeader(sentAtHeader);
 
-                // Partition + persist. Events are routed through EventIngestProcessor which runs the
-                // full pipeline (rule engine / app-install aggregation / SignalR / webhooks / ...);
+                // Partition by Kind BEFORE anything is written. An item the ingest cannot route
+                // (unknown Kind) or parse (unusable payload) is a permanent per-item failure: the
+                // batch is answered with 422 + the poison body naming those RowKeys, and nothing
+                // of it is stored — the agent drops exactly the named items and re-uploads the
+                // rest. Persisting the survivors here would be idempotent but pointless (the agent
+                // re-sends them), and a 200 would make the agent clear its spool with the items lost.
+                var batch = PartitionBatch(items, bodyTenantId, sessionId);
+                if (batch.Rejected.Count > 0)
+                    return AsOutput(await WriteItemsRejectedAsync(req, batch, bodyTenantId, sessionId, agentVersionHeader));
+
+                // Persist. Events are routed through EventIngestProcessor which runs the full
+                // pipeline (rule engine / app-install aggregation / SignalR / webhooks / ...);
                 // Signal + Transition go straight to their repositories.
-                var outcome = await PersistItemsAsync(items, bodyTenantId, sessionId, validation, preFetchedStatus, sentAt);
+                var outcome = await PersistItemsAsync(batch, bodyTenantId, sessionId, validation, preFetchedStatus, sentAt);
 
                 _logger.LogInformation(
-                    "IngestTelemetry: tenant={Tenant} session={Session} events={E} signals={S} transitions={T} unknown={U}",
-                    bodyTenantId, sessionId, outcome.EventCount, outcome.SignalCount, outcome.TransitionCount, outcome.UnknownCount);
+                    "IngestTelemetry: tenant={Tenant} session={Session} events={E} signals={S} transitions={T}",
+                    bodyTenantId, sessionId, outcome.EventCount, outcome.SignalCount, outcome.TransitionCount);
 
-                var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new IngestEventsResponse
+                var response = await req.OkAsync(new IngestEventsResponse
                 {
                     Success = true,
                     EventsReceived = items.Count,
@@ -359,10 +371,8 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         /// 200 with <c>DeviceBlocked=true</c> (and <c>DeviceKillSignal=true</c> for a kill): the
         /// agent pauses its upload loop until <c>UnblockAt</c>, or self-destructs on a kill.
         /// </summary>
-        private static async Task<HttpResponseData> WriteDeviceBlockedAsync(HttpRequestData req, KillSwitchVerdict verdict)
-        {
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(new IngestEventsResponse
+        private static Task<HttpResponseData> WriteDeviceBlockedAsync(HttpRequestData req, KillSwitchVerdict verdict)
+            => req.OkAsync(new IngestEventsResponse
             {
                 Success = false,
                 DeviceBlocked = true,
@@ -371,27 +381,54 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 Message = verdict.Message,
                 ProcessedAt = DateTime.UtcNow,
             });
-            return response;
-        }
 
         /// <summary>
         /// Responds 410 Gone when the V2 cascade-delete guard refuses the batch. Per plan §5 PR3
         /// wiring table, telemetry ingest of a locked session is a terminal condition for the
         /// agent: the session is being torn down server-side and any further writes would create
         /// orphan rows. 410 is the documented status; the body shape mirrors the device-blocked
-        /// response so existing agent code paths (which already short-circuit on Success=false)
-        /// drop the batch without retry.
+        /// response (RegisterSession answers its 410 the same way).
         /// </summary>
-        private static async Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
-        {
-            var response = req.CreateResponse(HttpStatusCode.Gone);
-            await response.WriteAsJsonAsync(new IngestEventsResponse
+        private static Task<HttpResponseData> WriteSessionLockedAsync(HttpRequestData req, SessionDeletionLockedException locked)
+            => req.JsonAsync(HttpStatusCode.Gone, new IngestEventsResponse
             {
                 Success = false,
                 Message = $"Session is being deleted by an administrator (state={locked.CurrentState}); further telemetry will be rejected.",
                 ProcessedAt = DateTime.UtcNow,
             });
-            return response;
+
+        /// <summary>
+        /// 422 + poison body: the backend end of the agent's item-level poison protocol
+        /// (<c>BackendTelemetryUploader.TryReadPoisonSignalAsync</c>). Logged as a Warning with
+        /// the first rejected item and recorded as an ops event, because a rejected batch is
+        /// either an agent-side serialisation regression or a Kind the deployed backend does not
+        /// know yet — both are contract drift an operator must see, not a per-session detail.
+        /// </summary>
+        private async Task<HttpResponseData> WriteItemsRejectedAsync(
+            HttpRequestData req, PartitionedBatch batch, string tenantId, string sessionId, string? agentVersion)
+        {
+            var unknownKind = batch.Rejected.Count(r => r.Cause == RejectionCause.UnknownKind);
+            var unparseable = batch.Rejected.Count - unknownKind;
+            var reason = $"unknown_kind={unknownKind};unparseable={unparseable}";
+            var first = batch.Rejected[0];
+
+            _logger.LogWarning(
+                "IngestTelemetry: refused {Rejected} of {Received} item(s) for session {SessionId} with 422 poison " +
+                "({Reason}; first: TelemetryItemId={FirstItemId} Kind='{FirstKind}' RowKey={FirstRowKey})",
+                batch.Rejected.Count, batch.Received, sessionId, reason, first.TelemetryItemId, first.Kind, first.RowKey);
+            await _opsEventService.RecordTelemetryItemsRejectedAsync(
+                tenantId, sessionId, agentVersion, batch.Received, batch.Rejected.Count, unknownKind, unparseable,
+                first.TelemetryItemId, reason);
+
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, new TelemetryItemsRejectedResponse
+            {
+                Error = $"{batch.Rejected.Count} of {batch.Received} telemetry item(s) cannot be ingested (unknown Kind or unusable payload); they were not stored.",
+                Poison = true,
+                RejectedRowKeys = batch.Rejected.Select(r => r.RowKey).ToList(),
+                Reason = reason,
+                Received = batch.Received,
+                Rejected = batch.Rejected.Count,
+            });
         }
 
         /// <summary>
@@ -415,78 +452,76 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
         }
 
         /// <summary>
-        /// Partitions the incoming batch by <see cref="TelemetryItemDto.Kind"/> and persists each
-        /// kind through its destination path. Events go through <see cref="EventIngestProcessor"/>
+        /// Routes every item of the batch by <see cref="TelemetryItemDto.Kind"/> into its storage
+        /// shape. Pure and total: an item whose Kind is not a <see cref="TelemetryItemKind"/> name
+        /// or whose payload the parser cannot use lands in <see cref="PartitionedBatch.Rejected"/>
+        /// instead of being skipped — the caller turns a non-empty rejection list into the 422
+        /// poison answer and stores nothing. Every defined kind has an arm (pinned by
+        /// <c>TelemetryWireFixtureTests</c>); a kind added to the enum without one is rejected as
+        /// <see cref="RejectionCause.UnknownKind"/>, never silently accepted.
+        /// </summary>
+        internal static PartitionedBatch PartitionBatch(IReadOnlyList<TelemetryItemDto> items, string tenantId, string sessionId)
+        {
+            var batch = new PartitionedBatch(items.Count);
+
+            foreach (var item in items)
+            {
+                if (!TelemetryItemKinds.TryParse(item.Kind, out var kind))
+                {
+                    batch.Rejected.Add(new RejectedItem(item, RejectionCause.UnknownKind));
+                    continue;
+                }
+
+                bool parsed;
+                switch (kind)
+                {
+                    case TelemetryItemKind.Event:
+                        parsed = Add(batch.Events, TelemetryPayloadParser.ParseEvent(item, tenantId, sessionId));
+                        break;
+                    case TelemetryItemKind.Signal:
+                        parsed = Add(batch.Signals, TelemetryPayloadParser.ParseSignal(item, tenantId, sessionId));
+                        break;
+                    case TelemetryItemKind.DecisionTransition:
+                        parsed = Add(batch.Transitions, TelemetryPayloadParser.ParseTransition(item, tenantId, sessionId));
+                        break;
+                    default:
+                        batch.Rejected.Add(new RejectedItem(item, RejectionCause.UnknownKind));
+                        continue;
+                }
+
+                if (!parsed)
+                    batch.Rejected.Add(new RejectedItem(item, RejectionCause.UnparseablePayload));
+            }
+
+            return batch;
+
+            static bool Add<T>(List<T> target, T? record) where T : class
+            {
+                if (record == null) return false;
+                target.Add(record);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Persists a fully routed batch. Events go through <see cref="EventIngestProcessor"/>
         /// (the full event pipeline); Signals + Transitions land directly in their primary tables.
         /// The returned <see cref="IngestOutcome"/> carries both the per-kind counts and the
         /// control-signal / SignalR payload for the response.
         /// </summary>
         private async Task<IngestOutcome> PersistItemsAsync(
-            IReadOnlyList<TelemetryItemDto> items,
+            PartitionedBatch batch,
             string tenantId,
             string sessionId,
             SecurityValidationResult validation,
             SessionStatus? preFetchedStatus,
             DateTime? sentAt)
         {
-            var events      = new List<EnrollmentEvent>();
-            var signals     = new List<SignalRecord>();
-            var transitions = new List<DecisionTransitionRecord>();
-            var unknown     = 0;
-
-            // Parse-null tracking: the per-line skip is deliberate (one poisonous item must not
-            // reject the batch), but the response stays Success=true and the agent deletes its
-            // spool — so a dropped item is gone forever. Without these counters an agent-side
-            // serialization regression would be fleet-wide silent data loss.
-            int eventParseFailed = 0, signalParseFailed = 0, transitionParseFailed = 0;
-            long? firstParseFailedItemId = null;
-
-            void TrackParseFailure(ref int counter, TelemetryItemDto item)
-            {
-                counter++;
-                firstParseFailedItemId ??= item.TelemetryItemId;
-            }
-
-            foreach (var item in items)
-            {
-                switch (item.Kind)
-                {
-                    case "Event":
-                        var evt = TelemetryPayloadParser.ParseEvent(item, tenantId, sessionId);
-                        if (evt != null) events.Add(evt);
-                        else TrackParseFailure(ref eventParseFailed, item);
-                        break;
-                    case "Signal":
-                        var sig = TelemetryPayloadParser.ParseSignal(item, tenantId, sessionId);
-                        if (sig != null) signals.Add(sig);
-                        else TrackParseFailure(ref signalParseFailed, item);
-                        break;
-                    case "DecisionTransition":
-                        var tr = TelemetryPayloadParser.ParseTransition(item, tenantId, sessionId);
-                        if (tr != null) transitions.Add(tr);
-                        else TrackParseFailure(ref transitionParseFailed, item);
-                        break;
-                    default:
-                        unknown++;
-                        _logger.LogWarning("IngestTelemetry: unknown Kind '{Kind}' (TelemetryItemId={Id})", item.Kind, item.TelemetryItemId);
-                        break;
-                }
-            }
-
-            var parseFailed = eventParseFailed + signalParseFailed + transitionParseFailed;
-            if (parseFailed > 0)
-            {
-                _logger.LogWarning(
-                    "IngestTelemetry: dropped {Total} unparseable item(s) of {BatchSize} for session {SessionId} " +
-                    "(events={Events}, signals={Signals}, transitions={Transitions}, firstItemId={FirstItemId}) — " +
-                    "items are lost (agent clears its spool on success)",
-                    parseFailed, items.Count, sessionId,
-                    eventParseFailed, signalParseFailed, transitionParseFailed, firstParseFailedItemId);
-            }
+            var events = batch.Events;
 
             // Signals + Transitions write directly; they don't feed into the event pipeline.
-            var signalCount     = await _signalRepo.StoreBatchAsync(signals);
-            var transitionCount = await _transitionRepo.StoreBatchAsync(transitions);
+            var signalCount     = await _signalRepo.StoreBatchAsync(batch.Signals);
+            var transitionCount = await _transitionRepo.StoreBatchAsync(batch.Transitions);
 
             int eventCount;
             string? adminAction;
@@ -529,7 +564,6 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                 EventCount      = eventCount,
                 SignalCount     = signalCount,
                 TransitionCount = transitionCount,
-                UnknownCount    = unknown,
                 AdminAction     = adminAction,
                 PendingActions  = pendingActions,
                 SignalRMessages = signalRMessages,
@@ -567,10 +601,46 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             public int EventCount;
             public int SignalCount;
             public int TransitionCount;
-            public int UnknownCount;
             public string? AdminAction;
             public List<ServerAction>? PendingActions;
             public SignalRMessageAction[] SignalRMessages = Array.Empty<SignalRMessageAction>();
+        }
+
+        /// <summary>Why an item was refused — the split the ops event and the poison reason report.</summary>
+        internal enum RejectionCause
+        {
+            /// <summary><see cref="TelemetryItemDto.Kind"/> is not a <see cref="TelemetryItemKind"/> name (or has no ingest arm).</summary>
+            UnknownKind,
+            /// <summary>The Kind is known but <see cref="TelemetryPayloadParser"/> could not use the payload.</summary>
+            UnparseablePayload,
+        }
+
+        internal readonly struct RejectedItem
+        {
+            public RejectedItem(TelemetryItemDto item, RejectionCause cause)
+            {
+                RowKey = item.RowKey;
+                TelemetryItemId = item.TelemetryItemId;
+                Kind = item.Kind;
+                Cause = cause;
+            }
+
+            public string RowKey { get; }
+            public long TelemetryItemId { get; }
+            public string Kind { get; }
+            public RejectionCause Cause { get; }
+        }
+
+        /// <summary>Output of <see cref="PartitionBatch"/>: the routed records plus the items it refused.</summary>
+        internal sealed class PartitionedBatch
+        {
+            public PartitionedBatch(int received) { Received = received; }
+
+            public int Received { get; }
+            public List<EnrollmentEvent> Events { get; } = new();
+            public List<SignalRecord> Signals { get; } = new();
+            public List<DecisionTransitionRecord> Transitions { get; } = new();
+            public List<RejectedItem> Rejected { get; } = new();
         }
 
         /// <summary>
@@ -682,22 +752,13 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
             return true;
         }
 
-        private static async Task<HttpResponseData> WriteErrorAsync(
+        /// <summary>
+        /// The generic error envelope for every refusal the agent only needs the status of (it
+        /// reads the first 200 characters of the body as the reason text and nothing else).
+        /// </summary>
+        private static Task<HttpResponseData> WriteErrorAsync(
             HttpRequestData req, HttpStatusCode status, string message, int? retryAfterSeconds = null)
-        {
-            var response = req.CreateResponse(status);
-            if (retryAfterSeconds is int seconds)
-                response.Headers.Add("Retry-After", seconds.ToString());
-            await response.WriteAsJsonAsync(new IngestEventsResponse
-            {
-                Success = false,
-                EventsReceived = 0,
-                EventsProcessed = 0,
-                Message = message,
-                ProcessedAt = DateTime.UtcNow,
-            });
-            return response;
-        }
+            => req.ErrorAsync(status, ApiErrorWriter.DefaultCode(status), message, retryAfterSeconds: retryAfterSeconds);
     }
 
     /// <summary>

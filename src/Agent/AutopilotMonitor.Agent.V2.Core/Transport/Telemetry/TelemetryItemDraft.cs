@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 {

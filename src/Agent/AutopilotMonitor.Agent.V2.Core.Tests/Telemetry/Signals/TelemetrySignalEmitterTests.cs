@@ -5,6 +5,7 @@ using AutopilotMonitor.Agent.V2.Core.Transport.Telemetry;
 using AutopilotMonitor.DecisionCore.Signals;
 using Newtonsoft.Json.Linq;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Tests.Telemetry.Signals
 {

@@ -2,6 +2,7 @@
 using System;
 using AutopilotMonitor.DecisionCore.Serialization;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 {
@@ -16,10 +17,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
     /// </summary>
     public static class TelemetryItemSerializer
     {
+        /// <summary>
+        /// DecisionCore settings plus a <see cref="StringEnumConverter"/>: <see cref="TelemetryItem.Kind"/>
+        /// is the only enum on a spool line and has always been written by NAME (<c>"Event"</c>),
+        /// which is also what the wire carries. The enum lives in Shared (no Newtonsoft there), so
+        /// the converter is registered here instead of as an attribute on the type.
+        /// </summary>
+        private static readonly JsonSerializerSettings SpoolSettings = CreateSpoolSettings();
+
+        private static JsonSerializerSettings CreateSpoolSettings()
+        {
+            var settings = DecisionCoreJsonSettings.Create();
+            settings.Converters.Add(new StringEnumConverter());
+            return settings;
+        }
+
         public static string Serialize(TelemetryItem item)
         {
             if (item == null) throw new ArgumentNullException(nameof(item));
-            return JsonConvert.SerializeObject(item, DecisionCoreJsonSettings.Shared);
+            return JsonConvert.SerializeObject(item, SpoolSettings);
         }
 
         public static TelemetryItem Deserialize(string line)
@@ -28,7 +44,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
             try
             {
-                var result = JsonConvert.DeserializeObject<TelemetryItem>(line, DecisionCoreJsonSettings.Shared);
+                var result = JsonConvert.DeserializeObject<TelemetryItem>(line, SpoolSettings);
                 if (result == null)
                 {
                     throw new JsonSerializationException($"TelemetryItem deserialization produced null: {line}");

@@ -303,6 +303,14 @@ namespace AutopilotMonitor.Shared
             /// <summary>413: an upload or download exceeds the configured size cap.</summary>
             public const string PayloadTooLarge = "PayloadTooLarge";
 
+            /// <summary>
+            /// 422 on <c>agent/telemetry</c>: one or more items of the batch cannot be routed
+            /// (unknown Kind) or parsed (unusable PayloadJson). The body is a poison signal
+            /// (<c>TelemetryItemsRejectedResponse</c>) naming the RowKeys; nothing of the batch
+            /// was stored, the agent drops the named items and re-uploads the rest.
+            /// </summary>
+            public const string TelemetryItemsRejected = "TelemetryItemsRejected";
+
             // ── identity binding (grant endpoints, HTTP 422) ──
             public const string HomeTenantUnresolved = "HomeTenantUnresolved";
 

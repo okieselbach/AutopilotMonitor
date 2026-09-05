@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 {
@@ -105,6 +106,26 @@ namespace AutopilotMonitor.Agent.V2.Core.Transport.Telemetry
 
         /// <summary>Anzahl der bisher fehlgeschlagenen Upload-Versuche. Wird vom Orchestrator incrementiert.</summary>
         public int RetryCount { get; }
+
+        /// <summary>
+        /// The wire shape of this item. <see cref="TelemetryItemDto"/> (Shared) is the ONE class both
+        /// ends serialise; this mapping is the only place the agent's validated model meets it.
+        /// <c>TelemetryWireContractTests</c> proves every DTO property is populated here and
+        /// freezes the resulting body under <c>tests/fixtures/telemetry-wire/</c> for the backend.
+        /// </summary>
+        public TelemetryItemDto ToWire() =>
+            new TelemetryItemDto
+            {
+                Kind = Kind.ToString(),
+                PartitionKey = PartitionKey,
+                RowKey = RowKey,
+                TelemetryItemId = TelemetryItemId,
+                SessionTraceOrdinal = SessionTraceOrdinal,
+                PayloadJson = PayloadJson,
+                RequiresImmediateFlush = RequiresImmediateFlush,
+                EnqueuedAtUtc = EnqueuedAtUtc,
+                RetryCount = RetryCount,
+            };
 
         /// <summary>Copy-with-incremented <see cref="RetryCount"/>. Immutable-Erhalt (§2.3 L.3).</summary>
         public TelemetryItem WithRetryIncremented() =>

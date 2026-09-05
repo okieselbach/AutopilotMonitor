@@ -152,18 +152,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests
                 .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                             && !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"));
 
-        private static string RepoRoot()
-        {
-            var dir = AppContext.BaseDirectory;
-            for (int i = 0; i < 12; i++)
-            {
-                if (File.Exists(Path.Combine(dir, "AutopilotMonitor.sln"))) return dir;
-                var parent = Directory.GetParent(dir)?.FullName;
-                if (parent == null || parent == dir) break;
-                dir = parent;
-            }
-            throw new DirectoryNotFoundException(
-                "Could not locate repo root (AutopilotMonitor.sln) from " + AppContext.BaseDirectory);
-        }
+        private static string RepoRoot() => Harness.RepoPaths.Root();
     }
 }
