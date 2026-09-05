@@ -42,12 +42,10 @@ export default function AnalyzeRulesPage() {
 
   const { data: rules, loading, execute: fetchRulesExec, setData: setRules } = useAuthenticatedFetch<AnalyzeRule[]>({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   const { execute: mutate } = useAuthenticatedFetch({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   // Filter state

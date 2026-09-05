@@ -7,8 +7,7 @@ import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import { apiErrorFromResponse, describeApiError } from "@/lib/scopedFetch";
+import { fetchJson } from "@/lib/apiClient";
 import { formatBytes, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "@/components/DoBreakdownBar";
 import { CalculatingInline } from "@/components/CalculatingCard";
@@ -82,7 +81,7 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
   const router = useRouter();
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
+  const { notifyError } = useNotifications();
   const { isGlobalAdmin, scopeInitialized, scopeKey } = scope;
 
   const [data, setData] = useState<AppsListResponse | null>(null);
@@ -110,32 +109,26 @@ export default function InstallsTab({ scope, timeRange }: InstallsTabProps) {
         const listUrl = scopedApi.appsList(scope, days);
         const metricsUrl = scopedApi.appMetrics(scope, days);
 
-        const [listRes, metricsRes] = await Promise.all([
-          authenticatedFetch(listUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
-          authenticatedFetch(metricsUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
+        // The list is the page; the DO rollup is decoration — its failure stays silent.
+        const [listRes, metricsRes] = await Promise.allSettled([
+          fetchJson<AppsListResponse>(listUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
+          fetchJson<AppMetricsResponse>(metricsUrl, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }),
         ]);
 
         if (cancelled) return;
-        if (listRes.ok) {
-          setData((await listRes.json()) as AppsListResponse);
+        if (listRes.status === "fulfilled") {
+          setData(listRes.value);
           succeeded = true;
         } else {
-          // Error envelope: the backend's message plus the correlation id as a quotable reference.
-          const { message, reference } = describeApiError(await apiErrorFromResponse(listRes));
-          addNotification("error", "Backend Error", `Failed to load apps: ${message}`, "apps-list-error", undefined, reference ?? undefined);
+          notifyError("Backend Error", listRes.reason, "apps-list-error", "Failed to load apps.");
         }
-        if (metricsRes.ok) {
-          const m = (await metricsRes.json()) as AppMetricsResponse;
-          setDoRollup(m.deliveryOptimization ?? null);
+        if (metricsRes.status === "fulfilled") {
+          setDoRollup(metricsRes.value.deliveryOptimization ?? null);
         }
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof TokenExpiredError) {
-          addNotification("error", "Session Expired", err.message, "session-expired-error");
-        } else {
-          console.error("Failed to fetch app installs", err);
-          addNotification("error", "Backend Not Reachable", "Unable to load app dashboard data.", "apps-list-error");
-        }
+        console.error("Failed to fetch app installs", err);
+        notifyError("Backend Not Reachable", err, "apps-list-error", "Unable to load app dashboard data.");
       } finally {
         progressFinish(succeeded);
         if (!cancelled) setLoading(false);

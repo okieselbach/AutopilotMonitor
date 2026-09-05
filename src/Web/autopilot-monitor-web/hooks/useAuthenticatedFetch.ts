@@ -4,16 +4,15 @@ import { useState, useCallback, useRef } from "react";
 import { useLatest } from "@/hooks/useLatest";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationContext";
-import {
-  authenticatedFetch,
-  TokenExpiredError,
-} from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 
 export interface UseAuthenticatedFetchOptions {
-  /** Called on non-TokenExpiredError failures. If not set, only the error state is updated. */
+  /**
+   * Called on every failure (ApiError, TokenExpiredError, network). If not set, only the error
+   * state is updated — except a token expiry, which the notification bell reports.
+   */
   onError?: (error: Error) => void;
-  /** Called on TokenExpiredError. Default: addNotification via NotificationContext. */
-  onTokenExpired?: (error: TokenExpiredError) => void;
 }
 
 export interface ExecuteOptions<T> {
@@ -41,7 +40,7 @@ export function useAuthenticatedFetch<T = unknown>(
   options?: UseAuthenticatedFetchOptions,
 ): UseAuthenticatedFetchReturn<T> {
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
+  const { notifyError } = useNotifications();
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -78,25 +77,7 @@ export function useAuthenticatedFetch<T = unknown>(
         }
         setError(null);
 
-        const response = await authenticatedFetch(url, getAccessToken, init);
-
-        if (!response.ok) {
-          // Try to extract error message from response body (API returns { message: "..." })
-          let message = `Failed: ${response.statusText}`;
-          try {
-            const errorData = await response.json();
-            if (errorData.message) message = errorData.message;
-          } catch {
-            /* response body wasn't JSON */
-          }
-          throw new Error(message);
-        }
-
-        if (response.status === 204) {
-          return null;
-        }
-
-        const json = await response.json();
+        const json = await fetchJson<unknown>(url, getAccessToken, init);
         const result = executeOptions?.transform
           ? executeOptions.transform(json)
           : (json as T);
@@ -111,26 +92,13 @@ export function useAuthenticatedFetch<T = unknown>(
           return null;
         }
         const opts = optionsRef.current;
-        if (err instanceof TokenExpiredError) {
-          if (opts?.onTokenExpired) {
-            opts.onTokenExpired(err);
-          } else {
-            addNotification(
-              "error",
-              "Session Expired",
-              err.message,
-              "session-expired",
-            );
-          }
-        } else if (opts?.onError) {
-          opts.onError(
-            err instanceof Error ? err : new Error(String(err)),
-          );
+        if (opts?.onError) {
+          opts.onError(err instanceof Error ? err : new Error(String(err)));
+        } else if (err instanceof TokenExpiredError) {
+          notifyError("Session Expired", err);
         }
 
-        const message =
-          err instanceof Error ? err.message : "An unknown error occurred";
-        setError(message);
+        setError(apiErrorText(err, "An unknown error occurred"));
         return null;
       } finally {
         // Only the spinner's owner may clear it — a superseded request finishing early
@@ -140,7 +108,7 @@ export function useAuthenticatedFetch<T = unknown>(
         }
       }
     },
-    [getAccessToken, addNotification, optionsRef],
+    [getAccessToken, notifyError, optionsRef],
   );
 
   return { data, loading, error, execute, clearError, setData };

@@ -28,12 +28,10 @@ export default function ImeLogPatternsPage() {
 
   const { data: patterns, loading, execute: fetchPatternsExec, setData: setPatterns } = useAuthenticatedFetch<ImeLogPattern[]>({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   const { execute: mutate } = useAuthenticatedFetch({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   // Filters

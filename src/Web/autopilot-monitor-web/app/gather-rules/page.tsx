@@ -28,12 +28,10 @@ export default function GatherRulesPage() {
 
   const { data: rules, loading, execute: fetchRulesExec, setData: setRules } = useAuthenticatedFetch<GatherRule[]>({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   const { execute: mutate } = useAuthenticatedFetch({
     onError: (err) => showError(err.message),
-    onTokenExpired: (err) => showError(err.message),
   });
 
   // Filter state

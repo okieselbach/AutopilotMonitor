@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { apiErrorNotification } from '@/lib/apiClient';
 
 export type NotificationType = 'error' | 'warning' | 'info' | 'success';
 
@@ -20,6 +21,11 @@ interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
   addNotification: (type: NotificationType, title: string, message: string, key?: string, href?: string, reference?: string) => void;
+  /**
+   * The error toast for a failed API call: message and reference from the error envelope
+   * (describeApiError); a token expiry renders as "Session Expired" whatever the title.
+   */
+  notifyError: (title: string, err: unknown, key?: string, fallback?: string) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   removeNotification: (id: string) => void;
@@ -101,6 +107,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
+  const notifyError = useCallback((title: string, err: unknown, key?: string, fallback?: string) => {
+    const n = apiErrorNotification(title, err, key, fallback);
+    addNotification(n.type, n.title, n.message, n.key, undefined, n.reference);
+  }, [addNotification]);
+
   const markAsRead = useCallback((id: string) => {
     setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, read: true } : n)
@@ -130,11 +141,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     notifications,
     unreadCount,
     addNotification,
+    notifyError,
     markAsRead,
     markAllAsRead,
     removeNotification,
     clearAll,
-  }), [notifications, unreadCount, addNotification, markAsRead, markAllAsRead, removeNotification, clearAll]);
+  }), [notifications, unreadCount, addNotification, notifyError, markAsRead, markAllAsRead, removeNotification, clearAll]);
 
   return (
     <NotificationContext.Provider value={value}>

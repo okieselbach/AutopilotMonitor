@@ -16,8 +16,7 @@
  * body stream is independently readable.
  */
 import { authenticatedFetch } from './authenticatedFetch';
-
-type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;
+import { apiErrorFromResponse, parseJsonBody, type GetAccessToken } from './apiClient';
 
 const inFlight = new Map<string, Promise<Response>>();
 
@@ -45,6 +44,13 @@ export async function dedupedAuthFetch(
   }
   // Clone so each caller gets an independently readable body stream.
   return (await pending).clone();
+}
+
+/** dedupedAuthFetch with the apiClient contract: ApiError on non-ok, parsed JSON body otherwise. */
+export async function dedupedFetchJson<T>(url: string, getAccessToken: GetAccessToken, init?: RequestInit): Promise<T> {
+  const response = await dedupedAuthFetch(url, getAccessToken, init);
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return parseJsonBody<T>(response);
 }
 
 /**

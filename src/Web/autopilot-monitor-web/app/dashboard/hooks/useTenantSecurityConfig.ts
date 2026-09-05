@@ -3,17 +3,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
 import { missingContactProfileParts } from "@/lib/edition";
 
-type AddNotification = (
-  type: NotificationType,
-  title: string,
-  message: string,
-  key?: string,
-  href?: string,
-) => void;
+/** NotificationContext.notifyError, injected so the hook stays free of the provider. */
+type NotifyError = (title: string, err: unknown, key?: string, fallback?: string) => void;
 
 /** The subset of the feature-flags response the dashboard banners read. */
 export interface TenantConfigurationSummary {
@@ -79,7 +73,7 @@ export function useTenantSecurityConfig(
   tenantId: string | null | undefined,
   user: User | null | undefined,
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>,
-  addNotification: AddNotification,
+  notifyError: NotifyError,
 ): TenantSecuritySummary {
   const [summary, setSummary] = useState<TenantSecuritySummary>(EMPTY_SUMMARY);
 
@@ -95,19 +89,12 @@ export function useTenantSecurityConfig(
       if (!user.isTenantAdmin && !user.isGlobalAdmin && user.role == null) return;
 
       try {
-        const response = await dedupedAuthFetch(api.config.featureFlags(tenantId), getAccessToken);
-
-        if (!response.ok) {
-          setSummary(EMPTY_SUMMARY);
-          return;
-        }
-
-        const data: TenantConfigurationSummary = await response.json();
+        const data = await dedupedFetchJson<TenantConfigurationSummary>(api.config.featureFlags(tenantId), getAccessToken);
         setSummary(summarizeTenantSecurityConfig(data));
       } catch (error) {
-        if (error instanceof TokenExpiredError) {
-          addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-        }
+        // Fail-soft on a backend refusal (the banners just stay quiet); a token expiry is the
+        // one failure the user must hear about.
+        if (error instanceof TokenExpiredError) notifyError('Session Expired', error);
         setSummary(EMPTY_SUMMARY);
       }
     };

@@ -99,7 +99,7 @@ function HomeContent() {
     ? "w-full px-4 sm:px-6 lg:px-8 py-4"
     : "max-w-7xl mx-auto py-4 sm:px-6 lg:px-8";
   const { user, getAccessToken, isActivationPending, hasGlobalScope } = useAuth();
-  const { addNotification } = useNotifications();
+  const { addNotification, notifyError } = useNotifications();
   // `?tenant=<id>` deep-links a cross-tenant view onto one tenant — used by the /fleet card grid to drill
   // a managed tenant into this dashboard. Ignored for non-cross-tenant users (the filter is unused there).
   const initialTenantFilter = searchParams?.get("tenant") ?? "";
@@ -262,7 +262,7 @@ function HomeContent() {
     }
   }, [user, router]);
 
-  const { serialValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, addNotification);
+  const { serialValidationEnabled, proContactMissing, proContactMissingParts, appHomingFunnelActive } = useTenantSecurityConfig(tenantId, user, getAccessToken, notifyError);
 
   // Disable global-scope mode for users without platform scope. A read-only Global Reader keeps it
   // (their cross-tenant view is read-only-safe; writes are gated separately + backend-enforced).

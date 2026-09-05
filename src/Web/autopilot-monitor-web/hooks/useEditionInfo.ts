@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
+import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
 import { parseEditionInfo, type EditionInfo } from "@/lib/edition";
 
 /**
@@ -30,9 +30,7 @@ export function useEditionInfo(): EditionInfo | null {
     let cancelled = false;
     const run = async () => {
       try {
-        const res = await dedupedAuthFetch(api.config.featureFlags(tenantId), getAccessToken);
-        if (!res.ok) return;
-        const parsed = parseEditionInfo(await res.json());
+        const parsed = parseEditionInfo(await dedupedFetchJson<unknown>(api.config.featureFlags(tenantId), getAccessToken));
         if (!cancelled) setInfo(parsed);
       } catch {
         // Leave null — chrome renders nothing rather than a guessed edition.

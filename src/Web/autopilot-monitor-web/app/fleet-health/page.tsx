@@ -10,7 +10,7 @@ import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { fetchJson } from "@/lib/scopedFetch";
+import { fetchJson } from "@/lib/apiClient";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { dedupedAuthFetch } from "@/lib/dedupedAuthFetch";
+import { dedupedFetchJson } from "@/lib/dedupedAuthFetch";
+import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
 
 interface UseSessionTenantConfigReturn {
   showScriptOutput: boolean;
@@ -36,9 +37,7 @@ export function useSessionTenantConfig(
         // These flags are exposed via the member-readable feature-flags endpoint so that
         // Operators and Viewers can load session details without 403'ing on the admin-only
         // full /api/config/{tenantId} response.
-        const res = await dedupedAuthFetch(api.config.featureFlags(sessionTenantId), getAccessToken);
-        if (!res.ok || cancelled) return;
-        const cfg = await res.json();
+        const cfg = await dedupedFetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(sessionTenantId), getAccessToken);
         if (cancelled) return;
         setShowScriptOutput(cfg.showScriptOutput ?? true);
         setEnableSoftwareInventoryAnalyzer(cfg.enableSoftwareInventoryAnalyzer ?? false);
