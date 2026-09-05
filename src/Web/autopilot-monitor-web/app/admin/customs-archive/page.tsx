@@ -8,10 +8,11 @@ import {
   type CustomsArchiveListRunsResponse,
   type CustomsArchiveRunSummary,
 } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../AdminConfigContext";
 import { AdminNotifications } from "../AdminNotifications";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
+import type { CustomsArchiveDeleteRunResponse } from "@/utils/wire-types.generated";
 
 export default function CustomsArchivePage() {
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
@@ -25,18 +26,10 @@ export default function CustomsArchivePage() {
     try {
       setLoading(true);
       const url = api.customsArchive.listRuns({ tenantId: filter.trim() || undefined });
-      const res = await authenticatedFetch(url, getAccessToken);
-      if (!res.ok) {
-        throw new Error(`List runs failed: ${res.status} ${res.statusText}`);
-      }
-      const body = (await res.json()) as CustomsArchiveListRunsResponse;
+      const body = await fetchJson<CustomsArchiveListRunsResponse>(url, getAccessToken);
       setRuns(body.runs ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -54,24 +47,16 @@ export default function CustomsArchivePage() {
     if (!run) return;
     try {
       setDeletingPk(run.partitionKey);
-      const res = await authenticatedFetch(
+      const body = await fetchJson<CustomsArchiveDeleteRunResponse>(
         api.customsArchive.deleteRun(run.tenantId, run.historyRowKey),
         getAccessToken,
         { method: "DELETE" }
       );
-      if (!res.ok) {
-        throw new Error(`Delete run failed: ${res.status} ${res.statusText}`);
-      }
-      const body = await res.json();
       setSuccessMessage(`Deleted ${body.deleted ?? 0} archived rules.`);
       setPendingDelete(null);
       await load();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setDeletingPk(null);
     }

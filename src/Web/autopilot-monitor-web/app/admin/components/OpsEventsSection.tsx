@@ -5,22 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import TruncatedLabel from "@/components/TruncatedLabel";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { extractContinuation } from "@/lib/paginationLink";
 import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { OpsEventEntry, OpsEventListResponse } from "@/utils/wire-types.generated";
 
-interface OpsEvent {
-  id: string;
-  category: string;
-  eventType: string;
-  severity: string;
-  tenantId: string | null;
-  userId: string | null;
-  message: string;
-  details: string | null;
-  timestamp: string;
-}
+/** One ops event row (wire shape). */
+type OpsEvent = OpsEventEntry;
 
 interface OpsEventsSectionProps {
   getAccessToken: () => Promise<string | null>;
@@ -145,7 +137,8 @@ export function OpsEventsSection({
   const fetchEvents = useCallback(async (cursor: string | null) => {
     try {
       setLoading(true);
-      const res = await authenticatedFetch(
+      // 404 = the table does not exist yet: no events, not an error.
+      const data = await fetchJson<OpsEventListResponse>(
         api.opsEvents.list(categoryFilter || undefined, {
           dateFrom: dateFromIso,
           dateTo: dateToIso,
@@ -153,21 +146,11 @@ export function OpsEventsSection({
           continuation: cursor ?? undefined,
         }),
         getAccessToken
-      );
-      if (res.status === 404) {
-        setEvents([]);
-        setNextLink(null);
-        return;
-      }
-      if (!res.ok) throw new Error(`Failed to load ops events: ${res.statusText}`);
-      const data = await res.json();
-      setEvents(data.events ?? []);
-      setNextLink(data.nextLink ?? null);
+      ).catch(nullOn404);
+      setEvents(data?.events ?? []);
+      setNextLink(data?.nextLink ?? null);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading ops events");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load ops events");
+      setError(apiErrorText(err, "Failed to load ops events"));
     } finally {
       setLoading(false);
     }
@@ -552,7 +535,7 @@ export function OpsEventsSection({
               </dl>
 
               {(() => {
-                const sessionId = extractSessionId(selectedEvent.details);
+                const sessionId = extractSessionId(selectedEvent.details ?? null);
                 if (!sessionId) return null;
                 const reason = buildAutoReason(selectedEvent.eventType, sessionId);
                 return (

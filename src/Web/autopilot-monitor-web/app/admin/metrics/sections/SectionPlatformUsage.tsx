@@ -4,100 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { CalculatingCard } from "@/components/CalculatingCard";
+import type { PlatformUsageMetrics } from "@/utils/wire-types.generated";
 
 // A fresh cross-tenant compute takes tens of seconds server-side; the default 30s fetch timeout
 // aborted it client-side (HTTP 499 on the backend) while the server kept computing. Give this one
 // call generous headroom — the backend caches the result for 15 minutes afterwards.
 const FETCH_TIMEOUT_MS = 180_000;
 
-interface SessionMetrics {
-  total: number;
-  today: number;
-  last7Days: number;
-  last30Days: number;
-  succeeded: number;
-  failed: number;
-  inProgress: number;
-  incomplete: number;
-  successRate: number;
-}
-
-interface TenantMetrics {
-  total: number;
-  active7Days: number;
-  active30Days: number;
-}
-
-interface UserMetrics {
-  total: number;
-  dailyLogins: number;
-  active7Days: number;
-  active30Days: number;
-  note: string;
-}
-
-interface PerformanceMetrics {
-  avgDurationMinutes: number;
-  medianDurationMinutes: number;
-  p95DurationMinutes: number;
-  p99DurationMinutes: number;
-}
-
-interface HardwareCount {
-  name: string;
-  count: number;
-  percentage: number;
-}
-
-interface HardwareMetrics {
-  topManufacturers: HardwareCount[];
-  topModels: HardwareCount[];
-}
-
-interface DeploymentTypeMetrics {
-  userDriven: number;
-  whiteGlove: number;
-  userDrivenPercentage: number;
-  whiteGlovePercentage: number;
-}
-
-interface PlatformStats {
-  totalEnrollments: number;
-  totalUsers: number;
-  totalTenants: number;
-  totalSignedUpTenants: number;
-  uniqueDeviceModels: number;
-  totalEventsProcessed: number;
-  successfulEnrollments: number;
-  issuesDetected: number;
-}
-
-interface AppScriptMetrics {
-  avgAppsPerSession: number;
-  totalUniqueApps: number;
-  avgPlatformScriptsPerSession: number;
-  avgRemediationScriptsPerSession: number;
-  totalPlatformScripts: number;
-  totalRemediationScripts: number;
-}
-
-interface PlatformUsageMetrics {
-  sessions: SessionMetrics;
-  tenants: TenantMetrics;
-  users: UserMetrics;
-  performance: PerformanceMetrics;
-  hardware: HardwareMetrics;
-  deploymentTypes: DeploymentTypeMetrics;
-  appScripts?: AppScriptMetrics;
-  platformStats?: PlatformStats;
-  windowDays: number;
-  computedAt: string;
-  computeDurationMs: number;
-  fromCache: boolean;
-}
 
 export function SectionPlatformUsage() {
   const router = useRouter();
@@ -124,27 +40,17 @@ export function SectionPlatformUsage() {
       progressBegin();
 
       // Platform-wide metrics - cross-tenant (Global Admin only)
-      const response = await authenticatedFetch(api.metrics.globalUsage(), getAccessToken, {
+      const data = await fetchJson<PlatformUsageMetrics>(api.metrics.globalUsage(), getAccessToken, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch platform usage metrics: ${response.statusText}`);
-      }
-
-      const data: PlatformUsageMetrics = await response.json();
       setMetrics(data);
       recordEstimate = !data.fromCache;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error('Session expired:', err.message);
-      } else {
-        console.error('Error fetching platform usage metrics:', err);
-      }
+      console.error('Error fetching platform usage metrics:', err);
       if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         setError('The calculation is taking unusually long. It continues on the server and the result is cached once finished — please retry in a moment.');
       } else {
-        setError(err instanceof Error ? err.message : 'Failed to fetch platform usage metrics');
+        setError(apiErrorText(err, 'Failed to fetch platform usage metrics'));
       }
     } finally {
       progressFinish(recordEstimate);

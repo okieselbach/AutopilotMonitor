@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { BlockedVersionListResponse } from "@/utils/wire-types.generated";
 
 interface BlockedVersion {
   versionPattern: string;
@@ -38,15 +39,10 @@ export function VersionBlockSection({
   const fetchBlockedVersions = async () => {
     try {
       setLoadingVersions(true);
-      const response = await authenticatedFetch(api.versions.blocked(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load version blocks: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<BlockedVersionListResponse>(api.versions.blocked(), getAccessToken);
       setBlockedVersions(data.rules ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading version blocks");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load version blocks");
+      setError(apiErrorText(err, "Failed to load version blocks"));
     } finally {
       setLoadingVersions(false);
     }
@@ -63,17 +59,14 @@ export function VersionBlockSection({
     try {
       setAddingRule(true);
       setError(null);
-      const response = await authenticatedFetch(api.versions.block(), getAccessToken, {
+      await fetchOk(api.versions.block(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           versionPattern: versionPattern.trim(),
           action: versionAction,
           reason: versionReason.trim() || undefined,
         }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || response.statusText);
       setSuccessMessage(
         versionAction === "Kill"
           ? `Version pattern "${versionPattern.trim()}" set to kill.`
@@ -85,10 +78,7 @@ export function VersionBlockSection({
       setVersionAction("Block");
       if (blockedVersions.length > 0) await fetchBlockedVersions();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while adding version block");
-      }
-      setError(err instanceof Error ? err.message : "Failed to add version block rule");
+      setError(apiErrorText(err, "Failed to add version block rule"));
     } finally {
       setAddingRule(false);
     }
@@ -99,21 +89,12 @@ export function VersionBlockSection({
     try {
       setRemovingPattern(pattern);
       setError(null);
-      const response = await authenticatedFetch(
-        api.versions.unblock(pattern),
-        getAccessToken,
-        { method: "DELETE" }
-      );
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || response.statusText);
+      await fetchOk(api.versions.unblock(pattern), getAccessToken, { method: "DELETE" });
       setSuccessMessage(`Version pattern "${pattern}" removed.`);
       setTimeout(() => setSuccessMessage(null), 3000);
       setBlockedVersions((prev) => prev.filter((v) => v.versionPattern !== pattern));
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while removing version block");
-      }
-      setError(err instanceof Error ? err.message : "Failed to remove version block rule");
+      setError(apiErrorText(err, "Failed to remove version block rule"));
     } finally {
       setRemovingPattern(null);
     }

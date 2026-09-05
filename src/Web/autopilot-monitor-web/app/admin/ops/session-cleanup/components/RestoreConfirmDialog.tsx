@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { SessionRestoreResponse } from "@/utils/wire-types.generated";
 
 interface RestoreConfirmDialogProps {
   tenantId: string;
@@ -46,12 +47,11 @@ export function RestoreConfirmDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const resp = await authenticatedFetch(
+      const body = await fetchJson<SessionRestoreResponse>(
         api.sessionDeletions.restore(sessionId),
         getAccessToken,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenantId,
             manifestId,
@@ -60,10 +60,6 @@ export function RestoreConfirmDialog({
           }),
         },
       );
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        throw new Error(body?.message ?? `Restore failed: HTTP ${resp.status}`);
-      }
       const view = parseRestoreResult(body);
       if (dryRun) {
         setDryRunResult(view);
@@ -72,11 +68,7 @@ export function RestoreConfirmDialog({
         onRestored();
       }
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setSubmitting(false);
     }
@@ -275,26 +267,17 @@ function ResultSection({
   );
 }
 
-function parseRestoreResult(body: Record<string, unknown>): RestoreResultView {
+function parseRestoreResult(body: SessionRestoreResponse): RestoreResultView {
   return {
-    outcome: typeof body.outcome === "string" ? body.outcome : "Unknown",
-    mode: typeof body.mode === "string" ? body.mode : null,
-    message: typeof body.message === "string" ? body.message : null,
-    currentState: typeof body.currentState === "string" ? body.currentState : null,
-    pendingManifestId: typeof body.pendingManifestId === "string" ? body.pendingManifestId : null,
-    rowsRestoredByTable: isStringNumberMap(body.rowsRestoredByTable) ? body.rowsRestoredByTable : {},
-    rowsSkippedByTable: isStringNumberMap(body.rowsSkippedByTable) ? body.rowsSkippedByTable : {},
-    wouldRestoreByTable: isStringNumberMap(body.wouldRestoreByTable) ? body.wouldRestoreByTable : {},
-    inventoryReIncrements: typeof body.inventoryReIncrements === "number" ? body.inventoryReIncrements : 0,
-    durationMs: typeof body.durationMs === "number" ? body.durationMs : 0,
+    outcome: body.outcome || "Unknown",
+    mode: body.mode ?? null,
+    message: body.message ?? null,
+    currentState: body.currentState ?? null,
+    pendingManifestId: body.pendingManifestId ?? null,
+    rowsRestoredByTable: body.rowsRestoredByTable ?? {},
+    rowsSkippedByTable: body.rowsSkippedByTable ?? {},
+    wouldRestoreByTable: body.wouldRestoreByTable ?? {},
+    inventoryReIncrements: body.inventoryReIncrements ?? 0,
+    durationMs: body.durationMs ?? 0,
   };
-}
-
-function isStringNumberMap(value: unknown): value is Record<string, number> {
-  return (
-    typeof value === "object"
-    && value !== null
-    && !Array.isArray(value)
-    && Object.values(value).every((v) => typeof v === "number")
-  );
 }

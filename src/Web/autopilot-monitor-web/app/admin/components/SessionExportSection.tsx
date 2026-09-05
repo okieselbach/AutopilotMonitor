@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { SessionExportEvent, generateCsvExport, generateUiExport } from "@/utils/sessionExportUtils";
 import { trackEvent } from "@/lib/appInsights";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
 
 function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -47,19 +48,14 @@ export function SessionExportSection({
       setExportLoading(true);
       setExportError(null);
       setExportedEvents(null);
-      const res = await authenticatedFetch(
+      const data = await fetchJson<GetSessionEventsResponse>(
         api.sessions.events(sid, tid),
         getAccessToken
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || "Backend returned error");
-      setExportedEvents(data.events ?? []);
+      // No `fields` projection on this call, so every event is complete.
+      setExportedEvents((data.events ?? []) as SessionExportEvent[]);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while fetching export events");
-      }
-      setExportError(err instanceof Error ? err.message : "Failed to fetch events");
+      setExportError(apiErrorText(err, "Failed to fetch events"));
     } finally {
       setExportLoading(false);
     }

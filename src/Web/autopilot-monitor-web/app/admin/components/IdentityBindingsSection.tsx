@@ -2,9 +2,10 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { isGuid, type IdentityBinding } from "@/lib/identityBinding";
+import type { IdentityBindingListResponse } from "@/utils/wire-types.generated";
 
 interface IdentityBindingsSectionProps {
   tenantId: string;
@@ -37,17 +38,14 @@ export function IdentityBindingsSection({
 
   const fail = useCallback(
     (err: unknown, fallback: string) => {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : fallback);
+      setError(apiErrorText(err, fallback));
     },
     [setError],
   );
 
   const load = useCallback(async () => {
     try {
-      const response = await authenticatedFetch(api.identityBindings.list(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load identity bindings: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<IdentityBindingListResponse>(api.identityBindings.list(), getAccessToken);
       const all: IdentityBinding[] = data.bindings ?? [];
       setBindings(
         all
@@ -80,15 +78,10 @@ export function IdentityBindingsSection({
     try {
       setBusy(upn);
       setError(null);
-      const response = await authenticatedFetch(api.identityBindings.put(upn), getAccessToken, {
+      await fetchOk(api.identityBindings.put(upn), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ homeTenantId: tid, objectId: oid || undefined }),
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to update binding: ${response.statusText}`);
-      }
       setSuccessMessage(`Identity binding for ${upn} updated.`);
       setEditing(null);
       await load();
@@ -104,11 +97,7 @@ export function IdentityBindingsSection({
     try {
       setBusy(upn);
       setError(null);
-      const response = await authenticatedFetch(api.identityBindings.remove(upn), getAccessToken, { method: "DELETE" });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to remove binding: ${response.statusText}`);
-      }
+      await fetchOk(api.identityBindings.remove(upn), getAccessToken, { method: "DELETE" });
       setSuccessMessage(`Identity binding for ${upn} removed.`);
       await load();
     } catch (err) {

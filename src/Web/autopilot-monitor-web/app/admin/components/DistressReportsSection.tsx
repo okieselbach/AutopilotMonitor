@@ -2,22 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import type { DistressReportEntry, DistressReportListResponse } from "@/utils/wire-types.generated";
 
-interface DistressReport {
-  tenantId: string;
-  errorType: string;
-  manufacturer: string | null;
-  model: string | null;
-  serialNumber: string | null;
-  agentVersion: string | null;
-  httpStatusCode: number | null;
-  message: string | null;
-  agentTimestamp: string;
-  ingestedAt: string;
-  sourceIp: string | null;
-}
+/** One stored distress report — the wire shape (optional where the agent sent nothing). */
+type DistressReport = DistressReportEntry;
 
 type SortKey = "ingestedAt" | "errorType" | "tenantId" | "manufacturer" | "model" | "serialNumber" | "httpStatusCode";
 type SortDir = "asc" | "desc";
@@ -149,19 +139,11 @@ export function DistressReportsSection({
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const res = await authenticatedFetch(api.distressReports.list(), getAccessToken);
-      if (res.status === 404) {
-        setReports([]);
-        return;
-      }
-      if (!res.ok) throw new Error(`Failed to load distress reports: ${res.statusText}`);
-      const data = await res.json();
-      setReports(data.reports ?? []);
+      // 404 = the table does not exist yet: no reports, not an error.
+      const data = await fetchJson<DistressReportListResponse>(api.distressReports.list(), getAccessToken).catch(nullOn404);
+      setReports(data?.reports ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading distress reports");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load distress reports");
+      setError(apiErrorText(err, "Failed to load distress reports"));
     } finally {
       setLoading(false);
     }

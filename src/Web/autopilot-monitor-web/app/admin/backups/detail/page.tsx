@@ -11,7 +11,7 @@ import {
   type RestoreRowPreviewResponse,
   type RestoreRowRequestBody,
 } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { RestoreRowDiffModal } from "../components/RestoreRowDiffModal";
@@ -47,13 +47,10 @@ function BackupDetailContent() {
     if (!backupId) return;
     try {
       setLoading(true);
-      const res = await authenticatedFetch(api.backups.manifest(backupId), getAccessToken);
-      if (!res.ok) throw new Error(`Manifest failed: ${res.status} ${res.statusText}`);
-      const body = (await res.json()) as BackupManifest;
+      const body = await fetchJson<BackupManifest>(api.backups.manifest(backupId), getAccessToken);
       setManifest(body);
     } catch (err) {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -76,20 +73,13 @@ function BackupDetailContent() {
         rowKey: rk,
         mode: "Preview",
       };
-      const res = await authenticatedFetch(api.backups.restoreRow(backupId), getAccessToken, {
+      const preview = await fetchJson<RestoreRowPreviewResponse>(api.backups.restoreRow(backupId), getAccessToken, {
         method: "POST",
         body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Preview failed: ${res.status} ${text}`);
-      }
-      const preview = (await res.json()) as RestoreRowPreviewResponse;
       setActivePreview(preview);
     } catch (err) {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setPreviewLoading(false);
     }

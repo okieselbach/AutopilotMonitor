@@ -29,6 +29,8 @@ export class ApiError extends Error {
     public readonly hint: string | null = null,
     /** Seconds the server asked us to wait (429/503); null when it sent none. */
     public readonly retryAfterSeconds: number | null = null,
+    /** The parsed envelope — specialised bodies carry domain fields after the prefix (slot limit, app-homing probe, delete lock). */
+    public readonly body: ErrorBody | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -41,6 +43,9 @@ export class ApiError extends Error {
  * envelope on 2026-09-05); drop it once no older backend can answer this web build.
  */
 type ErrorEnvelope = Partial<ApiErrorResponse> & { message?: unknown };
+
+/** What ApiError.body exposes: the envelope prefix plus whatever the specialised body adds. */
+export type ErrorBody = Partial<ApiErrorResponse> & Record<string, unknown>;
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -71,7 +76,14 @@ export async function apiErrorFromResponse(response: Response): Promise<ApiError
     str(body?.correlationId) ?? "",
     str(body?.hint),
     num(body?.retryAfterSeconds) ?? retryAfterFromHeader(response),
+    body as ErrorBody | null,
   );
+}
+
+/** `.catch(nullOn404)`: a 404 reads as "nothing there" (empty table, route not deployed yet); every other failure still throws. */
+export function nullOn404(err: unknown): null {
+  if (err instanceof ApiError && err.status === 404) return null;
+  throw err;
 }
 
 /** A string body without an explicit Content-Type is JSON — every backend route deserialises JSON. */

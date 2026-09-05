@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { api } from '@/lib/api';
-import { authenticatedFetch, TokenExpiredError } from '@/lib/authenticatedFetch';
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -360,23 +360,15 @@ export function SectionTenantConfigReport() {
     const fetchTenants = async () => {
       try {
         setLoadingTenants(true);
-        const response = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
-          const mapped: TenantInfo[] = data.map((t: { tenantId: string; domainName: string }) => ({
-            tenantId: t.tenantId,
-            domainName: t.domainName || '',
-          }));
-          mapped.sort((a, b) => (a.domainName || a.tenantId).localeCompare(b.domainName || b.tenantId));
-          setTenants(mapped);
-          // Don't auto-select — user must pick a tenant from the dropdown
-        }
+        // config/all is a bare array of tenant configurations (deliberately untyped, D-043).
+        const data = await fetchJson<Array<{ tenantId: string; domainName?: string }>>(api.config.all(), getAccessToken);
+        const mapped: TenantInfo[] = data.map((t) => ({ tenantId: t.tenantId, domainName: t.domainName || '' }));
+        mapped.sort((a, b) => (a.domainName || a.tenantId).localeCompare(b.domainName || b.tenantId));
+        setTenants(mapped);
+        // Don't auto-select: the user must pick a tenant from the dropdown.
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          setError('Session expired. Please refresh.');
-        } else {
-          console.error('Error fetching tenant list:', err);
-        }
+        console.error('Error fetching tenant list:', err);
+        setError(apiErrorText(err, 'Failed to load tenants'));
       } finally {
         setLoadingTenants(false);
       }
@@ -390,21 +382,13 @@ export function SectionTenantConfigReport() {
     try {
       setLoading(true);
       setError(null);
-      const response = await authenticatedFetch(
+      const data = await fetchJson<TenantConfig>(
         api.config.tenant(selectedTenantId),
         getAccessToken,
       );
-      if (!response.ok) {
-        throw new Error(`Failed to load config: ${response.status} ${response.statusText}`);
-      }
-      const data: TenantConfig = await response.json();
       setConfig(data);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError('Session expired. Please refresh.');
-      } else {
-        setError((err as Error).message);
-      }
+      setError(apiErrorText(err));
       setConfig(null);
     } finally {
       setLoading(false);

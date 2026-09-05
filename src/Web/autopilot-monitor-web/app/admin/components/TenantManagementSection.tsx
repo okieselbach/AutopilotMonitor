@@ -1,10 +1,10 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import type { DelegatedSlotUsageResponse, PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
+import type { AppHomingDeniedResponse, DelegatedSlotUsageResponse, GetPreviewNotificationEmailResponse, OffboardResponse, PlanTierDefinitionsResponse, PreviewWhitelistActionResponse, SetTenantPlanTierResponse, UpdateTenantAppHomingResponse, UpdateTenantConfigurationResponse } from "@/utils/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { classifyClientId, legacyConfigured } from "@/lib/authApp";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
@@ -168,22 +168,17 @@ function TenantManagementSectionInner({
     try {
       setReleasingHold(invitationId);
       setError(null);
-      const response = await authenticatedFetch(api.delegatedSlots.releaseHold(tenantId), getAccessToken, {
+      await fetchOk(api.delegatedSlots.releaseHold(tenantId), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invitationId }),
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to release the hold: ${response.statusText}`);
-      }
       setSlotUsage((prev) => prev
         ? { ...prev, holds: prev.holds.filter((h) => h.invitationId !== invitationId), used: Math.max(0, prev.used - 1) }
         : prev);
       setSuccessMessage("Slot hold released — the managing tenant can invite again now.");
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to release the hold");
+      setError(apiErrorText(err, "Failed to release the hold"));
     } finally {
       setReleasingHold(null);
     }
@@ -192,10 +187,9 @@ function TenantManagementSectionInner({
   useEffect(() => {
     if (!editingTenantId) return;
     let cancelled = false;
-    authenticatedFetch(api.delegatedSlots.get(editingTenantId), getAccessToken)
-      .then(async (res) => {
-        if (cancelled) return;
-        setSlotUsage(res.ok ? ((await res.json()) as DelegatedSlotUsageResponse) : null);
+    fetchJson<DelegatedSlotUsageResponse>(api.delegatedSlots.get(editingTenantId), getAccessToken)
+      .then((usage) => {
+        if (!cancelled) setSlotUsage(usage);
       })
       .catch(() => {
         if (!cancelled) setSlotUsage(null);
@@ -209,11 +203,9 @@ function TenantManagementSectionInner({
     // with just the stored value + "edition default", so the editor stays usable.
     if (!editingTenantId) return;
     let cancelled = false;
-    authenticatedFetch(api.mcpUsage.planTiers(), getAccessToken)
-      .then(async (res) => {
-        if (cancelled) return;
-        const data = res.ok ? ((await res.json()) as PlanTierDefinitionsResponse) : null;
-        setUsagePlanNames(data ? data.tiers.map((t) => t.name.trim().toLowerCase()).filter(Boolean) : null);
+    fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken)
+      .then((data) => {
+        if (!cancelled) setUsagePlanNames(data.tiers.map((t) => t.name.trim().toLowerCase()).filter(Boolean));
       })
       .catch(() => {
         if (!cancelled) setUsagePlanNames(null);
@@ -276,17 +268,10 @@ function TenantManagementSectionInner({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.config.tenant(tenant.tenantId), getAccessToken, {
+      const result = await fetchJson<UpdateTenantConfigurationResponse>(api.config.tenant(tenant.tenantId), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tenant),
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to save tenant configuration: ${response.statusText}`);
-      }
-
-      const result = await response.json();
 
       // Update tenant in list
       setTenants(prev => prev.map(t => t.tenantId === tenant.tenantId ? result.config : t));
@@ -296,12 +281,8 @@ function TenantManagementSectionInner({
       // Auto-hide success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving tenant configuration");
-      } else {
-        console.error("Error saving tenant configuration:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to save tenant configuration");
+      console.error("Error saving tenant configuration:", err);
+      setError(apiErrorText(err, "Failed to save tenant configuration"));
     } finally {
       setSavingTenant(false);
     }
@@ -316,9 +297,8 @@ function TenantManagementSectionInner({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.config.plan(tenant.tenantId), getAccessToken, {
+      const result = await fetchJson<SetTenantPlanTierResponse>(api.config.plan(tenant.tenantId), getAccessToken, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           // The select only offers the two canonical write values (community/pro); legacy stored
           // "enterprise" normalizes to "pro" on save, legacy "free" to "community".
@@ -329,13 +309,6 @@ function TenantManagementSectionInner({
           payingCustomer: tenant.payingCustomer === true,
         }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to save plan: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       const apply = (t: TenantConfiguration): TenantConfiguration => ({
         ...t,
         planTier: result.planTier,
@@ -351,10 +324,7 @@ function TenantManagementSectionInner({
       setSuccessMessage(`Plan saved — effective edition: ${effectiveEditionLabel(result.effectiveEdition, result.editionSource)}`);
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving plan");
-      }
-      setError(err instanceof Error ? err.message : "Failed to save plan");
+      setError(apiErrorText(err, "Failed to save plan"));
     } finally {
       setSavingPlan(false);
     }
@@ -369,22 +339,20 @@ function TenantManagementSectionInner({
       setHomingError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.config.appHoming(tenant.tenantId), getAccessToken, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target, force }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        trackEvent("app_homing_manual_flip_failed", {
-          tenantId: tenant.tenantId,
-          target,
-          force,
-          reason: data.code ?? data.reason ?? `http-${response.status}`,
+      let data: UpdateTenantAppHomingResponse;
+      try {
+        data = await fetchJson<UpdateTenantAppHomingResponse>(api.config.appHoming(tenant.tenantId), getAccessToken, {
+          method: "POST",
+          body: JSON.stringify({ target, force }),
         });
-        // `code` is the error-envelope field (AppHomingDeniedResponse); `reason` is the pre-envelope
-        // name, read until the backend deploy that precedes this web build is everywhere.
-        throw new Error(appHomingErrorMessage(data.code ?? data.reason, response.statusText, data.probe?.missingRoles));
+      } catch (err) {
+        if (err instanceof ApiError) {
+          trackEvent("app_homing_manual_flip_failed", { tenantId: tenant.tenantId, target, force, reason: err.code || `http-${err.status}` });
+          // AppHomingDeniedResponse: the envelope prefix plus the probe that names the missing roles.
+          const denied = err.body as Partial<AppHomingDeniedResponse> | null;
+          throw new Error(appHomingErrorMessage(err.code, err.message, denied?.probe?.missingRoles));
+        }
+        throw err;
       }
       trackEvent("app_homing_manual_flip", {
         tenantId: tenant.tenantId,
@@ -409,10 +377,7 @@ function TenantManagementSectionInner({
       );
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while switching app homing");
-      }
-      setHomingError(err instanceof Error ? err.message : "Failed to switch app registration");
+      setHomingError(apiErrorText(err, "Failed to switch app registration"));
     } finally {
       setSavingHoming(false);
     }
@@ -428,16 +393,15 @@ function TenantManagementSectionInner({
       setOffboardError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.tenants.offboard(tenant.tenantId), getAccessToken, {
-        method: "DELETE",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      let data: OffboardResponse;
+      try {
+        data = await fetchJson<OffboardResponse>(api.tenants.offboard(tenant.tenantId), getAccessToken, { method: "DELETE" });
+      } catch (err) {
         trackEvent("admin_tenant_offboard_failed", {
           tenantId: tenant.tenantId,
-          reason: data.error ?? `http-${response.status}`,
+          reason: err instanceof ApiError ? err.code || `http-${err.status}` : "network",
         });
-        throw new Error(data.error || `Failed to offboard tenant: ${response.statusText}`);
+        throw err;
       }
       trackEvent("admin_tenant_offboarded", {
         tenantId: tenant.tenantId,
@@ -452,12 +416,8 @@ function TenantManagementSectionInner({
       setSuccessMessage(data.message || `Offboarding queued for tenant ${tenant.tenantId}`);
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while offboarding tenant");
-      } else {
-        console.error("Error offboarding tenant:", err);
-      }
-      setOffboardError(err instanceof Error ? err.message : "Failed to offboard tenant");
+      console.error("Error offboarding tenant:", err);
+      setOffboardError(apiErrorText(err, "Failed to offboard tenant"));
     } finally {
       setOffboarding(false);
     }
@@ -470,34 +430,24 @@ function TenantManagementSectionInner({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(
+      const result = await fetchJson<PreviewWhitelistActionResponse>(
         api.preview.sendWelcomeEmail(tenantId),
         getAccessToken,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: email || "" }),
         }
       );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to send welcome email: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       // The send persisted the address too — keep the search map in step so the tenant is
       // findable by it right away instead of only after the next list refresh.
-      if (result.email) {
-        setNotificationEmails(prev => ({ ...prev, [tenantId.toLowerCase()]: result.email }));
+      const sentTo = result.email;
+      if (sentTo) {
+        setNotificationEmails(prev => ({ ...prev, [tenantId.toLowerCase()]: sentTo }));
       }
       setSuccessMessage(`Welcome email sent to ${result.email}`);
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while sending welcome email");
-      }
-      setError(err instanceof Error ? err.message : "Failed to send welcome email");
+      setError(apiErrorText(err, "Failed to send welcome email"));
     } finally {
       setSendingWelcomeEmail(false);
     }
@@ -512,14 +462,7 @@ function TenantManagementSectionInner({
 
       const isCurrentlyApproved = previewApproved.has(tenantId);
 
-      const response = await authenticatedFetch(api.preview.whitelistTenant(tenantId), getAccessToken, {
-        method: isCurrentlyApproved ? "DELETE" : "POST",
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to update preview access: ${response.statusText}`);
-      }
+      await fetchOk(api.preview.whitelistTenant(tenantId), getAccessToken, { method: isCurrentlyApproved ? "DELETE" : "POST" });
 
       setPreviewApproved(prev => {
         const next = new Set(prev);
@@ -538,10 +481,7 @@ function TenantManagementSectionInner({
       );
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while updating preview access");
-      }
-      setError(err instanceof Error ? err.message : "Failed to update preview access");
+      setError(apiErrorText(err, "Failed to update preview access"));
     } finally {
       setTogglingPreviewTenant(null);
     }
@@ -739,14 +679,8 @@ function TenantManagementSectionInner({
                                   setNotificationEmail(
                                     notificationEmailFor(notificationEmails, tenant.tenantId) ?? "");
                                   try {
-                                    const resp = await authenticatedFetch(
-                                      api.preview.notificationEmailTenant(tenant.tenantId),
-                                      getAccessToken
-                                    );
-                                    if (resp.ok) {
-                                      const data = await resp.json();
-                                      setNotificationEmail(data.email || "");
-                                    }
+                                    const data = await fetchJson<GetPreviewNotificationEmailResponse>(api.preview.notificationEmailTenant(tenant.tenantId), getAccessToken);
+                                    setNotificationEmail(data.email || "");
                                   } catch { /* best-effort */ }
                                 }}
                                 className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"

@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNotifications } from "@/contexts/NotificationContext";
 import { useTenantList } from "@/hooks/useTenantList";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { DelegatedAdminListResponse } from "@/utils/wire-types.generated";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
 interface DelegatedAssignment {
@@ -36,7 +36,6 @@ const ROLE_LABELS: Record<string, string> = {
  */
 export function SectionDelegatedAdmins() {
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
   const tenants = useTenantList(true);
 
   const [assignments, setAssignments] = useState<DelegatedAssignment[]>([]);
@@ -68,27 +67,18 @@ export function SectionDelegatedAdmins() {
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
-  const handleError = (err: unknown, fallback: string) => {
-    if (err instanceof TokenExpiredError) {
-      addNotification("error", "Session Expired", err.message, "session-expired-error");
-    } else {
-      setError(err instanceof Error ? err.message : fallback);
-    }
-  };
+  const handleError = (err: unknown, fallback: string) => setError(apiErrorText(err, fallback));
 
   const fetchAssignments = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(api.delegatedAdmins.list(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load delegated admins: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<DelegatedAdminListResponse>(api.delegatedAdmins.list(), getAccessToken);
       setAssignments(data.assignments ?? []);
     } catch (err) {
       handleError(err, "Failed to load delegated admins");
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getAccessToken]);
 
   useEffect(() => {
@@ -104,28 +94,27 @@ export function SectionDelegatedAdmins() {
     try {
       setGranting(true);
       setError(null);
-      const response = await authenticatedFetch(api.delegatedAdmins.grant(), getAccessToken, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          upn,
-          tenantId: newTenantId,
-          role: newRole,
-          homeTenantId: needHomeTenant ? homeTenantPick : undefined,
-        }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED) {
-          setNeedHomeTenant(true);
+      try {
+        await fetchOk(api.delegatedAdmins.grant(), getAccessToken, {
+          method: "POST",
+          body: JSON.stringify({
+            upn,
+            tenantId: newTenantId,
+            role: newRole,
+            homeTenantId: needHomeTenant ? homeTenantPick : undefined,
+          }),
+        });
+      } catch (err) {
+        if (err instanceof ApiError) {
+          if (err.status === 422 && err.code === HOME_TENANT_UNRESOLVED) setNeedHomeTenant(true);
+          const slot = parseSlotLimitError(err.status, err.body);
+          if (slot) {
+            // Keep the form as-is; the prompt's "raise & retry" re-runs this grant.
+            setSlotPrompt(slot);
+            return;
+          }
         }
-        const slot = parseSlotLimitError(response.status, data);
-        if (slot) {
-          // Keep the form as-is; the prompt's "raise & retry" re-runs this grant.
-          setSlotPrompt(slot);
-          return;
-        }
-        throw new Error(data.error || `Failed to grant: ${response.statusText}`);
+        throw err;
       }
       setSlotPrompt(null);
       const dom = domainOf(newTenantId);
@@ -141,7 +130,6 @@ export function SectionDelegatedAdmins() {
     } finally {
       setGranting(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newUpn, newTenantId, newRole, needHomeTenant, homeTenantPick, getAccessToken, fetchAssignments, domainOf]);
 
   const handleRaiseSlots = useCallback(async (newLimit: number) => {
@@ -166,11 +154,7 @@ export function SectionDelegatedAdmins() {
       const url = a.isEnabled
         ? api.delegatedAdmins.disable(a.upn, a.tenantId)
         : api.delegatedAdmins.enable(a.upn, a.tenantId);
-      const response = await authenticatedFetch(url, getAccessToken, { method: "PATCH" });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to update: ${response.statusText}`);
-      }
+      await fetchOk(url, getAccessToken, { method: "PATCH" });
       flash(`${a.upn} ${a.isEnabled ? "disabled" : "enabled"} on ${domainOf(a.tenantId) || a.tenantId}.`);
       await fetchAssignments();
     } catch (err) {
@@ -178,7 +162,6 @@ export function SectionDelegatedAdmins() {
     } finally {
       setBusyKey(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getAccessToken, fetchAssignments, domainOf]);
 
   const handleRevoke = useCallback(async (a: DelegatedAssignment) => {
@@ -188,13 +171,9 @@ export function SectionDelegatedAdmins() {
     try {
       setBusyKey(key);
       setError(null);
-      const response = await authenticatedFetch(api.delegatedAdmins.revoke(a.upn, a.tenantId), getAccessToken, {
+      await fetchOk(api.delegatedAdmins.revoke(a.upn, a.tenantId), getAccessToken, {
         method: "DELETE",
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to revoke: ${response.statusText}`);
-      }
       flash(`Revoked ${a.upn}'s access to ${dom}.`);
       await fetchAssignments();
     } catch (err) {
@@ -202,7 +181,6 @@ export function SectionDelegatedAdmins() {
     } finally {
       setBusyKey(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getAccessToken, fetchAssignments, domainOf]);
 
   // Group rows by delegated admin (UPN) so a multi-tenant MSP reads as one block.

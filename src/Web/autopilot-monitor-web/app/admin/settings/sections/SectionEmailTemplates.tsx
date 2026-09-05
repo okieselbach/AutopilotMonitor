@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { fetchJson, fetchOk } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
+import type { EmailTemplateTestSendResponse } from "@/utils/wire-types.generated";
 
 type TemplateKind = "welcome" | "farewell";
 
@@ -87,20 +88,14 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
   const fail = useCallback((err: unknown, fallback: string) => {
-    if (err instanceof TokenExpiredError) {
-      console.error("Session expired", err);
-    } else {
-      console.error(fallback, err);
-    }
+    console.error(fallback, err);
     setError(err instanceof Error ? err.message : fallback);
   }, [setError]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(api.emailTemplates.get(kind), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load ${kind} template: ${response.statusText}`);
-      const data = (await response.json()) as TemplateState;
+      const data = await fetchJson<TemplateState>(api.emailTemplates.get(kind), getAccessToken);
       setState(data);
       setDraft(data.html);
     } catch (err) {
@@ -125,15 +120,10 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
     try {
       setBusy("save");
       setError(null);
-      const response = await authenticatedFetch(api.emailTemplates.save(kind), getAccessToken, {
+      await fetchOk(api.emailTemplates.save(kind), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ html: draft }),
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? `Failed to save ${kind} template: ${response.statusText}`);
-      }
       flash(`${title} saved — real sends use the customized HTML from now on.`);
       setEditing(false);
       await load();
@@ -149,8 +139,7 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
     try {
       setBusy("reset");
       setError(null);
-      const response = await authenticatedFetch(api.emailTemplates.reset(kind), getAccessToken, { method: "DELETE" });
-      if (!response.ok) throw new Error(`Failed to reset ${kind} template: ${response.statusText}`);
+      await fetchOk(api.emailTemplates.reset(kind), getAccessToken, { method: "DELETE" });
       flash(`${title} reset to the built-in template.`);
       setEditing(false);
       await load();
@@ -165,13 +154,10 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
     try {
       setBusy("test");
       setError(null);
-      const response = await authenticatedFetch(api.emailTemplates.sendTest(kind), getAccessToken, {
+      const body = await fetchJson<EmailTemplateTestSendResponse>(api.emailTemplates.sendTest(kind), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(useDraft ? { html: draft } : {}),
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? `Failed to send ${kind} test email: ${response.statusText}`);
       flash(`Test ${title.toLowerCase()} sent to ${body?.sentTo ?? "your tenant contact address"}${useDraft ? " (unsaved draft)" : ""}.`);
     } catch (err) {
       fail(err, `Failed to send ${kind} test email`);

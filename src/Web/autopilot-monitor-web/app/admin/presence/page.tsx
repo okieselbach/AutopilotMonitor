@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLatest } from "@/hooks/useLatest";
 import { useAuth } from "../../../contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 
 const REFRESH_INTERVAL_MS = 30_000;
 const WINDOW_OPTIONS = [5, 15, 30, 60];
@@ -68,20 +68,12 @@ export default function PresencePage() {
         else setLoading(true);
         setError(null);
 
-        const response = await authenticatedFetch(api.metrics.activeUsers(windowRef.current), getAccessToken);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch active users: ${response.statusText}`);
-        }
-        const json: PresenceResponse = await response.json();
+        const json = await fetchJson<PresenceResponse>(api.metrics.activeUsers(windowRef.current), getAccessToken);
         setData(json);
         setLastUpdated(new Date());
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          console.error("Session expired:", err.message);
-        } else {
-          console.error("Error fetching active users:", err);
-        }
-        setError(err instanceof Error ? err.message : "Failed to fetch active users");
+        console.error("Error fetching active users:", err);
+        setError(apiErrorText(err, "Failed to fetch active users"));
       } finally {
         setLoading(false);
         setRefreshing(false);

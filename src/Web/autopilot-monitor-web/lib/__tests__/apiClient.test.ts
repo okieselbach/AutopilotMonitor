@@ -8,6 +8,7 @@ import {
   fetchBlob,
   fetchJson,
   fetchOk,
+  nullOn404,
 } from "../apiClient";
 import { TokenExpiredError } from "../authenticatedFetch";
 
@@ -44,6 +45,13 @@ describe("apiErrorFromResponse", () => {
 
     const none = await apiErrorFromResponse(jsonResponse(503, { error: "Busy.", code: "ServiceUnavailable", correlationId: "c" }));
     expect(none.retryAfterSeconds).toBeNull();
+  });
+
+  it("keeps the parsed body so specialised envelopes stay readable", async () => {
+    const err = await apiErrorFromResponse(jsonResponse(409, { error: "Slot limit.", code: "DelegatedSlotLimitReached", correlationId: "c", homeTenantId: "t1", limit: 3 }));
+    expect(err.body?.homeTenantId).toBe("t1");
+    expect(err.body?.limit).toBe(3);
+    expect((await apiErrorFromResponse(new Response("nope", { status: 502 }))).body).toBeNull();
   });
 
   it("falls back to the pre-envelope message, then to statusText; an empty body is not an exception", async () => {
@@ -123,6 +131,14 @@ describe("fetchJson / fetchOk / fetchBlob", () => {
   it("lets TokenExpiredError pass through untouched", async () => {
     const noToken = vi.fn().mockResolvedValue(null);
     await expect(fetchJson<unknown>("https://api/x", noToken)).rejects.toBeInstanceOf(TokenExpiredError);
+  });
+});
+
+describe("nullOn404", () => {
+  it("turns a 404 into null and rethrows everything else", async () => {
+    await expect(Promise.reject(new ApiError(404, "Not found.", "NotFound", "c")).catch(nullOn404)).resolves.toBeNull();
+    await expect(Promise.reject(new ApiError(403, "No.", "Forbidden", "c")).catch(nullOn404)).rejects.toBeInstanceOf(ApiError);
+    await expect(Promise.reject(new Error("boom")).catch(nullOn404)).rejects.toThrow("boom");
   });
 });
 

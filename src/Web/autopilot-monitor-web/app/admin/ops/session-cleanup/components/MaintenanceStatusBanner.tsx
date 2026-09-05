@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 
 interface OpsEvent {
   id: string;
@@ -64,12 +65,10 @@ export function MaintenanceStatusBanner({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const r = await authenticatedFetch(
+      const data = await fetchJson<OpsEventsResponse>(
         api.opsEvents.list("Maintenance", { pageSize: 100 }),
         getAccessToken,
       );
-      if (!r.ok) throw new Error(`HTTP ${r.status} loading maintenance ops events`);
-      const data = (await r.json()) as OpsEventsResponse;
 
       const lifecycle = (data.events ?? []).filter((e) =>
         e.eventType.startsWith("SessionDeletionMaintenance"),
@@ -129,24 +128,17 @@ export function MaintenanceStatusBanner({
   const triggerRun = useCallback(async () => {
     setTriggering(true);
     try {
-      const r = await authenticatedFetch(api.sessionDeletions.triggerMaintenance(), getAccessToken, {
-        method: "POST",
-      });
-      if (r.status === 202) {
-        setSuccessMessage("Maintenance run queued — it will appear here as active shortly.");
-      } else if (r.status === 409) {
-        setSuccessMessage("A maintenance run is already active.");
-      } else {
-        const body = await r.text();
-        throw new Error(`HTTP ${r.status}: ${body}`);
-      }
+      // 202 = queued; 409 = a run is already active (not an error for the operator).
+      const queued = await fetchOk(api.sessionDeletions.triggerMaintenance(), getAccessToken, { method: "POST" })
+        .then(() => true)
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.status === 409) return false;
+          throw err;
+        });
+      setSuccessMessage(queued ? "Maintenance run queued — it will appear here as active shortly." : "A maintenance run is already active.");
       setRefreshKey((k) => k + 1);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setTriggering(false);
     }

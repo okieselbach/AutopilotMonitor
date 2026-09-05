@@ -9,7 +9,7 @@ import {
   type RestoreRowPropertySnapshot,
   type RestoreRowRequestBody,
 } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 
 interface RestoreRowDiffModalProps {
   backupId: string;
@@ -48,20 +48,13 @@ export function RestoreRowDiffModal({
         ifSha256: preview.rowSha256,
         ifCurrentETag: preview.currentETag ?? null,
       };
-      const res = await authenticatedFetch(api.backups.restoreRow(backupId), getAccessToken, {
+      const response = await fetchJson<RestoreRowCommitResponse>(api.backups.restoreRow(backupId), getAccessToken, {
         method: "POST",
         body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Restore failed: ${res.status} ${text}`);
-      }
-      const response = (await res.json()) as RestoreRowCommitResponse;
       onCommitted(response);
     } catch (err) {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setCommitting(false);
     }

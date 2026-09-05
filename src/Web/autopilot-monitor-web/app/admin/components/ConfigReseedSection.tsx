@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { ReseedFromGitHubResponse } from "@/utils/wire-types.generated";
 
 interface ConfigReseedSectionProps {
   getAccessToken: () => Promise<string | null>;
@@ -27,25 +28,14 @@ export function ConfigReseedSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.rules.reseedFromGitHub("analyze"), getAccessToken, {
+      const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("analyze"), getAccessToken, {
         method: "POST",
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to reseed analyze rules: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       setSuccessMessage(`Analyze rules reseeded from GitHub: ${result.analyze?.deleted ?? 0} deleted, ${result.analyze?.written ?? 0} written`);
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while reseeding analyze rules");
-      } else {
-        console.error("Error reseeding analyze rules:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to reseed analyze rules");
+      console.error("Error reseeding analyze rules:", err);
+      setError(apiErrorText(err, "Failed to reseed analyze rules"));
     } finally {
       setReseedingRules(false);
     }
@@ -57,25 +47,14 @@ export function ConfigReseedSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.rules.reseedFromGitHub("gather"), getAccessToken, {
+      const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("gather"), getAccessToken, {
         method: "POST",
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to reseed gather rules: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       setSuccessMessage(`Gather rules reseeded from GitHub: ${result.gather?.deleted ?? 0} deleted, ${result.gather?.written ?? 0} written`);
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while reseeding gather rules");
-      } else {
-        console.error("Error reseeding gather rules:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to reseed gather rules");
+      console.error("Error reseeding gather rules:", err);
+      setError(apiErrorText(err, "Failed to reseed gather rules"));
     } finally {
       setReseedingGatherRules(false);
     }
@@ -87,25 +66,14 @@ export function ConfigReseedSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.rules.reseedFromGitHub("ime"), getAccessToken, {
+      const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("ime"), getAccessToken, {
         method: "POST",
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to reseed IME log patterns: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       setSuccessMessage(`IME log patterns reseeded from GitHub: ${result.ime?.deleted ?? 0} deleted, ${result.ime?.written ?? 0} written`);
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while reseeding IME log patterns");
-      } else {
-        console.error("Error reseeding IME log patterns:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to reseed IME log patterns");
+      console.error("Error reseeding IME log patterns:", err);
+      setError(apiErrorText(err, "Failed to reseed IME log patterns"));
     } finally {
       setReseedingImePatterns(false);
     }
@@ -117,16 +85,9 @@ export function ConfigReseedSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.rules.reseedFromGitHub("all"), getAccessToken, {
+      const result = await fetchJson<ReseedFromGitHubResponse>(api.rules.reseedFromGitHub("all"), getAccessToken, {
         method: "POST",
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to reseed from GitHub: ${response.statusText}`);
-      }
-
-      const result = await response.json();
       setSuccessMessage(
         `GitHub Reseed complete: Gather (${result.gather?.deleted ?? 0} deleted, ${result.gather?.written ?? 0} written), ` +
         `Analyze (${result.analyze?.deleted ?? 0} deleted, ${result.analyze?.written ?? 0} written), ` +
@@ -134,12 +95,8 @@ export function ConfigReseedSection({
       );
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while reseeding from GitHub");
-      } else {
-        console.error("Error reseeding from GitHub:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to reseed from GitHub");
+      console.error("Error reseeding from GitHub:", err);
+      setError(apiErrorText(err, "Failed to reseed from GitHub"));
     } finally {
       setFetchingFromGitHub(false);
     }

@@ -1,12 +1,7 @@
-export interface UnmatchedSoftwareEntry {
-  softwareName: string;
-  publisher: string;
-  frequency: number;
-  lastSeenAt: string;
-  exampleSessionId: string;
-  normalizedVendor?: string;
-  normalizedVersion?: string;
-}
+import type { UnmatchedSoftwareItem } from "@/utils/wire-types.generated";
+
+/** One row of GET vulnerability/unmatched-software — the wire shape. */
+export type UnmatchedSoftwareEntry = UnmatchedSoftwareItem;
 
 export interface AutoResolveResult {
   resolved: Array<{ softwareName: string; cpeUri: string; confidence: number }>;

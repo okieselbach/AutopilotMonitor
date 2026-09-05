@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { CpeMappingEntry } from "./SoftwareMappingTypes";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import type { GetCpeMappingsResponse } from "@/utils/wire-types.generated";
 
 interface MappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -53,28 +54,18 @@ export function MappedSoftwareTab({
       setMappedLoading(true);
       setError(null);
 
-      const response = await authenticatedFetch(
+      const data = await fetchJson<GetCpeMappingsResponse>(
         api.vulnerability.cpeMappings(),
         getAccessToken
       );
-
-      if (!response.ok) {
-        throw new Error(`Failed to load CPE mappings: ${response.statusText}`);
-      }
-
-      const data = await response.json();
       const mappings = data.mappings || [];
       setMappedEntries(mappings);
       setMappedLoaded(true);
       setMappedPage(0);
       onCountChanged(mappings.length);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while fetching CPE mappings");
-      } else {
-        console.error("Error fetching CPE mappings:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to load CPE mappings");
+      console.error("Error fetching CPE mappings:", err);
+      setError(apiErrorText(err, "Failed to load CPE mappings"));
     } finally {
       setMappedLoading(false);
     }
@@ -180,12 +171,11 @@ export function MappedSoftwareTab({
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.vulnerability.cpeMapping(),
         getAccessToken,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             normalizedProduct: entry.normalizedProduct,
             normalizedVendor: entry.normalizedVendor,
@@ -200,21 +190,12 @@ export function MappedSoftwareTab({
         }
       );
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || `Failed to save mapping: ${response.statusText}`);
-      }
-
       setEditingRow(null);
       // Reload to reflect changes
       await fetchCpeMappings();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving CPE mapping edit");
-      } else {
-        console.error("Error saving CPE mapping edit:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to save CPE mapping");
+      console.error("Error saving CPE mapping edit:", err);
+      setError(apiErrorText(err, "Failed to save CPE mapping"));
     } finally {
       setSavingEdit(false);
     }
@@ -228,12 +209,11 @@ export function MappedSoftwareTab({
       setDeletingRow(key);
       setError(null);
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.vulnerability.cpeMapping(),
         getAccessToken,
         {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             normalizedProduct: entry.normalizedProduct,
             normalizedVendor: entry.normalizedVendor,
@@ -241,23 +221,14 @@ export function MappedSoftwareTab({
         }
       );
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || `Failed to delete mapping: ${response.statusText}`);
-      }
-
       setMappedEntries((prev) => {
         const updated = prev.filter((m) => getMappedRowKey(m) !== key);
         onCountChanged(updated.length);
         return updated;
       });
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while deleting CPE mapping");
-      } else {
-        console.error("Error deleting CPE mapping:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to delete CPE mapping");
+      console.error("Error deleting CPE mapping:", err);
+      setError(apiErrorText(err, "Failed to delete CPE mapping"));
     } finally {
       setDeletingRow(null);
     }

@@ -17,6 +17,15 @@ export type AdminConfiguration = Omit<WireAdminConfiguration, "excessiveEventAut
   excessiveEventAutoActionMode?: "Off" | "Block" | "Kill";
 };
 
+const AUTO_ACTION_MODES = ["Off", "Block", "Kill"] as const;
+
+/** The wire configuration as the UI types it: the mode string folded onto its canonical literal (case drift tolerated, unknown ⇒ undefined). */
+export function fromWireAdminConfiguration(wire: WireAdminConfiguration): AdminConfiguration {
+  const raw = wire.excessiveEventAutoActionMode;
+  const mode = AUTO_ACTION_MODES.find((m) => typeof raw === "string" && m.toLowerCase() === raw.toLowerCase());
+  return { ...wire, excessiveEventAutoActionMode: mode };
+}
+
 /** One parsed entry of AdminConfiguration.opsAlertRulesJson (client-side view). */
 export interface OpsAlertRule {
   eventType: string;

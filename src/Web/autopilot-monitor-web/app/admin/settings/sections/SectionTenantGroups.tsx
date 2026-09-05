@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNotifications } from "@/contexts/NotificationContext";
 import { useTenantList } from "@/hooks/useTenantList";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { TenantGroup } from "@/utils/wire-types.generated";
+import type { TenantGroup, TenantGroupListResponse } from "@/utils/wire-types.generated";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 
@@ -30,7 +29,6 @@ const ROLE_LABELS: Record<string, string> = {
  */
 export function SectionTenantGroups() {
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
   const tenants = useTenantList(true);
 
   const [groups, setGroups] = useState<TenantGroup[]>([]);
@@ -64,27 +62,18 @@ export function SectionTenantGroups() {
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
-  const handleError = (err: unknown, fallback: string) => {
-    if (err instanceof TokenExpiredError) {
-      addNotification("error", "Session Expired", err.message, "session-expired-error");
-    } else {
-      setError(err instanceof Error ? err.message : fallback);
-    }
-  };
+  const handleError = (err: unknown, fallback: string) => setError(apiErrorText(err, fallback));
 
   const fetchGroups = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await authenticatedFetch(api.tenantGroups.list(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load groups: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<TenantGroupListResponse>(api.tenantGroups.list(), getAccessToken);
       setGroups(data.groups ?? []);
     } catch (err) {
       handleError(err, "Failed to load groups");
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getAccessToken]);
 
   useEffect(() => {
@@ -101,22 +90,21 @@ export function SectionTenantGroups() {
         setBusyKey(key);
         setError(null);
         const init: RequestInit = { method };
-        if (body !== undefined) {
-          init.headers = { "Content-Type": "application/json" };
-          init.body = JSON.stringify(body);
-        }
-        const response = await authenticatedFetch(url, getAccessToken, init);
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          if (response.status === 422 && data.code === HOME_TENANT_UNRESOLVED && key.startsWith("assign:")) {
-            setNeedHomeTenant((p) => ({ ...p, [key.slice("assign:".length)]: true }));
+        if (body !== undefined) init.body = JSON.stringify(body);
+        try {
+          await fetchOk(url, getAccessToken, init);
+        } catch (err) {
+          if (err instanceof ApiError) {
+            if (err.status === 422 && err.code === HOME_TENANT_UNRESOLVED && key.startsWith("assign:")) {
+              setNeedHomeTenant((p) => ({ ...p, [key.slice("assign:".length)]: true }));
+            }
+            const slot = parseSlotLimitError(err.status, err.body);
+            if (slot) {
+              setSlotPrompt({ ...slot, retry: { key, url, method, body, ok } });
+              return false;
+            }
           }
-          const slot = parseSlotLimitError(response.status, data);
-          if (slot) {
-            setSlotPrompt({ ...slot, retry: { key, url, method, body, ok } });
-            return false;
-          }
-          throw new Error(data.error || `Request failed: ${response.statusText}`);
+          throw err;
         }
         setSlotPrompt(null);
         flash(ok);
@@ -129,7 +117,6 @@ export function SectionTenantGroups() {
         setBusyKey(null);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [getAccessToken, fetchGroups],
   );
 

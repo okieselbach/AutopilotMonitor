@@ -4,8 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { api } from '@/lib/api';
 import TruncatedLabel from '@/components/TruncatedLabel';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { useNotifications } from '../../../../contexts/NotificationContext';
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -138,7 +137,6 @@ function pN(values: number[], percentile: number): number {
 
 export function SectionAgentMetrics() {
   const { getAccessToken } = useAuth();
-  const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(true);
   const [sessionMetrics, setSessionMetrics] = useState<SessionAgentMetrics[]>([]);
@@ -161,18 +159,7 @@ export function SectionAgentMetrics() {
     setError(null);
 
     try {
-      const res = await authenticatedFetch(api.metrics.platform({ limit, days }), getAccessToken);
-
-      if (!res.ok) {
-        if (res.status === 403) {
-          setError('Access denied. Global Admin privileges required.');
-        } else {
-          setError(`Failed to fetch platform metrics: ${res.status}`);
-        }
-        return;
-      }
-
-      const data: PlatformMetricsResponse = await res.json();
+      const data = await fetchJson<PlatformMetricsResponse>(api.metrics.platform({ limit, days }), getAccessToken);
       setCacheInfo({ fromCache: data.fromCache, computeDurationMs: data.computeDurationMs, computedAt: data.computedAt });
       setDeliveryLatency(data.deliveryLatency || null);
       setCrashRate(data.crashRate || null);
@@ -208,16 +195,15 @@ export function SectionAgentMetrics() {
 
       setSessionMetrics(mapped);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
+      if (err instanceof ApiError && err.status === 403) {
+        setError('Access denied. Global Admin privileges required.');
       } else {
-        console.error('Platform metrics fetch error:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        setError(apiErrorText(err, 'Unknown error'));
       }
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken, addNotification]);
+  }, [getAccessToken]);
 
   // Refetch whenever the user picks a new sample size or window (both drive
   // backend params, not a client-side slice). fetchMetrics is intentionally

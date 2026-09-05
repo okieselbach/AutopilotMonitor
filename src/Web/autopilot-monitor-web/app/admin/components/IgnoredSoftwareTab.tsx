@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
+import type { GetIgnoredSoftwareResponse } from "@/utils/wire-types.generated";
 
 interface IgnoredSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -40,9 +41,7 @@ export function IgnoredSoftwareTab({
     try {
       setIgnoredLoading(true);
       setError(null);
-      const response = await authenticatedFetch(api.vulnerability.ignoredSoftware(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load ignored software: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<GetIgnoredSoftwareResponse>(api.vulnerability.ignoredSoftware(), getAccessToken);
       const items: IgnoredSoftwareEntry[] = data.items || [];
       setIgnoredEntries(items);
       setIgnoredLoaded(true);
@@ -50,7 +49,7 @@ export function IgnoredSoftwareTab({
       onCountChanged(items.length);
     } catch (err) {
       console.error("Error fetching ignored software:", err);
-      setError(err instanceof Error ? err.message : "Failed to load ignored software");
+      setError(apiErrorText(err, "Failed to load ignored software"));
     } finally {
       setIgnoredLoading(false);
     }
@@ -72,12 +71,10 @@ export function IgnoredSoftwareTab({
     try {
       setRestoringRow(key);
       setError(null);
-      const response = await authenticatedFetch(api.vulnerability.ignoredSoftware(), getAccessToken, {
+      await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
       });
-      if (!response.ok) throw new Error(`Failed to restore software: ${response.statusText}`);
       setIgnoredEntries((prev) => {
         const next = prev.filter((e) => `${e.softwareName}::${e.publisher}` !== key);
         onCountChanged(next.length);
@@ -86,7 +83,7 @@ export function IgnoredSoftwareTab({
       onRestored();
     } catch (err) {
       console.error("Error restoring software:", err);
-      setError(err instanceof Error ? err.message : "Failed to restore software");
+      setError(apiErrorText(err, "Failed to restore software"));
     } finally {
       setRestoringRow(null);
     }
@@ -98,21 +95,17 @@ export function IgnoredSoftwareTab({
       setRestoringRow(key);
       setError(null);
       // First, call auto-resolve for this single item
-      const resolveResponse = await authenticatedFetch(api.vulnerability.cpeAutoResolve(), getAccessToken, {
+      const data = await fetchJson<AutoResolveResult>(api.vulnerability.cpeAutoResolve(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", normalizedVendor: entry.publisher || "" }],
         }),
       });
-      if (!resolveResponse.ok) throw new Error(`NVD check failed: ${resolveResponse.statusText}`);
-      const data: AutoResolveResult = await resolveResponse.json();
 
       if (data.totalResolved > 0) {
         // Resolved! Remove from ignore list and refresh
-        await authenticatedFetch(api.vulnerability.ignoredSoftware(), getAccessToken, {
+        await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
         });
         setIgnoredEntries((prev) => {
@@ -128,7 +121,7 @@ export function IgnoredSoftwareTab({
       }
     } catch (err) {
       console.error("Error checking NVD:", err);
-      setError(err instanceof Error ? err.message : "NVD check failed");
+      setError(apiErrorText(err, "NVD check failed"));
     } finally {
       setRestoringRow(null);
     }

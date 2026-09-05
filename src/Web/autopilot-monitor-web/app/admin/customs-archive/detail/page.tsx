@@ -9,10 +9,11 @@ import {
   type CustomsArchiveFullEntry,
   type CustomsArchiveListEntriesResponse,
 } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
+import type { CustomsArchiveEntryResponse } from "@/utils/wire-types.generated";
 
 export default function CustomsArchiveDetailPage() {
   // useSearchParams() in CustomsArchiveDetailContent requires a Suspense boundary
@@ -40,18 +41,10 @@ function CustomsArchiveDetailContent() {
     try {
       setLoading(true);
       const url = api.customsArchive.listEntries(tenantId, historyRowKey);
-      const res = await authenticatedFetch(url, getAccessToken);
-      if (!res.ok) {
-        throw new Error(`List entries failed: ${res.status} ${res.statusText}`);
-      }
-      const body = (await res.json()) as CustomsArchiveListEntriesResponse;
+      const body = await fetchJson<CustomsArchiveListEntriesResponse>(url, getAccessToken);
       setEntries(body.entries ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -78,12 +71,10 @@ function CustomsArchiveDetailContent() {
 
     setExpanded((prev) => ({ ...prev, [key]: "loading" }));
     try {
-      const res = await authenticatedFetch(
+      const body = await fetchJson<CustomsArchiveEntryResponse>(
         api.customsArchive.getEntry(tenantId, historyRowKey, entry.rowKey),
         getAccessToken,
       );
-      if (!res.ok) throw new Error(`Get entry failed: ${res.status}`);
-      const body = await res.json();
       setExpanded((prev) => ({ ...prev, [key]: body.entry as CustomsArchiveFullEntry }));
     } catch (err) {
       setExpanded((prev) => {
@@ -91,7 +82,7 @@ function CustomsArchiveDetailContent() {
         delete next[key];
         return next;
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     }
   }, [expanded, tenantId, historyRowKey, getAccessToken, setError]);
 
@@ -100,17 +91,16 @@ function CustomsArchiveDetailContent() {
     if (!entry) return;
     try {
       setDeletingRk(entry.rowKey);
-      const res = await authenticatedFetch(
+      await fetchOk(
         api.customsArchive.deleteEntry(tenantId, historyRowKey, entry.rowKey),
         getAccessToken,
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
       setSuccessMessage(`Deleted ${entry.originalTable} / ${entry.originalRowKey}`);
       setPendingDelete(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setDeletingRk(null);
     }

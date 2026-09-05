@@ -3,11 +3,12 @@
 import { sessionUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
 import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
+import type { GetUnmatchedSoftwareResponse } from "@/utils/wire-types.generated";
 
 interface UnmappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -69,16 +70,10 @@ export function UnmappedSoftwareTab({
         setLoading(true);
         setError(null);
 
-        const response = await authenticatedFetch(
+        const data = await fetchJson<GetUnmatchedSoftwareResponse>(
           api.vulnerability.unmatchedSoftware(page * pageSize, pageSize),
           getAccessToken
         );
-
-        if (!response.ok) {
-          throw new Error(`Failed to load unmatched software: ${response.statusText}`);
-        }
-
-        const data = await response.json();
         const items: UnmatchedSoftwareEntry[] = data.software || [];
         const serverTotal: number = data.total ?? items.length;
         setEntries(items);
@@ -86,12 +81,8 @@ export function UnmappedSoftwareTab({
         setInitialLoaded(true);
         return serverTotal;
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          console.error("Session expired while fetching unmatched software");
-        } else {
-          console.error("Error fetching unmatched software:", err);
-        }
-        setError(err instanceof Error ? err.message : "Failed to load unmatched software");
+        console.error("Error fetching unmatched software:", err);
+        setError(apiErrorText(err, "Failed to load unmatched software"));
         return null;
       } finally {
         setLoading(false);
@@ -157,6 +148,7 @@ export function UnmappedSoftwareTab({
     return "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300";
   };
 
+  const shortSessionId = (id?: string) => (id && id.length > 8 ? `${id.slice(0, 8)}...` : id ?? "");
   const getRowKey = (entry: UnmatchedSoftwareEntry): string =>
     `${entry.softwareName}::${entry.publisher}`;
 
@@ -183,12 +175,11 @@ export function UnmappedSoftwareTab({
       setSavingMapping(key);
       setError(null);
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.vulnerability.cpeMapping(),
         getAccessToken,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             normalizedProduct: entry.softwareName,
             normalizedVendor: entry.publisher || "",
@@ -199,21 +190,12 @@ export function UnmappedSoftwareTab({
         }
       );
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || `Failed to save mapping: ${response.statusText}`);
-      }
-
       setSavedMappings((prev) => new Set(prev).add(key));
       setExpandedMappingRow(null);
       onMappingChanged();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving CPE mapping");
-      } else {
-        console.error("Error saving CPE mapping:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to save CPE mapping");
+      console.error("Error saving CPE mapping:", err);
+      setError(apiErrorText(err, "Failed to save CPE mapping"));
     } finally {
       setSavingMapping(null);
     }
@@ -278,12 +260,11 @@ export function UnmappedSoftwareTab({
           failedSoFar: cumulativeFailed.length,
         });
 
-        const response = await authenticatedFetch(
+        const data = await fetchJson<AutoResolveResult>(
           api.vulnerability.cpeAutoResolve(),
           getAccessToken,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               items: batches[i].map((e) => ({
                 softwareName: e.softwareName,
@@ -293,12 +274,6 @@ export function UnmappedSoftwareTab({
             }),
           }
         );
-
-        if (!response.ok) {
-          throw new Error(`Batch ${i + 1} failed: ${response.statusText}`);
-        }
-
-        const data: AutoResolveResult = await response.json();
         cumulativeResolved.push(...data.resolved);
         cumulativeFailed.push(...data.failed);
 
@@ -325,7 +300,7 @@ export function UnmappedSoftwareTab({
         totalFailed: cumulativeFailed.length.toString(),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Auto-resolve failed");
+      setError(apiErrorText(err, "Auto-resolve failed"));
     } finally {
       setAutoResolving(false);
       setAutoResolveProgress(null);
@@ -339,20 +314,18 @@ export function UnmappedSoftwareTab({
     try {
       setIgnoringRow(key);
       setError(null);
-      const response = await authenticatedFetch(api.vulnerability.ignoredSoftware(), getAccessToken, {
+      await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", reason: "manual" }],
         }),
       });
-      if (!response.ok) throw new Error(`Failed to ignore software: ${response.statusText}`);
       setSelectedEntries((prev) => { const n = new Map(prev); n.delete(key); return n; });
       onIgnored();
       await refreshCurrentPage();
     } catch (err) {
       console.error("Error ignoring software:", err);
-      setError(err instanceof Error ? err.message : "Failed to ignore software");
+      setError(apiErrorText(err, "Failed to ignore software"));
     } finally {
       setIgnoringRow(null);
     }
@@ -365,20 +338,18 @@ export function UnmappedSoftwareTab({
     try {
       setIgnoringRow("bulk");
       setError(null);
-      const response = await authenticatedFetch(api.vulnerability.ignoredSoftware(), getAccessToken, {
+      await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           items: selectedList.map((e) => ({ softwareName: e.softwareName, publisher: e.publisher || "", reason: "manual" })),
         }),
       });
-      if (!response.ok) throw new Error(`Failed to ignore software: ${response.statusText}`);
       setSelectedEntries(new Map());
       onIgnored();
       await refreshCurrentPage();
     } catch (err) {
       console.error("Error bulk ignoring software:", err);
-      setError(err instanceof Error ? err.message : "Failed to ignore software");
+      setError(apiErrorText(err, "Failed to ignore software"));
     } finally {
       setIgnoringRow(null);
     }
@@ -571,7 +542,7 @@ export function UnmappedSoftwareTab({
                                 />
                               )}
                             </div>
-                            <TruncatedLabel text={entry.softwareName} className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1" />
+                            <TruncatedLabel text={entry.softwareName ?? ""} className="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 flex-1" />
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 truncate" style={{ width: "18%", flexShrink: 0 }}>
                               {entry.publisher || <span className="text-gray-300 dark:text-gray-600 italic">unknown</span>}
                             </div>
@@ -581,17 +552,15 @@ export function UnmappedSoftwareTab({
                               </span>
                             </div>
                             <div className="px-3 py-3 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap flex-shrink-0 w-24">
-                              {formatDate(entry.lastSeenAt)}
+                              {entry.lastSeenAt ? formatDate(entry.lastSeenAt) : "—"}
                             </div>
                             <div className="px-3 py-3 text-sm flex-shrink-0 w-20">
                               <a
-                                href={sessionUrl(entry.exampleSessionId)}
+                                href={sessionUrl(entry.exampleSessionId ?? "")}
                                 className="text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 font-mono text-xs hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {entry.exampleSessionId.length > 8
-                                  ? `${entry.exampleSessionId.slice(0, 8)}...`
-                                  : entry.exampleSessionId}
+                                {shortSessionId(entry.exampleSessionId)}
                               </a>
                             </div>
                             <div className="px-3 py-3 text-sm flex-shrink-0 w-32 flex flex-nowrap items-center gap-1.5">
@@ -615,7 +584,7 @@ export function UnmappedSoftwareTab({
                                     Map
                                   </button>
                                   <a
-                                    href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName)}`}
+                                    href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName ?? "")}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-xs text-gray-500 hover:text-amber-600 dark:text-gray-400 dark:hover:text-amber-400 transition-colors"
@@ -693,7 +662,7 @@ export function UnmappedSoftwareTab({
                                   Cancel
                                 </button>
                                 <a
-                                  href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName)}`}
+                                  href={`https://nvd.nist.gov/products/cpe/search/results?keyword=${encodeURIComponent(entry.softwareName ?? "")}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 whitespace-nowrap flex items-center gap-1 flex-shrink-0"

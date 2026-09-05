@@ -3,9 +3,10 @@
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
+import type { GetGlobalMcpUsageDailyResponse, GetGlobalMcpUsageResponse, UserUsageDailySummary } from "@/utils/wire-types.generated";
 
 interface UsageRecord {
   userId: string;
@@ -17,13 +18,8 @@ interface UsageRecord {
   lastRequestAt: string;
 }
 
-interface DailySummary {
-  date: string;
-  tenantId: string | null;
-  totalRequests: number;
-  uniqueUsers: number;
-  uniqueEndpoints: number;
-}
+/** One per-day usage row (wire shape). */
+type DailySummary = UserUsageDailySummary;
 
 type DateRange = "7d" | "30d" | "90d";
 
@@ -66,25 +62,15 @@ export function SectionMcpUsage() {
       const dateFrom = getDateFrom(range);
       const dateTo = getDateTo();
 
-      const [globalRes, dailyRes] = await Promise.all([
-        authenticatedFetch(api.mcpUsage.global(undefined, dateFrom, dateTo), getAccessToken),
-        authenticatedFetch(api.mcpUsage.daily(undefined, dateFrom, dateTo), getAccessToken),
+      const [globalData, dailyData] = await Promise.all([
+        fetchJson<GetGlobalMcpUsageResponse>(api.mcpUsage.global(undefined, dateFrom, dateTo), getAccessToken),
+        fetchJson<GetGlobalMcpUsageDailyResponse>(api.mcpUsage.daily(undefined, dateFrom, dateTo), getAccessToken),
       ]);
-
-      if (!globalRes.ok) throw new Error(`Global usage: ${globalRes.status}`);
-      if (!dailyRes.ok) throw new Error(`Daily usage: ${dailyRes.status}`);
-
-      const globalData = await globalRes.json();
-      const dailyData = await dailyRes.json();
 
       setRecords(globalData.records || []);
       setDailySummaries(dailyData.summaries || []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired. Please refresh the page.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to fetch usage data");
-      }
+      setError(apiErrorText(err, "Failed to fetch usage data"));
     } finally {
       setLoading(false);
     }

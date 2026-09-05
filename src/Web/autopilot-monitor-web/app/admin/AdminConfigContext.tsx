@@ -3,9 +3,9 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import type { AdminConfiguration, OpsAlertRule } from "@/types/adminConfig";
-import type { GetPreviewWhitelistResponse } from "@/utils/wire-types.generated";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import { fromWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
+import type { AdminConfiguration as WireAdminConfiguration, GetAllPreviewNotificationEmailsResponse, GetPreviewWhitelistResponse, TestWebhookNotificationResponse, UpdateAdminConfigurationResponse } from "@/utils/wire-types.generated";
 import type { NotificationChannel } from "@/app/settings/types";
 
 // Re-export so existing `import { AdminConfiguration } from "../AdminConfigContext"` consumers keep working
@@ -217,13 +217,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setLoadingConfig(true);
         setError(null);
 
-        const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken);
-
-        if (!response.ok) {
-          throw new Error(`Failed to load admin configuration: ${response.statusText}`);
-        }
-
-        const data: AdminConfiguration = await response.json();
+        const data = fromWireAdminConfiguration(await fetchJson<WireAdminConfiguration>(api.globalConfig.get(), getAccessToken));
         setAdminConfig(data);
         setGlobalRateLimit(data.globalRateLimitRequestsPerMinute);
         setUserRateLimit(data.userRateLimitRequestsPerMinute ?? 120);
@@ -268,16 +262,12 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setOpsAlertSlackEnabled(data.opsAlertSlackEnabled ?? false);
         setOpsAlertSlackWebhookUrl(data.opsAlertSlackWebhookUrl ?? "");
         setExcessiveEventCountThreshold(data.excessiveEventCountThreshold ?? 2000);
-        setExcessiveEventAutoActionMode((data.excessiveEventAutoActionMode ?? "Off") as "Off" | "Block" | "Kill");
+        setExcessiveEventAutoActionMode(data.excessiveEventAutoActionMode ?? "Off");
         setExcessiveEventAutoActionThreshold(data.excessiveEventAutoActionThreshold ?? 2500);
         setExcessiveEventAutoActionDurationHours(data.excessiveEventAutoActionDurationHours ?? 24);
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          console.error("Session expired while fetching admin configuration");
-        } else {
-          console.error("Error fetching admin configuration:", err);
-        }
-        setError(err instanceof Error ? err.message : "Failed to load admin configuration");
+        console.error("Error fetching admin configuration:", err);
+        setError(apiErrorText(err, "Failed to load admin configuration"));
       } finally {
         setLoadingConfig(false);
       }
@@ -303,38 +293,23 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
       // The address map is best-effort: it only powers the search-by-address, so a failure
       // there must degrade that one capability, never take the tenant list down with it.
-      const [tenantsRes, previewRes, emailsRes] = await Promise.all([
-        authenticatedFetch(api.config.all(), getAccessToken),
-        authenticatedFetch(api.preview.whitelist(), getAccessToken),
-        authenticatedFetch(api.preview.notificationEmails(), getAccessToken).catch(() => null)
+      // config/all is a bare array of tenant configurations (deliberately untyped, D-043).
+      const [data, previewData, emailData] = await Promise.all([
+        fetchJson<TenantConfiguration[]>(api.config.all(), getAccessToken),
+        fetchJson<GetPreviewWhitelistResponse>(api.preview.whitelist(), getAccessToken).catch(() => null),
+        fetchJson<GetAllPreviewNotificationEmailsResponse>(api.preview.notificationEmails(), getAccessToken).catch(() => null),
       ]);
-
-      if (!tenantsRes.ok) {
-        throw new Error(`Failed to load tenants: ${tenantsRes.statusText}`);
-      }
-
-      const data: TenantConfiguration[] = await tenantsRes.json();
       setTenants(data);
 
-      if (previewRes.ok) {
-        const previewData = (await previewRes.json()) as GetPreviewWhitelistResponse;
-        const approvedIds = new Set<string>(
-          (previewData.tenants || []).map((t) => t.tenantId)
-        );
-        setPreviewApproved(approvedIds);
+      if (previewData) {
+        setPreviewApproved(new Set<string>((previewData.tenants || []).map((t) => t.tenantId)));
       }
-
-      if (emailsRes?.ok) {
-        const emailData = await emailsRes.json().catch(() => ({}));
+      if (emailData) {
         setNotificationEmails(emailData.emails ?? {});
       }
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while fetching tenants");
-      } else {
-        console.error("Error fetching tenants:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to load tenants");
+      console.error("Error fetching tenants:", err);
+      setError(apiErrorText(err, "Failed to load tenants"));
     } finally {
       setLoadingTenants(false);
     }
@@ -378,27 +353,16 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         maxImeMsiDownloadSizeMB,
       };
 
-      const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
+      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to save admin configuration: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      setAdminConfig(result.config);
+      setAdminConfig(fromWireAdminConfiguration(result.config));
       setSuccessMessage("Admin configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving admin configuration");
-      } else {
-        console.error("Error saving admin configuration:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to save admin configuration");
+      console.error("Error saving admin configuration:", err);
+      setError(apiErrorText(err, "Failed to save admin configuration"));
     } finally {
       setSavingConfig(false);
     }
@@ -447,7 +411,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     setOpsAlertSlackEnabled(adminConfig.opsAlertSlackEnabled ?? false);
     setOpsAlertSlackWebhookUrl(adminConfig.opsAlertSlackWebhookUrl ?? "");
     setExcessiveEventCountThreshold(adminConfig.excessiveEventCountThreshold ?? 2000);
-    setExcessiveEventAutoActionMode((adminConfig.excessiveEventAutoActionMode ?? "Off") as "Off" | "Block" | "Kill");
+    setExcessiveEventAutoActionMode(adminConfig.excessiveEventAutoActionMode ?? "Off");
     setExcessiveEventAutoActionThreshold(adminConfig.excessiveEventAutoActionThreshold ?? 2500);
     setExcessiveEventAutoActionDurationHours(adminConfig.excessiveEventAutoActionDurationHours ?? 24);
     setSuccessMessage(null);
@@ -468,24 +432,16 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         diagnosticsGlobalLogPathsJson: JSON.stringify(paths),
       };
 
-      const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
+      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
       });
-
-      if (!response.ok) throw new Error(`Failed to save diagnostics paths: ${response.statusText}`);
-
-      const result = await response.json();
-      setAdminConfig(result.config);
+      setAdminConfig(fromWireAdminConfiguration(result.config));
       setGlobalDiagPaths(paths);
       setSuccessMessage("Global diagnostics log paths saved successfully!");
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving diagnostics paths");
-      }
-      setError(err instanceof Error ? err.message : "Failed to save diagnostics paths");
+      setError(apiErrorText(err, "Failed to save diagnostics paths"));
     } finally {
       setSavingDiagPaths(false);
     }
@@ -520,16 +476,11 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         excessiveEventAutoActionDurationHours: newAutoActionDurationHours,
       };
 
-      const response = await authenticatedFetch(api.globalConfig.get(), getAccessToken, {
+      const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedConfig),
       });
-
-      if (!response.ok) throw new Error(`Failed to save alert configuration: ${response.statusText}`);
-
-      const result = await response.json();
-      setAdminConfig(result.config);
+      setAdminConfig(fromWireAdminConfiguration(result.config));
       setOpsAlertRules(rules);
       setOpsNotificationChannels(channels);
       setExcessiveEventCountThreshold(newExcessiveThreshold);
@@ -539,10 +490,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       setSuccessMessage("Alert configuration saved successfully!");
       setTimeout(() => setSuccessMessage(null), 4000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving alert configuration");
-      }
-      setError(err instanceof Error ? err.message : "Failed to save alert configuration");
+      setError(apiErrorText(err, "Failed to save alert configuration"));
     } finally {
       setSavingOpsAlerts(false);
     }
@@ -559,28 +507,20 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       setTestingOpsChannelId(channelId);
       setTestOpsChannelResult(null);
 
-      const response = await authenticatedFetch(api.globalConfig.testOpsChannel(), getAccessToken, {
+      const result = await fetchJson<TestWebhookNotificationResponse>(api.globalConfig.testOpsChannel(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channelId }),
       });
-
-      if (!response.ok) throw new Error(`Test failed: ${response.statusText}`);
-
-      const result = await response.json();
       setTestOpsChannelResult({
         channelId,
         success: Boolean(result.success),
         message: result.message ?? (result.success ? "Sent." : "Failed."),
       });
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while testing an ops channel");
-      }
       setTestOpsChannelResult({
         channelId,
         success: false,
-        message: err instanceof Error ? err.message : "Test failed",
+        message: apiErrorText(err, "Test failed"),
       });
     } finally {
       setTestingOpsChannelId(null);

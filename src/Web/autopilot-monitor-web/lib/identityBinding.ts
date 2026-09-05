@@ -1,4 +1,5 @@
 import type { ApiErrorCode } from "./apiErrorCodes";
+import type { AdminIdentityBinding } from "@/utils/wire-types.generated";
 
 /**
  * The Entra identity (home tenant + object id) a cross-tenant-role UPN is bound to, as returned by
@@ -6,15 +7,7 @@ import type { ApiErrorCode } from "./apiErrorCodes";
  * refuses tokens whose tid/oid do not match. Maintained automatically — resolved from sign-in history at
  * grant time, object id pinned on the first sign-in.
  */
-export interface IdentityBinding {
-  upn: string;
-  tenantId: string;
-  objectId: string; // "" until pinned
-  boundBy: string;
-  boundAt: string;
-  objectIdPinnedAt: string | null;
-  isObjectIdPinned: boolean;
-}
+export type IdentityBinding = AdminIdentityBinding;
 
 /** Error code the grant endpoints return (HTTP 422) when the person's home tenant could not be resolved. */
 export const HOME_TENANT_UNRESOLVED = "HomeTenantUnresolved" satisfies ApiErrorCode;

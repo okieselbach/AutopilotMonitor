@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk, nullOn404 } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
@@ -11,26 +11,12 @@ import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata } from "@/utils/wire-types.generated";
 
 const PAGE_SIZE = 20;
 
-interface SessionReport {
-  reportId: string;
-  tenantId: string;
-  sessionId: string;
-  comment: string;
-  email: string;
-  blobName: string;
-  submittedBy: string;
-  submittedAt: string;
-  adminNote?: string;
-  /** "session" (legacy default) or "diagFiles" (no session context) */
-  reportType?: "session" | "diagFiles";
-  /** Flat name of the preserved diagnostics archive copy — present only when the copy succeeded */
-  diagnosticsBlobName?: string;
-  /** "Copied" or a "Failed:*" reason — absent when the submitter did not request the copy */
-  diagnosticsCopyStatus?: string;
-}
+/** One session report row (wire shape). */
+type SessionReport = SessionReportMetadata;
 
 function ReportTypeBadge({ type }: { type?: string }) {
   const isDiagFiles = type === "diagFiles";
@@ -109,25 +95,20 @@ function AdminNoteEditor({
       setSavingNote(true);
       setNoteSaveResult(null);
 
-      const res = await authenticatedFetch(
+      await fetchOk(
         api.reports.note(report.reportId),
         getAccessToken,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ adminNote: adminNoteValue }),
         }
       );
-      if (!res.ok) throw new Error(`Failed to save note: ${res.statusText}`);
 
       // Update parent state
       onSaved({ ...report, adminNote: adminNoteValue });
       setNoteSaveResult("saved");
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while saving admin note");
-      }
-      setNoteSaveResult(err instanceof Error ? err.message : "Failed to save note");
+      setNoteSaveResult(apiErrorText(err, "Failed to save note"));
     } finally {
       setSavingNote(false);
     }
@@ -252,12 +233,10 @@ function SessionReportsSectionInner({
     try {
       setDownloadingBlob(blobName);
 
-      const res = await authenticatedFetch(
+      const data = await fetchJson<SessionReportDownloadUrlResponse>(
         api.reports.downloadUrl(blobName),
         getAccessToken
       );
-      if (!res.ok) throw new Error(`Failed to get download URL: ${res.statusText}`);
-      const data = await res.json();
       if (!data.downloadUrl) throw new Error("No download URL returned");
 
       trackEvent("session_report_downloaded");
@@ -266,10 +245,7 @@ function SessionReportsSectionInner({
       a.download = blobName;
       a.click();
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while downloading report");
-      }
-      setError(err instanceof Error ? err.message : "Failed to download report");
+      setError(apiErrorText(err, "Failed to download report"));
     } finally {
       setDownloadingBlob(null);
     }
@@ -284,30 +260,19 @@ function SessionReportsSectionInner({
     try {
       setLoading(true);
 
-      const res = await authenticatedFetch(
+      // 404 = table/container does not exist yet: no reports submitted so far, not an error.
+      const data = await fetchJson<SessionReportListResponse>(
         api.reports.list({
           tenantId: filterTenantId,
           pageSize: PAGE_SIZE,
           continuation: cursor ?? undefined,
         }),
         getAccessToken,
-      );
-
-      if (res.status === 404) {
-        // Table/container doesn't exist yet — no reports submitted so far
-        setReports([]);
-        setNextLink(null);
-        return;
-      }
-      if (!res.ok) throw new Error(`Failed to load reports: ${res.statusText}`);
-      const data = await res.json();
-      setReports(data.reports ?? []);
-      setNextLink(data.nextLink ?? null);
+      ).catch(nullOn404);
+      setReports(data?.reports ?? []);
+      setNextLink(data?.nextLink ?? null);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading reports");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load reports");
+      setError(apiErrorText(err, "Failed to load reports"));
     } finally {
       setLoading(false);
     }

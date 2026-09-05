@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { DeletionPreviewModal } from "./components/DeletionPreviewModal";
@@ -154,10 +154,7 @@ function InFlightTab({
     try {
       const results = await Promise.all(
         IN_FLIGHT_STATES.map((state) =>
-          authenticatedFetch(api.sessionDeletions.list(state), getAccessToken).then(async (r) => {
-            if (!r.ok) throw new Error(`HTTP ${r.status} for state=${state}`);
-            return (await r.json()) as SessionDeletionListResponse;
-          }),
+          fetchJson<SessionDeletionListResponse>(api.sessionDeletions.list(state), getAccessToken),
         ),
       );
       const all = results.flatMap((r) => r.sessions);
@@ -165,11 +162,7 @@ function InFlightTab({
       all.sort((a, b) => b.ageMinutes - a.ageMinutes);
       setRows(all);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -239,17 +232,11 @@ function PoisonedTab({
   const fetchPoisoned = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await authenticatedFetch(api.sessionDeletions.list("Poisoned"), getAccessToken);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = (await resp.json()) as SessionDeletionListResponse;
+      const json = await fetchJson<SessionDeletionListResponse>(api.sessionDeletions.list("Poisoned"), getAccessToken);
       const sorted = [...json.sessions].sort((a, b) => b.ageMinutes - a.ageMinutes);
       setRows(sorted);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -339,20 +326,14 @@ function StrandedTab({
   const fetchStranded = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await authenticatedFetch(
+      const json = await fetchJson<SessionDeletionListResponse>(
         api.sessionDeletions.list("Queued", STRANDED_THRESHOLD_MINUTES),
         getAccessToken,
       );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = (await resp.json()) as SessionDeletionListResponse;
       const sorted = [...json.sessions].sort((a, b) => b.ageMinutes - a.ageMinutes);
       setRows(sorted);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }

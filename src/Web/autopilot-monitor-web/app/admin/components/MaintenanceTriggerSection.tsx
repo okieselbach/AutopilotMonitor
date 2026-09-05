@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { GetLatestVersionsResponse } from "@/utils/wire-types.generated";
 
 interface MaintenanceTriggerSectionProps {
   getAccessToken: () => Promise<string | null>;
@@ -29,15 +30,9 @@ export function MaintenanceTriggerSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.config.latestVersions({ refresh: true }), getAccessToken, {
+      const data = await fetchJson<GetLatestVersionsResponse>(api.config.latestVersions({ refresh: true }), getAccessToken, {
         method: "GET",
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to refresh latest versions: ${response.statusText}`);
-      }
-
-      const data = await response.json();
       const agentVer = data.latestAgentVersion ?? "unknown";
       const bootstrapVer = data.latestBootstrapScriptVersion ?? "unknown";
       const fetchedAt = data.fetchedAtUtc ? new Date(data.fetchedAtUtc).toISOString().replace("T", " ").substring(0, 19) + " UTC" : "now";
@@ -45,12 +40,8 @@ export function MaintenanceTriggerSection({
 
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while refreshing versions");
-      } else {
-        console.error("Error refreshing latest versions:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to refresh latest versions");
+      console.error("Error refreshing latest versions:", err);
+      setError(apiErrorText(err, "Failed to refresh latest versions"));
     } finally {
       setRefreshingVersions(false);
     }
@@ -62,25 +53,17 @@ export function MaintenanceTriggerSection({
       setError(null);
       setSuccessMessage(null);
 
-      const response = await authenticatedFetch(api.maintenance.trigger(maintenanceDate || undefined), getAccessToken, {
+      await fetchOk(api.maintenance.trigger(maintenanceDate || undefined), getAccessToken, {
         method: "POST",
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to trigger maintenance: ${response.statusText}`);
-      }
 
       const dateInfo = maintenanceDate ? ` for ${maintenanceDate}` : '';
       setSuccessMessage(`Maintenance job completed successfully${dateInfo}!`);
 
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while triggering maintenance");
-      } else {
-        console.error("Error triggering maintenance:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to trigger maintenance job");
+      console.error("Error triggering maintenance:", err);
+      setError(apiErrorText(err, "Failed to trigger maintenance job"));
     } finally {
       setTriggeringMaintenance(false);
     }

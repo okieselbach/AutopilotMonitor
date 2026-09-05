@@ -2,22 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { FeedbackEntryWire, FeedbackListResponse } from "@/utils/wire-types.generated";
 
-interface FeedbackEntry {
-  type: "InApp" | "Offboarding" | string; // server returns these two; future-proof for additional kinds
-  upn: string;
-  tenantId: string;
-  displayName: string;
-  rating: number | null;
-  comment: string | null;
-  dismissed: boolean;
-  submitted: boolean;
-  interactedAt: string | null;
-  // Offboarding-only — null for InApp entries.
-  historyRowKey: string | null;
-  domainName: string | null;
-}
+/** One stored feedback entry — the wire shape (fields absent on dismissals). */
+type FeedbackEntry = FeedbackEntryWire;
 
 type FeedbackTab = "InApp" | "Offboarding";
 type InAppFilter = "all" | "submitted" | "dismissed";
@@ -46,13 +35,7 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
       setLoading(true);
       setError(null);
 
-      const response = await authenticatedFetch(api.feedback.all(), getAccessToken);
-
-      if (!response.ok) {
-        throw new Error(`Failed to load feedback: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = await fetchJson<FeedbackListResponse>(api.feedback.all(), getAccessToken);
       // Sort by interactedAt descending (newest first)
       const sorted = (data.feedback || []).sort((a: FeedbackEntry, b: FeedbackEntry) => {
         const dateA = a.interactedAt ? new Date(a.interactedAt).getTime() : 0;
@@ -62,12 +45,8 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
       setEntries(sorted);
       setNowMs(Date.now());
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while fetching feedback");
-      } else {
-        console.error("Error fetching feedback:", err);
-      }
-      setError(err instanceof Error ? err.message : "Failed to load feedback");
+      console.error("Error fetching feedback:", err);
+      setError(apiErrorText(err, "Failed to load feedback"));
     } finally {
       setLoading(false);
     }
@@ -280,15 +259,15 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                         >
                           {entry.upn}
                         </span>
-                        {entry.submitted ? renderStars(entry.rating) : (
+                        {entry.submitted ? renderStars(entry.rating ?? null) : (
                           <span className="text-xs text-gray-400 dark:text-gray-500 italic flex-shrink-0">dismissed</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
-                        <span>{formatTimeAgo(entry.interactedAt)}</span>
+                        <span>{formatTimeAgo(entry.interactedAt ?? null)}</span>
                         <span className="hidden sm:inline">·</span>
                         <span className="hidden sm:inline" title={entry.tenantId}>
-                          {entry.tenantId.substring(0, 8)}...
+                          {entry.tenantId?.substring(0, 8)}...
                         </span>
                       </div>
                     </div>
@@ -313,11 +292,11 @@ export function FeedbackSection({ getAccessToken, setError }: FeedbackSectionPro
                           Offboarded
                         </span>
                         <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                          {entry.domainName || entry.tenantId.substring(0, 8) + "…"}
+                          {entry.domainName || entry.tenantId?.substring(0, 8) + "…"}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0">
-                        <span className="flex-shrink-0">{formatTimeAgo(entry.interactedAt)}</span>
+                        <span className="flex-shrink-0">{formatTimeAgo(entry.interactedAt ?? null)}</span>
                         <span className="hidden sm:inline flex-shrink-0">·</span>
                         <span className="hidden sm:inline truncate" title={entry.upn}>
                           {entry.upn}

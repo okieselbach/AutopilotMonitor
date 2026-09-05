@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../../../AdminConfigContext";
 import { DeletionManifestSummaryView } from "./DeletionManifestSummaryView";
 import { RestoreConfirmDialog } from "./RestoreConfirmDialog";
@@ -88,27 +88,17 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
     (async () => {
       setLoadingRestoreFilter(true);
       try {
-        const resp = await authenticatedFetch(
+        const json = await fetchJson<TenantsWithManifestsResponse>(
           api.sessionDeletions.tenantsWithManifests(),
           getAccessToken,
           { signal: controller.signal },
         );
         if (cancelled) return;
-        if (!resp.ok) {
-          const detail = await resp.text().catch(() => "");
-          throw new Error(`HTTP ${resp.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
-        }
-        const json = (await resp.json()) as TenantsWithManifestsResponse;
-        if (cancelled) return;
         setTenantsWithRestore(new Set(json.tenantIds ?? []));
       } catch (err) {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof TokenExpiredError) {
-          setError("Session expired; reload the page and try again.");
-        } else {
-          setError(err instanceof Error ? err.message : String(err));
-        }
+        setError(apiErrorText(err));
         // On fetch failure leave the filter unchecked so the operator isn't stranded with an
         // empty dropdown — the toggle won't visually persist as "on" without data backing it.
         setOnlyWithRestore(false);
@@ -161,17 +151,11 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
       setLoadingSessions(true);
 
       try {
-        const resp = await authenticatedFetch(
+        const json = await fetchJson<TenantManifestsResponse>(
           api.sessionDeletions.tenantManifests(selectedTenantId),
           getAccessToken,
           { signal: controller.signal },
         );
-        if (cancelled) return;
-        if (!resp.ok) {
-          const detail = await resp.text().catch(() => "");
-          throw new Error(`HTTP ${resp.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
-        }
-        const json = (await resp.json()) as TenantManifestsResponse;
         if (cancelled) return;
         // Pin the response to the tenantId it was fetched for. The render path keys off
         // loadedTenantId === selectedTenantId, so a late response that no longer matches the
@@ -183,11 +167,7 @@ export function RestoreBrowserTab({ getAccessToken, setError, setSuccessMessage 
         // AbortError is the expected outcome when the effect re-runs before the previous fetch
         // resolved (tenant switched, refresh hit, component unmounted) — swallow silently.
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof TokenExpiredError) {
-          setError("Session expired; reload the page and try again.");
-        } else {
-          setError(err instanceof Error ? err.message : String(err));
-        }
+        setError(apiErrorText(err));
         setSessions([]);
         setLoadedTenantId(selectedTenantId);
       } finally {

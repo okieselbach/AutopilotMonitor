@@ -9,7 +9,7 @@ import {
   type BackupListResponse,
   type BackupTriggerResponse,
 } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../AdminConfigContext";
 import { AdminNotifications } from "../AdminNotifications";
 
@@ -31,13 +31,10 @@ export default function BackupsListPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await authenticatedFetch(api.backups.list(), getAccessToken);
-      if (!res.ok) throw new Error(`List backups failed: ${res.status} ${res.statusText}`);
-      const body = (await res.json()) as BackupListResponse;
+      const body = await fetchJson<BackupListResponse>(api.backups.list(), getAccessToken);
       setBackupIds(body.backupIds ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
@@ -71,13 +68,10 @@ export default function BackupsListPage() {
     const timer = window.setTimeout(async () => {
       if (cancelled) return;
       try {
-        const res = await authenticatedFetch(api.backups.jobStatus(activeJob.jobId), getAccessToken);
-        if (!res.ok) throw new Error(`Job status failed: ${res.status} ${res.statusText}`);
-        const body = (await res.json()) as BackupJobStatus;
+        const body = await fetchJson<BackupJobStatus>(api.backups.jobStatus(activeJob.jobId), getAccessToken);
         setActiveJob(body);
       } catch (err) {
-        if (err instanceof TokenExpiredError) setError(err.message);
-        else setError(err instanceof Error ? err.message : String(err));
+        setError(apiErrorText(err));
         setActiveJob(null);
       }
     }, POLL_INTERVAL_MS);
@@ -91,14 +85,7 @@ export default function BackupsListPage() {
   const triggerBackup = useCallback(async () => {
     try {
       setTriggering(true);
-      const res = await authenticatedFetch(api.backups.trigger(), getAccessToken, {
-        method: "POST",
-      });
-      if (res.status !== 202 && !res.ok) {
-        const text = await res.text();
-        throw new Error(`Trigger backup failed: ${res.status} ${text}`);
-      }
-      const body = (await res.json()) as BackupTriggerResponse;
+      const body = await fetchJson<BackupTriggerResponse>(api.backups.trigger(), getAccessToken, { method: "POST" });
       // Seed the poller with the freshly-created job.
       setActiveJob({
         jobId: body.jobId,
@@ -110,8 +97,7 @@ export default function BackupsListPage() {
       });
       setSuccessMessage(`Backup queued — jobId ${body.jobId}.`);
     } catch (err) {
-      if (err instanceof TokenExpiredError) setError(err.message);
-      else setError(err instanceof Error ? err.message : String(err));
+      setError(apiErrorText(err));
     } finally {
       setTriggering(false);
     }

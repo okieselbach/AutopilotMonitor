@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useAdminConfig } from "../../AdminConfigContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import type { PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
 
 interface PlanTierDefinition {
   name: string;
@@ -51,17 +52,11 @@ export function SectionUsagePlans() {
     try {
       setLoading(true);
       setError(null);
-      const res = await authenticatedFetch(api.mcpUsage.planTiers(), getAccessToken);
-      if (!res.ok) throw new Error(`Failed to load plan tiers: ${res.status}`);
-      const data = await res.json();
+      const data = await fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken);
       setTiers(data.tiers || []);
       setHasChanges(false);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired. Please refresh the page.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to load plan tiers");
-      }
+      setError(apiErrorText(err, "Failed to load plan tiers"));
     } finally {
       setLoading(false);
     }
@@ -91,28 +86,16 @@ export function SectionUsagePlans() {
       setError(null);
       setSuccessMessage(null);
 
-      const res = await authenticatedFetch(api.mcpUsage.planTiers(), getAccessToken, {
+      const data = await fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tiers }),
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || `Failed to save: ${res.status}`);
-      }
-
-      const data = await res.json();
       setTiers(data.tiers || tiers);
       setHasChanges(false);
       setSuccessMessage("Plan tier definitions saved successfully.");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired. Please refresh the page.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to save plan tiers");
-      }
+      setError(apiErrorText(err, "Failed to save plan tiers"));
     } finally {
       setSaving(false);
     }

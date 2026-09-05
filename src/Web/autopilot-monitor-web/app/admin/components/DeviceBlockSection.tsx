@@ -5,13 +5,14 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { firstBlockedSessionId, blockedSessionCount } from "./blockedDeviceHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
+import type { BlockedDeviceEntry, BlockedDeviceListResponse, GetSessionResponse } from "@/utils/wire-types.generated";
 
 interface ResolvedDevice {
   sessionId: string;
@@ -22,22 +23,8 @@ interface ResolvedDevice {
   model: string;
 }
 
-interface BlockedDevice {
-  tenantId: string;
-  serialNumber: string;
-  blockedAt: string;
-  unblockAt: string;
-  blockedByEmail: string;
-  durationHours: number;
-  reason?: string;
-  action?: string;
-  /**
-   * Comma-separated sessions this block is scoped to — set by the maintenance auto-block
-   * paths, absent on a manual whole-device block. Drives the serial's deep-link: without a
-   * session there is nothing honest to link to.
-   */
-  blockedSessionIds?: string | null;
-}
+/** One row of GET devices/blocked — the wire shape, so a backend rename fails here instead of rendering blanks. */
+type BlockedDevice = BlockedDeviceEntry;
 
 interface DeviceBlockSectionProps {
   tenants: TenantConfiguration[];
@@ -90,11 +77,7 @@ function DeviceBlockSectionInner({
     try {
       setResolvingSession(true);
       setError(null);
-      const response = await authenticatedFetch(api.sessions.get(id), getAccessToken);
-      const data = await response.json();
-      if (!response.ok || !data?.success || !data.session) {
-        throw new Error(data?.message || `Session ${id} not found`);
-      }
+      const data = await fetchJson<GetSessionResponse>(api.sessions.get(id), getAccessToken);
       const session = data.session as {
         sessionId: string;
         tenantId: string;
@@ -114,11 +97,8 @@ function DeviceBlockSectionInner({
         model: session.model ?? "",
       });
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while resolving session ID");
-      }
       setResolvedDevice(null);
-      setError(err instanceof Error ? err.message : "Failed to resolve session");
+      setError(apiErrorText(err, "Failed to resolve session"));
     } finally {
       setResolvingSession(false);
     }
@@ -151,15 +131,10 @@ function DeviceBlockSectionInner({
     if (!tenantId) return;
     try {
       setLoadingBlockedDevices(true);
-      const response = await authenticatedFetch(api.devices.blocked(tenantId), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load blocked devices: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<BlockedDeviceListResponse>(api.devices.blocked(tenantId), getAccessToken);
       setBlockedDevices(data.blocked ?? []);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading blocked devices");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load blocked devices");
+      setError(apiErrorText(err, "Failed to load blocked devices"));
     } finally {
       setLoadingBlockedDevices(false);
     }
@@ -168,16 +143,11 @@ function DeviceBlockSectionInner({
   const fetchAllBlockedDevices = async () => {
     try {
       setLoadingAllBlocked(true);
-      const response = await authenticatedFetch(api.devices.allBlocked(), getAccessToken);
-      if (!response.ok) throw new Error(`Failed to load blocked devices: ${response.statusText}`);
-      const data = await response.json();
+      const data = await fetchJson<BlockedDeviceListResponse>(api.devices.allBlocked(), getAccessToken);
       setBlockedDevices(data.blocked ?? []);
       setBlockListTenantId("");
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while loading all blocked devices");
-      }
-      setError(err instanceof Error ? err.message : "Failed to load all blocked devices");
+      setError(apiErrorText(err, "Failed to load all blocked devices"));
     } finally {
       setLoadingAllBlocked(false);
     }
@@ -204,9 +174,8 @@ function DeviceBlockSectionInner({
     try {
       setBlockingDevice(true);
       setError(null);
-      const response = await authenticatedFetch(api.devices.block(), getAccessToken, {
+      await fetchOk(api.devices.block(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenantId: blockTenantId,
           serialNumber: blockSerialNumber.trim(),
@@ -216,8 +185,6 @@ function DeviceBlockSectionInner({
           blockedSessionId: sessionIdToForward,
         }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || response.statusText);
       trackEvent("device_blocked", {
         action: blockAction,
         durationHours: blockDurationHours,
@@ -236,10 +203,7 @@ function DeviceBlockSectionInner({
       setResolvedDevice(null);
       if (blockListTenantId === blockTenantId) await fetchBlockedDevices(blockTenantId);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while blocking device");
-      }
-      setError(err instanceof Error ? err.message : "Failed to block device");
+      setError(apiErrorText(err, "Failed to block device"));
     } finally {
       setBlockingDevice(false);
     }
@@ -250,22 +214,13 @@ function DeviceBlockSectionInner({
     try {
       setUnblockingDevice(serialNumber);
       setError(null);
-      const response = await authenticatedFetch(
-        api.devices.unblock(serialNumber, tenantId),
-        getAccessToken,
-        { method: "DELETE" }
-      );
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || response.statusText);
+      await fetchOk(api.devices.unblock(serialNumber, tenantId), getAccessToken, { method: "DELETE" });
       trackEvent("device_unblocked");
       setSuccessMessage(`Device ${serialNumber} unblocked.`);
       setTimeout(() => setSuccessMessage(null), 3000);
       setBlockedDevices((prev) => prev.filter((d) => d.serialNumber !== serialNumber || d.tenantId !== tenantId));
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while unblocking device");
-      }
-      setError(err instanceof Error ? err.message : "Failed to unblock device");
+      setError(apiErrorText(err, "Failed to unblock device"));
     } finally {
       setUnblockingDevice(null);
     }
@@ -280,10 +235,10 @@ function DeviceBlockSectionInner({
     try {
       setKillingDevice(device.serialNumber);
       setError(null);
-      const remainingHours = Math.max(1, Math.ceil((new Date(device.unblockAt).getTime() - Date.now()) / 3600000));
-      const response = await authenticatedFetch(api.devices.block(), getAccessToken, {
+      const unblockAtMs = device.unblockAt ? new Date(device.unblockAt).getTime() : Date.now();
+      const remainingHours = Math.max(1, Math.ceil((unblockAtMs - Date.now()) / 3600000));
+      await fetchOk(api.devices.block(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tenantId: device.tenantId,
           serialNumber: device.serialNumber,
@@ -292,17 +247,12 @@ function DeviceBlockSectionInner({
           action: "Kill",
         }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || response.statusText);
       trackEvent("device_killed");
       setSuccessMessage(`Device ${device.serialNumber} upgraded to kill signal.`);
       setTimeout(() => setSuccessMessage(null), 4000);
       await fetchBlockedDevices(device.tenantId);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        console.error("Session expired while sending kill signal");
-      }
-      setError(err instanceof Error ? err.message : "Failed to send kill signal");
+      setError(apiErrorText(err, "Failed to send kill signal"));
     } finally {
       setKillingDevice(null);
     }
@@ -556,7 +506,7 @@ function DeviceBlockSectionInner({
                         )}
                       </td>
                       <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{new Date(d.blockedAt).toLocaleString()}</td>
-                      <td className="px-3 py-2 text-orange-600 dark:text-orange-400 font-medium">{new Date(d.unblockAt).toLocaleString()}</td>
+                      <td className="px-3 py-2 text-orange-600 dark:text-orange-400 font-medium">{d.unblockAt ? new Date(d.unblockAt).toLocaleString() : "\u2014"}</td>
                       <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{d.blockedByEmail}</td>
                       <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{d.reason || "\u2014"}</td>
                       <td className="px-3 py-2">

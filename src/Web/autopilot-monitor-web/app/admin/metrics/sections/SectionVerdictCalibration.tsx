@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { useAggregatedAdminScope } from "@/hooks";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
@@ -38,23 +38,12 @@ export function SectionVerdictCalibration() {
       setLoading(true);
       setError(null);
       try {
-        const res = await authenticatedFetch(
-          api.metrics.globalVerdictCalibration(RANGE_DAYS[range], tenantId || undefined),
-          getAccessToken
+        // Deploy skew: a backend without the route yet (404) reads as "no rows", never as an error.
+        setData(
+          await fetchJson<VerdictCalibrationResponse>(api.metrics.globalVerdictCalibration(RANGE_DAYS[range], tenantId || undefined), getAccessToken).catch(nullOn404),
         );
-        if (res.status === 404) {
-          // Deploy skew: backend without the route yet — reads as "no rows", never as an error.
-          setData(null);
-          return;
-        }
-        if (!res.ok) throw new Error(`Verdict calibration: ${res.status}`);
-        setData((await res.json()) as VerdictCalibrationResponse);
       } catch (err) {
-        if (err instanceof TokenExpiredError) {
-          setError("Session expired. Please refresh the page.");
-        } else {
-          setError(err instanceof Error ? err.message : "Failed to load verdict calibration");
-        }
+        setError(apiErrorText(err, "Failed to load verdict calibration"));
       } finally {
         setLoading(false);
       }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchBlob, fetchJson } from "@/lib/apiClient";
 
 /**
  * Reusable stored-manifest summary block. Used both inside the modal (DeletionPreviewModal,
@@ -67,23 +67,14 @@ export function DeletionManifestSummaryView({
       setError(null);
       setSummary(null);
       try {
-        const resp = await authenticatedFetch(
+        const json = await fetchJson<StoredManifestSummary>(
           api.sessionDeletions.storedManifest(sessionId, tenantId, manifestId, "summary"),
           getAccessToken,
         );
-        if (!resp.ok) {
-          const detail = await resp.text().catch(() => "");
-          throw new Error(`Stored-manifest request failed: HTTP ${resp.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
-        }
-        const json = (await resp.json()) as StoredManifestSummary;
         if (!cancelled) setSummary(json);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof TokenExpiredError) {
-          setError("Session expired; reload the page and try again.");
-        } else {
-          setError(err instanceof Error ? err.message : String(err));
-        }
+        setError(apiErrorText(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -97,12 +88,7 @@ export function DeletionManifestSummaryView({
     setDownloading(true);
     setError(null);
     try {
-      const resp = await authenticatedFetch(
-        api.sessionDeletions.storedManifest(sessionId, tenantId, manifestId, "download"),
-        getAccessToken,
-      );
-      if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
-      const blob = await resp.blob();
+      const blob = await fetchBlob(api.sessionDeletions.storedManifest(sessionId, tenantId, manifestId, "download"), getAccessToken);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -112,11 +98,7 @@ export function DeletionManifestSummaryView({
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(apiErrorText(err));
     } finally {
       setDownloading(false);
     }
