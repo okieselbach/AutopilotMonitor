@@ -10,6 +10,7 @@ using Azure.Storage.Sas;
 using AutopilotMonitor.Shared.Models.Deletion;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -40,13 +41,13 @@ namespace AutopilotMonitor.Functions.Services
             if (!string.IsNullOrEmpty(storageAccountName))
             {
                 var blobUri = new Uri($"https://{storageAccountName}.blob.core.windows.net");
-                _blobServiceClient = new BlobServiceClient(blobUri, new DefaultAzureCredential());
+                _blobServiceClient = new BlobServiceClient(blobUri, new DefaultAzureCredential(), StorageClientOptions.Blob());
                 _usesManagedIdentity = true;
                 _logger.LogInformation("Blob Storage initialized with Managed Identity (account: {Account})", storageAccountName);
             }
             else if (!string.IsNullOrEmpty(connectionString))
             {
-                _blobServiceClient = new BlobServiceClient(connectionString);
+                _blobServiceClient = new BlobServiceClient(connectionString, StorageClientOptions.Blob());
                 _usesManagedIdentity = false;
                 _logger.LogInformation("Blob Storage initialized with connection string");
             }

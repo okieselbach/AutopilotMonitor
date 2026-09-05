@@ -1162,7 +1162,8 @@ namespace AutopilotMonitor.Functions.Services
         public async Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
             string? tenantIdFilter, int? days, int pageSize, string? continuation,
             IReadOnlyCollection<string>? allowedTenantIds = null,
-            IEnumerable<string>? select = null)
+            IEnumerable<string>? select = null,
+            CancellationToken cancellationToken = default)
         {
             if (pageSize < 1) throw new ArgumentOutOfRangeException(nameof(pageSize));
 
@@ -1178,7 +1179,7 @@ namespace AutopilotMonitor.Functions.Services
                 return new RawPage<SessionSummary>(tenantPage.Sessions, tenantPage.HasMore ? tenantPage.NextCursor : null);
             }
 
-            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days, allowedTenantIds: allowedTenantIds, select: select);
+            var page = await FetchAllSessionsPageInternalAsync(maxResults: pageSize, cursor: continuation, days: days, allowedTenantIds: allowedTenantIds, select: select, cancellationToken: cancellationToken);
             return new RawPage<SessionSummary>(page.Sessions, page.HasMore ? page.NextCursor : null);
         }
 
@@ -1278,10 +1279,10 @@ namespace AutopilotMonitor.Functions.Services
 
             var cacheKey = $"{days}|{DescribeTenantBound(allowedTenantIds)}";
             return await _sessionStatsCache.GetOrAddAsync(cacheKey, SessionStatsCacheTtl,
-                () => ComputeAllSessionStatsAsync(days, allowedTenantIds));
+                ct => ComputeAllSessionStatsAsync(days, allowedTenantIds, ct));
         }
 
-        private async Task<SessionStats> ComputeAllSessionStatsAsync(int days, IReadOnlyCollection<string>? allowedTenantIds)
+        private async Task<SessionStats> ComputeAllSessionStatsAsync(int days, IReadOnlyCollection<string>? allowedTenantIds, CancellationToken cancellationToken)
         {
             var tenantIds = ApplyTenantBound(await GetTenantIdsCachedAsync(), allowedTenantIds);
             if (tenantIds.Count == 0)
@@ -1296,7 +1297,7 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             var rows = await DrainSessionsIndexWindowAsync(
-                tenantIds, startUtc: DateTime.UtcNow.AddDays(-days), endUtc: null, SessionStatsProjection, CancellationToken.None);
+                tenantIds, startUtc: DateTime.UtcNow.AddDays(-days), endUtc: null, SessionStatsProjection, cancellationToken);
             return AggregateSessionStats(rows, days);
         }
 
@@ -1461,7 +1462,7 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         private async Task<(List<SessionSummary> Sessions, bool HasMore, string? NextCursor)> FetchAllSessionsPageInternalAsync(
             int maxResults, string? cursor, int? days, IReadOnlyCollection<string>? allowedTenantIds = null,
-            IEnumerable<string>? select = null)
+            IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -1531,7 +1532,7 @@ namespace AutopilotMonitor.Functions.Services
                         if (tenantSessions.Count >= fetchPerTenant) break;
                     }
                     return tenantSessions;
-                }, CancellationToken.None);
+                }, cancellationToken);
 
                 // Step 3: Merge-sort across tenants by StartedAt descending
                 allSessions = allSessions.OrderByDescending(s => s.StartedAt).ToList();

@@ -4,6 +4,7 @@ using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using System.Threading;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -21,7 +22,7 @@ public class AgentEfficiencyMetricsServiceTests
     {
         var repo = new Mock<ISessionRepository>();
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RawPage<SessionSummary>(new List<SessionSummary>(), null));
         repo
             .Setup(r => r.GetSessionEventsByTypesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<int>()))
@@ -67,7 +68,7 @@ public class AgentEfficiencyMetricsServiceTests
     private static void SetupSessions(Mock<ISessionRepository> repo, List<SessionSummary> sessions)
     {
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RawPage<SessionSummary>(sessions, null));
     }
 
@@ -201,8 +202,8 @@ public class AgentEfficiencyMetricsServiceTests
         string? capturedTenant = null;
         IEnumerable<string>? capturedSelect = null;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
-            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?>((t, _, _, _, _, sel) => { capturedTenant = t; capturedSelect = sel; })
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?, CancellationToken>((t, _, _, _, _, sel, _) => { capturedTenant = t; capturedSelect = sel; })
             .ReturnsAsync(new RawPage<SessionSummary>(new List<SessionSummary>(), null));
 
         var result = await service.ComputeAsync(days: 45, limit: 100, tenantId: Tenant);
@@ -220,7 +221,7 @@ public class AgentEfficiencyMetricsServiceTests
         var (service, repo) = CreateService();
         int callCount = 0;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .Callback(() => callCount++)
             .ReturnsAsync(new RawPage<SessionSummary>(new List<SessionSummary>(), null));
 

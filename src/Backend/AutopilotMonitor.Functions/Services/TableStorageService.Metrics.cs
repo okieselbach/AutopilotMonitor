@@ -610,11 +610,11 @@ namespace AutopilotMonitor.Functions.Services
         {
             var bucketStart = new DateTime(sinceUtc.Ticks - sinceUtc.Ticks % TimeSpan.TicksPerMinute, DateTimeKind.Utc);
             var snapshot = await _appSummarySnapshotCache.GetOrAddAsync(
-                bucketStart.ToString("yyyyMMddHHmm"), AppSummarySnapshotTtl, () => ScanCrossTenantAppSummariesAsync(bucketStart));
+                bucketStart.ToString("yyyyMMddHHmm"), AppSummarySnapshotTtl, ct => ScanCrossTenantAppSummariesAsync(bucketStart, ct));
             return new List<AppInstallSummary>(snapshot);
         }
 
-        private async Task<List<AppInstallSummary>> ScanCrossTenantAppSummariesAsync(DateTime sinceUtc)
+        private async Task<List<AppInstallSummary>> ScanCrossTenantAppSummariesAsync(DateTime sinceUtc, CancellationToken cancellationToken)
         {
             var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
             var windowFilter = AppSummaryWindowFilter(sinceUtc);
@@ -624,12 +624,12 @@ namespace AutopilotMonitor.Functions.Services
             if (tenantIds.Count == 0)
             {
                 // Empty config table (fresh install): the legacy cross-partition scan is the safety net.
-                return await ScanAppInstallSummariesAsync(tableClient, windowFilter, select, CancellationToken.None);
+                return await ScanAppInstallSummariesAsync(tableClient, windowFilter, select, cancellationToken);
             }
 
             return await BoundedFanOut.RunAsync(tenantIds, BoundedFanOut.CrossTenantConcurrency,
                 (tenantId, ct) => ScanAppInstallSummariesAsync(tableClient, $"PartitionKey eq '{tenantId}' and {windowFilter}", select, ct),
-                CancellationToken.None);
+                cancellationToken);
         }
 
         /// <summary>

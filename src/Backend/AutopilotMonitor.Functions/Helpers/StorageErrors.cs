@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
 using Azure;
 
 namespace AutopilotMonitor.Functions.Helpers;
@@ -21,9 +24,31 @@ public static class StorageErrors
         "PropertyValueTooLarge",
     ];
 
-    /// <summary>Throttling, timeouts and service-side failures — a later retry can succeed.</summary>
+    /// <summary>
+    /// Throttling, timeouts and service-side failures — a later retry can succeed. Status 0 is
+    /// the SDK's "no response" (connection refused/reset before any status arrived).
+    /// </summary>
     public static bool IsTransient(RequestFailedException ex)
-        => ex != null && Array.IndexOf(TransientStatuses, ex.Status) >= 0;
+        => ex != null && (ex.Status == 0 || Array.IndexOf(TransientStatuses, ex.Status) >= 0);
+
+    /// <summary>
+    /// The exception shapes an exhausted SDK budget surfaces as (see <c>StorageClientOptions</c>):
+    /// the per-attempt network timeout is an <see cref="OperationCanceledException"/>, a socket
+    /// failure an <see cref="IOException"/> / <see cref="HttpRequestException"/>, and after
+    /// several attempts Azure.Core wraps them in an <see cref="AggregateException"/>. Only for
+    /// call paths WITHOUT a caller cancellation token (the ingest has none): there every
+    /// cancellation is the SDK's own timeout, never the caller giving up.
+    /// </summary>
+    public static bool IsTransient(Exception ex) => ex switch
+    {
+        null => false,
+        RequestFailedException failed => IsTransient(failed),
+        OperationCanceledException => true,
+        IOException => true,
+        HttpRequestException => true,
+        AggregateException aggregate => aggregate.InnerExceptions.Count > 0 && aggregate.InnerExceptions.All(IsTransient),
+        _ => false,
+    };
 
     /// <summary>
     /// The transaction or entity exceeds a size limit. HTTP 413 in production; some backends

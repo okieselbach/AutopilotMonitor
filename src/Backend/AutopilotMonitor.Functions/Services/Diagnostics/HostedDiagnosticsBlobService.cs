@@ -13,6 +13,7 @@ using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services.Diagnostics
 {
@@ -66,7 +67,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
             if (!string.IsNullOrEmpty(storageAccountName))
             {
                 var blobUri = new Uri($"https://{storageAccountName}.blob.core.windows.net");
-                _blobServiceClient = new BlobServiceClient(blobUri, new DefaultAzureCredential());
+                _blobServiceClient = new BlobServiceClient(blobUri, new DefaultAzureCredential(), StorageClientOptions.Blob());
                 _usesManagedIdentity = true;
                 _logger.LogInformation(
                     "HostedDiagnosticsBlobService initialized with Managed Identity (account: {Account}, container: {Container})",
@@ -74,7 +75,7 @@ namespace AutopilotMonitor.Functions.Services.Diagnostics
             }
             else if (!string.IsNullOrEmpty(connectionString))
             {
-                _blobServiceClient = new BlobServiceClient(connectionString);
+                _blobServiceClient = new BlobServiceClient(connectionString, StorageClientOptions.Blob());
                 _usesManagedIdentity = false;
                 _logger.LogInformation(
                     "HostedDiagnosticsBlobService initialized with connection string (container: {Container})",

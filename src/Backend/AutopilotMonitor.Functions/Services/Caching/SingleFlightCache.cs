@@ -20,10 +20,22 @@ namespace AutopilotMonitor.Functions.Services.Caching
     ///
     /// The factory runs WITHOUT any caller's cancellation token on purpose: the task is shared,
     /// so one caller's abort must not fault every other waiter — and a finished result is exactly
-    /// what the aborted caller's retry wants to find.
+    /// what the aborted caller's retry wants to find. What it runs on instead is the cache's own
+    /// <see cref="DefaultFactoryBudget"/>: a factory that hangs (a cross-tenant fan-out on a slow
+    /// storage account) would otherwise hold every waiter until the SDK's worst case; past the
+    /// budget the shared task faults with <see cref="OperationCanceledException"/>, the entry is
+    /// evicted, and the next caller starts fresh. Factories that ignore the token they are handed
+    /// are not bounded — pass it into the SDK calls.
     /// </summary>
     internal sealed class SingleFlightCache<T>
     {
+        /// <summary>
+        /// Wall-clock one factory run may take. Sized for the cross-tenant fan-outs (32 parallel
+        /// partition queries, each under the hot-path SDK budget) — a single-flight aggregate that
+        /// needs longer is a scan that belongs in a job, not behind a portal request.
+        /// </summary>
+        internal static readonly TimeSpan DefaultFactoryBudget = TimeSpan.FromSeconds(30);
+
         private sealed class Entry
         {
             public Entry(Lazy<Task<T>> task, DateTime expiresUtc)
@@ -39,6 +51,7 @@ namespace AutopilotMonitor.Functions.Services.Caching
         private readonly ConcurrentDictionary<string, Entry> _entries = new(StringComparer.Ordinal);
         private readonly Func<DateTime> _utcNow;
         private readonly int _maxEntries;
+        private readonly TimeSpan _factoryBudget;
 
         /// <param name="maxEntries">
         /// Upper bound on live entries. When a NEW key is added beyond it, every other key is
@@ -47,20 +60,33 @@ namespace AutopilotMonitor.Functions.Services.Caching
         /// </param>
         public SingleFlightCache(int maxEntries = int.MaxValue) : this(() => DateTime.UtcNow, maxEntries) { }
 
-        /// <summary>Clock seam for tests.</summary>
-        internal SingleFlightCache(Func<DateTime> utcNow, int maxEntries = int.MaxValue)
+        /// <summary>Clock and budget seams for tests.</summary>
+        internal SingleFlightCache(Func<DateTime> utcNow, int maxEntries = int.MaxValue, TimeSpan? factoryBudget = null)
         {
             if (maxEntries < 1) throw new ArgumentOutOfRangeException(nameof(maxEntries));
             _utcNow = utcNow;
             _maxEntries = maxEntries;
+            _factoryBudget = factoryBudget ?? DefaultFactoryBudget;
+        }
+
+        /// <summary>
+        /// <see cref="GetOrAddAsync(string, TimeSpan, Func{CancellationToken, Task{T}})"/> for a
+        /// factory with nothing to cancel (in-memory work, or SDK calls that take no token).
+        /// </summary>
+        public Task<T> GetOrAddAsync(string key, TimeSpan ttl, Func<Task<T>> factory)
+        {
+            if (factory == null) throw new ArgumentNullException(nameof(factory));
+            return GetOrAddAsync(key, ttl, _ => factory());
         }
 
         /// <summary>
         /// Returns the cached value for <paramref name="key"/>, or runs <paramref name="factory"/>
         /// exactly once for all concurrent callers and caches its result for <paramref name="ttl"/>.
-        /// A factory failure propagates to every waiter and leaves nothing behind.
+        /// The token handed to the factory is the cache's budget, never a caller's. A factory
+        /// failure (including the budget running out) propagates to every waiter and leaves
+        /// nothing behind.
         /// </summary>
-        public async Task<T> GetOrAddAsync(string key, TimeSpan ttl, Func<Task<T>> factory)
+        public async Task<T> GetOrAddAsync(string key, TimeSpan ttl, Func<CancellationToken, Task<T>> factory)
         {
             if (key == null) throw new ArgumentNullException(nameof(key));
             if (factory == null) throw new ArgumentNullException(nameof(factory));
@@ -131,12 +157,18 @@ namespace AutopilotMonitor.Functions.Services.Caching
             }
         }
 
-        private static Entry CreateEntry(Func<Task<T>> factory, DateTime now, TimeSpan ttl)
+        private Entry CreateEntry(Func<CancellationToken, Task<T>> factory, DateTime now, TimeSpan ttl)
         {
             // Lazy defers the factory to the first awaiter, so it runs on the caller's context
             // and any synchronous prefix stays attributable to that request.
-            var lazy = new Lazy<Task<T>>(factory, LazyThreadSafetyMode.ExecutionAndPublication);
+            var lazy = new Lazy<Task<T>>(() => RunWithinBudgetAsync(factory), LazyThreadSafetyMode.ExecutionAndPublication);
             return new Entry(lazy, now.Add(ttl));
+        }
+
+        private async Task<T> RunWithinBudgetAsync(Func<CancellationToken, Task<T>> factory)
+        {
+            using var budget = new CancellationTokenSource(_factoryBudget);
+            return await factory(budget.Token).ConfigureAwait(false);
         }
     }
 }

@@ -4,6 +4,7 @@ using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Pagination;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using System.Threading;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -23,7 +24,7 @@ public class PlatformMetricsServiceWindowTests
     {
         var sessionRepo = new Mock<ISessionRepository>();
         sessionRepo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(EmptyPage());
         sessionRepo
             .Setup(r => r.GetSessionEventsAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>()))
@@ -64,8 +65,8 @@ public class PlatformMetricsServiceWindowTests
 
         int? capturedDays = null;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
-            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?>((_, d, _, _, _, _) => capturedDays = d)
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?, CancellationToken>((_, d, _, _, _, _, _) => capturedDays = d)
             .ReturnsAsync(EmptyPage());
 
         var result = await service.ComputePlatformMetricsAsync(days, limit: 50);
@@ -89,8 +90,8 @@ public class PlatformMetricsServiceWindowTests
 
         int? capturedPageSize = null;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
-            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?>((_, _, ps, _, _, _) => capturedPageSize = ps)
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?, CancellationToken>((_, _, ps, _, _, _, _) => capturedPageSize = ps)
             .ReturnsAsync(EmptyPage());
 
         var result = await service.ComputePlatformMetricsAsync(days: days, limit: limit);
@@ -106,8 +107,8 @@ public class PlatformMetricsServiceWindowTests
 
         int? capturedDays = null;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
-            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?>((_, d, _, _, _, _) => capturedDays = d)
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
+            .Callback<string?, int?, int, string?, IReadOnlyCollection<string>?, IEnumerable<string>?, CancellationToken>((_, d, _, _, _, _, _) => capturedDays = d)
             .ReturnsAsync(EmptyPage());
 
         var result = await service.ComputePlatformMetricsAsync(0);
@@ -140,7 +141,7 @@ public class PlatformMetricsServiceWindowTests
         var (service, repo) = CreateService();
         int callCount = 0;
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .Callback(() => callCount++)
             .ReturnsAsync(EmptyPage());
 
@@ -160,7 +161,7 @@ public class PlatformMetricsServiceWindowTests
         var (service, repo) = CreateService();
         var sessions = Enumerable.Range(1, 7).Select(MakeSession).ToList();
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RawPage<SessionSummary>(sessions, null));
 
         var result = await service.ComputePlatformMetricsAsync(days: 77, limit: 50);
@@ -177,7 +178,7 @@ public class PlatformMetricsServiceWindowTests
         var (service, repo) = CreateService();
         var sessions = Enumerable.Range(1, 25).Select(MakeSession).ToList();
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RawPage<SessionSummary>(sessions, null));
 
         var fullFetchSessions = new List<string>();
@@ -216,7 +217,7 @@ public class PlatformMetricsServiceWindowTests
         var (service, repo) = CreateService();
         var sessions = Enumerable.Range(1, 21).Select(MakeSession).ToList();
         repo
-            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>()))
+            .Setup(r => r.GetAllSessionsPageAsync(It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<IReadOnlyCollection<string>?>(), It.IsAny<IEnumerable<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new RawPage<SessionSummary>(sessions, null));
 
         var session21 = sessions[20].SessionId;

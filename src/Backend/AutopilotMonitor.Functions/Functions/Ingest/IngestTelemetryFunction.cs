@@ -335,6 +335,17 @@ namespace AutopilotMonitor.Functions.Functions.Ingest
                     _logger.LogWarning(ex, "IngestTelemetry: storage request failed with status {Status} ({Code}) — answering {Http}", ex.Status, ex.ErrorCode, (int)status);
                 return AsOutput(await WriteErrorAsync(req, status, message, retryAfter));
             }
+            catch (Exception ex) when (StorageErrors.IsTransient(ex))
+            {
+                // The SDK ran out of its budget (StorageClientOptions: per-attempt timeout ×
+                // retries, sized under the agent's 30 s) or the connection failed. A later replay
+                // can succeed, so 503 + Retry-After keeps the agent on its retry ladder while it
+                // is still listening; the generic 500 below would be replayed too, but without
+                // the wait hint and logged as a bug.
+                _logger.LogWarning(ex, "IngestTelemetry: storage call exhausted its budget ({Type}) — answering 503", ex.GetType().Name);
+                return AsOutput(await WriteErrorAsync(req, HttpStatusCode.ServiceUnavailable,
+                    "Storage temporarily unavailable; retry later", StorageRetryAfterSeconds));
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "IngestTelemetry: unhandled exception");

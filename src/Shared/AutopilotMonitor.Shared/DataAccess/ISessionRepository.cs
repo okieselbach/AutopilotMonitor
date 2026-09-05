@@ -66,7 +66,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<RawPage<SessionSummary>> GetAllSessionsPageAsync(
             string? tenantIdFilter, int? days, int pageSize, string? continuation,
             IReadOnlyCollection<string>? allowedTenantIds = null,
-            IEnumerable<string>? select = null);
+            IEnumerable<string>? select = null,
+            CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Server-side aggregation for the dashboard stats cards (per-tenant scope).

@@ -235,6 +235,7 @@ builder.Services.AddHostedService<AutopilotMonitor.Functions.Services.Offboardin
 builder.Services.AddHostedService<TableInitializerService>(); // Initialize all tables at startup
 builder.Services.AddSingleton(startupClock);
 builder.Services.AddHostedService<StartupTelemetryService>();  // BackendStartupMs / BackendTableInitMs metrics on ApplicationStarted
+builder.Services.AddHostedService<AutopilotMonitor.Functions.Telemetry.ProcessStallMonitor>(); // ProcessStall event + metric: process-wide pauses attributed to GC / thread-pool starvation
 
 // Data Access Layer — repository interfaces backed by Table Storage.
 // To switch to Cosmos DB: replace AddTableStorageDataAccess() with AddCosmosDataAccess().

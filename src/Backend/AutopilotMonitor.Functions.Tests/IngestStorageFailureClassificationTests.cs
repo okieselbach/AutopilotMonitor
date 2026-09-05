@@ -51,4 +51,14 @@ public class IngestStorageFailureClassificationTests
         Assert.Equal(HttpStatusCode.InternalServerError, status);
         Assert.Null(retryAfter);
     }
+
+    [Fact]
+    public void A_connection_failure_without_status_is_503_with_retry_after()
+    {
+        var (status, _, retryAfter) = IngestTelemetryFunction.ClassifyStorageFailure(
+            new RequestFailedException(0, "connection reset before a status arrived"));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
+        Assert.Equal(IngestTelemetryFunction.StorageRetryAfterSeconds, retryAfter);
+    }
 }

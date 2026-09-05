@@ -72,8 +72,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     }
                 }
 
+                // The request token ends the per-tenant fan-out when the browser tab closes or
+                // the caller gives up — a cross-tenant page nobody reads must not keep 32 queries alive.
                 var page = await _sessionRepo.GetAllSessionsPageAsync(
-                    parsed.FilterTenantId, parsed.Days, parsed.PageSize, azureToken, allowedTenantIds);
+                    parsed.FilterTenantId, parsed.Days, parsed.PageSize, azureToken, allowedTenantIds,
+                    cancellationToken: req.FunctionContext.CancellationToken);
 
                 string? nextLink = null;
                 if (!string.IsNullOrEmpty(page.NextRawToken))

@@ -1,6 +1,9 @@
 using Azure;
 using AutopilotMonitor.Functions.Helpers;
 using Xunit;
+using System;
+using System.IO;
+using System.Net.Http;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -58,5 +61,41 @@ public class StorageErrorsTests
         Assert.False(StorageErrors.IsTransient(null!));
         Assert.False(StorageErrors.IsPayloadTooLarge(null!));
         Assert.False(StorageErrors.IsAlreadyExists(null!));
+    }
+
+    [Fact]
+    public void No_response_at_all_is_transient()
+        => Assert.True(StorageErrors.IsTransient(Failure(0)));
+
+    // ---- Exception overload: what an exhausted SDK budget looks like on a path without a caller token ----
+
+    [Fact]
+    public void Sdk_network_timeout_is_transient()
+        => Assert.True(StorageErrors.IsTransient((Exception)new TaskCanceledException("exceeded the configured timeout")));
+
+    [Fact]
+    public void Socket_failures_are_transient()
+    {
+        Assert.True(StorageErrors.IsTransient(new IOException("connection reset")));
+        Assert.True(StorageErrors.IsTransient(new HttpRequestException("name resolution failed")));
+    }
+
+    [Fact]
+    public void Aggregate_of_retried_attempts_is_transient_only_when_every_attempt_was()
+    {
+        var allTransient = new AggregateException(new TaskCanceledException(), Failure(503), new IOException());
+        var mixed = new AggregateException(new TaskCanceledException(), Failure(404));
+
+        Assert.True(StorageErrors.IsTransient(allTransient));
+        Assert.False(StorageErrors.IsTransient(mixed));
+        Assert.False(StorageErrors.IsTransient(new AggregateException()));
+    }
+
+    [Fact]
+    public void Ordinary_exceptions_are_not_transient()
+    {
+        Assert.False(StorageErrors.IsTransient(new InvalidOperationException()));
+        Assert.False(StorageErrors.IsTransient((Exception)Failure(412)));
+        Assert.False(StorageErrors.IsTransient((Exception?)null!));
     }
 }

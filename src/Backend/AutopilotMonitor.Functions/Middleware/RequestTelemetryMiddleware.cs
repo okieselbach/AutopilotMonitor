@@ -18,6 +18,9 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// </summary>
 public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 {
+    /// <summary>GC pause during the request below this is not worth a column on the row.</summary>
+    internal static readonly TimeSpan GcPauseStampThreshold = TimeSpan.FromMilliseconds(100);
+
     private readonly TelemetryClient _telemetryClient;
 
     // Exact allowlist of device endpoints that READ + validate the X-Tenant-Id header (cert auth
@@ -52,6 +55,7 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 
         var sw = Stopwatch.StartNew();
         var startTime = DateTimeOffset.UtcNow;
+        var gcPauseAtStart = GC.GetTotalPauseDuration();
         Exception? caughtException = null;
 
         try
@@ -169,6 +173,14 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
 
             if (caughtException != null)
                 requestTelemetry.Properties["ExceptionType"] = caughtException.GetType().Name;
+
+            // Process-wide GC pause time that elapsed while this request was in flight — not the
+            // request's own allocation cost. The point is the opposite: a slow request whose
+            // duration is mostly GC pause was stalled by the process, not by its own work (the
+            // ProcessStall event says which kind of stall). Stamped only when worth a look.
+            var gcPause = GC.GetTotalPauseDuration() - gcPauseAtStart;
+            if (gcPause >= GcPauseStampThreshold)
+                requestTelemetry.Properties["GcPauseMs"] = Math.Round(gcPause.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
             // Bypass the worker's adaptive sampling for this item. The SDK sampling processor
             // passes through any item whose SamplingPercentage is already set, so this is the

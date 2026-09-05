@@ -2,6 +2,7 @@ using System;
 using Azure.Identity;
 using Azure.Storage.Queues;
 using Microsoft.Extensions.Configuration;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services.Queueing
 {
@@ -48,12 +49,12 @@ namespace AutopilotMonitor.Functions.Services.Queueing
                         $"https://{storageAccountName}.queue.core.windows.net/{queueName}");
                     return new QueueClient(uri, credential, options);
                 };
-                _serviceBuilder = () => new QueueServiceClient(serviceUri, credential);
+                _serviceBuilder = () => new QueueServiceClient(serviceUri, credential, StorageClientOptions.Queue());
             }
             else if (!string.IsNullOrEmpty(connectionString))
             {
                 _builder = (queueName, options) => new QueueClient(connectionString, queueName, options);
-                _serviceBuilder = () => new QueueServiceClient(connectionString);
+                _serviceBuilder = () => new QueueServiceClient(connectionString, StorageClientOptions.Queue());
             }
             else
             {
@@ -82,9 +83,8 @@ namespace AutopilotMonitor.Functions.Services.Queueing
             if (string.IsNullOrWhiteSpace(queueName))
                 throw new ArgumentException("Queue name must not be empty.", nameof(queueName));
 
-            var options = base64
-                ? new QueueClientOptions { MessageEncoding = QueueMessageEncoding.Base64 }
-                : new QueueClientOptions();
+            // Hot-path budget (StorageClientOptions): producers enqueue on every ingest batch.
+            var options = StorageClientOptions.Queue(base64 ? QueueMessageEncoding.Base64 : QueueMessageEncoding.None);
             return _builder(queueName, options);
         }
 

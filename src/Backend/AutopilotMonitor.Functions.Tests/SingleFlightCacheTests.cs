@@ -99,4 +99,47 @@ public class SingleFlightCacheTests
         // w1 is gone: its factory runs again.
         Assert.Equal("one-again", await cache.GetOrAddAsync("w1", Ttl, () => Task.FromResult("one-again")));
     }
+
+    [Fact]
+    public async Task Factory_exceeding_the_budget_faults_every_waiter_and_is_evicted()
+    {
+        var cache = new SingleFlightCache<int>(() => DateTime.UtcNow, factoryBudget: TimeSpan.FromMilliseconds(50));
+        var runs = 0;
+
+        async Task<int> Hanging(CancellationToken ct)
+        {
+            Interlocked.Increment(ref runs);
+            await Task.Delay(Timeout.Infinite, ct);
+            return 1;
+        }
+
+        var first = cache.GetOrAddAsync("k", Ttl, Hanging);
+        var second = cache.GetOrAddAsync("k", Ttl, Hanging);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        Assert.Equal(1, runs);
+        Assert.Equal(0, cache.Count);
+
+        // The next caller starts a fresh run instead of inheriting the faulted one.
+        Assert.Equal(7, await cache.GetOrAddAsync("k", Ttl, _ => Task.FromResult(7)));
+    }
+
+    [Fact]
+    public async Task Factory_finishing_inside_the_budget_is_cached()
+    {
+        var cache = new SingleFlightCache<int>(() => DateTime.UtcNow, factoryBudget: TimeSpan.FromSeconds(5));
+        var runs = 0;
+
+        Task<int> Quick(CancellationToken ct)
+        {
+            Assert.True(ct.CanBeCanceled);
+            Interlocked.Increment(ref runs);
+            return Task.FromResult(3);
+        }
+
+        Assert.Equal(3, await cache.GetOrAddAsync("k", Ttl, Quick));
+        Assert.Equal(3, await cache.GetOrAddAsync("k", Ttl, Quick));
+        Assert.Equal(1, runs);
+    }
 }

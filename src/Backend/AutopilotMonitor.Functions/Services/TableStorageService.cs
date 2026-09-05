@@ -12,6 +12,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using AutopilotMonitor.Functions.Helpers;
 
 namespace AutopilotMonitor.Functions.Services
 {
@@ -50,7 +51,7 @@ namespace AutopilotMonitor.Functions.Services
         /// storage failure so callers keep their own fallback semantics (empty page vs. legacy scan).
         /// </summary>
         internal Task<IReadOnlyList<string>> GetTenantIdsCachedAsync()
-            => _tenantIdCache.GetOrAddAsync(TenantIdCacheKey, TenantIdCacheTtl, () => QueryTenantIdsAsync(CancellationToken.None));
+            => _tenantIdCache.GetOrAddAsync(TenantIdCacheKey, TenantIdCacheTtl, ct => QueryTenantIdsAsync(ct));
 
         private async Task<IReadOnlyList<string>> QueryTenantIdsAsync(CancellationToken cancellationToken)
         {
@@ -98,13 +99,13 @@ namespace AutopilotMonitor.Functions.Services
             {
                 // Managed Identity: use DefaultAzureCredential with storage account name
                 var tableUri = new Uri($"https://{storageAccountName}.table.core.windows.net");
-                _tableServiceClient = new TableServiceClient(tableUri, new DefaultAzureCredential());
+                _tableServiceClient = new TableServiceClient(tableUri, new DefaultAzureCredential(), StorageClientOptions.Table());
                 _logger.LogInformation("Table Storage initialized with Managed Identity (account: {Account})", storageAccountName);
             }
             else if (!string.IsNullOrEmpty(connectionString))
             {
                 // Fallback: connection string (local dev, legacy)
-                _tableServiceClient = new TableServiceClient(connectionString);
+                _tableServiceClient = new TableServiceClient(connectionString, StorageClientOptions.Table());
                 _logger.LogInformation("Table Storage initialized with connection string");
             }
             else
