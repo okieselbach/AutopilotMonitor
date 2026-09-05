@@ -4,6 +4,7 @@ using Azure.Data.Tables;
 using Azure.Identity;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
+using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -27,6 +28,7 @@ namespace AutopilotMonitor.Functions.Services
     {
         private readonly TableServiceClient _tableServiceClient;
         private readonly ILogger<TableStorageService> _logger;
+        private readonly StorageMetrics? _metrics;
         private bool _tablesInitialized = false;
         private readonly object _initLock = new object();
 
@@ -80,8 +82,14 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         public TableStorageService(IConfiguration configuration, ILogger<TableStorageService> logger)
+            : this(configuration, logger, null)
+        {
+        }
+
+        public TableStorageService(IConfiguration configuration, ILogger<TableStorageService> logger, StorageMetrics? metrics)
         {
             _logger = logger;
+            _metrics = metrics;
 
             var connectionString = configuration["AzureTableStorageConnectionString"];
             var storageAccountName = configuration["AzureStorageAccountName"];
@@ -114,7 +122,13 @@ namespace AutopilotMonitor.Functions.Services
         /// even via InternalsVisibleTo.
         /// </summary>
         public TableStorageService(TableServiceClient tableServiceClient, ILogger<TableStorageService> logger)
+            : this(tableServiceClient, logger, null)
         {
+        }
+
+        public TableStorageService(TableServiceClient tableServiceClient, ILogger<TableStorageService> logger, StorageMetrics? metrics)
+        {
+            _metrics = metrics;
             _tableServiceClient = tableServiceClient;
             _logger = logger;
         }

@@ -1,6 +1,7 @@
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.DataAccess;
 using Azure;
@@ -20,12 +21,15 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         private readonly TableClient _tableClient;
         private readonly TableClient _tenantTableClient;
         private readonly ILogger<TableUserUsageRepository> _logger;
+        private readonly StorageMetrics? _metrics;
 
         public TableUserUsageRepository(
             TableStorageService storage,
-            ILogger<TableUserUsageRepository> logger)
+            ILogger<TableUserUsageRepository> logger,
+            StorageMetrics? metrics = null)
         {
             _logger = logger;
+            _metrics = metrics;
             _tableClient = storage.GetTableClient(Constants.TableNames.UserUsageLog);
             _tenantTableClient = storage.GetTableClient(Constants.TableNames.McpTenantUsage);
         }
@@ -67,15 +71,18 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     }
                     catch (RequestFailedException addEx) when (addEx.Status == 409)
                     {
+                        _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Retried);
                         continue;
                     }
                 }
                 catch (RequestFailedException ex) when (ex.Status == 412)
                 {
+                    _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Retried);
                     continue;
                 }
             }
 
+            _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Exhausted);
             _logger.LogWarning("Failed to increment user usage after {MaxRetries} retries: user={UserId}, endpoint={Endpoint}",
                 maxRetries, LogSanitizer.Clean(userId), LogSanitizer.Clean(endpoint));
         }
@@ -253,15 +260,18 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     }
                     catch (RequestFailedException addEx) when (addEx.Status == 409)
                     {
+                        _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Retried);
                         continue;
                     }
                 }
                 catch (RequestFailedException ex) when (ex.Status == 412)
                 {
+                    _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Retried);
                     continue;
                 }
             }
 
+            _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Exhausted);
             _logger.LogWarning("Failed to increment tenant usage after {MaxRetries} retries: tenant={TenantId}, user={UserId}",
                 maxRetries, LogSanitizer.Clean(tenantId), LogSanitizer.Clean(userId));
         }

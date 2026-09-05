@@ -75,9 +75,15 @@ builder.Services
 
 // Drop successful Azure Storage dependencies (Table/Queue/Blob) from the worker telemetry
 // pipeline to curb AppDependencies ingestion cost — this backend is storage-I/O heavy and those
-// rows are high-volume, low-value. Failed storage calls and all non-storage dependencies
-// (HTTP/Graph/SQL/SignalR) are preserved. See StorageDependencyFilterProcessor for the contract.
+// rows are high-volume, low-value. Failed storage calls, slow successes (>= 2 s, stamped
+// SlowStorage=true) and all non-storage dependencies (HTTP/Graph/SQL/SignalR) are preserved.
+// See StorageDependencyFilterProcessor for the contract.
 builder.Services.AddApplicationInsightsTelemetryProcessor<AutopilotMonitor.Functions.Telemetry.StorageDependencyFilterProcessor>();
+
+// Pre-aggregated storage metrics (StorageCasConflict by operation/table/outcome): metrics bypass
+// the worker's adaptive sampling and the dependency filter, so ETag conflicts stay visible as a
+// trend although their 412/409 dependency rows are dropped.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Telemetry.StorageMetrics>();
 
 // Configure JWT Authentication for Multi-Tenant Azure AD
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

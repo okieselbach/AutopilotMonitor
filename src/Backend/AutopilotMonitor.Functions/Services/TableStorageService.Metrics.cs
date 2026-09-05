@@ -1,6 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
 using AutopilotMonitor.Shared;
@@ -1046,6 +1047,8 @@ namespace AutopilotMonitor.Functions.Services
                     }
                     catch (RequestFailedException ex) when (ex.Status == 412 || ex.Status == 409)
                     {
+                        _metrics?.CasConflict("MutateTenantStat", Constants.TableNames.PlatformStats,
+                            attempt == TenantStatsCasRetries ? CasOutcome.Exhausted : CasOutcome.Retried);
                         if (attempt == TenantStatsCasRetries)
                         {
                             _logger.LogWarning(

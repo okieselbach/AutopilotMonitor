@@ -1,3 +1,4 @@
+using System;
 using AutopilotMonitor.Functions.Telemetry;
 using Microsoft.ApplicationInsights.Channel;
 using Microsoft.ApplicationInsights.DataContracts;
@@ -36,6 +37,47 @@ public class StorageDependencyFilterProcessorTests
     {
         var (processor, next) = Build();
         processor.Process(Dep(target, success: true));
+        Assert.Empty(next.Received);
+    }
+
+    [Fact]
+    public void SlowSuccessfulStorageDependency_IsKeptAndStamped()
+    {
+        var (processor, next) = Build();
+        var dep = Dep("", success: true, type: "InProc | Microsoft.Tables");
+        dep.Name = "TableClient.SubmitTransaction";
+        dep.Duration = StorageDependencyFilterProcessor.SlowStorageThreshold;
+
+        processor.Process(dep);
+
+        var kept = Assert.Single(next.Received);
+        Assert.Equal("true", ((DependencyTelemetry)kept).Properties[StorageDependencyFilterProcessor.SlowStoragePropertyKey]);
+    }
+
+    [Fact]
+    public void FastSuccessfulStorageDependency_JustUnderThreshold_IsDropped()
+    {
+        var (processor, next) = Build();
+        var dep = Dep("myacct.table.core.windows.net", success: true);
+        dep.Duration = StorageDependencyFilterProcessor.SlowStorageThreshold - TimeSpan.FromMilliseconds(1);
+
+        processor.Process(dep);
+
+        Assert.Empty(next.Received);
+        Assert.False(dep.Properties.ContainsKey(StorageDependencyFilterProcessor.SlowStoragePropertyKey));
+    }
+
+    [Fact]
+    public void SlowExpectedFailure_IsStillDropped()
+    {
+        // 412/409/404 are control flow whatever their duration; only successes get the slow pass.
+        var (processor, next) = Build();
+        var dep = Dep("myacct.table.core.windows.net", success: false);
+        dep.ResultCode = "412";
+        dep.Duration = TimeSpan.FromSeconds(10);
+
+        processor.Process(dep);
+
         Assert.Empty(next.Received);
     }
 

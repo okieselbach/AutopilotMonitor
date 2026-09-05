@@ -1,3 +1,4 @@
+using System;
 using Microsoft.ApplicationInsights.Channel;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.ApplicationInsights.Extensibility;
@@ -58,6 +59,18 @@ public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
     // Expected storage outcomes that are normal control flow, not failures worth billing.
     private static readonly string[] ExpectedStorageStatusCodes = { "404", "412", "409" };
 
+    /// <summary>
+    /// A successful storage call at or above this duration is kept and stamped
+    /// <see cref="SlowStoragePropertyKey"/>: dropping every success left storage-side latency
+    /// invisible until a call failed outright (audit 2026-09-05 F10). Slow successes are rare
+    /// by definition, so keeping them costs little; the operation name (<c>Name</c>) is on the
+    /// row, the table name is not — the Azure SDK span does not carry it.
+    /// </summary>
+    public static readonly TimeSpan SlowStorageThreshold = TimeSpan.FromMilliseconds(2000);
+
+    /// <summary>Property stamped on kept slow-success rows so KQL can select them directly.</summary>
+    public const string SlowStoragePropertyKey = "SlowStorage";
+
     private readonly ITelemetryProcessor _next;
 
     public StorageDependencyFilterProcessor(ITelemetryProcessor next) => _next = next;
@@ -86,6 +99,13 @@ public sealed class StorageDependencyFilterProcessor : ITelemetryProcessor
 
         if (isStorage)
         {
+            // A slow success is signal: keep it, mark it, let it through.
+            if (dependency.Success != false && dependency.Duration >= SlowStorageThreshold)
+            {
+                dependency.Properties[SlowStoragePropertyKey] = "true";
+                return false;
+            }
+
             // Successful storage chatter is noise; so are expected 404/412/409 outcomes.
             // Every other failure (429, 5xx, auth, timeout) is kept.
             return dependency.Success != false || IsExpectedStorageOutcome(dependency);

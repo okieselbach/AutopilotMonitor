@@ -2,6 +2,7 @@ using Azure;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using Azure.Data.Tables;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services.Caching;
@@ -818,6 +819,7 @@ namespace AutopilotMonitor.Functions.Services
                     }
                     catch (RequestFailedException ex) when ((ex.Status == 412 || ex.Status == 409) && casAttempt < MaxStoreSessionCasAttempts - 1)
                     {
+                        _metrics?.CasConflict("StoreSession", Constants.TableNames.Sessions, CasOutcome.Retried);
                         _logger.LogDebug(
                             "StoreSessionAsync ETag CAS conflict (status={Status}, attempt={Attempt}); retrying for tenant={TenantId} session={SessionId}",
                             ex.Status, casAttempt + 1, registration.TenantId, registration.SessionId);
@@ -2608,6 +2610,8 @@ namespace AutopilotMonitor.Functions.Services
                 catch (Azure.RequestFailedException ex) when (ex.Status == 412)
                 {
                     retryCount++;
+                    _metrics?.CasConflict("IncrementSessionEventCount", Constants.TableNames.Sessions,
+                        retryCount >= maxRetries ? CasOutcome.Exhausted : CasOutcome.Retried);
                     if (retryCount >= maxRetries)
                     {
                         _logger.LogWarning($"Failed to increment event count for session {sessionId} after {maxRetries} retries due to ETag conflicts");
@@ -2697,6 +2701,8 @@ namespace AutopilotMonitor.Functions.Services
                 catch (Azure.RequestFailedException ex) when (ex.Status == 412)
                 {
                     retryCount++;
+                    _metrics?.CasConflict("ReconcileSessionCounters", Constants.TableNames.Sessions,
+                        retryCount >= maxRetries ? CasOutcome.Exhausted : CasOutcome.Retried);
                     if (retryCount >= maxRetries)
                     {
                         _logger.LogWarning($"Failed to reconcile session counters for session {sessionId} after {maxRetries} retries due to ETag conflicts");
