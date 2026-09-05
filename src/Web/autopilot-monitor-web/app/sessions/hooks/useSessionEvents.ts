@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { extractContinuation, MAX_EAGER_PAGES } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
 import { isTerminalStatus } from "@/utils/sessionStatus";
@@ -10,6 +11,14 @@ import { EnrollmentEvent, Session } from "@/types";
 import type { NotificationType } from "@/contexts/NotificationContext";
 
 const TIMELINE_PAGE_SIZE = 200;
+
+// Live refetch coalescing on SignalR signals (see lib/burstScheduler): the first signal
+// of a burst refetches at once, later ones refetch 300 ms after the burst's last signal,
+// and a burst that never pauses still refetches every second. Agent uploads arrive as
+// bursts of batches ~0.3 s apart with seconds of silence in between, so this keeps the
+// real-time feel while a burst costs one or two page reads instead of one per batch.
+const EVENT_REFRESH_TRAILING_MS = 300;
+const EVENT_REFRESH_MAX_WAIT_MS = 1_000;
 
 // Single-shot refetch delay after the session transitions to a terminal status.
 // EnrollmentTerminationHandler emits trailing events (enrollment_summary_shown,
@@ -75,7 +84,8 @@ export interface UseSessionEventsReturn {
   events: EnrollmentEvent[];
   setEvents: React.Dispatch<React.SetStateAction<EnrollmentEvent[]>>;
   fetchEvents: () => Promise<void>;
-  scheduleFetchEvents: (delayMs?: number) => void;
+  /** Coalesced live refetch — call on every SignalR signal, the scheduler decides when to fetch. */
+  scheduleFetchEvents: () => void;
   /**
    * True while a Pattern-A eager-fetch is still streaming pages after the first
    * batch has rendered. Surfaces a "loading more events…" indicator on the
@@ -88,7 +98,7 @@ export interface UseSessionEventsReturn {
  * Owns the session detail page's event list lifecycle:
  *  - fetch events from Table Storage (canonical truth)
  *  - in-flight dedup (SignalR + 30s timer + group-join can overlap)
- *  - debounced scheduleFetchEvents to absorb bursts
+ *  - burst-coalesced scheduleFetchEvents (leading + trailing + max wait)
  *  - empty-refresh guard: ignores transient empty lists, keeps last known-good
  *  - terminal-event detection: triggers session refetch if SignalR status delta was lost
  *  - triggers initial fetch once sessionTenantId is known
@@ -109,14 +119,15 @@ export function useSessionEvents({
   const [events, setEvents] = useState<EnrollmentEvent[]>([]);
   const [isStreamingMore, setIsStreamingMore] = useState(false);
 
-  // Debounce real-time event refreshes to avoid burst reads in Table Storage.
-  const eventRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Deduplication: track in-flight fetchEvents to avoid concurrent calls
   const fetchEventsInFlight = useRef(false);
   const fetchEventsQueued = useRef(false);
   // The queued follow-up re-invokes fetchEvents through this ref: a memoized callback
   // that calls itself directly cannot be memoized by the React compiler.
   const fetchEventsRef = useRef<() => Promise<void>>(async () => {});
+  // Created lazily on the first signal (refs stay out of render); runs through
+  // fetchEventsRef so it always calls the latest fetchEvents.
+  const eventRefreshScheduler = useRef<BurstScheduler | null>(null);
 
   const fetchEvents = useCallback(async () => {
     // Deduplication: if a fetch is already in flight, queue one follow-up instead of
@@ -244,14 +255,13 @@ export function useSessionEvents({
     fetchEventsRef.current = fetchEvents;
   }, [fetchEvents]);
 
-  const scheduleFetchEvents = useCallback((delayMs = 300) => {
-    if (eventRefreshTimeoutRef.current) {
-      clearTimeout(eventRefreshTimeoutRef.current);
-    }
-    eventRefreshTimeoutRef.current = setTimeout(() => {
-      fetchEvents();
-    }, delayMs);
-  }, [fetchEvents]);
+  const scheduleFetchEvents = useCallback(() => {
+    eventRefreshScheduler.current ??= createBurstScheduler(
+      () => { void fetchEventsRef.current(); },
+      { trailingMs: EVENT_REFRESH_TRAILING_MS, maxWaitMs: EVENT_REFRESH_MAX_WAIT_MS },
+    );
+    eventRefreshScheduler.current.trigger();
+  }, []);
 
   // Fetch events when we have the session's tenant ID
   useEffect(() => {
@@ -264,13 +274,9 @@ export function useSessionEvents({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionTenantId, sessionId]);
 
-  // Clear debounce timer on unmount
+  // Drop a pending trailing refetch on unmount
   useEffect(() => {
-    return () => {
-      if (eventRefreshTimeoutRef.current) {
-        clearTimeout(eventRefreshTimeoutRef.current);
-      }
-    };
+    return () => eventRefreshScheduler.current?.cancel();
   }, []);
 
   // One-shot trailing-events refetch on terminal transition.

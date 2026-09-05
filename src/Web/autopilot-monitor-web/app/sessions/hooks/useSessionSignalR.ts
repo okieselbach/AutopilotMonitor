@@ -25,7 +25,7 @@ interface UseSessionSignalRParams {
   sessionRef: React.RefObject<Session | null>;
   resolveEffectiveTenantId: () => string | null;
   signalR: SignalRApi;
-  scheduleFetchEvents: (delayMs?: number) => void;
+  scheduleFetchEvents: () => void;
   setSession: React.Dispatch<React.SetStateAction<Session | null>>;
   setSessionTenantId: React.Dispatch<React.SetStateAction<string | null>>;
   fetchAnalysisResults: (reanalyze?: boolean) => Promise<void>;
@@ -76,7 +76,7 @@ export function useSessionSignalR({
         // Re-fetch events after group join to catch any SignalR messages
         // that were sent before the client joined the session group.
         // The frontend deduplicates by eventId, so no duplicates.
-        scheduleFetchEvents(0);
+        scheduleFetchEvents();
       };
       joinAndCatchUp();
     }
@@ -109,7 +109,7 @@ export function useSessionSignalR({
       // Rule-result + tenant-id side effects still run.
       const status = sessionRef.current?.status;
       if (!isTerminalStatus(status)) {
-        // Fetch full events from storage (single source of truth), but debounce bursts.
+        // Fetch full events from storage (single source of truth); the scheduler coalesces bursts.
         // Session updates arrive via the "newevents" message (tenant group) — no session
         // object in this signal to keep payloads minimal.
         scheduleFetchEvents();

@@ -3,8 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { EnrollmentEvent, Session } from "@/types";
 import type { NotificationType } from "@/contexts/NotificationContext";
+
+// Live refetch coalescing on SignalR signals (see lib/burstScheduler). Each refresh is two
+// requests (summary lookup + events), hence a slightly wider window than the session page.
+const REFRESH_TRAILING_MS = 500;
+const REFRESH_MAX_WAIT_MS = 1_500;
 
 type AddNotification = (
   type: NotificationType,
@@ -26,14 +32,15 @@ export interface UseProgressEventsReturn {
   events: EnrollmentEvent[];
   setEvents: React.Dispatch<React.SetStateAction<EnrollmentEvent[]>>;
   sessionRef: React.RefObject<Session | null>;
-  scheduleFetchEvents: (delayMs?: number) => void;
+  /** Coalesced live refetch — call on every SignalR signal, the scheduler decides when to fetch. */
+  scheduleFetchEvents: () => void;
 }
 
 /**
  * Owns the progress page's event list lifecycle:
- *  - keeps a sessionRef in sync (used by SignalR hook + debounced refetch)
+ *  - keeps a sessionRef in sync (used by SignalR hook + coalesced refetch)
  *  - initial event fetch once per session (StrictMode-safe guard)
- *  - debounced scheduleFetchEvents that refreshes session summary + events
+ *  - burst-coalesced scheduleFetchEvents that refreshes session summary + events
  *  - merge-by-sequence dedup so repeat signals don't duplicate rows
  */
 export function useProgressEvents({
@@ -46,7 +53,10 @@ export function useProgressEvents({
   const [events, setEvents] = useState<EnrollmentEvent[]>([]);
   const sessionRef = useRef<Session | null>(null);
   const lastFetchedSessionId = useRef<string | null>(null);
-  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The scheduler is created lazily on the first signal (refs stay out of render) and
+  // runs through refreshRef so it always sees the latest closure.
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const refreshScheduler = useRef<BurstScheduler | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -114,57 +124,65 @@ export function useProgressEvents({
     void run();
   }, [session, tenantId, getAccessToken, addNotification]);
 
-  const scheduleFetchEvents = useCallback(
-    (delayMs: number = 500) => {
-      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
-      refetchTimerRef.current = setTimeout(async () => {
-        const currentSession = sessionRef.current;
-        if (!currentSession) return;
-        try {
-          // Refresh the session summary via the serial lookup (the canonical serial from the
-          // session row always matches exactly). Guard on sessionId: the lookup returns the
-          // NEWEST session for the serial, which after a re-enrollment is a different session —
-          // the page must keep showing the one the user selected.
-          const lookupResponse = await authenticatedFetch(
-            api.progress.lookup(tenantId, currentSession.serialNumber),
-            getAccessToken,
-          );
-          if (lookupResponse.ok) {
-            const lookupData = await lookupResponse.json();
-            const updated: Session | null = lookupData.found ? lookupData.session : null;
-            if (updated && updated.sessionId === currentSession.sessionId) {
-              setSession(updated);
-            }
+  const refresh = useCallback(
+    async () => {
+      const currentSession = sessionRef.current;
+      if (!currentSession) return;
+      try {
+        // Refresh the session summary via the serial lookup (the canonical serial from the
+        // session row always matches exactly). Guard on sessionId: the lookup returns the
+        // NEWEST session for the serial, which after a re-enrollment is a different session —
+        // the page must keep showing the one the user selected.
+        const lookupResponse = await authenticatedFetch(
+          api.progress.lookup(tenantId, currentSession.serialNumber),
+          getAccessToken,
+        );
+        if (lookupResponse.ok) {
+          const lookupData = await lookupResponse.json();
+          const updated: Session | null = lookupData.found ? lookupData.session : null;
+          if (updated && updated.sessionId === currentSession.sessionId) {
+            setSession(updated);
           }
-
-          const eventsResponse = await authenticatedFetch(
-            api.progress.sessionEvents(currentSession.sessionId, tenantId, currentSession.serialNumber),
-            getAccessToken,
-          );
-          if (eventsResponse.ok) {
-            const eventsData = await eventsResponse.json();
-            const fetched: EnrollmentEvent[] = eventsData.events || [];
-            setEvents((prev) => {
-              const existingIds = new Set(prev.map((e) => e.eventId));
-              const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
-              if (newEvents.length === 0) return prev;
-              return [...prev, ...newEvents].sort(
-                (a, b) => a.sequence - b.sequence,
-              );
-            });
-          }
-        } catch (error) {
-          console.error("[Progress] Refetch failed:", error);
         }
-      }, delayMs);
+
+        const eventsResponse = await authenticatedFetch(
+          api.progress.sessionEvents(currentSession.sessionId, tenantId, currentSession.serialNumber),
+          getAccessToken,
+        );
+        if (eventsResponse.ok) {
+          const eventsData = await eventsResponse.json();
+          const fetched: EnrollmentEvent[] = eventsData.events || [];
+          setEvents((prev) => {
+            const existingIds = new Set(prev.map((e) => e.eventId));
+            const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
+            if (newEvents.length === 0) return prev;
+            return [...prev, ...newEvents].sort(
+              (a, b) => a.sequence - b.sequence,
+            );
+          });
+        }
+      } catch (error) {
+        console.error("[Progress] Refetch failed:", error);
+      }
     },
     [tenantId, getAccessToken, setSession],
   );
 
   useEffect(() => {
-    return () => {
-      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
-    };
+    refreshRef.current = refresh;
+  }, [refresh]);
+
+  const scheduleFetchEvents = useCallback(() => {
+    refreshScheduler.current ??= createBurstScheduler(
+      () => { void refreshRef.current(); },
+      { trailingMs: REFRESH_TRAILING_MS, maxWaitMs: REFRESH_MAX_WAIT_MS },
+    );
+    refreshScheduler.current.trigger();
+  }, []);
+
+  // Drop a pending trailing refetch on unmount
+  useEffect(() => {
+    return () => refreshScheduler.current?.cancel();
   }, []);
 
   return {

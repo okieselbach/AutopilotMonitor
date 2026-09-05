@@ -28,7 +28,7 @@ interface UseProgressSignalRParams {
   session: Session | null;
   sessionRef: React.RefObject<Session | null>;
   signalR: SignalRApi;
-  scheduleFetchEvents: (delayMs?: number) => void;
+  scheduleFetchEvents: () => void;
   addNotification: AddNotification;
 }
 
@@ -94,7 +94,7 @@ export function useProgressSignalR({
     const scheduleRefetch = (source: string, sessionId: string) => {
       if (!sessionRef.current || sessionId !== sessionRef.current.sessionId) return;
       console.log(`[Progress] ${source} signal for current session, scheduling refetch`);
-      scheduleFetchEvents(500);
+      scheduleFetchEvents();
     };
 
     const handleNewEvents = (data: { sessionId: string }) => {
