@@ -53,7 +53,6 @@ public class TableLifecycleBucketTests
         [Constants.TableNames.OpsEvents] = "platform ops stream; time-retention only",
         [Constants.TableNames.ImeVersionHistory] = "permanent platform archive by design",
         [Constants.TableNames.ImePatternStats] = "permanent per-IME-version pattern statistic (PK=version); the drift baseline needs old versions",
-        [Constants.TableNames.RuleStats] = "per-rule daily counters; time-retention only",
         [Constants.TableNames.OffboardingAudit] = "the audit trail OF the offboarding itself",
         [Constants.TableNames.TenantOffboardingCustomsArchive] = "operator-driven cleanup by design",
         [Constants.TableNames.BackupJobs] = "platform backup job log (PK='BackupJobs'); 365d retention",

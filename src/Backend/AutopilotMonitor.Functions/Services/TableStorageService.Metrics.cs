@@ -1,5 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
+using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using System.Threading;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Telemetry;
 using AutopilotMonitor.Functions.Security;
@@ -899,25 +901,24 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Increments a specific platform stat counter atomically.
-        /// Reads current value, increments, and writes back.
+        /// Increments one platform counter with ETag CAS and a field-only merge. Only
+        /// <c>IssuesDetected</c> still goes through here (D-198): the enrollment and event
+        /// counters are recomputed every two hours from live data and no longer incremented on
+        /// the hot path — one global row cannot absorb an increment per ingest batch.
         /// </summary>
         public async Task IncrementPlatformStatAsync(string field, long amount = 1)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
-
-                TableEntity entity;
-
-                try
-                {
-                    var response = await tableClient.GetEntityAsync<TableEntity>("global", "current");
-                    entity = response.Value;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    entity = new TableEntity("global", "current")
+                await TableCasRetry.MutateAsync(
+                    tableClient, "global", "current",
+                    patch: read => new TableEntity("global", "current")
+                    {
+                        [field] = (read.GetInt64(field) ?? 0) + amount,
+                        ["LastUpdated"] = DateTime.UtcNow,
+                    },
+                    createMissing: () => new TableEntity("global", "current")
                     {
                         ["TotalEnrollments"] = 0L,
                         ["TotalUsers"] = 0L,
@@ -927,16 +928,14 @@ namespace AutopilotMonitor.Functions.Services
                         ["TotalEventsProcessed"] = 0L,
                         ["SuccessfulEnrollments"] = 0L,
                         ["IssuesDetected"] = 0L,
+                        [field] = amount,
                         ["LastFullCompute"] = DateTime.MinValue,
-                        ["LastUpdated"] = DateTime.UtcNow
-                    };
-                }
-
-                var current = entity.GetInt64(field) ?? 0;
-                entity[field] = current + amount;
-                entity["LastUpdated"] = DateTime.UtcNow;
-
-                await tableClient.UpsertEntityAsync(entity);
+                        ["LastUpdated"] = DateTime.UtcNow,
+                    },
+                    operation: "IncrementPlatformStat",
+                    tableName: Constants.TableNames.PlatformStats,
+                    metrics: _metrics,
+                    logger: _logger).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1011,54 +1010,30 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
-
-                for (int attempt = 1; attempt <= TenantStatsCasRetries; attempt++)
-                {
-                    try
+                await TableCasRetry.MutateAsync(
+                    tableClient, tenantId, TenantStatsRowKey,
+                    patch: read =>
                     {
-                        TableEntity entity;
-                        try
-                        {
-                            var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, TenantStatsRowKey);
-                            entity = response.Value;
-                        }
-                        catch (RequestFailedException ex) when (ex.Status == 404)
-                        {
-                            // AddEntity (not upsert) so a concurrent creator surfaces as 409 → retry
-                            // lands in the update branch instead of clobbering the winner's value.
-                            var fresh = new TableEntity(tenantId, TenantStatsRowKey)
-                            {
-                                [field] = missingRowValue,
-                                ["LastUpdated"] = DateTime.UtcNow
-                            };
-                            await tableClient.AddEntityAsync(fresh);
-                            return;
-                        }
-
-                        var current = entity.GetInt64(field) ?? 0;
+                        var current = read.GetInt64(field) ?? 0;
                         var next = mutate(current);
                         if (next == current)
-                            return;
-
-                        entity[field] = next;
-                        entity["LastUpdated"] = DateTime.UtcNow;
-                        await tableClient.UpdateEntityAsync(entity, entity.ETag, TableUpdateMode.Merge);
-                        return;
-                    }
-                    catch (RequestFailedException ex) when (ex.Status == 412 || ex.Status == 409)
-                    {
-                        _metrics?.CasConflict("MutateTenantStat", Constants.TableNames.PlatformStats,
-                            attempt == TenantStatsCasRetries ? CasOutcome.Exhausted : CasOutcome.Retried);
-                        if (attempt == TenantStatsCasRetries)
+                            return null;
+                        return new TableEntity(tenantId, TenantStatsRowKey)
                         {
-                            _logger.LogWarning(
-                                "Tenant stat {Field} update for tenant {TenantId} lost the CAS race {Retries} times — giving up (status {Status})",
-                                field, tenantId, TenantStatsCasRetries, ex.Status);
-                            return;
-                        }
-                        await Task.Delay(50 * attempt);
-                    }
-                }
+                            [field] = next,
+                            ["LastUpdated"] = DateTime.UtcNow,
+                        };
+                    },
+                    createMissing: () => new TableEntity(tenantId, TenantStatsRowKey)
+                    {
+                        [field] = missingRowValue,
+                        ["LastUpdated"] = DateTime.UtcNow,
+                    },
+                    operation: "MutateTenantStat",
+                    tableName: Constants.TableNames.PlatformStats,
+                    metrics: _metrics,
+                    logger: _logger,
+                    retries: TenantStatsCasRetries).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1426,76 +1401,124 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         // ===== RULE STATS METHODS =====
+        // Layout D-199 (see RuleStatsKeys): PartitionKey "{scope}_{yyyy-MM-dd}", RowKey = ruleId.
+        // Writer: one partition read + one transaction per scope and analysis, CAS as a unit.
+        // Readers: PartitionKey ranges. Legacy rows (PartitionKey = date) are consulted until
+        // RuleStatsKeys.LegacyLayoutUntil.
+
+        private const int RuleStatsCasRetries = 4;
 
         /// <summary>
-        /// Increments rule stats counters atomically for a single rule evaluation.
-        /// Creates the row if it doesn't exist. Uses read-modify-write pattern.
-        /// Called once per rule per session evaluation (for both tenant-specific and global rows).
+        /// Folds a session's rule evaluations into the daily counters of one scope. Increments
+        /// for the same rule are merged first; the partition is read once, every touched row is
+        /// written back with its ETag in one transaction (new rows as Add), and a 412/409 on the
+        /// transaction re-reads and retries. Fail-soft: a caller never breaks on a stats write.
         /// </summary>
-        public async Task IncrementRuleStatAsync(
-            string date, string tenantId, string ruleId, string ruleType,
-            string ruleTitle, string category, string severity,
-            bool fired, int? confidenceScore)
+        public async Task RecordRuleStatsAsync(string date, string scope, IReadOnlyList<RuleStatIncrement> increments)
         {
+            if (increments == null || increments.Count == 0) return;
+
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
-                var rowKey = $"{tenantId}_{ruleId}";
+                var partitionKey = RuleStatsKeys.PartitionKey(scope, date);
+                var deltas = RuleStatDelta.Merge(increments);
 
-                TableEntity entity;
-                try
-                {
-                    var response = await tableClient.GetEntityAsync<TableEntity>(date, rowKey);
-                    entity = response.Value;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    entity = new TableEntity(date, rowKey)
-                    {
-                        ["RuleId"] = ruleId,
-                        ["RuleType"] = ruleType,
-                        ["RuleTitle"] = ruleTitle,
-                        ["Category"] = category,
-                        ["Severity"] = severity,
-                        ["FireCount"] = 0,
-                        ["EvaluationCount"] = 0,
-                        ["SessionsEvaluated"] = 0,
-                        ["ConfidenceScoreSum"] = 0L,
-                        ["AvgConfidenceScore"] = 0.0,
-                        ["UpdatedAt"] = DateTime.UtcNow
-                    };
-                }
-
-                // Always increment evaluation and session counters
-                entity["EvaluationCount"] = (entity.GetInt32("EvaluationCount") ?? 0) + 1;
-                entity["SessionsEvaluated"] = (entity.GetInt32("SessionsEvaluated") ?? 0) + 1;
-
-                if (fired)
-                {
-                    var newFireCount = (entity.GetInt32("FireCount") ?? 0) + 1;
-                    entity["FireCount"] = newFireCount;
-
-                    if (confidenceScore.HasValue)
-                    {
-                        var newSum = (entity.GetInt64("ConfidenceScoreSum") ?? 0) + confidenceScore.Value;
-                        entity["ConfidenceScoreSum"] = newSum;
-                        entity["AvgConfidenceScore"] = newFireCount > 0 ? (double)newSum / newFireCount : 0.0;
-                    }
-                }
-
-                // Keep metadata fresh
-                entity["RuleTitle"] = ruleTitle;
-                entity["Category"] = category;
-                entity["Severity"] = severity;
-                entity["UpdatedAt"] = DateTime.UtcNow;
-
-                await tableClient.UpsertEntityAsync(entity);
+                // A partition rarely holds more than the rule catalog (~60 rows); chunks only
+                // matter for huge custom catalogs. Each chunk retries on its own so a conflict in
+                // a later chunk never re-applies a chunk that already committed.
+                foreach (var chunk in deltas.Chunk(TableTransactionBatcher.MaxActionsPerTransaction))
+                    await RecordRuleStatsChunkAsync(tableClient, partitionKey, chunk).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                // Non-fatal: don't break the caller if stats update fails
-                _logger.LogWarning(ex, "Failed to increment rule stat for {RuleId} / {TenantId}", ruleId, tenantId);
+                _logger.LogWarning(ex, "Failed to record rule stats for {Scope} / {Date}", scope, date);
             }
+        }
+
+        private async Task RecordRuleStatsChunkAsync(TableClient tableClient, string partitionKey, RuleStatDelta[] chunk)
+        {
+            var partitionFilter = $"PartitionKey eq '{ODataSanitizer.EscapeValue(partitionKey)}'";
+
+            for (var attempt = 1; attempt <= RuleStatsCasRetries; attempt++)
+            {
+                var existing = new Dictionary<string, TableEntity>(StringComparer.Ordinal);
+                await foreach (var row in tableClient.QueryAsync<TableEntity>(filter: partitionFilter).ConfigureAwait(false))
+                    existing[row.RowKey] = row;
+
+                var now = DateTime.UtcNow;
+                var actions = new List<TableTransactionAction>(chunk.Length);
+                foreach (var delta in chunk)
+                {
+                    var rowKey = RuleStatsKeys.RowKey(delta.RuleId);
+                    if (existing.TryGetValue(rowKey, out var row))
+                    {
+                        ApplyRuleStatDelta(row, delta, now);
+                        actions.Add(new TableTransactionAction(TableTransactionActionType.UpdateReplace, row, row.ETag));
+                    }
+                    else
+                    {
+                        var fresh = new TableEntity(partitionKey, rowKey)
+                        {
+                            ["RuleId"] = delta.RuleId,
+                            ["RuleType"] = delta.RuleType,
+                            ["FireCount"] = 0,
+                            ["EvaluationCount"] = 0,
+                            ["SessionsEvaluated"] = 0,
+                            ["ConfidenceScoreSum"] = 0L,
+                            ["AvgConfidenceScore"] = 0.0,
+                        };
+                        ApplyRuleStatDelta(fresh, delta, now);
+                        actions.Add(new TableTransactionAction(TableTransactionActionType.Add, fresh));
+                    }
+                }
+
+                try
+                {
+                    await tableClient.SubmitTransactionAsync(actions).ConfigureAwait(false);
+                    return;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 412 || StorageErrors.IsAlreadyExists(ex))
+                {
+                    var exhausted = attempt == RuleStatsCasRetries;
+                    _metrics?.CasConflict("RecordRuleStats", Constants.TableNames.RuleStats,
+                        exhausted ? CasOutcome.Exhausted : CasOutcome.Retried);
+                    if (exhausted)
+                    {
+                        _logger.LogWarning(
+                            "Rule stats for {PartitionKey} lost the CAS race {Retries} times — giving up (status {Status})",
+                            partitionKey, RuleStatsCasRetries, ex.Status);
+                        return;
+                    }
+
+                    var delay = 50 * attempt;
+                    await Task.Delay(delay + Random.Shared.Next(0, delay)).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static void ApplyRuleStatDelta(TableEntity entity, RuleStatDelta delta, DateTime now)
+        {
+            entity["EvaluationCount"] = (entity.GetInt32("EvaluationCount") ?? 0) + delta.Evaluations;
+            entity["SessionsEvaluated"] = (entity.GetInt32("SessionsEvaluated") ?? 0) + delta.Evaluations;
+
+            if (delta.Fires > 0)
+            {
+                var fireCount = (entity.GetInt32("FireCount") ?? 0) + delta.Fires;
+                entity["FireCount"] = fireCount;
+                if (delta.ConfidenceScoreSum != 0)
+                {
+                    var sum = (entity.GetInt64("ConfidenceScoreSum") ?? 0) + delta.ConfidenceScoreSum;
+                    entity["ConfidenceScoreSum"] = sum;
+                    entity["AvgConfidenceScore"] = fireCount > 0 ? (double)sum / fireCount : 0.0;
+                }
+            }
+
+            // Keep metadata fresh
+            entity["RuleTitle"] = delta.RuleTitle;
+            entity["Category"] = delta.Category;
+            entity["Severity"] = delta.Severity;
+            entity["UpdatedAt"] = now;
         }
 
         /// <summary>
@@ -1506,9 +1529,7 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
-                var rowKey = $"{entry.TenantId}_{entry.RuleId}";
-
-                var entity = new TableEntity(entry.Date, rowKey)
+                var entity = new TableEntity(RuleStatsKeys.PartitionKey(entry.TenantId, entry.Date), RuleStatsKeys.RowKey(entry.RuleId))
                 {
                     ["RuleId"] = entry.RuleId,
                     ["RuleType"] = entry.RuleType,
@@ -1535,119 +1556,195 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Gets rule stats entries for a date range, optionally filtered by tenant and/or rule type.
+        /// Rule stats of ONE scope (a tenant id or "global") for a date range, optionally by rule
+        /// type. A key-range read on the D-199 layout plus, while legacy rows can still exist,
+        /// the legacy cross-partition query. Cross-tenant reads go through
+        /// <see cref="GetRuleStatsForTenantsAsync"/>.
         /// </summary>
         public async Task<List<RuleStatsEntry>> GetRuleStatsAsync(
-            string? tenantId = null, string? startDate = null, string? endDate = null,
+            string tenantId, string? startDate = null, string? endDate = null,
             string? ruleType = null, int maxResults = 10000)
         {
+            if (string.IsNullOrEmpty(tenantId))
+                throw new ArgumentException("A tenant id or \"global\" is required; cross-tenant reads use GetRuleStatsForTenantsAsync", nameof(tenantId));
+
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
-
-                var filter = BuildRuleStatsFilter(tenantId, startDate, endDate, ruleType);
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter);
-
                 var results = new List<RuleStatsEntry>();
-                await foreach (var entity in query)
-                {
-                    results.Add(MapToRuleStatsEntry(entity));
-                    if (results.Count >= maxResults)
-                    {
-                        // The scan walks PartitionKey (= date) ascending, so hitting the cap
-                        // drops the newest dates — callers would see recently added rules as
-                        // missing rather than a truncated window. Surface it loudly.
-                        _logger.LogWarning(
-                            "Rule stats query hit the {MaxResults}-row cap for {TenantId} ({StartDate}..{EndDate}, {RuleType}) — newest dates are missing from the result",
-                            maxResults, tenantId ?? "(all)", startDate, endDate, ruleType ?? "(all)");
-                        break;
-                    }
-                }
+
+                await CollectRuleStatsAsync(tableClient, BuildRuleStatsFilter(tenantId, startDate, endDate, ruleType), results, maxResults, tenantId).ConfigureAwait(false);
+
+                var legacyFilter = BuildLegacyRuleStatsFilter(tenantId, startDate, endDate, ruleType, DateTime.UtcNow);
+                if (legacyFilter != null && results.Count < maxResults)
+                    await CollectRuleStatsAsync(tableClient, legacyFilter, results, maxResults, tenantId).ConfigureAwait(false);
 
                 return results;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to get rule stats");
+                _logger.LogError(ex, "Failed to get rule stats for {Scope}", tenantId);
                 return new List<RuleStatsEntry>();
             }
         }
 
-        /// <summary>
-        /// Builds the OData filter for <see cref="GetRuleStatsAsync"/>. All inputs are caller-supplied
-        /// (query-string params, JWT tenant) and are interpolated, so every value MUST be escaped via
-        /// <see cref="ODataSanitizer.EscapeValue"/>. Without it, input such as ruleType="x' or RowKey ge '"
-        /// would inject an OR clause that escapes the RowKey-prefix tenant scope and reads every tenant's rows.
-        /// Extracted as a pure function so the escaping is unit-testable.
-        /// </summary>
-        internal static string? BuildRuleStatsFilter(string? tenantId, string? startDate, string? endDate, string? ruleType)
+        private async Task CollectRuleStatsAsync(TableClient tableClient, string filter, List<RuleStatsEntry> results, int maxResults, string scope)
         {
-            var filters = new List<string>();
+            await foreach (var entity in tableClient.QueryAsync<TableEntity>(filter: filter).ConfigureAwait(false))
+            {
+                results.Add(MapToRuleStatsEntry(entity));
+                if (results.Count >= maxResults)
+                {
+                    _logger.LogWarning(
+                        "Rule stats query hit the {MaxResults}-row cap for {Scope} — result truncated",
+                        maxResults, scope);
+                    return;
+                }
+            }
+        }
 
+        /// <summary>
+        /// Rule stats of many tenants: one partition-range read per tenant with bounded
+        /// concurrency (maintenance aggregation, regression radar). Never includes "global".
+        /// </summary>
+        public Task<List<RuleStatsEntry>> GetRuleStatsForTenantsAsync(
+            IReadOnlyCollection<string> tenantIds, string? startDate = null, string? endDate = null,
+            string? ruleType = null, int maxResultsPerTenant = 10000)
+        {
+            if (tenantIds == null || tenantIds.Count == 0)
+                return Task.FromResult(new List<RuleStatsEntry>());
+
+            return BoundedFanOut.RunAsync(
+                tenantIds.Where(t => !string.Equals(t, RuleStatsKeys.GlobalScope, StringComparison.OrdinalIgnoreCase)),
+                BoundedFanOut.CrossTenantConcurrency,
+                (tenantId, _) => GetRuleStatsAsync(tenantId, startDate, endDate, ruleType, maxResultsPerTenant),
+                CancellationToken.None);
+        }
+
+        /// <summary>
+        /// OData filter on the D-199 layout for one scope: a PartitionKey range from
+        /// <c>{scope}_{start}</c> to <c>{scope}_{end}</c> (open ends fall back to the scope
+        /// prefix bounds), plus the rule type. Every value is caller-supplied and escaped via
+        /// <see cref="ODataSanitizer.EscapeValue"/>; the scope is part of the key, so an
+        /// injected quote cannot widen the read to another tenant.
+        /// </summary>
+        internal static string BuildRuleStatsFilter(string scope, string? startDate, string? endDate, string? ruleType)
+        {
+            var safeScope = ODataSanitizer.EscapeValue(scope);
+            var lower = string.IsNullOrEmpty(startDate)
+                ? $"PartitionKey ge '{safeScope}_'"
+                : $"PartitionKey ge '{safeScope}_{ODataSanitizer.EscapeValue(startDate)}'";
+            var upper = string.IsNullOrEmpty(endDate)
+                ? $"PartitionKey lt '{safeScope}_~'"  // ~ sorts after every digit
+                : $"PartitionKey le '{safeScope}_{ODataSanitizer.EscapeValue(endDate)}'";
+
+            var filter = $"{lower} and {upper}";
+            if (!string.IsNullOrEmpty(ruleType))
+                filter += $" and RuleType eq '{ODataSanitizer.EscapeValue(ruleType)}'";
+            return filter;
+        }
+
+        /// <summary>
+        /// The pre-D-199 filter (PartitionKey = date range, RowKey prefix = scope), or null once
+        /// no legacy row can exist any more. The RowKey prefix keeps D-199 rows (RowKey = ruleId)
+        /// out of the legacy result even where a tenant GUID sorts inside the date range.
+        /// </summary>
+        internal static string? BuildLegacyRuleStatsFilter(string scope, string? startDate, string? endDate, string? ruleType, DateTime utcNow)
+        {
+            if (!RuleStatsKeys.LegacyLayoutActive(utcNow))
+                return null;
+
+            var filters = new List<string>();
             if (!string.IsNullOrEmpty(startDate))
                 filters.Add($"PartitionKey ge '{ODataSanitizer.EscapeValue(startDate)}'");
             if (!string.IsNullOrEmpty(endDate))
                 filters.Add($"PartitionKey le '{ODataSanitizer.EscapeValue(endDate)}'");
 
-            // Filter by tenant via RowKey prefix
-            if (!string.IsNullOrEmpty(tenantId))
-            {
-                var safeTenantId = ODataSanitizer.EscapeValue(tenantId);
-                filters.Add($"RowKey ge '{safeTenantId}_'");
-                filters.Add($"RowKey lt '{safeTenantId}_~'");  // ~ is after all printable ASCII
-            }
+            var safeScope = ODataSanitizer.EscapeValue(scope);
+            filters.Add($"RowKey ge '{safeScope}_'");
+            filters.Add($"RowKey lt '{safeScope}_~'");
 
             if (!string.IsNullOrEmpty(ruleType))
                 filters.Add($"RuleType eq '{ODataSanitizer.EscapeValue(ruleType)}'");
 
-            return filters.Count > 0 ? string.Join(" and ", filters) : null;
+            return string.Join(" and ", filters);
+        }
+
+        /// <summary>PartitionKey range that selects one scope's rows older than the cutoff date.</summary>
+        internal static string BuildRuleStatsCleanupFilter(string scope, string cutoffDate)
+        {
+            var safeScope = ODataSanitizer.EscapeValue(scope);
+            return $"PartitionKey ge '{safeScope}_' and PartitionKey lt '{safeScope}_{ODataSanitizer.EscapeValue(cutoffDate)}'";
         }
 
         /// <summary>
-        /// Deletes rule stats entries older than a given date (retention cleanup).
+        /// Retention cleanup: per scope (every tenant plus "global") a PartitionKey range delete;
+        /// while legacy rows can still exist, additionally the legacy date-keyed rows — checked
+        /// row by row, because a bare date range would also match tenant GUIDs that sort inside
+        /// it. Per-row failures are logged and skipped so one 404 does not abort the sweep.
         /// </summary>
-        public async Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate)
+        public async Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds)
         {
+            var cutoffStr = cutoffDate.ToString("yyyy-MM-dd");
+            var deleted = 0;
+
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.RuleStats);
-                var cutoffStr = cutoffDate.ToString("yyyy-MM-dd");
-                var filter = $"PartitionKey lt '{cutoffStr}'";
-                var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
+                var scopes = (tenantIds ?? Array.Empty<string>()).Append(RuleStatsKeys.GlobalScope).Distinct(StringComparer.OrdinalIgnoreCase);
 
-                int deleted = 0;
-                await foreach (var entity in query)
-                {
-                    await tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
-                    deleted++;
-                }
+                foreach (var scope in scopes)
+                    deleted += await DeleteRuleStatsRowsAsync(tableClient, BuildRuleStatsCleanupFilter(scope, cutoffStr), requireLegacyKey: false).ConfigureAwait(false);
+
+                if (RuleStatsKeys.LegacyLayoutActive(DateTime.UtcNow))
+                    deleted += await DeleteRuleStatsRowsAsync(tableClient, $"PartitionKey ge '2000-01-01' and PartitionKey lt '{cutoffStr}'", requireLegacyKey: true).ConfigureAwait(false);
 
                 if (deleted > 0)
                     _logger.LogInformation("Deleted {Count} rule stats entries older than {Cutoff}", deleted, cutoffStr);
-
-                return deleted;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete old rule stats entries");
-                return 0;
+                _logger.LogError(ex, "Failed to delete old rule stats entries (deleted {Count} before the failure)", deleted);
             }
+
+            return deleted;
+        }
+
+        private async Task<int> DeleteRuleStatsRowsAsync(TableClient tableClient, string filter, bool requireLegacyKey)
+        {
+            var deleted = 0;
+            var query = tableClient.QueryAsync<TableEntity>(filter: filter, select: new[] { "PartitionKey", "RowKey" });
+            await foreach (var entity in query.ConfigureAwait(false))
+            {
+                if (requireLegacyKey && !RuleStatsKeys.IsLegacyPartitionKey(entity.PartitionKey))
+                    continue;
+
+                try
+                {
+                    await tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey).ConfigureAwait(false);
+                    deleted++;
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // Already gone (concurrent sweep) — counts as done.
+                }
+                catch (RequestFailedException ex)
+                {
+                    _logger.LogWarning(ex, "Rule stats cleanup could not delete {PartitionKey}/{RowKey} (status {Status})",
+                        entity.PartitionKey, entity.RowKey, ex.Status);
+                }
+            }
+            return deleted;
         }
 
         private static RuleStatsEntry MapToRuleStatsEntry(TableEntity entity)
         {
-            var rowKey = entity.RowKey ?? string.Empty;
-            var separatorIndex = rowKey.IndexOf('_');
-            var tenantId = separatorIndex > 0 ? rowKey.Substring(0, separatorIndex) : rowKey;
-            // RuleId may contain underscores, so take everything after the first underscore
-            var ruleId = separatorIndex > 0 && separatorIndex < rowKey.Length - 1
-                ? rowKey.Substring(separatorIndex + 1)
-                : entity.GetString("RuleId") ?? string.Empty;
+            var (scope, date, ruleId) = RuleStatsKeys.Parse(entity.PartitionKey ?? string.Empty, entity.RowKey ?? string.Empty);
 
             return new RuleStatsEntry
             {
-                Date = entity.PartitionKey ?? string.Empty,
-                TenantId = tenantId,
+                Date = date,
+                TenantId = scope,
                 RuleId = entity.GetString("RuleId") ?? ruleId,
                 RuleType = entity.GetString("RuleType") ?? string.Empty,
                 RuleTitle = entity.GetString("RuleTitle") ?? string.Empty,

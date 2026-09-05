@@ -274,6 +274,11 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                 var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
                 var firedRuleIds = new HashSet<string>(outcome.Results.Select(r => r.RuleId));
 
+                // One batch per scope: the tenant sees every evaluated rule, the global aggregate
+                // only catalog rules — custom-rule IDs are tenant-chosen and not unique across
+                // tenants, so a shared global row would sum unrelated tenants' counters.
+                var tenantIncrements = new List<RuleStatIncrement>(outcome.EvaluatedRules.Count);
+                var globalIncrements = new List<RuleStatIncrement>(outcome.EvaluatedRules.Count);
                 foreach (var rule in outcome.EvaluatedRules)
                 {
                     var fired = firedRuleIds.Contains(rule.RuleId);
@@ -284,22 +289,14 @@ namespace AutopilotMonitor.Functions.Services.Analyze
                         confidence = result?.ConfidenceScore;
                     }
 
-                    await _metricsRepo.IncrementRuleStatAsync(
-                        today, tenantId, rule.RuleId, "analyze",
-                        rule.Title, rule.Category, rule.Severity,
-                        fired, confidence).ConfigureAwait(false);
-
-                    // Global aggregate row is catalog-only: custom-rule IDs are tenant-chosen
-                    // and not unique across tenants, so a shared "global_{ruleId}" row would
-                    // sum unrelated tenants' counters (title/severity last-writer-wins).
+                    var increment = new RuleStatIncrement(rule.RuleId, "analyze", rule.Title, rule.Category, rule.Severity, fired, confidence);
+                    tenantIncrements.Add(increment);
                     if (rule.IsBuiltIn || rule.IsCommunity)
-                    {
-                        await _metricsRepo.IncrementRuleStatAsync(
-                            today, "global", rule.RuleId, "analyze",
-                            rule.Title, rule.Category, rule.Severity,
-                            fired, confidence).ConfigureAwait(false);
-                    }
+                        globalIncrements.Add(increment);
                 }
+
+                await _metricsRepo.RecordRuleStatsAsync(today, tenantId, tenantIncrements).ConfigureAwait(false);
+                await _metricsRepo.RecordRuleStatsAsync(today, "global", globalIncrements).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

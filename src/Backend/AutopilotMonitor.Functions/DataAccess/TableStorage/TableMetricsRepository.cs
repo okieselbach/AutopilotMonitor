@@ -101,9 +101,8 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<List<MetricsSummaryTenantItem>> GetMetricsSummaryAsync(string? tenantId, int days = 30)
             => _storage.GetMetricsSummaryAsync(tenantId, days);
 
-        public Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,
-            string ruleTitle, string category, string severity, bool fired, int? confidenceScore)
-            => _storage.IncrementRuleStatAsync(date, tenantId, ruleId, ruleType, ruleTitle, category, severity, fired, confidenceScore);
+        public Task RecordRuleStatsAsync(string date, string scope, IReadOnlyList<RuleStatIncrement> increments)
+            => _storage.RecordRuleStatsAsync(date, scope, increments);
 
         public Task<bool> SaveRuleStatsEntryAsync(RuleStatsEntry entry)
             => _storage.SaveRuleStatsEntryAsync(entry);
@@ -117,12 +116,16 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<bool> TryMarkImePatternDriftFlaggedAsync(string imeVersion, string patternId, DateTime nowUtc)
             => _storage.TryMarkImePatternDriftFlaggedAsync(imeVersion, patternId, nowUtc);
 
-        public Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
+        public Task<List<RuleStatsEntry>> GetRuleStatsAsync(string tenantId, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResults = 10000)
             => _storage.GetRuleStatsAsync(tenantId, startDate, endDate, ruleType, maxResults);
 
-        public Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate)
-            => _storage.DeleteRuleStatsOlderThanAsync(cutoffDate);
+        public Task<List<RuleStatsEntry>> GetRuleStatsForTenantsAsync(IReadOnlyCollection<string> tenantIds, string? startDate = null,
+            string? endDate = null, string? ruleType = null, int maxResultsPerTenant = 10000)
+            => _storage.GetRuleStatsForTenantsAsync(tenantIds, startDate, endDate, ruleType, maxResultsPerTenant);
+
+        public Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds)
+            => _storage.DeleteRuleStatsOlderThanAsync(cutoffDate, tenantIds);
 
         public Task<SessionTimeBreakdown?> ComputeAndStoreSessionTimeBreakdownAsync(string tenantId, string sessionId)
             => _storage.ComputeAndStoreSessionTimeBreakdownAsync(tenantId, sessionId);

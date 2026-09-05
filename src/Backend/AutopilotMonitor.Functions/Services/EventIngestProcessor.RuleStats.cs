@@ -56,24 +56,21 @@ namespace AutopilotMonitor.Functions.Services
                 if (firedRules.Count == 0) return;
 
                 var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+                // One batch per scope; the global aggregate row is catalog-only (custom-rule IDs
+                // are tenant-chosen and not unique across tenants).
+                var tenantIncrements = new List<RuleStatIncrement>(firedRules.Count);
+                var globalIncrements = new List<RuleStatIncrement>(firedRules.Count);
                 foreach (var rule in firedRules)
                 {
-                    await _metricsRepo.IncrementRuleStatAsync(
-                        today, tenantId, rule.RuleId, "gather",
-                        rule.Title, rule.Category, rule.OutputSeverity,
-                        fired: true, confidenceScore: null).ConfigureAwait(false);
-
-                    // Global aggregate row is catalog-only: custom-rule IDs are tenant-chosen
-                    // and not unique across tenants, so a shared "global_{ruleId}" row would
-                    // sum unrelated tenants' counters (title/severity last-writer-wins).
+                    var increment = new RuleStatIncrement(rule.RuleId, "gather", rule.Title, rule.Category, rule.OutputSeverity, fired: true, confidenceScore: null);
+                    tenantIncrements.Add(increment);
                     if (rule.IsBuiltIn || rule.IsCommunity)
-                    {
-                        await _metricsRepo.IncrementRuleStatAsync(
-                            today, "global", rule.RuleId, "gather",
-                            rule.Title, rule.Category, rule.OutputSeverity,
-                            fired: true, confidenceScore: null).ConfigureAwait(false);
-                    }
+                        globalIncrements.Add(increment);
                 }
+
+                await _metricsRepo.RecordRuleStatsAsync(today, tenantId, tenantIncrements).ConfigureAwait(false);
+                await _metricsRepo.RecordRuleStatsAsync(today, "global", globalIncrements).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

@@ -5,18 +5,18 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Daily per-rule telemetry entry.
     /// Stored in Azure Table Storage for rule effectiveness analysis and tenant dashboards.
-    /// PartitionKey = Date (YYYY-MM-DD format)
-    /// RowKey = "{TenantId}_{RuleId}" (tenant-scoped) or "global_{RuleId}" (cross-tenant aggregate)
+    /// PartitionKey = "{TenantId}_{Date}" (tenant-scoped) or "global_{Date}" (cross-tenant aggregate), Date as YYYY-MM-DD
+    /// RowKey = RuleId (layout D-199; rows before 2026-09-06 used PartitionKey = Date, RowKey = "{TenantId}_{RuleId}")
     /// </summary>
     public class RuleStatsEntry
     {
         /// <summary>
-        /// Date of the stats entry (YYYY-MM-DD) — maps to PartitionKey
+        /// Date of the stats entry (YYYY-MM-DD) — the PartitionKey suffix
         /// </summary>
         public string Date { get; set; } = string.Empty;
 
         /// <summary>
-        /// Tenant ID or "global" for cross-tenant — part of RowKey
+        /// Tenant ID or "global" for cross-tenant — the PartitionKey prefix
         /// </summary>
         public string TenantId { get; set; } = string.Empty;
 

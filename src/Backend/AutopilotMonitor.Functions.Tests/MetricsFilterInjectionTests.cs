@@ -1,3 +1,4 @@
+using System;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Services;
 
@@ -11,17 +12,24 @@ namespace AutopilotMonitor.Functions.Tests;
 /// </summary>
 public class MetricsFilterInjectionTests
 {
-    // ---- TableStorageService.BuildRuleStatsFilter (metrics/rule-stats, MemberRead) ----
+    // ---- TableStorageService.BuildRuleStatsFilter (metrics/rule-stats, MemberRead; layout D-199) ----
 
     [Fact]
-    public void BuildRuleStatsFilter_NormalInput_ProducesScopedFilter()
+    public void BuildRuleStatsFilter_NormalInput_IsOnePartitionRangePerScope()
     {
         var filter = TableStorageService.BuildRuleStatsFilter("tenant1", "2024-01-01", "2024-02-01", "analyze");
 
         Assert.Equal(
-            "PartitionKey ge '2024-01-01' and PartitionKey le '2024-02-01' and " +
-            "RowKey ge 'tenant1_' and RowKey lt 'tenant1_~' and RuleType eq 'analyze'",
+            "PartitionKey ge 'tenant1_2024-01-01' and PartitionKey le 'tenant1_2024-02-01' and RuleType eq 'analyze'",
             filter);
+    }
+
+    [Fact]
+    public void BuildRuleStatsFilter_OpenWindow_FallsBackToTheScopePrefixBounds()
+    {
+        Assert.Equal(
+            "PartitionKey ge 'tenant1_' and PartitionKey lt 'tenant1_~'",
+            TableStorageService.BuildRuleStatsFilter("tenant1", null, null, null));
     }
 
     [Fact]
@@ -30,12 +38,8 @@ public class MetricsFilterInjectionTests
         // The reported HIGH-severity payload.
         var filter = TableStorageService.BuildRuleStatsFilter("tenant1", null, null, "x' or RowKey ge '");
 
-        // The tenant scope must survive...
-        Assert.Contains("RowKey ge 'tenant1_'", filter);
-        Assert.Contains("RowKey lt 'tenant1_~'", filter);
-        // ...and the injected quote must be doubled, so the OR can't escape the string literal.
         Assert.Equal(
-            "RowKey ge 'tenant1_' and RowKey lt 'tenant1_~' and RuleType eq 'x'' or RowKey ge '''",
+            "PartitionKey ge 'tenant1_' and PartitionKey lt 'tenant1_~' and RuleType eq 'x'' or RowKey ge '''",
             filter);
     }
 
@@ -45,14 +49,42 @@ public class MetricsFilterInjectionTests
     {
         var filter = TableStorageService.BuildRuleStatsFilter("tenant1", payload, null, null);
 
-        Assert.Contains("PartitionKey ge ''' or RowKey ge '''", filter);
-        Assert.Contains("RowKey ge 'tenant1_'", filter);
+        Assert.Equal("PartitionKey ge 'tenant1_'' or RowKey ge ''' and PartitionKey lt 'tenant1_~'", filter);
     }
 
     [Fact]
-    public void BuildRuleStatsFilter_AllNull_ReturnsNull()
+    public void BuildRuleStatsFilter_ScopeInjection_CannotWidenToAnotherTenant()
     {
-        Assert.Null(TableStorageService.BuildRuleStatsFilter(null, null, null, null));
+        var filter = TableStorageService.BuildRuleStatsFilter("t' or PartitionKey ge '", "2024-01-01", null, null);
+
+        Assert.Equal(
+            "PartitionKey ge 't'' or PartitionKey ge ''_2024-01-01' and PartitionKey lt 't'' or PartitionKey ge ''_~'",
+            filter);
+    }
+
+    [Fact]
+    public void BuildLegacyRuleStatsFilter_KeepsTheOldShapeWhileLegacyRowsCanExist()
+    {
+        var filter = TableStorageService.BuildLegacyRuleStatsFilter("tenant1", "2024-01-01", "2024-02-01", "analyze", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(
+            "PartitionKey ge '2024-01-01' and PartitionKey le '2024-02-01' and " +
+            "RowKey ge 'tenant1_' and RowKey lt 'tenant1_~' and RuleType eq 'analyze'",
+            filter);
+    }
+
+    [Fact]
+    public void BuildLegacyRuleStatsFilter_IsGoneAfterTheRetentionHorizon()
+    {
+        Assert.Null(TableStorageService.BuildLegacyRuleStatsFilter("tenant1", null, null, null, new DateTime(2026, 12, 5, 0, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void BuildRuleStatsCleanupFilter_IsAScopedRangeBelowTheCutoff()
+    {
+        Assert.Equal(
+            "PartitionKey ge 'tenant1_' and PartitionKey lt 'tenant1_2026-06-07'",
+            TableStorageService.BuildRuleStatsCleanupFilter("tenant1", "2026-06-07"));
     }
 
     // ---- TableUserUsageRepository.BuildUserUsageFilter (metrics/mcp-usage/user/{userId}) ----

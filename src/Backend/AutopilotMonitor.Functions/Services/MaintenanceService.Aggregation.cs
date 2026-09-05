@@ -208,9 +208,10 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var dateStr = targetDate.ToString("yyyy-MM-dd");
-                // Fetch all tenant-specific rows for this date (excluding existing global rows)
-                var allEntries = await _metricsRepo.GetRuleStatsAsync(startDate: dateStr, endDate: dateStr);
-                var tenantEntries = allEntries.Where(e => e.TenantId != "global").ToList();
+                // One partition read per registered tenant (D-199). A tenant whose configuration
+                // row is gone (offboarded) no longer contributes to the global aggregate.
+                var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
+                var tenantEntries = await _metricsRepo.GetRuleStatsForTenantsAsync(tenantIds, dateStr, dateStr);
 
                 if (tenantEntries.Count == 0)
                 {
@@ -585,7 +586,8 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var ruleStatsCutoff = DateTime.UtcNow.AddDays(-90);
-                var deletedRuleStats = await _metricsRepo.DeleteRuleStatsOlderThanAsync(ruleStatsCutoff);
+                var ruleStatsTenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
+                var deletedRuleStats = await _metricsRepo.DeleteRuleStatsOlderThanAsync(ruleStatsCutoff, ruleStatsTenantIds);
 
                 if (deletedRuleStats > 0)
                     _logger.LogInformation("Rule stats cleanup: deleted {Count} entries older than 90 days", deletedRuleStats);
@@ -631,8 +633,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Recomputes platform-wide stats from all tables.
-        /// Used on the public landing page (no auth required).
+        /// Recomputes platform-wide stats from all tables. Used on the public landing page (no
+        /// auth required). Since D-198 this is the ONLY writer of TotalEnrollments,
+        /// SuccessfulEnrollments and TotalEventsProcessed — the hot paths no longer increment the
+        /// global row — so the figures move in two-hour steps.
         /// </summary>
         private async Task RecomputePlatformStatsAsync()
         {

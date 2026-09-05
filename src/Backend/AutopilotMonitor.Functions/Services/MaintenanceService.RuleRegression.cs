@@ -46,12 +46,13 @@ namespace AutopilotMonitor.Functions.Services
 
                 var sw = Stopwatch.StartNew();
                 var horizonStart = targetDate.Date.AddDays(-(RuleRegressionRadar.WindowDays - 1 + RuleRegressionRadar.BaselineDays));
-                var entries = await _metricsRepo.GetRuleStatsAsync(
-                    tenantId: null,
+                var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
+                var entries = await _metricsRepo.GetRuleStatsForTenantsAsync(
+                    tenantIds,
                     startDate: horizonStart.ToString("yyyy-MM-dd"),
                     endDate: targetDate.Date.ToString("yyyy-MM-dd"),
                     ruleType: "analyze",
-                    maxResults: int.MaxValue);
+                    maxResultsPerTenant: int.MaxValue);
 
                 var byTenant = entries
                     .Where(e => !string.Equals(e.TenantId, "global", StringComparison.OrdinalIgnoreCase))

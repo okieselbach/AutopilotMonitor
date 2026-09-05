@@ -127,6 +127,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             Constants.TableNames.DecisionTransitions,
             Constants.TableNames.EventTypeIndex,
             Constants.TableNames.CveIndex,
+            Constants.TableNames.RuleStats,   // D-199: "{tenantId}_{date}" partitions
         };
 
         // Plan §6.3.1 — Variant B (Discriminator + TenantId property).

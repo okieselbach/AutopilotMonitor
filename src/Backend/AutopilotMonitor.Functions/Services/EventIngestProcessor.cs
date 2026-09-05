@@ -380,13 +380,8 @@ namespace AutopilotMonitor.Functions.Services
                 });
             }
 
-            _ = _metricsRepo.IncrementPlatformStatAsync("TotalEventsProcessed", processedCount)
-                .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                    "Fire-and-forget IncrementPlatformStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
-            if (classification.CompletionEvent != null)
-                _ = _metricsRepo.IncrementPlatformStatAsync("SuccessfulEnrollments")
-                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
-                        "Fire-and-forget IncrementPlatformStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
+            // TotalEventsProcessed / SuccessfulEnrollments are recomputed every two hours from
+            // live data (D-198); no per-batch increment on the one global PlatformStats row.
 
             _ = RecordGatherRuleStatsAsync(request.TenantId, storedEvents)
                 .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,

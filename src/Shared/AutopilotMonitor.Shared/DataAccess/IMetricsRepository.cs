@@ -94,9 +94,12 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Metrics Summary (Agent API) ---
         Task<List<MetricsSummaryTenantItem>> GetMetricsSummaryAsync(string? tenantId, int days = 30);
 
-        // --- Rule Stats ---
-        Task IncrementRuleStatAsync(string date, string tenantId, string ruleId, string ruleType,
-            string ruleTitle, string category, string severity, bool fired, int? confidenceScore);
+        // --- Rule Stats (layout D-199: PartitionKey "{scope}_{date}", RowKey = ruleId) ---
+        /// <summary>
+        /// Folds a session's rule evaluations into one scope's daily counters (scope = tenant id or
+        /// "global"): one partition read + one CAS transaction, increments per rule merged first.
+        /// </summary>
+        Task RecordRuleStatsAsync(string date, string scope, IReadOnlyList<RuleStatIncrement> increments);
         Task<bool> SaveRuleStatsEntryAsync(RuleStatsEntry entry);
 
         /// <summary>
@@ -111,12 +114,18 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>Stamps DriftFlaggedAt on one version×pattern cell; returns false when it was already stamped (lost race).</summary>
         Task<bool> TryMarkImePatternDriftFlaggedAsync(string imeVersion, string patternId, DateTime nowUtc);
-        // maxResults is a runaway backstop, not a page size: a 31-day window easily holds
-        // 1400+ per-day rows (rules × days), and the scan runs date-ascending, so a low cap
-        // silently drops the NEWEST dates — newly added rules then vanish from stats entirely.
-        Task<List<RuleStatsEntry>> GetRuleStatsAsync(string? tenantId = null, string? startDate = null,
+        /// <summary>
+        /// One scope (tenant id or "global"), a date range, optionally one rule type — a
+        /// PartitionKey range read. maxResults is a runaway backstop, not a page size: a 31-day
+        /// window easily holds 1400+ rows (rules × days) for one scope.
+        /// </summary>
+        Task<List<RuleStatsEntry>> GetRuleStatsAsync(string tenantId, string? startDate = null,
             string? endDate = null, string? ruleType = null, int maxResults = 10000);
-        Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate);
+        /// <summary>Many tenants, one range read each with bounded concurrency; never includes "global".</summary>
+        Task<List<RuleStatsEntry>> GetRuleStatsForTenantsAsync(IReadOnlyCollection<string> tenantIds, string? startDate = null,
+            string? endDate = null, string? ruleType = null, int maxResultsPerTenant = 10000);
+        /// <summary>Retention cleanup per scope (every tenant plus "global"); returns the number of rows deleted.</summary>
+        Task<int> DeleteRuleStatsOlderThanAsync(DateTime cutoffDate, IReadOnlyCollection<string> tenantIds);
 
         // --- F1 Time Attribution (insights spec §F1, PR2) ---
         /// <summary>Computes + stores the session's time breakdown; null when not computable (non-terminal, no duration, events aged out) — fail-soft.</summary>
