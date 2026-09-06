@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EnrollmentEvent } from "@/types";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { NotificationType } from "@/contexts/NotificationContext";
+import type { TenantConfiguration } from "@/utils/wire-types.generated";
 import {
   CollectPhase,
   COLLECT_TIMEOUT_MS,
@@ -71,24 +72,20 @@ export default function CollectLogsButton({
   });
 
   const notifyError = useCallback((err: unknown, fallback: string) => {
-    if (err instanceof TokenExpiredError) {
-      addNotification("error", "Session Expired", err.message, "session-expired-error");
-    } else {
-      addNotification("error", "Collect Logs", fallback, "collect-logs");
-    }
+    addNotification("error", "Collect Logs", fallback, "collect-logs");
   }, [addNotification]);
 
   const queueAction = useCallback(async (type: string, reason: string): Promise<boolean> => {
-    const res = await authenticatedFetch(
-      api.sessions.queueAction(sessionId, effectiveTenantId),
-      getAccessToken,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, reason }),
+    return fetchOk(api.sessions.queueAction(sessionId, effectiveTenantId), getAccessToken, {
+      method: "POST",
+      body: JSON.stringify({ type, reason }),
+    }).then(
+      () => true,
+      (err: unknown) => {
+        if (err instanceof ApiError) return false;
+        throw err;
       },
     );
-    return res.ok;
   }, [sessionId, effectiveTenantId, getAccessToken]);
 
   const startCollect = useCallback(async () => {
@@ -130,9 +127,7 @@ export default function CollectLogsButton({
     if (!effectiveTenantId) return;
     setQuickConfigBusy(true);
     try {
-      const getRes = await authenticatedFetch(api.config.tenant(effectiveTenantId), getAccessToken);
-      if (!getRes.ok) throw new Error(`Failed to load tenant configuration (${getRes.status})`);
-      const config = await getRes.json();
+      const config = await fetchJson<TenantConfiguration>(api.config.tenant(effectiveTenantId), getAccessToken);
 
       const updated = {
         ...config,
@@ -145,12 +140,10 @@ export default function CollectLogsButton({
             : config.diagnosticsUploadMode,
       };
 
-      const putRes = await authenticatedFetch(api.config.tenantCollectLogsQuickConfig(effectiveTenantId), getAccessToken, {
+      await fetchOk(api.config.tenantCollectLogsQuickConfig(effectiveTenantId), getAccessToken, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),
       });
-      if (!putRes.ok) throw new Error(`Failed to save tenant configuration (${putRes.status})`);
 
       onDiagnosticsConfigured();
       setShowQuickConfig(false);
@@ -166,7 +159,7 @@ export default function CollectLogsButton({
       }
       await startCollect();
     } catch (err) {
-      notifyError(err, err instanceof Error ? err.message : "Quick configuration failed.");
+      notifyError(err, apiErrorText(err, "Quick configuration failed."));
     } finally {
       setQuickConfigBusy(false);
     }

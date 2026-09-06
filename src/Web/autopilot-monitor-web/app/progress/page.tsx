@@ -2,7 +2,6 @@
 
 import { useTenant } from "../../contexts/TenantContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { useNotifications } from "../../contexts/NotificationContext";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
@@ -12,6 +11,7 @@ import { useProgressSignalR } from "./hooks/useProgressSignalR";
 import { useProgressDerivedData } from "./hooks/useProgressDerivedData";
 import { DeviceStatusChips } from "./components/DeviceStatusChips";
 import type { PresentationKind } from "./hooks/progressLayout";
+import { useNotifications } from "../../contexts/NotificationContext";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);

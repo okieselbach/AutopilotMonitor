@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { fetchJson } from "@/lib/apiClient";
 
 export interface TenantListItem {
   tenantId: string;
@@ -28,9 +28,8 @@ export function useTenantList(
         return;
       }
       try {
-        const res = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (!res.ok || cancelled) return;
-        const configs: { tenantId?: string; domainName?: string }[] = await res.json();
+        // config/all is a bare array of tenant configurations (deliberately untyped, D-043).
+        const configs = await fetchJson<{ tenantId?: string; domainName?: string }[]>(api.config.all(), getAccessToken);
         if (cancelled) return;
         setTenantList(
           configs

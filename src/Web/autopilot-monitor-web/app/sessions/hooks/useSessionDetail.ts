@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { isGuid } from "@/utils/inputValidation";
 import { Session } from "@/types";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
+import type { GetSessionResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 type AddNotification = (
   type: NotificationType,
@@ -105,23 +107,27 @@ export function useSessionDetail({
         ? api.sessions.get(sessionId, knownTenantId)
         : api.sessions.get(sessionId);
 
-      const response = await authenticatedFetch(endpoint, getAccessToken);
-      if (response.ok) {
-        const data = await response.json();
-        // Accept only a session whose id matches the one we asked for — a misrouted or
-        // unexpected 200 must never hydrate the page (defense in depth behind the GUID gate).
-        const candidate: Session | undefined = data.session ?? data.sessions?.find((s: Session) => s.sessionId === sessionId);
-        const foundSession = candidate?.sessionId?.toLowerCase() === sessionId.toLowerCase() ? candidate : undefined;
-        if (foundSession) {
-          setSession(foundSession);
-          setSessionTenantId(foundSession.tenantId);
+      let data: GetSessionResponse;
+      try {
+        data = await fetchJson<GetSessionResponse>(endpoint, getAccessToken);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          notifyApiError(addNotification, 'Backend Error', err, 'session-detail-fetch-error', 'Failed to load session details.');
+          return;
         }
-      } else {
-        addNotification('error', 'Backend Error', `Failed to load session details: ${response.statusText}`, 'session-detail-fetch-error');
+        throw err;
+      }
+      // Accept only a session whose id matches the one we asked for: a misrouted or
+      // unexpected 200 must never hydrate the page (defense in depth behind the GUID gate).
+      const candidate: Session | undefined = data.session;
+      const foundSession = candidate?.sessionId?.toLowerCase() === sessionId.toLowerCase() ? candidate : undefined;
+      if (foundSession) {
+        setSession(foundSession);
+        setSessionTenantId(foundSession.tenantId);
       }
     } catch (error) {
       if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
+        notifyApiError(addNotification, 'Session Expired', error);
         return;
       }
       console.error("Failed to fetch session details:", error);

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import type { SessionTimeBreakdown } from "@/utils/wire-types.generated";
 
 /**
  * F1 time attribution (insights spec §F1): renders the PRE-COMPUTED breakdown row of a
@@ -42,24 +43,8 @@ export interface SleepSpanDto {
   kind: string;
 }
 
-export interface SessionTimeBreakdownDto {
-  tenantId: string;
-  sessionId: string;
-  attributionVersion: number;
-  wallClockSeconds: number;
-  segments: TimeAttributionSpanDto[];
-  unattributedSeconds: number;
-  rebootSeconds: number;
-  rebootSpans: RebootSpanDto[];
-  /** Optional: rows computed before AttributionVersion 3 lack these. */
-  sleepSeconds?: number;
-  sleepSpans?: SleepSpanDto[];
-  blockingApps: BlockingAppIntervalDto[];
-  blockingAppCount: number;
-  espAppsOccupancySeconds: number | null;
-  /** Flags enum serialized as string, e.g. "None" or "PartialObservation, BlockingSetTruncated". */
-  qualityFlags: string;
-}
+/** The session time breakdown (wire shape). */
+export type SessionTimeBreakdownDto = SessionTimeBreakdown;
 
 const SEGMENT_META: { key: string; label: string; color: string }[] = [
   { key: "device_prep", label: "Device preparation", color: "bg-slate-400" },

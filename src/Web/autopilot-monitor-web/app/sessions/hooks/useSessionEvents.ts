@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { extractContinuation, MAX_EAGER_PAGES } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
 import { isTerminalStatus } from "@/utils/sessionStatus";
 import { EnrollmentEvent, Session } from "@/types";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
+import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 const TIMELINE_PAGE_SIZE = 200;
 
@@ -156,13 +157,16 @@ export function useSessionEvents({
       const firstPageUrl = api.sessions.events(sessionId, effectiveTenantId, {
         pageSize: TIMELINE_PAGE_SIZE,
       });
-      const firstResponse = await authenticatedFetch(firstPageUrl, getAccessToken);
-      if (!firstResponse.ok) {
-        addNotification('error', 'Backend Error', `Failed to load session events: ${firstResponse.statusText}`, 'session-events-fetch-error');
+      let firstData: GetSessionEventsResponse;
+      try {
+        firstData = await fetchJson<GetSessionEventsResponse>(firstPageUrl, getAccessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
+        notifyApiError(addNotification, 'Backend Error', err, 'session-events-fetch-error', 'Failed to load session events.');
         return;
       }
-      const firstData = await firstResponse.json();
-      const firstBatch: EnrollmentEvent[] = Array.isArray(firstData.events) ? firstData.events : [];
+      // No `fields` projection on the timeline read, so every event is complete.
+      const firstBatch = (firstData.events ?? []) as EnrollmentEvent[];
 
       // Append-only merge instead of replace: the list stays monotonic so it
       // never shrinks-then-grows across the paged refresh (the old wipe-to-200
@@ -197,15 +201,15 @@ export function useSessionEvents({
             pageSize: TIMELINE_PAGE_SIZE,
             continuation,
           });
-          const resp = await authenticatedFetch(url, getAccessToken);
-          if (!resp.ok) {
-            console.warn(
-              `[SessionDetail] eager-fetch stopped at page ${pagesFetched + 1} (status=${resp.status})`,
-            );
+          let pageData: GetSessionEventsResponse;
+          try {
+            pageData = await fetchJson<GetSessionEventsResponse>(url, getAccessToken);
+          } catch (err) {
+            if (!(err instanceof ApiError)) throw err;
+            console.warn(`[SessionDetail] eager-fetch stopped at page ${pagesFetched + 1} (status=${err.status})`);
             break;
           }
-          const pageData = await resp.json();
-          const batch: EnrollmentEvent[] = Array.isArray(pageData.events) ? pageData.events : [];
+          const batch = (pageData.events ?? []) as EnrollmentEvent[];
           if (batch.length > 0) {
             setEvents(prev => mergeNewEvents(prev, batch));
             if (!foundTerminalEvent && batch.some(isTerminalEvent)) {
@@ -232,12 +236,8 @@ export function useSessionEvents({
       }
     } catch (error) {
       aborted = true;
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch events:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load session events. Please check your connection.', 'session-events-fetch-error');
-      }
+      console.error("Failed to fetch events:", error);
+      addNotification('error', 'Backend Not Reachable', 'Unable to load session events. Please check your connection.', 'session-events-fetch-error');
     } finally {
       setLoading(false);
       if (aborted) setIsStreamingMore(false);

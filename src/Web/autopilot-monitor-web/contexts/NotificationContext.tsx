@@ -17,6 +17,15 @@ export interface Notification {
   reference?: string; // Optional short correlation id (backend failures) rendered as "Ref …"
 }
 
+/** The addNotification signature, for hooks that receive it as a parameter instead of reading the context. */
+export type AddNotification = (type: NotificationType, title: string, message: string, key?: string, href?: string, reference?: string) => void;
+
+/** notifyError for code that holds an addNotification function rather than the context (hooks with injected notifiers). */
+export function notifyApiError(add: AddNotification, title: string, err: unknown, key?: string, fallback?: string): void {
+  const n = apiErrorNotification(title, err, key, fallback);
+  add(n.type, n.title, n.message, n.key, undefined, n.reference);
+}
+
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
@@ -107,10 +116,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
-  const notifyError = useCallback((title: string, err: unknown, key?: string, fallback?: string) => {
-    const n = apiErrorNotification(title, err, key, fallback);
-    addNotification(n.type, n.title, n.message, n.key, undefined, n.reference);
-  }, [addNotification]);
+  const notifyError = useCallback((title: string, err: unknown, key?: string, fallback?: string) => notifyApiError(addNotification, title, err, key, fallback), [addNotification]);
 
   const markAsRead = useCallback((id: string) => {
     setNotifications(prev =>

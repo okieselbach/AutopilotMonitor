@@ -17,7 +17,7 @@ import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
 import { isGuid } from "@/utils/inputValidation";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, fetchBlob, fetchJson, fetchOk } from "@/lib/apiClient";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
 import { useAutoScroll } from "./hooks/useAutoScroll";
@@ -48,6 +48,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { GetSessionTimeAttributionResponse } from "@/utils/wire-types.generated";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
@@ -94,7 +95,7 @@ function SessionDetailContent() {
   const { on, off, isConnected, joinGroup, leaveGroup } = useSignalR();
   const { tenantId } = useTenant();
   const { getAccessToken, user } = useAuth();
-  const { addNotification } = useNotifications();
+  const { addNotification, notifyError } = useNotifications();
   const { latestAgentVersion, latestBootstrapVersion } = useLatestVersions(getAccessToken);
 
   // Session-scoped hooks (data/SignalR/derivations)
@@ -151,11 +152,8 @@ function SessionDetailContent() {
       }
       try {
         const effectiveTenantId = sessionTenantId || tenantIdOverride || undefined;
-        const response = await authenticatedFetch(
-          api.sessions.timeAttribution(sessionId, effectiveTenantId), getAccessToken);
-        if (!response.ok) return;
-        const json = await response.json();
-        if (!cancelled) setTimeBreakdown(json?.breakdown ?? null);
+        const json = await fetchJson<GetSessionTimeAttributionResponse>(api.sessions.timeAttribution(sessionId, effectiveTenantId), getAccessToken);
+        if (!cancelled) setTimeBreakdown(json.breakdown ?? null);
       } catch {
         // fail-soft: no lane
       }
@@ -237,17 +235,9 @@ function SessionDetailContent() {
   const confirmMarkFailed = async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
-      const response = await authenticatedFetch(
-        api.sessions.markFailed(sessionId, effectiveTenantId),
-        getAccessToken,
-        { method: 'POST' }
-      );
-      if (response.ok) {
-        setShowMarkFailedConfirm(false);
-        if (session) setSession({ ...session, status: 'Failed' });
-      } else {
-        console.error('Failed to mark session as failed');
-      }
+      await fetchOk(api.sessions.markFailed(sessionId, effectiveTenantId), getAccessToken, { method: 'POST' });
+      setShowMarkFailedConfirm(false);
+      if (session) setSession({ ...session, status: 'Failed' });
     } catch (error) {
       console.error('Error marking session as failed:', error);
     }
@@ -256,17 +246,9 @@ function SessionDetailContent() {
   const confirmMarkSucceeded = async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
-      const response = await authenticatedFetch(
-        api.sessions.markSucceeded(sessionId, effectiveTenantId),
-        getAccessToken,
-        { method: 'POST' }
-      );
-      if (response.ok) {
-        setShowMarkSucceededConfirm(false);
-        if (session) setSession({ ...session, status: 'Succeeded' });
-      } else {
-        console.error('Failed to mark session as succeeded');
-      }
+      await fetchOk(api.sessions.markSucceeded(sessionId, effectiveTenantId), getAccessToken, { method: 'POST' });
+      setShowMarkSucceededConfirm(false);
+      if (session) setSession({ ...session, status: 'Succeeded' });
     } catch (error) {
       console.error('Error marking session as succeeded:', error);
     }
@@ -292,12 +274,11 @@ function SessionDetailContent() {
       const sessionCsv = session ? generateSessionCsvExport(session) : '';
       const ruleResultsCsv = generateRuleResultsCsvExport(analysisResults);
 
-      const response = await authenticatedFetch(
+      await fetchOk(
         api.sessions.report(sessionId, effectiveTenantId),
         getAccessToken,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tenantId: effectiveTenantId,
             sessionId,
@@ -321,22 +302,12 @@ function SessionDetailContent() {
         }
       );
 
-      if (response.ok) {
-        trackEvent("session_report_submitted", { sessionId });
-        addNotification('success', 'Report Submitted', 'Session report has been submitted for analysis.', 'report-success');
-      } else {
-        const data = await response.json().catch(() => null);
-        const message = data?.message || 'Failed to submit report.';
-        addNotification('error', 'Report Failed', message, 'report-error');
-        throw new Error(message);
-      }
+      trackEvent("session_report_submitted", { sessionId });
+      addNotification('success', 'Report Submitted', 'Session report has been submitted for analysis.', 'report-success');
     } catch (err: unknown) {
-      // Re-throw so the modal can show inline error feedback.
-      // Only log unexpected errors (not the ones we threw ourselves above).
-      const errMessage = err instanceof Error ? err.message : '';
-      if (!errMessage.includes('Failed to submit report') && !errMessage.includes('Failed to get access token')) {
-        console.error('Error submitting report:', err);
-      }
+      // Re-throw so the modal can show inline error feedback; a backend refusal is also toasted.
+      if (err instanceof ApiError) notifyError('Report Failed', err, 'report-error', 'Failed to submit report.');
+      else console.error('Error submitting report:', err);
       throw err;
     } finally {
       setReportSubmitting(false);
@@ -488,23 +459,14 @@ function SessionDetailContent() {
               <button
                 onClick={async () => {
                   try {
-                    const res = await authenticatedFetch(
-                      api.diagnostics.downloadUrl(session.tenantId, session.diagnosticsBlobName!),
-                      getAccessToken
-                    );
-                    if (!res.ok) throw new Error('Failed to download diagnostics package');
-                    const blob = await res.blob();
+                    const blob = await fetchBlob(api.diagnostics.downloadUrl(session.tenantId, session.diagnosticsBlobName!), getAccessToken);
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
                     a.download = session.diagnosticsBlobName!;
                     a.click();
                     URL.revokeObjectURL(a.href);
                   } catch (err) {
-                    if (err instanceof TokenExpiredError) {
-                      addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-                    } else {
-                      console.error('Diagnostics download failed:', err);
-                    }
+                    console.error('Diagnostics download failed:', err);
                   }
                 }}
                 className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm"

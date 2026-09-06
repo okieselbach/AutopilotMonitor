@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useLatest } from "@/hooks/useLatest";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { extractContinuation } from "@/lib/paginationLink";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { mergeSessionsById } from "@/lib/sessionSearchMerge";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { hasTenantReadScope } from "@/lib/tenantScope";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
 import type { Session } from "../types";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
+import type { BlockedDeviceListResponse, SearchSessionsResponse, SessionListResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson, nullOnApiError } from "@/lib/apiClient";
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 1000;
@@ -203,8 +204,7 @@ export function useDashboardSessions({
 
       const results = await Promise.allSettled(
         tenantIds.map((tid) =>
-          authenticatedFetch(api.devices.blocked(tid), getAccessToken)
-            .then((res) => (res.ok ? res.json() : { blocked: [] })),
+          fetchJson<BlockedDeviceListResponse>(api.devices.blocked(tid), getAccessToken).catch(nullOnApiError),
         ),
       );
 
@@ -219,13 +219,9 @@ export function useDashboardSessions({
 
       setBlockedDevicesSet(newSet);
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", error.message, "session-expired-error");
-      } else {
-        console.error("Failed to fetch blocked devices:", error);
-      }
+      console.error("Failed to fetch blocked devices:", error);
     }
-  }, [getAccessToken, addNotification, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
+  }, [getAccessToken, setBlockedDevicesSet, adminModeRef, globalAdminModeRef, tenantIdRef]);
 
   const getInitialPageSize = (): number => {
     // Pattern B2 default first-paint pageSize is 10; localStorage may override
@@ -268,40 +264,31 @@ export function useDashboardSessions({
         ? api.globalSessions.list(effectiveTenantFilter, undefined, opts)
         : api.sessions.list(tenantIdRef.current ?? undefined, undefined, opts);
 
-      const response = await authenticatedFetch(endpoint, getAccessToken);
-
-      if (response.ok) {
-        const data = await response.json();
-        const nextContinuation = extractContinuation(data.nextLink);
-        return {
-          sessions: data.sessions || [],
-          hasMore: !!nextContinuation,
-          nextContinuation,
-        };
-      } else {
+      let data: SessionListResponse;
+      try {
+        data = await fetchJson<SessionListResponse>(endpoint, getAccessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
         // Surface the backend's error reason (e.g. "Invalid continuation token (filter_mismatch).")
-        // instead of the generic statusText so a stale-token race is diagnosable from the UI.
-        let detail = response.statusText;
-        try {
-          const body = await response.json();
-          if (body?.message) detail = body.message;
-        } catch { /* response body was not JSON — fall back to statusText */ }
-        console.error(`Failed to fetch sessions (${response.status}): ${detail}`);
-        addNotification("error", "Backend Error", `Failed to fetch sessions: ${detail}`, "backend-error");
+        // so a stale-token race is diagnosable from the UI.
+        console.error(`Failed to fetch sessions (${err.status}): ${err.message}`);
+        notifyApiError(addNotification, "Backend Error", err, "backend-error", "Failed to fetch sessions.");
         return null;
       }
+      const nextContinuation = extractContinuation(data.nextLink);
+      return {
+        sessions: data.sessions || [],
+        hasMore: !!nextContinuation,
+        nextContinuation,
+      };
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", error.message, "session-expired-error");
-      } else {
-        console.error("Failed to fetch sessions:", error);
-        addNotification(
-          "error",
-          "Backend Not Reachable",
-          "Unable to connect to the backend API. Please ensure the backend server is running.",
-          "backend-unreachable",
-        );
-      }
+      console.error("Failed to fetch sessions:", error);
+      addNotification(
+        "error",
+        "Backend Not Reachable",
+        "Unable to connect to the backend API. Please ensure the backend server is running.",
+        "backend-unreachable",
+      );
       return null;
     }
   }, [getAccessToken, addNotification, globalAdminModeRef, tenantIdRef, isDelegatedScopeRef, delegatedTenantIdsRef]);
@@ -437,15 +424,18 @@ export function useDashboardSessions({
         const endpoint = useGlobal
           ? api.globalSessions.search(q, effectiveTenantFilter, { pageSize: SEARCH_PAGE_SIZE, continuation })
           : api.sessions.search(q, { pageSize: SEARCH_PAGE_SIZE, continuation });
-        const response = await authenticatedFetch(endpoint, getAccessToken);
-        if (!response.ok) {
-          console.error(`Server-side session search failed (${response.status})`);
+        let data: SearchSessionsResponse;
+        try {
+          data = await fetchJson<SearchSessionsResponse>(endpoint, getAccessToken);
+        } catch (err) {
+          if (!(err instanceof ApiError)) throw err;
+          console.error(`Server-side session search failed (${err.status})`);
           break;
         }
-        const data = await response.json();
         if (loadAllTokenRef.current !== myToken) break;
 
-        const found: Session[] = data.sessions || [];
+        // No `fields` projection on the search, so every hit is a complete session.
+        const found = (data.sessions || []) as Session[];
         if (found.length > 0) {
           matches += found.length;
           setSessions((prev) => mergeSessionsById(prev, found));
@@ -456,17 +446,13 @@ export function useDashboardSessions({
         continuation = next;
       }
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", error.message, "session-expired-error");
-      } else {
-        console.error("Server-side session search failed:", error);
-      }
+      console.error("Server-side session search failed:", error);
     } finally {
       fetchLockRef.current = false;
       setLoadingMore(false);
       setLoadingAll(false);
     }
-  }, [getAccessToken, addNotification, loadAll, globalAdminModeRef, tenantIdRef, isDelegatedScopeRef, delegatedTenantIdsRef]);
+  }, [getAccessToken, loadAll, globalAdminModeRef, tenantIdRef, isDelegatedScopeRef, delegatedTenantIdsRef]);
 
   const removeSession = useCallback((sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));

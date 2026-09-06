@@ -7,6 +7,7 @@
  * helpers describe *what* should happen for a given backend response.
  */
 import type { ApiErrorCode } from "@/lib/apiErrorCodes";
+import { ApiError } from "@/lib/apiClient";
 
 /**
  * Backend body shape for the V2 cascade 202 response.
@@ -53,11 +54,11 @@ export type DeleteResponseAction =
  * but the network may corrupt it).
  */
 export async function classifyDeleteResponse(
-  response: Response,
+  response: Response | ApiError,
   sessionId: string,
   tenantId: string,
 ): Promise<DeleteResponseAction> {
-  if (response.status === 202) {
+  if (!(response instanceof ApiError) && response.status === 202) {
     const body = await safeJson<DeleteQueuedBody>(response);
     return {
       kind: "queued",
@@ -67,7 +68,9 @@ export async function classifyDeleteResponse(
     };
   }
 
-  const errorBody = await safeJson<DeleteErrorBody>(response);
+  // A refused DELETE arrives as the ApiError fetchOk threw (status + parsed envelope); a raw
+  // Response is still accepted for the 202 path and the classifier's own tests.
+  const errorBody = response instanceof ApiError ? (response.body as DeleteErrorBody | null) : await safeJson<DeleteErrorBody>(response);
   const message = errorBody?.error ?? errorBody?.message ?? `HTTP ${response.status}`;
 
   if (response.status === 409) {

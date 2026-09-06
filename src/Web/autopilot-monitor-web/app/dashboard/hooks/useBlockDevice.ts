@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { NotificationType } from "@/contexts/NotificationContext";
 import { BULK_CONCURRENCY, runWithConcurrency, summarizeBlockOutcomes, type BlockOutcome } from "./bulkActions";
+import { ApiError, fetchOk } from "@/lib/apiClient";
 
 export interface BlockTarget {
   serialNumber: string;
@@ -46,19 +47,21 @@ export function useBlockDevice(
   };
 
   const blockOne = async (target: BlockTarget): Promise<BlockOutcome> => {
-    const response = await authenticatedFetch(api.devices.block(), getAccessToken, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tenantId: target.tenantId,
-        serialNumber: target.serialNumber,
-        durationHours: 24,
-        reason: `Blocked from dashboard by Global Admin`
-      })
-    });
-    if (response.ok) return { ok: true };
-    const data = await response.json().catch(() => ({}));
-    return { ok: false, message: data.message || `HTTP ${response.status}` };
+    try {
+      await fetchOk(api.devices.block(), getAccessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          tenantId: target.tenantId,
+          serialNumber: target.serialNumber,
+          durationHours: 24,
+          reason: `Blocked from dashboard by Global Admin`
+        })
+      });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ApiError) return { ok: false, message: err.message };
+      throw err;
+    }
   };
 
   const confirmBlock = async () => {
@@ -102,12 +105,8 @@ export function useBlockDevice(
       const summary = summarizeBlockOutcomes(outcomes);
       addNotification(summary.type, summary.title, summary.message, 'device-bulk-block-summary');
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error('Failed to block device:', error);
-        addNotification('error', 'Block failed', 'Could not block the device. Please try again.', 'device-block-error');
-      }
+      console.error('Failed to block device:', error);
+      addNotification('error', 'Block failed', 'Could not block the device. Please try again.', 'device-block-error');
     } finally {
       setBlockingDevice(false);
     }

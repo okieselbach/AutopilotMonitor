@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import {
   ANNOTATION_MAX_NOTE_LENGTH,
@@ -78,12 +79,7 @@ export default function SessionAnnotationsCard({
     let cancelled = false;
     (async () => {
       try {
-        const response = await authenticatedFetch(
-          api.sessions.annotations(sessionId, effectiveTenantId),
-          getAccessToken
-        );
-        if (!response.ok) return;
-        const json = (await response.json()) as AnnotationsResponse;
+        const json = await fetchJson<AnnotationsResponse>(api.sessions.annotations(sessionId, effectiveTenantId), getAccessToken);
         if (cancelled) return;
         const byLane: Partial<Record<string, SessionAnnotationDto>> = {};
         for (const a of json.annotations ?? []) byLane[a.lane] = a;
@@ -131,17 +127,14 @@ export default function SessionAnnotationsCard({
     const { body, isClear } = buildPutBody(state.verdict, state.note);
     setLaneEdit(lane, { saving: true, saveResult: null });
     try {
-      const res = await authenticatedFetch(
+      const json = await fetchJson<{ success: boolean; annotation?: SessionAnnotationDto }>(
         api.sessions.annotation(sessionId, lane, effectiveTenantId),
         getAccessToken,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }
       );
-      if (!res.ok) throw new Error(`Failed to save annotation: ${res.statusText}`);
-      const json = (await res.json()) as { success: boolean; annotation?: SessionAnnotationDto };
       setAnnotations((prev) => {
         const next = { ...prev };
         if (isClear) delete next[lane];
@@ -153,7 +146,7 @@ export default function SessionAnnotationsCard({
       if (err instanceof TokenExpiredError) console.error("Session expired while saving annotation");
       setLaneEdit(lane, {
         saving: false,
-        saveResult: err instanceof Error ? err.message : "Failed to save annotation",
+        saveResult: apiErrorText(err, "Failed to save annotation"),
       });
     }
   };

@@ -4,8 +4,8 @@ import { sessionUrl } from "@/lib/routes";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { selectPriorSessions, type DeviceSessionRefDto } from "./deviceHistoryPrior";
+import { fetchJson } from "@/lib/apiClient";
 
 export type { DeviceSessionRefDto } from "./deviceHistoryPrior";
 
@@ -79,12 +79,7 @@ export default function DeviceHistoryBanner({
         return;
       }
       try {
-        const response = await authenticatedFetch(
-          api.metrics.deviceHistory(serialNumber, sessionId, effectiveTenantId),
-          getAccessToken
-        );
-        if (!response.ok) return;
-        const json = (await response.json()) as DeviceHistoryResponse;
+        const json = await fetchJson<DeviceHistoryResponse>(api.metrics.deviceHistory(serialNumber, sessionId, effectiveTenantId), getAccessToken);
         if (!cancelled) setData(json);
       } catch {
         // fail-soft: no banner

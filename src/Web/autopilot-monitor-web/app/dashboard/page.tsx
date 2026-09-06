@@ -30,10 +30,11 @@ import { useDashboardFilters } from "./hooks/useDashboardFilters";
 import { useDashboardSessions } from "./hooks/useDashboardSessions";
 import { useDashboardStats } from "./hooks/useDashboardStats";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { formatDuration } from "@/lib/formatting";
 import { hasTenantReadScope } from "@/lib/tenantScope";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
+import type { GetRuleHitSessionsResponse } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 export default function Home() {
   // useSearchParams() in HomeContent requires a Suspense boundary for static prerender.
@@ -203,16 +204,11 @@ function HomeContent() {
     const fetchHits = async () => {
       const ids = new Set<string>();
       try {
-        const response = await authenticatedFetch(
+        const data = await fetchJson<GetRuleHitSessionsResponse>(
           api.metrics.ruleHitSessions(ruleFilter.ruleId, 14, initialTenantFilter || undefined),
           getAccessToken
         );
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data.sessionIds)) {
-            for (const id of data.sessionIds) ids.add(String(id));
-          }
-        }
+        for (const id of data.sessionIds ?? []) ids.add(String(id));
       } catch {
         // Fail-soft: empty set below.
       }
@@ -248,7 +244,6 @@ function HomeContent() {
     isDelegatedScope: isDelegated && !hasGlobalScope,
     delegatedTenantIds: user?.delegatedTenantIds,
     getAccessToken,
-    addNotification,
     signalR,
     disabled: isRegularUser,
   });

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { createBurstScheduler, type BurstScheduler } from "@/lib/burstScheduler";
 import { EnrollmentEvent, Session } from "@/types";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
+import type { ProgressGetSessionEventsResponse, ProgressLookupSessionResponse } from "@/utils/wire-types.generated";
+import { fetchJson, nullOnApiError } from "@/lib/apiClient";
 
 // Live refetch coalescing on SignalR signals (see lib/burstScheduler). Each refresh is two
 // requests (summary lookup + events), hence a slightly wider window than the session page.
@@ -76,47 +77,23 @@ export function useProgressEvents({
 
       const fetchEvents = async () => {
         try {
-          const response = await authenticatedFetch(
+          const data = await fetchJson<ProgressGetSessionEventsResponse>(
             api.progress.sessionEvents(session.sessionId, tenantId, session.serialNumber),
             getAccessToken,
           );
-          if (response.ok) {
-            const data = await response.json();
-            const fetched: EnrollmentEvent[] = data.events || [];
-            setEvents((prev) => {
-              if (prev.length === 0) return fetched;
-              const existingIds = new Set(prev.map((e) => e.eventId));
-              const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
-              if (newEvents.length === 0) return prev;
-              return [...prev, ...newEvents].sort(
-                (a, b) => a.sequence - b.sequence,
-              );
-            });
-          } else {
-            addNotification(
-              "error",
-              "Backend Error",
-              `Failed to load enrollment events: ${response.statusText}`,
-              "progress-events-error",
+          const fetched: EnrollmentEvent[] = data.events || [];
+          setEvents((prev) => {
+            if (prev.length === 0) return fetched;
+            const existingIds = new Set(prev.map((e) => e.eventId));
+            const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
+            if (newEvents.length === 0) return prev;
+            return [...prev, ...newEvents].sort(
+              (a, b) => a.sequence - b.sequence,
             );
-          }
+          });
         } catch (error) {
-          if (error instanceof TokenExpiredError) {
-            addNotification(
-              "error",
-              "Session Expired",
-              error.message,
-              "session-expired-error",
-            );
-          } else {
-            console.error("Failed to fetch events:", error);
-            addNotification(
-              "error",
-              "Backend Not Reachable",
-              "Unable to load enrollment events. Please check your connection.",
-              "progress-events-error",
-            );
-          }
+          console.error("Failed to fetch events:", error);
+          notifyApiError(addNotification, "Backend Error", error, "progress-events-error", "Unable to load enrollment events.");
         }
       };
       await fetchEvents();
@@ -133,34 +110,28 @@ export function useProgressEvents({
         // session row always matches exactly). Guard on sessionId: the lookup returns the
         // NEWEST session for the serial, which after a re-enrollment is a different session —
         // the page must keep showing the one the user selected.
-        const lookupResponse = await authenticatedFetch(
+        const lookupData = await fetchJson<ProgressLookupSessionResponse>(
           api.progress.lookup(tenantId, currentSession.serialNumber),
           getAccessToken,
-        );
-        if (lookupResponse.ok) {
-          const lookupData = await lookupResponse.json();
-          const updated: Session | null = lookupData.found ? lookupData.session : null;
-          if (updated && updated.sessionId === currentSession.sessionId) {
-            setSession(updated);
-          }
+        ).catch(nullOnApiError);
+        const updated = lookupData?.found ? lookupData.session ?? null : null;
+        if (updated && updated.sessionId === currentSession.sessionId) {
+          setSession(updated);
         }
 
-        const eventsResponse = await authenticatedFetch(
+        const eventsData = await fetchJson<ProgressGetSessionEventsResponse>(
           api.progress.sessionEvents(currentSession.sessionId, tenantId, currentSession.serialNumber),
           getAccessToken,
         );
-        if (eventsResponse.ok) {
-          const eventsData = await eventsResponse.json();
-          const fetched: EnrollmentEvent[] = eventsData.events || [];
-          setEvents((prev) => {
-            const existingIds = new Set(prev.map((e) => e.eventId));
-            const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
-            if (newEvents.length === 0) return prev;
-            return [...prev, ...newEvents].sort(
-              (a, b) => a.sequence - b.sequence,
-            );
-          });
-        }
+        const fetched: EnrollmentEvent[] = eventsData.events || [];
+        setEvents((prev) => {
+          const existingIds = new Set(prev.map((e) => e.eventId));
+          const newEvents = fetched.filter((e) => !existingIds.has(e.eventId));
+          if (newEvents.length === 0) return prev;
+          return [...prev, ...newEvents].sort(
+            (a, b) => a.sequence - b.sequence,
+          );
+        });
       } catch (error) {
         console.error("[Progress] Refetch failed:", error);
       }

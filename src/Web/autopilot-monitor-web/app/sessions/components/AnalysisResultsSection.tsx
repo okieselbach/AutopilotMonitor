@@ -7,12 +7,13 @@ import { RuleResult } from "@/types";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { dashboardUrl } from "@/lib/routes";
 import { recentWindowStartIso, sumRecentFires } from "@/lib/ruleRecentFires";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
+import type { RuleStatsResponse } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 interface AnalysisResultsSectionProps {
   analysisResults: RuleResult[];
@@ -70,22 +71,17 @@ export default function AnalysisResultsSection({
         const url = crossTenant
           ? api.metrics.globalRuleStats(undefined, undefined, "analyze", sessionTenantId)
           : api.metrics.ruleStats(undefined, undefined, "analyze");
-        const response = await authenticatedFetch(url, getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
-          const map: Record<string, number> = {};
-          const fires: Record<string, number> = {};
-          const windowStart = recentWindowStartIso(new Date(), 14);
-          if (data.rules && Array.isArray(data.rules)) {
-            for (const r of data.rules) {
-              if (r.hitRate > 0) map[r.ruleId] = r.hitRate;
-              const recent = sumRecentFires(r.trend, windowStart);
-              if (recent > 0) fires[r.ruleId] = recent;
-            }
-          }
-          setRuleHitRates(map);
-          setRuleRecentFires(fires);
+        const data = await fetchJson<RuleStatsResponse>(url, getAccessToken);
+        const map: Record<string, number> = {};
+        const fires: Record<string, number> = {};
+        const windowStart = recentWindowStartIso(new Date(), 14);
+        for (const r of data.rules ?? []) {
+          if (r.hitRate > 0) map[r.ruleId] = r.hitRate;
+          const recent = sumRecentFires(r.trend, windowStart);
+          if (recent > 0) fires[r.ruleId] = recent;
         }
+        setRuleHitRates(map);
+        setRuleRecentFires(fires);
       } catch {
         // Non-critical
       }

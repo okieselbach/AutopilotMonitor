@@ -18,12 +18,14 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { isGuid } from '@/utils/inputValidation';
 import { api } from '@/lib/api';
-import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { extractContinuation, MAX_EAGER_PAGES } from '@/lib/paginationLink';
 import { sessionUrl } from '@/lib/routes';
 import NetworkBand from './NetworkBand';
 import { buildNetworkModel, fmtDuration, NetworkModel } from './networkTimelineModel';
 import type { EnrollmentEvent, Session } from '@/types';
+import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
+import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { GetSessionResponse } from "@/utils/wire-types.generated";
 
 // ── Data loading ─────────────────────────────────────────────────────────────
 
@@ -39,11 +41,8 @@ function useSessionData(sessionId: string | null, tenantIdOverride: string | und
     setLoading(true);
     setError(null);
     try {
-      const sResp = await authenticatedFetch(api.sessions.get(sessionId, tenantIdOverride), getAccessToken);
-      if (!sResp.ok) throw new Error(`Failed to load session (${sResp.status})`);
-      const sData = await sResp.json();
-      const found: Session | undefined =
-        sData.session ?? sData.sessions?.find((s: Session) => s.sessionId === sessionId);
+      const sData = await fetchJson<GetSessionResponse>(api.sessions.get(sessionId, tenantIdOverride), getAccessToken);
+      const found: Session | undefined = sData.session;
       if (!found) throw new Error('Session not found');
       setSession(found);
 
@@ -51,10 +50,9 @@ function useSessionData(sessionId: string | null, tenantIdOverride: string | und
       const all: EnrollmentEvent[] = [];
       let url = api.sessions.events(sessionId, tenantId, { pageSize: 200 });
       for (let page = 0; page < MAX_EAGER_PAGES; page++) {
-        const resp = await authenticatedFetch(url, getAccessToken);
-        if (!resp.ok) throw new Error(`Failed to load events (${resp.status})`);
-        const data = await resp.json();
-        if (Array.isArray(data.events)) all.push(...data.events);
+        const data = await fetchJson<GetSessionEventsResponse>(url, getAccessToken);
+        // No `fields` projection here, so every event is complete.
+        all.push(...((data.events ?? []) as EnrollmentEvent[]));
         const cont = extractContinuation(data.nextLink);
         if (!cont) break;
         url = api.sessions.events(sessionId, tenantId, { pageSize: 200, continuation: cont });
@@ -62,7 +60,7 @@ function useSessionData(sessionId: string | null, tenantIdOverride: string | und
       all.sort((a, b) => a.sequence - b.sequence);
       setEvents(all);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(apiErrorText(e));
     } finally {
       setLoading(false);
     }

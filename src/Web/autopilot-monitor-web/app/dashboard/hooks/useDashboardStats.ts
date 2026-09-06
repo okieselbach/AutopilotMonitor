@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useLatest } from "@/hooks/useLatest";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { asGuidOrUndefined } from "@/utils/inputValidation";
 import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
-import type { NotificationType } from "@/contexts/NotificationContext";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
+import type { SessionStatsResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 export interface DashboardStats {
   days: number;
@@ -27,13 +27,6 @@ export interface DashboardStats {
   computedAt: string;
 }
 
-type AddNotification = (
-  type: NotificationType,
-  title: string,
-  message: string,
-  key?: string,
-  href?: string,
-) => void;
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,7 +49,6 @@ interface UseDashboardStatsParams {
   delegatedTenantIds?: string[];
   days?: number;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
-  addNotification: AddNotification;
   signalR: SignalRApi;
   /**
    * When true (e.g. user role not yet known or regular non-admin user),
@@ -100,7 +92,6 @@ export function useDashboardStats({
   delegatedTenantIds,
   days = DEFAULT_DAYS,
   getAccessToken,
-  addNotification,
   signalR,
   disabled = false,
 }: UseDashboardStatsParams): UseDashboardStatsReturn {
@@ -156,39 +147,35 @@ export function useDashboardStats({
           })
         : api.sessions.stats({ days: daysRef.current });
 
-      const response = await authenticatedFetch(url, getAccessToken);
-
-      // Stale fetch — a newer scope change won the race. Drop silently.
-      if (myGen !== fetchGenRef.current) return;
-
-      if (!response.ok) {
-        let detail = response.statusText;
-        try {
-          const body = await response.json();
-          if (body?.message) detail = body.message;
-        } catch { /* not JSON */ }
-        setError(detail);
-        return;
+      let body: SessionStatsResponse;
+      try {
+        body = await fetchJson<SessionStatsResponse>(url, getAccessToken);
+      } catch (err) {
+        // Stale fetch: a newer scope change won the race. Drop silently.
+        if (myGen !== fetchGenRef.current) return;
+        if (err instanceof ApiError) {
+          setError(err.message);
+          return;
+        }
+        throw err;
       }
 
-      const body = await response.json();
-      if (body?.success && body?.stats) {
+      // Stale fetch: a newer scope change won the race. Drop silently.
+      if (myGen !== fetchGenRef.current) return;
+
+      if (body.success && body.stats) {
         setStats(body.stats as DashboardStats);
       } else {
         setError("Malformed stats response");
       }
     } catch (e) {
       if (myGen !== fetchGenRef.current) return;
-      if (e instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", e.message, "session-expired-error");
-      } else {
-        console.error("Failed to fetch dashboard stats:", e);
-        setError("Unable to load stats");
-      }
+      console.error("Failed to fetch dashboard stats:", e);
+      setError("Unable to load stats");
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, addNotification, disabledRef, globalAdminModeRef, tenantIdRef,
+  }, [getAccessToken, disabledRef, globalAdminModeRef, tenantIdRef,
       isDelegatedScopeRef, submittedFilterRef, delegatedTenantIdsRef, daysRef]);
 
   const refresh = useCallback(() => {

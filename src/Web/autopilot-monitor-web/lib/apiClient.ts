@@ -86,6 +86,12 @@ export function nullOn404(err: unknown): null {
   throw err;
 }
 
+/** `.catch(nullOnApiError)`: any backend refusal degrades to null (the old `if (!res.ok) return` sites); a token expiry or network failure still throws. */
+export function nullOnApiError(err: unknown): null {
+  if (err instanceof ApiError) return null;
+  throw err;
+}
+
 /** A string body without an explicit Content-Type is JSON — every backend route deserialises JSON. */
 function withJsonContentType(init: RequestInit | undefined): RequestInit | undefined {
   if (typeof init?.body !== "string") return init;

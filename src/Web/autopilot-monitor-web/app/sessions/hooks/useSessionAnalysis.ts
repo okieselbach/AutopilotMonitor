@@ -1,9 +1,10 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { RuleResult } from "@/types";
 import { isGuid } from "@/utils/inputValidation";
+import type { GetRuleResultsResponse, GetVulnerabilityReportResponse } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 export function useSessionAnalysis(
   sessionId: string,
@@ -23,20 +24,17 @@ export function useSessionAnalysis(
     try {
       setLoadingAnalysis(true);
 
-      const response = await authenticatedFetch(
+      const data = await fetchJson<GetRuleResultsResponse>(
         api.sessions.analysis(sessionId, sessionTenantId, reanalyze || undefined),
         getAccessToken
       );
-      if (response.ok) {
-        const data = await response.json();
-        if (data.results) {
-          setAnalysisResults(data.results.sort((a: RuleResult, b: RuleResult) => b.confidenceScore - a.confidenceScore));
-        }
-        // persistFailureRuleIds is null/undefined for the happy path and a string[] when one or
-        // more StoreRuleResultAsync calls returned false during the reanalyze loop. We always
-        // set it so a successful retry clears a previous warning.
-        setPersistFailureRuleIds(Array.isArray(data.persistFailureRuleIds) ? data.persistFailureRuleIds : []);
+      if (data.results) {
+        setAnalysisResults([...data.results].sort((a: RuleResult, b: RuleResult) => b.confidenceScore - a.confidenceScore));
       }
+      // persistFailureRuleIds is null/undefined for the happy path and a string[] when one or
+      // more StoreRuleResultAsync calls returned false during the reanalyze loop. We always
+      // set it so a successful retry clears a previous warning.
+      setPersistFailureRuleIds(Array.isArray(data.persistFailureRuleIds) ? data.persistFailureRuleIds : []);
     } catch (error) {
       console.error("Failed to fetch analysis results:", error);
     } finally {
@@ -47,14 +45,11 @@ export function useSessionAnalysis(
   const fetchVulnerabilityReport = useCallback(async (rescan = false) => {
     if (!sessionTenantId || !isGuid(sessionTenantId)) return;
     try {
-      const response = await authenticatedFetch(
+      const data = await fetchJson<GetVulnerabilityReportResponse>(
         api.sessions.vulnerabilityReport(sessionId, sessionTenantId, rescan || undefined),
         getAccessToken
       );
-      if (response.ok) {
-        const data = await response.json();
-        setVulnerabilityReport(data.report ?? null);
-      }
+      setVulnerabilityReport(data.report ?? null);
     } catch (error) {
       console.error("Failed to fetch vulnerability report:", error);
     }

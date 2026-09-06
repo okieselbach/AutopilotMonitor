@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { ApiError, apiErrorText, fetchOk } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { NotificationType } from "@/contexts/NotificationContext";
 import { useSignalR } from "@/contexts/SignalRContext";
@@ -73,6 +74,16 @@ export function useDeleteSession(
   // groups but does not back-fill events. Every 60s we re-fetch each pending session and
   // treat a 404 as "cascade completed". The interval is conservative (≤ 5 reqs/min/user with
   // a busy admin), well under the rate limit.
+  /** The DELETE's outcome for the classifier: the 202 Response, or the ApiError of a refusal (409/503/404). */
+  const deleteOutcome = useCallback(
+    (sessionId: string, tenantId: string): Promise<Response | ApiError> =>
+      fetchOk(api.sessions.delete(sessionId, tenantId), getAccessToken, { method: 'DELETE' }).catch((err: unknown) => {
+        if (err instanceof ApiError) return err;
+        throw err;
+      }),
+    [getAccessToken],
+  );
+
   useEffect(() => {
     if (pendingDeletions.size === 0) return;
     const intervalId = setInterval(async () => {
@@ -80,8 +91,14 @@ export function useDeleteSession(
         const tenantId = pendingTenantsRef.current.get(sessionId);
         if (!tenantId) continue;
         try {
-          const r = await authenticatedFetch(api.sessions.get(sessionId, tenantId), getAccessToken, { method: 'GET' });
-          if (classifyPollingResponse(r.status) === 'deleted') {
+          const status = await fetchOk(api.sessions.get(sessionId, tenantId), getAccessToken).then(
+            (r) => r.status,
+            (err: unknown) => {
+              if (err instanceof ApiError) return err.status;
+              throw err;
+            },
+          );
+          if (classifyPollingResponse(status) === 'deleted') {
             onSessionDeleted(sessionId);
             removePending(sessionId);
           }
@@ -165,18 +182,12 @@ export function useDeleteSession(
     if (targets.length === 1) {
       const { sessionId, tenantId } = targets[0];
       try {
-        const response = await authenticatedFetch(api.sessions.delete(sessionId, tenantId), getAccessToken, {
-          method: 'DELETE',
-        });
-        applyDeleteAction(await classifyDeleteResponse(response, sessionId, tenantId), true);
+        const outcome = await deleteOutcome(sessionId, tenantId);
+        applyDeleteAction(await classifyDeleteResponse(outcome, sessionId, tenantId), true);
       } catch (error) {
         // Errors in the catch are network / auth failures, not HTTP-status branches.
-        if (error instanceof TokenExpiredError) {
-          addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-        } else {
-          console.error('Failed to delete session:', error);
-          addNotification('error', 'Delete failed', 'Unable to reach the backend.', 'session-delete-network-error');
-        }
+        console.error('Failed to delete session:', error);
+        addNotification('error', 'Delete failed', 'Unable to reach the backend.', 'session-delete-network-error');
       }
       return;
     }
@@ -190,14 +201,12 @@ export function useDeleteSession(
     const actions = await runWithConcurrency(targets, BULK_CONCURRENCY, async ({ sessionId, tenantId }): Promise<DeleteResponseAction> => {
       if (abort.tokenExpired) return { kind: 'error', sessionId, message: abort.tokenExpired.message };
       try {
-        const response = await authenticatedFetch(api.sessions.delete(sessionId, tenantId), getAccessToken, {
-          method: 'DELETE',
-        });
-        return await classifyDeleteResponse(response, sessionId, tenantId);
+        const outcome = await deleteOutcome(sessionId, tenantId);
+        return await classifyDeleteResponse(outcome, sessionId, tenantId);
       } catch (error) {
         if (error instanceof TokenExpiredError) abort.tokenExpired = error;
         else console.error('Failed to delete session:', error);
-        return { kind: 'error', sessionId, message: error instanceof Error ? error.message : 'Unable to reach the backend.' };
+        return { kind: 'error', sessionId, message: apiErrorText(error, 'Unable to reach the backend.') };
       }
     });
 

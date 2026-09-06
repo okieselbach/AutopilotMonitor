@@ -2,10 +2,11 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { Session } from "@/types";
-import type { NotificationType } from "@/contexts/NotificationContext";
+import { type NotificationType, notifyApiError } from "@/contexts/NotificationContext";
+import type { ProgressLookupSessionResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 type AddNotification = (
   type: NotificationType,
@@ -67,47 +68,31 @@ export function useProgressSearch({
     onBeforeSearch?.();
 
     try {
-      const response = await authenticatedFetch(
-        api.progress.lookup(tenantId, serialInput.trim()),
-        getAccessToken,
-      );
+      let data: ProgressLookupSessionResponse;
+      try {
+        data = await fetchJson<ProgressLookupSessionResponse>(api.progress.lookup(tenantId, serialInput.trim()), getAccessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
+        notifyApiError(addNotification, "Backend Error", err, "progress-search-error", "Search failed.");
+        setNotFound(true);
+        return;
+      }
+      const found: Session | null = data.found ? data.session ?? null : null;
 
-      if (response.ok) {
-        const data = await response.json();
-        const found: Session | null = data.found ? data.session : null;
-
-        if (found) {
-          setSession(found);
-          setHeaderCollapsed(true);
-        } else {
-          setNotFound(true);
-        }
+      if (found) {
+        setSession(found);
+        setHeaderCollapsed(true);
       } else {
-        addNotification(
-          "error",
-          "Backend Error",
-          `Search failed: ${response.statusText}`,
-          "progress-search-error",
-        );
         setNotFound(true);
       }
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification(
-          "error",
-          "Session Expired",
-          error.message,
-          "session-expired-error",
-        );
-      } else {
-        console.error("Search failed:", error);
-        addNotification(
-          "error",
-          "Backend Not Reachable",
-          "Unable to search for device. Please check your connection.",
-          "progress-search-error",
-        );
-      }
+      console.error("Search failed:", error);
+      addNotification(
+        "error",
+        "Backend Not Reachable",
+        "Unable to search for device. Please check your connection.",
+        "progress-search-error",
+      );
       setNotFound(true);
     } finally {
       setSearching(false);
