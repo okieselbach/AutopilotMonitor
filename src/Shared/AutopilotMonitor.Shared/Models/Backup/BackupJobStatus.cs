@@ -10,6 +10,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// EDM enum). Unknown strings on read MUST throw — silent fallback is a regression
     /// risk after enum refactorings.
     /// </summary>
+    [WireContract]
     public sealed class BackupJobStatus
     {
         public string JobId { get; set; } = string.Empty;

@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import {
-  api,
-  type RestoreRowCommitResponse,
-  type RestoreRowPreviewResponse,
-  type RestoreRowPropertyDiff,
-  type RestoreRowPropertySnapshot,
-  type RestoreRowRequestBody,
-} from "@/lib/api";
+import { api, type RestoreRowRequestBody } from "@/lib/api";
+import type {
+  RestoreRowCommitResponse,
+  RestoreRowPreviewResponse,
+  RestoreRowPropertyDiff,
+  RestoreRowPropertySnapshot,
+} from "@/utils/wire-types.generated";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 
 interface RestoreRowDiffModalProps {

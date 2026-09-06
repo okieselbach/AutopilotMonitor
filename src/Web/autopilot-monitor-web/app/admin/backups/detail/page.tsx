@@ -7,10 +7,9 @@ import {
   api,
   type BackupManifest,
   type BackupTableEntry,
-  type RestoreRowCommitResponse,
-  type RestoreRowPreviewResponse,
   type RestoreRowRequestBody,
 } from "@/lib/api";
+import type { RestoreRowCommitResponse, RestoreRowPreviewResponse } from "@/utils/wire-types.generated";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";

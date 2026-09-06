@@ -52,6 +52,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// row (or null), a per-property diff, the row-hash to echo on commit, and the
     /// live ETag (or null) to echo on commit.
     /// </summary>
+    [WireContract]
     public sealed class RestoreRowPreviewResponse
     {
         public string BackupId { get; set; } = string.Empty;
@@ -91,6 +92,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// <summary>
     /// Successful response body of <c>mode=commit</c>. Echoes the write outcome.
     /// </summary>
+    [WireContract]
     public sealed class RestoreRowCommitResponse
     {
         public string BackupId { get; set; } = string.Empty;

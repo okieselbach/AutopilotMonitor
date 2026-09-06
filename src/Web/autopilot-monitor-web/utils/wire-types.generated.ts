@@ -786,6 +786,41 @@ export interface BackfillSample {
   decodedUtc: string;
 }
 
+export type BackupJobKind = "Backup" | "RestoreTable";
+
+/** Six-state job machine. Terminal states (Completed / Failed / Skipped / BlockedTerminal) short-circuit the worker's duplicate-detection on reappearance: message is dropped, no re-run. Failed vs BlockedTerminal vs Skipped is intentional so operator-action follow-up can be distinguished (logs / re-trigger / nothing-to-do). */
+export type BackupJobState = "Queued" | "Running" | "Completed" | "Failed" | "Skipped" | "BlockedTerminal";
+
+/** Per-job state machine for asynchronous backup + restore work. Persisted as !:BackupJobStatusEntity in BackupJobs (PartitionKey="BackupJobs", RowKey={jobId}). The domain DTO carries strongly-typed enums; the Repository layer maps from/to the string-typed Azure Table columns (Azure Tables has no EDM enum). Unknown strings on read MUST throw — silent fallback is a regression risk after enum refactorings. */
+export interface BackupJobStatus {
+  jobId: string;
+  kind: BackupJobKind;
+  state: BackupJobState;
+  /** UPN for manual triggers; "Timer" never reaches this DTO — Timer skips the queue. */
+  requestedBy: string;
+  queuedAtUtc: string;
+  startedAtUtc?: string;
+  completedAtUtc?: string;
+  /** Updated by the renewal-loop and per-phase progress writes; drives the watchdog. */
+  lastHeartbeatUtc: string;
+  /** For Kind=Backup: the worker-generated id of the manifest this job produced (null until the worker has acquired the lease and stamped it). UI uses this to deep-link from a completed job to its manifest detail page. */
+  backupId?: string;
+  /** For Kind=RestoreTable: the manifest id the operator is restoring FROM. */
+  sourceBackupId?: string;
+  /** For Kind=RestoreTable: the table being restored. */
+  tableName?: string;
+  /** For Kind=RestoreTable: upsert-only | replace-all. */
+  strategy?: string;
+  /** Free-form JSON for in-flight worker progress (phase, counters). Informational only — recovery does not depend on it. */
+  progress?: string;
+  error?: string;
+  /** For Kind=Backup with State=Completed: Success | Partial. Null for any other (Kind, State) combination. */
+  backupOutcome?: BackupOutcome;
+}
+
+/** Manifest-level outcome. Job-level state (Failed for fatal errors) is tracked separately on BackupJobStatus; a manifest only exists when the run reached the "all tables attempted, manifest write succeeded" milestone. */
+export type BackupOutcome = "Success" | "Partial";
+
 /** Response of POST devices/block: block/kill acknowledgement. */
 export interface BlockDeviceResponse {
   success: boolean;
@@ -3058,6 +3093,53 @@ export interface ReseedRuleCountsNode {
 export interface ReseedTableCountsNode {
   deleted: number;
   written: number;
+}
+
+export type RestoreRowCommitOutcome = "Inserted" | "Replaced";
+
+/** Successful response body of mode=commit. Echoes the write outcome. */
+export interface RestoreRowCommitResponse {
+  backupId: string;
+  tableName: string;
+  partitionKey: string;
+  rowKey: string;
+  /** Inserted when the live row was absent, Replaced when it existed. */
+  outcome: RestoreRowCommitOutcome;
+}
+
+export type RestoreRowDiffKind = "Added" | "Removed" | "Changed" | "Unchanged";
+
+/** Response body of mode=preview. Contains the backup-row dump, the live row (or null), a per-property diff, the row-hash to echo on commit, and the live ETag (or null) to echo on commit. */
+export interface RestoreRowPreviewResponse {
+  backupId: string;
+  tableName: string;
+  partitionKey: string;
+  rowKey: string;
+  /** EDM-tagged property snapshot from the backup NDJSON line. Keys are case-faithful original Azure Table column names. */
+  backupProperties: Record<string, RestoreRowPropertySnapshot>;
+  /** EDM-tagged property snapshot of the live row, or null if the live row does not currently exist. */
+  currentProperties?: Record<string, RestoreRowPropertySnapshot>;
+  diff: RestoreRowPropertyDiff[];
+  /** SHA-256 (hex, lowercase) of the raw NDJSON line bytes. Echo this on Commit. */
+  rowSha256: string;
+  /** Live-row ETag at preview time, or null if the live row did not exist. */
+  currentETag?: string;
+  /** True for tables whose IsEnabled column carries security semantics (AuthTablesFullRestoreForbidden). UI must render the warning banner. */
+  isAuthTable: boolean;
+}
+
+/** Per-property diff entry — exactly one property name with a change kind. */
+export interface RestoreRowPropertyDiff {
+  name: string;
+  kind: RestoreRowDiffKind;
+  backup?: RestoreRowPropertySnapshot;
+  current?: RestoreRowPropertySnapshot;
+}
+
+/** Single EDM-tagged property value carried over the wire. Matches the shape of DeletionPropValue but is a separate DTO so we can serialize JsonElement snapshots from both backup and live rows without leaking a Deletion-namespaced type. */
+export interface RestoreRowPropertySnapshot {
+  edmType: string;
+  value: unknown;
 }
 
 /** A condition that is evaluated against the event stream */

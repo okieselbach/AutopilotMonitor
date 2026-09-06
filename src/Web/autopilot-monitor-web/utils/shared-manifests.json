@@ -4084,6 +4084,161 @@
         }
       ]
     },
+    "BackupJobKind": {
+      "kind": "enum",
+      "members": [
+        "Backup",
+        "RestoreTable"
+      ]
+    },
+    "BackupJobState": {
+      "kind": "enum",
+      "doc": "Six-state job machine. Terminal states (Completed / Failed / Skipped / BlockedTerminal) short-circuit the worker's duplicate-detection on reappearance: message is dropped, no re-run. Failed vs BlockedTerminal vs Skipped is intentional so operator-action follow-up can be distinguished (logs / re-trigger / nothing-to-do).",
+      "members": [
+        "Queued",
+        "Running",
+        "Completed",
+        "Failed",
+        "Skipped",
+        "BlockedTerminal"
+      ]
+    },
+    "BackupJobStatus": {
+      "kind": "object",
+      "doc": "Per-job state machine for asynchronous backup + restore work. Persisted as !:BackupJobStatusEntity in BackupJobs (PartitionKey=\"BackupJobs\", RowKey={jobId}). The domain DTO carries strongly-typed enums; the Repository layer maps from/to the string-typed Azure Table columns (Azure Tables has no EDM enum). Unknown strings on read MUST throw — silent fallback is a regression risk after enum refactorings.",
+      "fields": [
+        {
+          "name": "jobId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "enum",
+            "name": "BackupJobKind"
+          }
+        },
+        {
+          "name": "state",
+          "type": {
+            "kind": "enum",
+            "name": "BackupJobState"
+          }
+        },
+        {
+          "name": "requestedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UPN for manual triggers; \"Timer\" never reaches this DTO — Timer skips the queue."
+        },
+        {
+          "name": "queuedAtUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "startedAtUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "completedAtUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "lastHeartbeatUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Updated by the renewal-loop and per-phase progress writes; drives the watchdog."
+        },
+        {
+          "name": "backupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "For Kind=Backup: the worker-generated id of the manifest this job produced (null until the worker has acquired the lease and stamped it). UI uses this to deep-link from a completed job to its manifest detail page."
+        },
+        {
+          "name": "sourceBackupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "For Kind=RestoreTable: the manifest id the operator is restoring FROM."
+        },
+        {
+          "name": "tableName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "For Kind=RestoreTable: the table being restored."
+        },
+        {
+          "name": "strategy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "For Kind=RestoreTable: upsert-only | replace-all."
+        },
+        {
+          "name": "progress",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Free-form JSON for in-flight worker progress (phase, counters). Informational only — recovery does not depend on it."
+        },
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "backupOutcome",
+          "type": {
+            "kind": "enum",
+            "name": "BackupOutcome"
+          },
+          "optional": true,
+          "doc": "For Kind=Backup with State=Completed: Success | Partial. Null for any other (Kind, State) combination."
+        }
+      ]
+    },
+    "BackupOutcome": {
+      "kind": "enum",
+      "doc": "Manifest-level outcome. Job-level state (Failed for fatal errors) is tracked separately on BackupJobStatus; a manifest only exists when the run reached the \"all tables attempted, manifest write succeeded\" milestone.",
+      "members": [
+        "Success",
+        "Partial"
+      ]
+    },
     "BlockDeviceResponse": {
       "kind": "object",
       "doc": "Response of POST devices/block: block/kill acknowledgement.",
@@ -14138,6 +14293,212 @@
           "type": {
             "kind": "primitive",
             "name": "number"
+          }
+        }
+      ]
+    },
+    "RestoreRowCommitOutcome": {
+      "kind": "enum",
+      "members": [
+        "Inserted",
+        "Replaced"
+      ]
+    },
+    "RestoreRowCommitResponse": {
+      "kind": "object",
+      "doc": "Successful response body of mode=commit. Echoes the write outcome.",
+      "fields": [
+        {
+          "name": "backupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tableName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "partitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "outcome",
+          "type": {
+            "kind": "enum",
+            "name": "RestoreRowCommitOutcome"
+          },
+          "doc": "Inserted when the live row was absent, Replaced when it existed."
+        }
+      ]
+    },
+    "RestoreRowDiffKind": {
+      "kind": "enum",
+      "members": [
+        "Added",
+        "Removed",
+        "Changed",
+        "Unchanged"
+      ]
+    },
+    "RestoreRowPreviewResponse": {
+      "kind": "object",
+      "doc": "Response body of mode=preview. Contains the backup-row dump, the live row (or null), a per-property diff, the row-hash to echo on commit, and the live ETag (or null) to echo on commit.",
+      "fields": [
+        {
+          "name": "backupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tableName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "partitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "backupProperties",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "ref",
+              "name": "RestoreRowPropertySnapshot"
+            }
+          },
+          "doc": "EDM-tagged property snapshot from the backup NDJSON line. Keys are case-faithful original Azure Table column names."
+        },
+        {
+          "name": "currentProperties",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "ref",
+              "name": "RestoreRowPropertySnapshot"
+            }
+          },
+          "optional": true,
+          "doc": "EDM-tagged property snapshot of the live row, or null if the live row does not currently exist."
+        },
+        {
+          "name": "diff",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RestoreRowPropertyDiff"
+            }
+          }
+        },
+        {
+          "name": "rowSha256",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "SHA-256 (hex, lowercase) of the raw NDJSON line bytes. Echo this on Commit."
+        },
+        {
+          "name": "currentETag",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Live-row ETag at preview time, or null if the live row did not exist."
+        },
+        {
+          "name": "isAuthTable",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "True for tables whose IsEnabled column carries security semantics (AuthTablesFullRestoreForbidden). UI must render the warning banner."
+        }
+      ]
+    },
+    "RestoreRowPropertyDiff": {
+      "kind": "object",
+      "doc": "Per-property diff entry — exactly one property name with a change kind.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "kind",
+          "type": {
+            "kind": "enum",
+            "name": "RestoreRowDiffKind"
+          }
+        },
+        {
+          "name": "backup",
+          "type": {
+            "kind": "ref",
+            "name": "RestoreRowPropertySnapshot"
+          },
+          "optional": true
+        },
+        {
+          "name": "current",
+          "type": {
+            "kind": "ref",
+            "name": "RestoreRowPropertySnapshot"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "RestoreRowPropertySnapshot": {
+      "kind": "object",
+      "doc": "Single EDM-tagged property value carried over the wire. Matches the shape of DeletionPropValue but is a separate DTO so we can serialize JsonElement snapshots from both backup and live rows without leaking a Deletion-namespaced type.",
+      "fields": [
+        {
+          "name": "edmType",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "value",
+          "type": {
+            "kind": "primitive",
+            "name": "unknown"
           }
         }
       ]
