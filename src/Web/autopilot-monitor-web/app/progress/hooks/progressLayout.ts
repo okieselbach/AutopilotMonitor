@@ -109,9 +109,30 @@ export function lastDeclaredPhase(events: EnrollmentEvent[]): number {
   return max;
 }
 
+const FIRST_USER_PHASE_ID = 4;
+
+/**
+ * A pre-provisioned device whose technician part (whiteglove_complete) finished and that no
+ * user has resumed yet. The backend caps such a session at the last device phase, so a
+ * phase-driven reading would keep "Installing apps (device)" running forever; both the
+ * headline and the step list must read the seal instead.
+ */
+export function isParkedAfterTechnicianPart(
+  session: Pick<ProgressSession, "isPreProvisioned" | "resumedAt">,
+  events: EnrollmentEvent[],
+): boolean {
+  if (!session.isPreProvisioned || session.resumedAt) return false;
+  let sealed = false;
+  for (const e of events) {
+    if (e.eventType === "whiteglove_resumed") return false;
+    if (e.eventType === "whiteglove_complete") sealed = true;
+  }
+  return sealed;
+}
+
 export interface ResolveActiveStepParams {
   steps: ProgressStep[];
-  session: Pick<ProgressSession, "status" | "currentPhase" | "enrollmentType">;
+  session: Pick<ProgressSession, "status" | "currentPhase" | "enrollmentType" | "isPreProvisioned" | "resumedAt">;
   events: EnrollmentEvent[];
   /** Any app download/install/summary evidence in the event stream. */
   hasAppActivity: boolean;
@@ -125,10 +146,19 @@ export interface ResolveActiveStepParams {
  *
  * Device Preparation never declares the app phase (the agent's sub-phase declaration is
  * ESP-driven), so on v2 the app step is promoted from app-event evidence instead.
+ *
+ * A pre-provisioned device parked after its technician part sits on the first user step:
+ * every device step is done, and the stored phase (capped at the device apps, or a stale
+ * Complete on older sessions) must neither hold it back nor push it past the sign-in.
  */
 export function resolveActiveStepIndex({ steps, session, events, hasAppActivity }: ResolveActiveStepParams): number {
   if (steps.length === 0) return 0;
   if (session.status === "Succeeded") return steps.length;
+
+  if (isParkedAfterTechnicianPart(session, events)) {
+    const userStepIndex = steps.findIndex((s) => s.id >= FIRST_USER_PHASE_ID);
+    if (userStepIndex >= 0) return userStepIndex;
+  }
 
   let phase = session.currentPhase;
   if (phase === FAILED_PHASE_ID || session.status === "Failed") {
@@ -189,11 +219,7 @@ export function resolvePresentation(session: ProgressSession, events: Enrollment
 
   // Non-terminal. A pre-provisioned device whose technician part finished and that has not
   // been resumed by its user is waiting, not working.
-  if (
-    session.isPreProvisioned &&
-    !session.resumedAt &&
-    events.some((e) => e.eventType === "whiteglove_complete")
-  ) {
+  if (isParkedAfterTechnicianPart(session, events)) {
     return awaitingUser(session);
   }
 

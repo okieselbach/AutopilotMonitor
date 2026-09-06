@@ -4,6 +4,7 @@ import { makeEvent, makeSession } from "@/test/factories";
 import {
   buildProgressSteps,
   computeOverallProgress,
+  isParkedAfterTechnicianPart,
   lastDeclaredPhase,
   resolveActiveStepIndex,
   resolvePresentation,
@@ -120,6 +121,35 @@ describe("resolveActiveStepIndex", () => {
     const failed = makeSession({ ...v1, status: "Failed", currentPhase: 99 });
     expect(resolveActiveStepIndex({ steps, session: failed, events: [], hasAppActivity: true })).toBe(3);
     expect(resolveActiveStepIndex({ steps, session: failed, events: [], hasAppActivity: false })).toBe(0);
+  });
+
+  it("pre-provisioned device parked after the technician part sits on Account setup with every device step done", () => {
+    const steps = buildProgressSteps({ ...v1, isPreProvisioned: true }, false);
+    const parked = { ...v1, isPreProvisioned: true, currentPhase: 3 };
+    const sealed = [ev(1, "esp_phase_changed", 3), ev(2, "whiteglove_complete"), ev(3, "agent_shutting_down", 7)];
+    // The backend caps the stored phase at Apps (Device); without the seal that step would stay "current" forever.
+    expect(resolveActiveStepIndex({ steps, session: parked, events: sealed, hasAppActivity: true })).toBe(4);
+    expect(computeOverallProgress("InProgress", 4, steps.length)).toBe(57);
+    // Older sessions carry a stale Complete phase — the seal must not push the device past the sign-in either.
+    expect(resolveActiveStepIndex({ steps, session: { ...parked, currentPhase: 7 }, events: sealed, hasAppActivity: true })).toBe(4);
+    // Still in Part 1 (no seal yet): phase-driven as usual.
+    expect(resolveActiveStepIndex({ steps, session: parked, events: [ev(1, "esp_phase_changed", 3)], hasAppActivity: true })).toBe(3);
+    // Resumed by the user (either signal): phase-driven again.
+    expect(resolveActiveStepIndex({ steps, session: { ...parked, resumedAt: "2026-08-28T11:00:00Z", currentPhase: 5 }, events: sealed, hasAppActivity: true })).toBe(5);
+    expect(resolveActiveStepIndex({ steps, session: { ...parked, currentPhase: 4 }, events: [...sealed, ev(4, "whiteglove_resumed")], hasAppActivity: true })).toBe(4);
+  });
+});
+
+describe("isParkedAfterTechnicianPart", () => {
+  it("needs the pre-provisioned flag, the seal and no resume in either form", () => {
+    const sealed = [ev(1, "whiteglove_complete")];
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: true, resumedAt: undefined }, sealed)).toBe(true);
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: false, resumedAt: undefined }, sealed)).toBe(false);
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: true, resumedAt: undefined }, [])).toBe(false);
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: true, resumedAt: "2026-08-28T11:00:00Z" }, sealed)).toBe(false);
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: true, resumedAt: undefined }, [...sealed, ev(2, "whiteglove_resumed")])).toBe(false);
+    // Race: Windows may write the seal after the Part-2 reboot — the resume still wins.
+    expect(isParkedAfterTechnicianPart({ isPreProvisioned: true, resumedAt: undefined }, [ev(1, "whiteglove_resumed"), ev(2, "whiteglove_complete")])).toBe(false);
   });
 });
 
