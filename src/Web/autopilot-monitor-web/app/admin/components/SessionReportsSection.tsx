@@ -12,6 +12,7 @@ import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata, UpdateSessionReportNoteRequest } from "@/utils/wire-types.generated";
+import { ModalPortal } from "@/components/ModalPortal";
 
 const PAGE_SIZE = 20;
 
@@ -484,138 +485,116 @@ function SessionReportsSectionInner({
 
       {/* Report Detail Modal */}
       {selectedReport && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedReport(null)}
-        >
+        <ModalPortal>
           <div
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedReport(null)}
           >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Details</h3>
-                <div className="flex items-center">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
-                    {selectedReport.reportId}
-                  </span>
-                  <CopyButton value={selectedReport.reportId} />
+            <div
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Details</h3>
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
+                      {selectedReport.reportId}
+                    </span>
+                    <CopyButton value={selectedReport.reportId} />
+                  </div>
                 </div>
-              </div>
 
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Type</dt>
-                  <dd className="mt-0.5">
-                    <ReportTypeBadge type={selectedReport.reportType} />
-                  </dd>
-                </div>
-                {selectedReport.reportType !== "diagFiles" && selectedReport.sessionId && (
+                <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Session ID</dt>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Type</dt>
+                    <dd className="mt-0.5">
+                      <ReportTypeBadge type={selectedReport.reportType} />
+                    </dd>
+                  </div>
+                  {selectedReport.reportType !== "diagFiles" && selectedReport.sessionId && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Session ID</dt>
+                      <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                        {selectedReport.sessionId}
+                        <CopyButton value={selectedReport.sessionId} />
+                      </dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
                     <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                      {selectedReport.sessionId}
-                      <CopyButton value={selectedReport.sessionId} />
+                      {selectedReport.tenantId}
+                      <CopyButton value={selectedReport.tenantId} />
                     </dd>
                   </div>
-                )}
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                    {selectedReport.tenantId}
-                    <CopyButton value={selectedReport.tenantId} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Submitted By</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                    {selectedReport.submittedBy}
-                    <CopyButton value={selectedReport.submittedBy} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Submitted At</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{new Date(selectedReport.submittedAt).toLocaleString()}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Email</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                    {selectedReport.email
-                      ? <><span>{selectedReport.email}</span><CopyButton value={selectedReport.email} /></>
-                      : <span className="text-gray-400 italic">not provided</span>}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Comment</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5 whitespace-pre-wrap">
-                    {selectedReport.comment || <span className="text-gray-400 italic">no comment</span>}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Blob Name</dt>
-                  <dd className="font-mono text-xs text-gray-700 dark:text-gray-300 mt-0.5 break-all bg-gray-50 dark:bg-gray-700/50 rounded p-2">
-                    {selectedReport.blobName}
-                  </dd>
-                </div>
-                {selectedReport.diagnosticsBlobName && (
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Archive</dt>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Submitted By</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                      {selectedReport.submittedBy}
+                      <CopyButton value={selectedReport.submittedBy} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Submitted At</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{new Date(selectedReport.submittedAt).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Email</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                      {selectedReport.email
+                        ? <><span>{selectedReport.email}</span><CopyButton value={selectedReport.email} /></>
+                        : <span className="text-gray-400 italic">not provided</span>}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Comment</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 whitespace-pre-wrap">
+                      {selectedReport.comment || <span className="text-gray-400 italic">no comment</span>}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Blob Name</dt>
                     <dd className="font-mono text-xs text-gray-700 dark:text-gray-300 mt-0.5 break-all bg-gray-50 dark:bg-gray-700/50 rounded p-2">
-                      {selectedReport.diagnosticsBlobName}
+                      {selectedReport.blobName}
                     </dd>
                   </div>
-                )}
-                {selectedReport.diagnosticsCopyStatus && selectedReport.diagnosticsCopyStatus !== "Copied" && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Copy</dt>
-                    <dd className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                      {selectedReport.diagnosticsCopyStatus}
-                    </dd>
-                  </div>
-                )}
-
-                {/* Admin Note — keyed on the report so switching reports remounts
-                    the editor and re-seeds its draft from the report's saved note. */}
-                <AdminNoteEditor
-                  key={selectedReport.reportId}
-                  report={selectedReport}
-                  canMutate={canMutate}
-                  getAccessToken={getAccessToken}
-                  onSaved={handleNoteSaved}
-                />
-              </dl>
-
-              <div className="mt-6 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleDownload(selectedReport.blobName)}
-                    disabled={downloadingBlob === selectedReport.blobName}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
-                  >
-                    {downloadingBlob === selectedReport.blobName ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        Preparing...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Download ZIP
-                      </>
-                    )}
-                  </button>
                   {selectedReport.diagnosticsBlobName && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Archive</dt>
+                      <dd className="font-mono text-xs text-gray-700 dark:text-gray-300 mt-0.5 break-all bg-gray-50 dark:bg-gray-700/50 rounded p-2">
+                        {selectedReport.diagnosticsBlobName}
+                      </dd>
+                    </div>
+                  )}
+                  {selectedReport.diagnosticsCopyStatus && selectedReport.diagnosticsCopyStatus !== "Copied" && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Diagnostics Copy</dt>
+                      <dd className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        {selectedReport.diagnosticsCopyStatus}
+                      </dd>
+                    </div>
+                  )}
+
+                  {/* Admin Note — keyed on the report so switching reports remounts
+                      the editor and re-seeds its draft from the report's saved note. */}
+                  <AdminNoteEditor
+                    key={selectedReport.reportId}
+                    report={selectedReport}
+                    canMutate={canMutate}
+                    getAccessToken={getAccessToken}
+                    onSaved={handleNoteSaved}
+                  />
+                </dl>
+
+                <div className="mt-6 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleDownload(selectedReport.diagnosticsBlobName!)}
-                      disabled={downloadingBlob === selectedReport.diagnosticsBlobName}
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-md transition-colors text-sm font-medium"
+                      onClick={() => handleDownload(selectedReport.blobName)}
+                      disabled={downloadingBlob === selectedReport.blobName}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-indigo-400 text-white rounded-md transition-colors text-sm font-medium"
                     >
-                      {downloadingBlob === selectedReport.diagnosticsBlobName ? (
+                      {downloadingBlob === selectedReport.blobName ? (
                         <>
                           <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -628,22 +607,46 @@ function SessionReportsSectionInner({
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
-                          Download Diagnostics
+                          Download ZIP
                         </>
                       )}
                     </button>
-                  )}
+                    {selectedReport.diagnosticsBlobName && (
+                      <button
+                        onClick={() => handleDownload(selectedReport.diagnosticsBlobName!)}
+                        disabled={downloadingBlob === selectedReport.diagnosticsBlobName}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-md transition-colors text-sm font-medium"
+                      >
+                        {downloadingBlob === selectedReport.diagnosticsBlobName ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            Preparing...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Diagnostics
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSelectedReport(null)}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+                  >
+                    Close
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSelectedReport(null)}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

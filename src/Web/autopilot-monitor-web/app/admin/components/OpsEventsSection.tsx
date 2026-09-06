@@ -10,6 +10,7 @@ import { extractContinuation } from "@/lib/paginationLink";
 import { extractSessionId, buildAutoReason } from "./opsEventSessionHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { OpsEventEntry, OpsEventListResponse } from "@/utils/wire-types.generated";
+import { ModalPortal } from "@/components/ModalPortal";
 
 /** One ops event row (wire shape). */
 type OpsEvent = OpsEventEntry;
@@ -468,120 +469,122 @@ export function OpsEventsSection({
 
       {/* Detail Modal */}
       {selectedEvent && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedEvent(null)}
-        >
+        <ModalPortal>
           <div
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedEvent(null)}
           >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Event Details</h3>
-                <div className="flex gap-1.5">
-                  <SeverityBadge severity={selectedEvent.severity} />
-                  <CategoryBadge category={selectedEvent.category} />
+            <div
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Event Details</h3>
+                  <div className="flex gap-1.5">
+                    <SeverityBadge severity={selectedEvent.severity} />
+                    <CategoryBadge category={selectedEvent.category} />
+                  </div>
                 </div>
-              </div>
 
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Event Type</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedEvent.eventType}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Timestamp</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5">
-                    {new Date(selectedEvent.timestamp).toLocaleString()}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Message</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedEvent.message}</dd>
-                </div>
-                {selectedEvent.tenantId && (
+                <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
-                    <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                      {selectedEvent.tenantId}
-                      <CopyButton value={selectedEvent.tenantId} />
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Event Type</dt>
+                    <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedEvent.eventType}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Timestamp</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">
+                      {new Date(selectedEvent.timestamp).toLocaleString()}
                     </dd>
                   </div>
-                )}
-                {selectedEvent.userId && (
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">User</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                      {selectedEvent.userId}
-                      <CopyButton value={selectedEvent.userId} />
-                    </dd>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Message</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedEvent.message}</dd>
                   </div>
-                )}
-                {selectedEvent.details && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Details</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs bg-gray-50 dark:bg-gray-700 rounded p-2 font-mono break-all whitespace-pre-wrap">
-                      {(() => {
-                        try {
-                          return JSON.stringify(JSON.parse(selectedEvent.details!), null, 2);
-                        } catch {
-                          return selectedEvent.details;
-                        }
-                      })()}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-
-              {(() => {
-                const sessionId = extractSessionId(selectedEvent.details ?? null);
-                if (!sessionId) return null;
-                const reason = buildAutoReason(selectedEvent.eventType, sessionId);
-                return (
-                  <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                      Review the session, or quick-action against the device behind it:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={sessionUrl(sessionId)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"
-                      >
-                        View session
-                      </Link>
-                      <Link
-                        href={deviceBlockUrl(sessionId, reason, "Block")}
-                        onClick={() => setSelectedEvent(null)}
-                        className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-900/40 dark:text-orange-200 dark:hover:bg-orange-900/60 border border-orange-300 dark:border-orange-700"
-                      >
-                        Block this device
-                      </Link>
-                      <Link
-                        href={deviceBlockUrl(sessionId, reason, "Kill")}
-                        onClick={() => setSelectedEvent(null)}
-                        className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800"
-                      >
-                        Kill this device
-                      </Link>
+                  {selectedEvent.tenantId && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
+                      <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                        {selectedEvent.tenantId}
+                        <CopyButton value={selectedEvent.tenantId} />
+                      </dd>
                     </div>
-                  </div>
-                );
-              })()}
+                  )}
+                  {selectedEvent.userId && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">User</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                        {selectedEvent.userId}
+                        <CopyButton value={selectedEvent.userId} />
+                      </dd>
+                    </div>
+                  )}
+                  {selectedEvent.details && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Details</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs bg-gray-50 dark:bg-gray-700 rounded p-2 font-mono break-all whitespace-pre-wrap">
+                        {(() => {
+                          try {
+                            return JSON.stringify(JSON.parse(selectedEvent.details!), null, 2);
+                          } catch {
+                            return selectedEvent.details;
+                          }
+                        })()}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
 
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setSelectedEvent(null)}
-                  className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                >
-                  Close
-                </button>
+                {(() => {
+                  const sessionId = extractSessionId(selectedEvent.details ?? null);
+                  if (!sessionId) return null;
+                  const reason = buildAutoReason(selectedEvent.eventType, sessionId);
+                  return (
+                    <div className="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                        Review the session, or quick-action against the device behind it:
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={sessionUrl(sessionId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 border border-blue-300 dark:border-blue-700"
+                        >
+                          View session
+                        </Link>
+                        <Link
+                          href={deviceBlockUrl(sessionId, reason, "Block")}
+                          onClick={() => setSelectedEvent(null)}
+                          className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-orange-100 text-orange-800 hover:bg-orange-200 dark:bg-orange-900/40 dark:text-orange-200 dark:hover:bg-orange-900/60 border border-orange-300 dark:border-orange-700"
+                        >
+                          Block this device
+                        </Link>
+                        <Link
+                          href={deviceBlockUrl(sessionId, reason, "Kill")}
+                          onClick={() => setSelectedEvent(null)}
+                          className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-red-700 text-white hover:bg-red-800 dark:bg-red-700 dark:hover:bg-red-800"
+                        >
+                          Kill this device
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setSelectedEvent(null)}
+                    className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

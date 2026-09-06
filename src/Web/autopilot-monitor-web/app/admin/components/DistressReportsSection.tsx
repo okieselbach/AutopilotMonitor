@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, nullOn404 } from "@/lib/apiClient";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { DistressReportEntry, DistressReportListResponse } from "@/utils/wire-types.generated";
+import { ModalPortal } from "@/components/ModalPortal";
 
 /** One stored distress report — the wire shape (optional where the agent sent nothing). */
 type DistressReport = DistressReportEntry;
@@ -312,104 +313,106 @@ export function DistressReportsSection({
 
       {/* Detail Modal */}
       {selectedReport && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedReport(null)}
-        >
+        <ModalPortal>
           <div
-            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={() => setSelectedReport(null)}
           >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Distress Report Details</h3>
-                <ErrorTypeBadge errorType={selectedReport.errorType} />
-              </div>
+            <div
+              className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Distress Report Details</h3>
+                  <ErrorTypeBadge errorType={selectedReport.errorType} />
+                </div>
 
-              <dl className="space-y-3 text-sm">
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
-                  <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                    {selectedReport.tenantId}
-                    <CopyButton value={selectedReport.tenantId} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Error Type</dt>
-                  <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.errorType}</dd>
-                </div>
-                {selectedReport.httpStatusCode && (
+                <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">HTTP Status</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.httpStatusCode}</dd>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Manufacturer</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.manufacturer ?? "-"}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Model</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.model ?? "-"}</dd>
-                  </div>
-                </div>
-                {selectedReport.serialNumber && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Serial Number</dt>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Tenant ID</dt>
                     <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
-                      {selectedReport.serialNumber}
-                      <CopyButton value={selectedReport.serialNumber} />
-                    </dd>
-                  </div>
-                )}
-                {selectedReport.agentVersion && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Agent Version</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.agentVersion}</dd>
-                  </div>
-                )}
-                {selectedReport.message && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Message</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs bg-gray-50 dark:bg-gray-700 rounded p-2 font-mono break-all">
-                      {selectedReport.message}
-                    </dd>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Agent Timestamp</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs">
-                      {new Date(selectedReport.agentTimestamp).toLocaleString()}
+                      {selectedReport.tenantId}
+                      <CopyButton value={selectedReport.tenantId} />
                     </dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Ingested At</dt>
-                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs">
-                      {new Date(selectedReport.ingestedAt).toLocaleString()}
-                    </dd>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Error Type</dt>
+                    <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.errorType}</dd>
                   </div>
-                </div>
-                {selectedReport.sourceIp && (
-                  <div>
-                    <dt className="font-medium text-gray-500 dark:text-gray-400">Source IP</dt>
-                    <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.sourceIp}</dd>
+                  {selectedReport.httpStatusCode && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">HTTP Status</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.httpStatusCode}</dd>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Manufacturer</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.manufacturer ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Model</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.model ?? "-"}</dd>
+                    </div>
                   </div>
-                )}
-              </dl>
+                  {selectedReport.serialNumber && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Serial Number</dt>
+                      <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5 flex items-center">
+                        {selectedReport.serialNumber}
+                        <CopyButton value={selectedReport.serialNumber} />
+                      </dd>
+                    </div>
+                  )}
+                  {selectedReport.agentVersion && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Agent Version</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.agentVersion}</dd>
+                    </div>
+                  )}
+                  {selectedReport.message && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Message</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs bg-gray-50 dark:bg-gray-700 rounded p-2 font-mono break-all">
+                        {selectedReport.message}
+                      </dd>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Agent Timestamp</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs">
+                        {new Date(selectedReport.agentTimestamp).toLocaleString()}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Ingested At</dt>
+                      <dd className="text-gray-900 dark:text-gray-100 mt-0.5 text-xs">
+                        {new Date(selectedReport.ingestedAt).toLocaleString()}
+                      </dd>
+                    </div>
+                  </div>
+                  {selectedReport.sourceIp && (
+                    <div>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">Source IP</dt>
+                      <dd className="font-mono text-gray-900 dark:text-gray-100 mt-0.5">{selectedReport.sourceIp}</dd>
+                    </div>
+                  )}
+                </dl>
 
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setSelectedReport(null)}
-                  className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                >
-                  Close
-                </button>
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setSelectedReport(null)}
+                    className="px-4 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

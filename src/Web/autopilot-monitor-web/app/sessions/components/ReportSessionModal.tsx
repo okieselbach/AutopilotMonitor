@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
+import { ModalPortal } from "@/components/ModalPortal";
 
 const MAX_AGENT_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
 // Backend caps the whole request body at 20 MB. Base64 adds ~33%, and the body also
@@ -186,262 +187,264 @@ export default function ReportSessionModal({
   const agentLogTotalSize = agentLogFiles.reduce((sum, f) => sum + f.size, 0);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={handleClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center mb-4">
-            <div className="flex-shrink-0 w-12 h-12 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Session</h3>
-            </div>
-          </div>
-
-          {/* Submit result feedback */}
-          {submitResult === 'success' && (
-            <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Report submitted successfully</p>
-                <p className="text-sm text-green-700 dark:text-green-400 mt-0.5">
-                  The session has been submitted for analysis by the Autopilot Monitor team.
-                </p>
+    <ModalPortal>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={handleClose}>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="p-6">
+            {/* Header */}
+            <div className="flex items-center mb-4">
+              <div className="flex-shrink-0 w-12 h-12 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Session</h3>
               </div>
             </div>
-          )}
 
-          {submitResult === 'error' && (
-            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <p className="text-sm font-semibold text-red-800 dark:text-red-300">Failed to submit report</p>
-                <p className="text-sm text-red-700 dark:text-red-400 mt-0.5">{submitErrorMessage}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Form — hidden after successful submit */}
-          {submitResult !== 'success' && (
-            <>
-              {/* Explanation */}
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
-                Submit this session for analysis by the Autopilot Monitor team. The event timeline,
-                session data, analysis results, and UI exports will be included so discrepancies
-                can be analyzed and improvements made.
-              </p>
-
-              {/* Comment */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Comment <span className="text-gray-400">(optional)</span>
-                </label>
-                <textarea
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
-                  placeholder="Describe what seems incorrect or unexpected..."
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  rows={3}
-                  disabled={submitting}
-                />
-              </div>
-
-              {/* Email */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Communication Email <span className="text-gray-400">(optional but recommended)</span>
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="your.email@company.com"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  disabled={submitting}
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  No guarantee of response. Issues may be silently fixed &mdash; check the changelog.
-                </p>
-              </div>
-
-              {/* Agent Log Files */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Agent Logs <span className="text-gray-400">(optional, max 5 MB total)</span>
-                </label>
-                <input
-                  ref={agentLogInputRef}
-                  type="file"
-                  accept=".log,.txt,.zip"
-                  multiple
-                  onChange={e => addAgentLogs(e.target.files ? Array.from(e.target.files) : [])}
-                  className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
-                  disabled={submitting}
-                />
-                {agentLogError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{agentLogError}</p>
-                )}
-                {agentLogFiles.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {agentLogFiles.map((file, i) => (
-                      <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
-                        <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
-                        <button
-                          type="button"
-                          onClick={() => removeAgentLog(i)}
-                          disabled={submitting}
-                          className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-                          title="Remove"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                    <p className="text-xs text-gray-400 dark:text-gray-500">
-                      {agentLogFiles.length} file{agentLogFiles.length !== 1 ? "s" : ""} — {formatFileSize(agentLogTotalSize)} total
-                    </p>
-                  </div>
-                )}
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Located at %ProgramData%\AutopilotMonitor\Logs\ on the device.
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Located at %ProgramData%\Microsoft\IntuneManagementExtension\Logs\ on the device.
-                </p>
-              </div>
-
-              {/* Screenshots */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Screenshots <span className="text-gray-400">(optional, max 8 MB total)</span>
-                </label>
-                <input
-                  ref={screenshotInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={e => addScreenshots(e.target.files ? Array.from(e.target.files) : [])}
-                  className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
-                  disabled={submitting}
-                />
-                {screenshotError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{screenshotError}</p>
-                )}
-                {screenshotFiles.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {screenshotFiles.map((file, i) => (
-                      <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
-                        <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
-                        <button
-                          type="button"
-                          onClick={() => removeScreenshot(i)}
-                          disabled={submitting}
-                          className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-                          title="Remove"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Diagnostics archive opt-in — active only when the session has an uploaded
-                  diag ZIP; rendered disabled otherwise so the option is discoverable. */}
-              <div className="mb-6">
-                <label className={`flex items-start gap-2 ${hasDiagnostics ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
-                  <input
-                    type="checkbox"
-                    checked={hasDiagnostics && includeDiagnostics}
-                    onChange={e => setIncludeDiagnostics(e.target.checked)}
-                    disabled={submitting || !hasDiagnostics}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">
-                    Include uploaded diagnostics archive
-                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {hasDiagnostics
-                        ? "A server-side copy of this session's diagnostics ZIP is stored with the report, so it stays available for analysis even after the session is deleted."
-                        : "No diagnostics archive has been uploaded for this session — nothing to include."}
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              {/* Data summary */}
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 mb-6 text-xs text-gray-600 dark:text-gray-300">
-                <p className="font-medium mb-1">Data included in report:</p>
-                <ul className="list-disc list-inside space-y-0.5">
-                  <li>Session metadata (device, status, duration)</li>
-                  <li>{events.length} event{events.length !== 1 ? "s" : ""} from timeline</li>
-                  <li>{analysisResults.length} analysis result{analysisResults.length !== 1 ? "s" : ""}</li>
-                  <li>Timeline export (TXT)</li>
-                  <li>Table export (CSV)</li>
-                  {agentLogFiles.length === 1 && <li>Agent log: {agentLogFiles[0].name} ({formatFileSize(agentLogFiles[0].size)})</li>}
-                  {agentLogFiles.length > 1 && <li>{agentLogFiles.length} agent logs ({formatFileSize(agentLogTotalSize)}, will be zipped)</li>}
-                  {screenshotFiles.length === 1 && <li>Screenshot: {screenshotFiles[0].name}</li>}
-                  {screenshotFiles.length > 1 && <li>{screenshotFiles.length} screenshots (will be zipped)</li>}
-                  {hasDiagnostics && includeDiagnostics && <li>Uploaded diagnostics archive (copied server-side)</li>}
-                </ul>
-                {eventsStreaming && (
-                  <p className="mt-2 text-amber-700 dark:text-amber-400">
-                    ⚠ The event timeline is still loading — a report submitted now will contain a
-                    partial export. Wait a moment for the complete timeline if possible.
+            {/* Submit result feedback */}
+            {submitResult === 'success' && (
+              <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-start gap-3">
+                <svg className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-green-800 dark:text-green-300">Report submitted successfully</p>
+                  <p className="text-sm text-green-700 dark:text-green-400 mt-0.5">
+                    The session has been submitted for analysis by the Autopilot Monitor team.
                   </p>
-                )}
+                </div>
               </div>
-            </>
-          )}
+            )}
 
-          {/* Actions */}
-          <div className="flex justify-end gap-3">
-            {submitResult === 'success' ? (
-              <button
-                onClick={handleClose}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-              >
-                Close
-              </button>
-            ) : (
+            {submitResult === 'error' && (
+              <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
+                <svg className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-red-800 dark:text-red-300">Failed to submit report</p>
+                  <p className="text-sm text-red-700 dark:text-red-400 mt-0.5">{submitErrorMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Form — hidden after successful submit */}
+            {submitResult !== 'success' && (
               <>
-                <button
-                  onClick={handleClose}
-                  disabled={submitting}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting || !!agentLogError || !!screenshotError}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {submitting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      Submitting...
-                    </>
-                  ) : (
-                    "Submit Report"
+                {/* Explanation */}
+                <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                  Submit this session for analysis by the Autopilot Monitor team. The event timeline,
+                  session data, analysis results, and UI exports will be included so discrepancies
+                  can be analyzed and improvements made.
+                </p>
+
+                {/* Comment */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Comment <span className="text-gray-400">(optional)</span>
+                  </label>
+                  <textarea
+                    value={comment}
+                    onChange={e => setComment(e.target.value)}
+                    placeholder="Describe what seems incorrect or unexpected..."
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    rows={3}
+                    disabled={submitting}
+                  />
+                </div>
+
+                {/* Email */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Communication Email <span className="text-gray-400">(optional but recommended)</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="your.email@company.com"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    disabled={submitting}
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    No guarantee of response. Issues may be silently fixed &mdash; check the changelog.
+                  </p>
+                </div>
+
+                {/* Agent Log Files */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Agent Logs <span className="text-gray-400">(optional, max 5 MB total)</span>
+                  </label>
+                  <input
+                    ref={agentLogInputRef}
+                    type="file"
+                    accept=".log,.txt,.zip"
+                    multiple
+                    onChange={e => addAgentLogs(e.target.files ? Array.from(e.target.files) : [])}
+                    className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
+                    disabled={submitting}
+                  />
+                  {agentLogError && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">{agentLogError}</p>
                   )}
-                </button>
+                  {agentLogFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {agentLogFiles.map((file, i) => (
+                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
+                          <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
+                          <button
+                            type="button"
+                            onClick={() => removeAgentLog(i)}
+                            disabled={submitting}
+                            className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+                            title="Remove"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        {agentLogFiles.length} file{agentLogFiles.length !== 1 ? "s" : ""} — {formatFileSize(agentLogTotalSize)} total
+                      </p>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Located at %ProgramData%\AutopilotMonitor\Logs\ on the device.
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Located at %ProgramData%\Microsoft\IntuneManagementExtension\Logs\ on the device.
+                  </p>
+                </div>
+
+                {/* Screenshots */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Screenshots <span className="text-gray-400">(optional, max 8 MB total)</span>
+                  </label>
+                  <input
+                    ref={screenshotInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={e => addScreenshots(e.target.files ? Array.from(e.target.files) : [])}
+                    className="w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/40 dark:file:text-blue-300"
+                    disabled={submitting}
+                  />
+                  {screenshotError && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">{screenshotError}</p>
+                  )}
+                  {screenshotFiles.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {screenshotFiles.map((file, i) => (
+                        <div key={`${file.name}-${file.size}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 rounded px-2 py-1 text-xs text-gray-600 dark:text-gray-300">
+                          <span className="truncate mr-2">{file.name} ({formatFileSize(file.size)})</span>
+                          <button
+                            type="button"
+                            onClick={() => removeScreenshot(i)}
+                            disabled={submitting}
+                            className="flex-shrink-0 text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+                            title="Remove"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Diagnostics archive opt-in — active only when the session has an uploaded
+                    diag ZIP; rendered disabled otherwise so the option is discoverable. */}
+                <div className="mb-6">
+                  <label className={`flex items-start gap-2 ${hasDiagnostics ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                    <input
+                      type="checkbox"
+                      checked={hasDiagnostics && includeDiagnostics}
+                      onChange={e => setIncludeDiagnostics(e.target.checked)}
+                      disabled={submitting || !hasDiagnostics}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      Include uploaded diagnostics archive
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {hasDiagnostics
+                          ? "A server-side copy of this session's diagnostics ZIP is stored with the report, so it stays available for analysis even after the session is deleted."
+                          : "No diagnostics archive has been uploaded for this session — nothing to include."}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                {/* Data summary */}
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 mb-6 text-xs text-gray-600 dark:text-gray-300">
+                  <p className="font-medium mb-1">Data included in report:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    <li>Session metadata (device, status, duration)</li>
+                    <li>{events.length} event{events.length !== 1 ? "s" : ""} from timeline</li>
+                    <li>{analysisResults.length} analysis result{analysisResults.length !== 1 ? "s" : ""}</li>
+                    <li>Timeline export (TXT)</li>
+                    <li>Table export (CSV)</li>
+                    {agentLogFiles.length === 1 && <li>Agent log: {agentLogFiles[0].name} ({formatFileSize(agentLogFiles[0].size)})</li>}
+                    {agentLogFiles.length > 1 && <li>{agentLogFiles.length} agent logs ({formatFileSize(agentLogTotalSize)}, will be zipped)</li>}
+                    {screenshotFiles.length === 1 && <li>Screenshot: {screenshotFiles[0].name}</li>}
+                    {screenshotFiles.length > 1 && <li>{screenshotFiles.length} screenshots (will be zipped)</li>}
+                    {hasDiagnostics && includeDiagnostics && <li>Uploaded diagnostics archive (copied server-side)</li>}
+                  </ul>
+                  {eventsStreaming && (
+                    <p className="mt-2 text-amber-700 dark:text-amber-400">
+                      ⚠ The event timeline is still loading — a report submitted now will contain a
+                      partial export. Wait a moment for the complete timeline if possible.
+                    </p>
+                  )}
+                </div>
               </>
             )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              {submitResult === 'success' ? (
+                <button
+                  onClick={handleClose}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                >
+                  Close
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleClose}
+                    disabled={submitting}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || !!agentLogError || !!screenshotError}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Submitting...
+                      </>
+                    ) : (
+                      "Submit Report"
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

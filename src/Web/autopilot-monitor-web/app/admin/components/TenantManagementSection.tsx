@@ -29,6 +29,7 @@ import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { matchesTenantSearch, notificationEmailFor, parseTenantSearch } from "./tenantSearch";
+import { ModalPortal } from "@/components/ModalPortal";
 
 /** "Pro (MSP)" / "Pro (Trial)" / "Pro" / "Community" for the plan-save confirmation. */
 function effectiveEditionLabel(edition: unknown, source: unknown): string {
@@ -708,549 +709,551 @@ function TenantManagementSectionInner({
 
       {/* Edit Tenant Modal */}
       {editingTenant && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 z-10 bg-green-600 text-white p-6 rounded-t-lg">
-              <h2 className="text-2xl font-bold">Edit Tenant Configuration</h2>
-              <p className="text-green-100 text-sm mt-1">{editingTenant.tenantId}</p>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Tenant Suspension */}
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <h3 className="font-semibold text-red-900 mb-1">Tenant Suspension</h3>
-                <p className="text-xs text-gray-600 mb-3">
-                  Blocks sign-in and tenant auto-activation while the tenant&apos;s data stays in
-                  place — this is the durable lock-out lever for abuse cases (offboarding below is
-                  not: it deletes the suspension along with everything else).
-                </p>
-                <div className="space-y-3">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editingTenant.disabled}
-                      onChange={(e) => setEditingTenant({ ...editingTenant, disabled: e.target.checked })}
-                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">Suspend Tenant</span>
-                  </label>
-
-                  {editingTenant.disabled && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                        <input
-                          type="text"
-                          value={editingTenant.disabledReason || ''}
-                          onChange={(e) => setEditingTenant({ ...editingTenant, disabledReason: e.target.value })}
-                          placeholder="Optional: Why is this tenant suspended?"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Disabled Until</label>
-                        <input
-                          type="datetime-local"
-                          value={editingTenant.disabledUntil ? new Date(editingTenant.disabledUntil).toISOString().slice(0, 16) : ''}
-                          onChange={(e) => setEditingTenant({ ...editingTenant, disabledUntil: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Optional: Auto-enable after this date/time</p>
-                      </div>
-                    </>
-                  )}
-                </div>
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 z-10 bg-green-600 text-white p-6 rounded-t-lg">
+                <h2 className="text-2xl font-bold">Edit Tenant Configuration</h2>
+                <p className="text-green-100 text-sm mt-1">{editingTenant.tenantId}</p>
               </div>
 
-              {/* Plan & Trial (own save path — PATCH plan endpoint; the modal's generic Save
-                  does not touch these fields, the backend preserves them on PUT) */}
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
-                  {(() => {
-                    const isProTier = editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise";
-                    const trialActive = !!editingTenant.trialExpiresUtc &&
-                      new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
-                    const viaMsp = !!editingTenant.managedByProTenantId;
-                    const effective = viaMsp || isProTier || trialActive ? "Pro" : "Community";
-                    return (
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          effective === "Pro"
-                            ? "bg-purple-100 text-purple-800"
-                            : "bg-gray-100 text-gray-700"
-                        }`}
-                        title={viaMsp ? `Pro conferred by the managing tenant ${editingTenant.managedByProTenantId}` : undefined}
-                      >
-                        Effective: {effective}{viaMsp ? " (MSP)" : !isProTier && trialActive ? " (Trial)" : ""}
-                      </span>
-                    );
-                  })()}
+              <div className="p-6 space-y-6">
+                {/* Tenant Suspension */}
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-red-900 mb-1">Tenant Suspension</h3>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Blocks sign-in and tenant auto-activation while the tenant&apos;s data stays in
+                    place — this is the durable lock-out lever for abuse cases (offboarding below is
+                    not: it deletes the suspension along with everything else).
+                  </p>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingTenant.disabled}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, disabled: e.target.checked })}
+                        className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Suspend Tenant</span>
+                    </label>
+
+                    {editingTenant.disabled && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                          <input
+                            type="text"
+                            value={editingTenant.disabledReason || ''}
+                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledReason: e.target.value })}
+                            placeholder="Optional: Why is this tenant suspended?"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Disabled Until</label>
+                          <input
+                            type="datetime-local"
+                            value={editingTenant.disabledUntil ? new Date(editingTenant.disabledUntil).toISOString().slice(0, 16) : ''}
+                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledUntil: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Optional: Auto-enable after this date/time</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Plan Tier</label>
-                    <select
-                      value={editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise" ? "pro" : "community"}
-                      onChange={(e) => setEditingTenant({ ...editingTenant, planTier: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                    >
-                      <option value="community">Community</option>
-                      <option value="pro">Pro</option>
-                    </select>
-                    {editingTenant.planTier === "enterprise" && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        Stored legacy tier &quot;enterprise&quot; resolves to Pro. Saving normalizes it to &quot;pro&quot;.
-                      </p>
-                    )}
-                    {editingTenant.planTier && !["pro", "enterprise", "community"].includes(editingTenant.planTier) && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
-                      </p>
-                    )}
-                    {(editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise") && (!editingTenant.contactEmail || !editingTenant.companyName) && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        ⚠ Contact profile incomplete ({[!editingTenant.contactEmail && "no contact address", !editingTenant.companyName && "no company name"].filter(Boolean).join(", ")}) —
-                        Pro tenants should be reachable and identifiable for service and security
-                        matters. Self-service trials are blocked until both are set; GA assignment is
-                        not, and the tenant sees a dashboard reminder until an admin completes it
-                        (Settings → Tenant → Contact).
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Trial Ends (UTC)</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="datetime-local"
-                        value={editingTenant.trialExpiresUtc ? new Date(editingTenant.trialExpiresUtc).toISOString().slice(0, 16) : ""}
-                        onChange={(e) => setEditingTenant({
-                          ...editingTenant,
-                          trialExpiresUtc: e.target.value ? new Date(e.target.value + "Z").toISOString() : null,
-                        })}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      />
-                      {editingTenant.trialExpiresUtc && (
-                        <button
-                          onClick={() => setEditingTenant({ ...editingTenant, trialExpiresUtc: null })}
-                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                          title="End the trial (saves as no trial)"
+
+                {/* Plan & Trial (own save path — PATCH plan endpoint; the modal's generic Save
+                    does not touch these fields, the backend preserves them on PUT) */}
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
+                    {(() => {
+                      const isProTier = editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise";
+                      const trialActive = !!editingTenant.trialExpiresUtc &&
+                        new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
+                      const viaMsp = !!editingTenant.managedByProTenantId;
+                      const effective = viaMsp || isProTier || trialActive ? "Pro" : "Community";
+                      return (
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            effective === "Pro"
+                              ? "bg-purple-100 text-purple-800"
+                              : "bg-gray-100 text-gray-700"
+                          }`}
+                          title={viaMsp ? `Pro conferred by the managing tenant ${editingTenant.managedByProTenantId}` : undefined}
                         >
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Set a date to grant/extend a Pro trial; clear to end it. Saving does not reset trial consumption.
-                    </p>
-                  </div>
-                  <label className="flex items-start gap-2 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={editingTenant.payingCustomer === true}
-                      onChange={(e) => setEditingTenant({ ...editingTenant, payingCustomer: e.target.checked })}
-                      className="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <span>
-                      <span className="font-medium">Paying customer</span>
-                      <span className="block text-xs text-gray-500">
-                        Sales bookkeeping only: distinguishes a paid Pro from a support-assigned one or Pro conferred by an MSP. Changes nothing about the plan.
-                      </span>
-                    </span>
-                  </label>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Delegated tenant slots (override)</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        value={editingTenant.maxDelegatedTenantsOverride ?? ""}
-                        onChange={(e) => setEditingTenant({
-                          ...editingTenant,
-                          maxDelegatedTenantsOverride: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value))),
-                        })}
-                        placeholder={slotUsage ? `plan: ${slotUsage.catalogLimit}` : "plan default"}
-                        className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      />
-                      {editingTenant.maxDelegatedTenantsOverride != null && (
-                        <button
-                          onClick={() => setEditingTenant({ ...editingTenant, maxDelegatedTenantsOverride: null })}
-                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                          title="Clear the override (the plan entitlement applies)"
-                        >
-                          Clear
-                        </button>
-                      )}
-                      {slotUsage && (
-                        <span className="text-xs text-gray-600">
-                          Slots: {slotUsage.used} of {slotUsage.limit} in use
-                          {slotUsage.pendingInvitations > 0 && ` (${slotUsage.pendingInvitations} pending)`}
-                          {slotUsage.holds.length > 0 && ` (${slotUsage.holds.length} on hold)`}
+                          Effective: {effective}{viaMsp ? " (MSP)" : !isProTier && trialActive ? " (Trial)" : ""}
                         </span>
-                      )}
-                    </div>
-                    {slotUsage && slotUsage.holds.length > 0 && (
-                      <ul className="mt-2 space-y-1">
-                        {slotUsage.holds.map((h) => (
-                          <li key={h.invitationId} className="flex flex-wrap items-center gap-x-2 text-xs text-gray-600">
-                            <span className="font-mono">{h.tenantId ?? "unknown tenant"}</span>
-                            <span>held until {new Date(h.holdUntilUtc).toLocaleString()}</span>
-                            <span className="text-gray-400">by {h.releasedBy}</span>
-                            <button
-                              type="button"
-                              disabled={!canMutate || releasingHold === h.invitationId}
-                              onClick={() => handleReleaseHold(editingTenant.tenantId, h.invitationId)}
-                              className="ml-auto text-purple-700 hover:underline disabled:opacity-50"
-                              title="End this 24 h hold now (support escape hatch; audited)"
-                            >
-                              {releasingHold === h.invitationId ? "Releasing…" : "Release now"}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="text-xs text-gray-500 mt-1">
-                      How many distinct customer tenants this (MSP) tenant&rsquo;s users may manage. Blank = plan entitlement
-                      (Community 0, Pro 2); a value applies regardless of plan, using delegation still requires Pro.
-                    </p>
+                      );
+                    })()}
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">MCP usage plan (override)</label>
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Plan Tier</label>
                       <select
-                        value={editingTenant.mcpUsagePlanOverride ?? ""}
-                        onChange={(e) => setEditingTenant({
-                          ...editingTenant,
-                          mcpUsagePlanOverride: e.target.value === "" ? null : e.target.value,
-                        })}
-                        className="w-48 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        value={editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise" ? "pro" : "community"}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, planTier: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                       >
-                        <option value="">Edition default</option>
-                        {/* The stored value stays selectable even when the definitions failed to load or no longer list it. */}
-                        {Array.from(new Set([
-                          ...(usagePlanNames ?? []),
-                          ...(editingTenant.mcpUsagePlanOverride ? [editingTenant.mcpUsagePlanOverride] : []),
-                        ])).map((name) => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
+                        <option value="community">Community</option>
+                        <option value="pro">Pro</option>
                       </select>
-                      {editingTenant.mcpUsagePlanOverride != null && (
-                        <button
-                          onClick={() => setEditingTenant({ ...editingTenant, mcpUsagePlanOverride: null })}
-                          className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                          title="Clear the override (the edition's plan applies)"
-                        >
-                          Clear
-                        </button>
+                      {editingTenant.planTier === "enterprise" && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Stored legacy tier &quot;enterprise&quot; resolves to Pro. Saving normalizes it to &quot;pro&quot;.
+                        </p>
+                      )}
+                      {editingTenant.planTier && !["pro", "enterprise", "community"].includes(editingTenant.planTier) && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Stored legacy tier &quot;{editingTenant.planTier}&quot; resolves to Community. Saving normalizes it.
+                        </p>
+                      )}
+                      {(editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise") && (!editingTenant.contactEmail || !editingTenant.companyName) && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠ Contact profile incomplete ({[!editingTenant.contactEmail && "no contact address", !editingTenant.companyName && "no company name"].filter(Boolean).join(", ")}) —
+                          Pro tenants should be reachable and identifiable for service and security
+                          matters. Self-service trials are blocked until both are set; GA assignment is
+                          not, and the tenant sees a dashboard reminder until an admin completes it
+                          (Settings → Tenant → Contact).
+                        </p>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Applies a usage plan (Admin → Settings → Usage Plans) to the whole tenant: every member&rsquo;s default
-                      MCP budget and the organization-wide windows. Blank = the edition&rsquo;s plan (community/pro). Does not
-                      change the edition; a per-user plan on the MCP Users page still wins for that account.
-                    </p>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Trial Ends (UTC)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={editingTenant.trialExpiresUtc ? new Date(editingTenant.trialExpiresUtc).toISOString().slice(0, 16) : ""}
+                          onChange={(e) => setEditingTenant({
+                            ...editingTenant,
+                            trialExpiresUtc: e.target.value ? new Date(e.target.value + "Z").toISOString() : null,
+                          })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        />
+                        {editingTenant.trialExpiresUtc && (
+                          <button
+                            onClick={() => setEditingTenant({ ...editingTenant, trialExpiresUtc: null })}
+                            className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            title="End the trial (saves as no trial)"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Set a date to grant/extend a Pro trial; clear to end it. Saving does not reset trial consumption.
+                      </p>
+                    </div>
+                    <label className="flex items-start gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={editingTenant.payingCustomer === true}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, payingCustomer: e.target.checked })}
+                        className="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>
+                        <span className="font-medium">Paying customer</span>
+                        <span className="block text-xs text-gray-500">
+                          Sales bookkeeping only: distinguishes a paid Pro from a support-assigned one or Pro conferred by an MSP. Changes nothing about the plan.
+                        </span>
+                      </span>
+                    </label>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Delegated tenant slots (override)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={editingTenant.maxDelegatedTenantsOverride ?? ""}
+                          onChange={(e) => setEditingTenant({
+                            ...editingTenant,
+                            maxDelegatedTenantsOverride: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value))),
+                          })}
+                          placeholder={slotUsage ? `plan: ${slotUsage.catalogLimit}` : "plan default"}
+                          className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        />
+                        {editingTenant.maxDelegatedTenantsOverride != null && (
+                          <button
+                            onClick={() => setEditingTenant({ ...editingTenant, maxDelegatedTenantsOverride: null })}
+                            className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            title="Clear the override (the plan entitlement applies)"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        {slotUsage && (
+                          <span className="text-xs text-gray-600">
+                            Slots: {slotUsage.used} of {slotUsage.limit} in use
+                            {slotUsage.pendingInvitations > 0 && ` (${slotUsage.pendingInvitations} pending)`}
+                            {slotUsage.holds.length > 0 && ` (${slotUsage.holds.length} on hold)`}
+                          </span>
+                        )}
+                      </div>
+                      {slotUsage && slotUsage.holds.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {slotUsage.holds.map((h) => (
+                            <li key={h.invitationId} className="flex flex-wrap items-center gap-x-2 text-xs text-gray-600">
+                              <span className="font-mono">{h.tenantId ?? "unknown tenant"}</span>
+                              <span>held until {new Date(h.holdUntilUtc).toLocaleString()}</span>
+                              <span className="text-gray-400">by {h.releasedBy}</span>
+                              <button
+                                type="button"
+                                disabled={!canMutate || releasingHold === h.invitationId}
+                                onClick={() => handleReleaseHold(editingTenant.tenantId, h.invitationId)}
+                                className="ml-auto text-purple-700 hover:underline disabled:opacity-50"
+                                title="End this 24 h hold now (support escape hatch; audited)"
+                              >
+                                {releasingHold === h.invitationId ? "Releasing…" : "Release now"}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">
+                        How many distinct customer tenants this (MSP) tenant&rsquo;s users may manage. Blank = plan entitlement
+                        (Community 0, Pro 2); a value applies regardless of plan, using delegation still requires Pro.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">MCP usage plan (override)</label>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={editingTenant.mcpUsagePlanOverride ?? ""}
+                          onChange={(e) => setEditingTenant({
+                            ...editingTenant,
+                            mcpUsagePlanOverride: e.target.value === "" ? null : e.target.value,
+                          })}
+                          className="w-48 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        >
+                          <option value="">Edition default</option>
+                          {/* The stored value stays selectable even when the definitions failed to load or no longer list it. */}
+                          {Array.from(new Set([
+                            ...(usagePlanNames ?? []),
+                            ...(editingTenant.mcpUsagePlanOverride ? [editingTenant.mcpUsagePlanOverride] : []),
+                          ])).map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                        {editingTenant.mcpUsagePlanOverride != null && (
+                          <button
+                            onClick={() => setEditingTenant({ ...editingTenant, mcpUsagePlanOverride: null })}
+                            className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            title="Clear the override (the edition's plan applies)"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Applies a usage plan (Admin → Settings → Usage Plans) to the whole tenant: every member&rsquo;s default
+                        MCP budget and the organization-wide windows. Blank = the edition&rsquo;s plan (community/pro). Does not
+                        change the edition; a per-user plan on the MCP Users page still wins for that account.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        {editingTenant.trialConsumed
+                          ? "Self-service trial: already consumed (re-grants only via this panel)."
+                          : "Self-service trial: still available to the tenant."}
+                      </span>
+                      <button
+                        onClick={() => handleSavePlan(editingTenant)}
+                        disabled={!canMutate || savingPlan}
+                        className="px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                      >
+                        {savingPlan ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
+                            <span>Saving…</span>
+                          </>
+                        ) : (
+                          <span>Save Plan</span>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {editingTenant.trialConsumed
-                        ? "Self-service trial: already consumed (re-grants only via this panel)."
-                        : "Self-service trial: still available to the tenant."}
-                    </span>
+                </div>
+
+                {/* App Registration Homing (own save path — POST app-homing endpoint; the modal's
+                    generic Save does not touch this field, the backend preserves it on PUT) */}
+                {legacyConfigured() && (
+                  <div className="bg-sky-50 border border-sky-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-sky-900">App Registration Homing</h3>
+                      <HomingBadge clientId={editingTenant.homedAppClientId} />
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-600">
+                        {editingTenant.lastAuthClientId ? (
+                          <>
+                            Logins arrive via the{" "}
+                            <span className="font-medium">
+                              {classifyClientId(editingTenant.lastAuthClientId) === "primary" ? "new" : "legacy"} app
+                            </span>
+                            {editingTenant.lastAuthClientIdSince && (
+                              <> since {new Date(editingTenant.lastAuthClientIdSince).toLocaleString()}</>
+                            )}
+                            .
+                          </>
+                        ) : (
+                          <>No login provenance recorded yet.</>
+                        )}
+                      </p>
+                      {editingTenant.entraAppRolesEnabled && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                          Entra app roles are enabled — switching requires re-assigning the app roles on
+                          the other enterprise app, or those users lose their role claims.
+                        </p>
+                      )}
+                      <div className="flex justify-end">
+                        {classifyClientId(editingTenant.homedAppClientId) === "primary" ? (
+                          <button
+                            onClick={() => { setHomingError(null); setHomingDialogTarget("legacy"); }}
+                            disabled={!canMutate || savingHoming}
+                            className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Revert to legacy app
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setHomingError(null); setHomingDialogTarget("primary"); }}
+                            disabled={!canMutate || savingHoming}
+                            className="px-3 py-2 text-sm font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Switch to new app
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin Users Info */}
+                <TenantAdminSection
+                  tenantId={editingTenant.tenantId}
+                  getAccessToken={getAccessToken}
+                  setError={setError}
+                  setSuccessMessage={setSuccessMessage}
+                />
+
+                {/* Identity bindings homed in this tenant (cross-tenant role holders) — collapsed, inspect/correct only */}
+                <IdentityBindingsSection
+                  tenantId={editingTenant.tenantId}
+                  getAccessToken={getAccessToken}
+                  setError={setError}
+                  setSuccessMessage={setSuccessMessage}
+                />
+
+                {/* Preview Notification Email */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-indigo-900 mb-3">Preview Notification Email</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="email"
+                      value={notificationEmail}
+                      onChange={(e) => setNotificationEmail(e.target.value)}
+                      placeholder="user@example.com"
+                      className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                    />
                     <button
-                      onClick={() => handleSavePlan(editingTenant)}
-                      disabled={!canMutate || savingPlan}
-                      className="px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                      onClick={() => handleSendWelcomeEmail(editingTenant.tenantId, notificationEmail)}
+                      disabled={!canMutate || sendingWelcomeEmail || !notificationEmail.trim()}
+                      className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap flex items-center gap-1.5"
+                      title="Send or resend the activation welcome email"
                     >
-                      {savingPlan ? (
+                      {sendingWelcomeEmail ? (
                         <>
                           <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
-                          <span>Saving…</span>
+                          <span>Sending...</span>
                         </>
                       ) : (
-                        <span>Save Plan</span>
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          <span>Send Welcome Email</span>
+                        </>
                       )}
                     </button>
                   </div>
-                </div>
-              </div>
-
-              {/* App Registration Homing (own save path — POST app-homing endpoint; the modal's
-                  generic Save does not touch this field, the backend preserves it on PUT) */}
-              {legacyConfigured() && (
-                <div className="bg-sky-50 border border-sky-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-sky-900">App Registration Homing</h3>
-                    <HomingBadge clientId={editingTenant.homedAppClientId} />
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs text-gray-600">
-                      {editingTenant.lastAuthClientId ? (
-                        <>
-                          Logins arrive via the{" "}
-                          <span className="font-medium">
-                            {classifyClientId(editingTenant.lastAuthClientId) === "primary" ? "new" : "legacy"} app
-                          </span>
-                          {editingTenant.lastAuthClientIdSince && (
-                            <> since {new Date(editingTenant.lastAuthClientIdSince).toLocaleString()}</>
-                          )}
-                          .
-                        </>
-                      ) : (
-                        <>No login provenance recorded yet.</>
-                      )}
+                  <p className="text-xs text-indigo-600 mt-2">
+                    The email is saved and sent in one step. Also sent automatically on approval if set.
+                  </p>
+                  {(editingTenant.contactEmail || editingTenant.companyName) && (
+                    <p className="text-xs text-indigo-700 mt-2 pt-2 border-t border-indigo-200">
+                      <span className="font-medium">Tenant contact:</span>{" "}
+                      {editingTenant.companyName && <span>{editingTenant.companyName}{editingTenant.contactEmail ? ", " : ""}</span>}
+                      {editingTenant.contactEmail && <span className="font-mono">{editingTenant.contactEmail}</span>}
+                      <span className="text-indigo-500"> — maintained by the tenant, for service matters only</span>
                     </p>
-                    {editingTenant.entraAppRolesEnabled && (
-                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                        Entra app roles are enabled — switching requires re-assigning the app roles on
-                        the other enterprise app, or those users lose their role claims.
-                      </p>
-                    )}
-                    <div className="flex justify-end">
-                      {classifyClientId(editingTenant.homedAppClientId) === "primary" ? (
-                        <button
-                          onClick={() => { setHomingError(null); setHomingDialogTarget("legacy"); }}
-                          disabled={!canMutate || savingHoming}
-                          className="px-3 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Revert to legacy app
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => { setHomingError(null); setHomingDialogTarget("primary"); }}
-                          disabled={!canMutate || savingHoming}
-                          className="px-3 py-2 text-sm font-medium text-white bg-sky-600 rounded-lg hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Switch to new app
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
-              )}
 
-              {/* Admin Users Info */}
-              <TenantAdminSection
-                tenantId={editingTenant.tenantId}
-                getAccessToken={getAccessToken}
-                setError={setError}
-                setSuccessMessage={setSuccessMessage}
-              />
-
-              {/* Identity bindings homed in this tenant (cross-tenant role holders) — collapsed, inspect/correct only */}
-              <IdentityBindingsSection
-                tenantId={editingTenant.tenantId}
-                getAccessToken={getAccessToken}
-                setError={setError}
-                setSuccessMessage={setSuccessMessage}
-              />
-
-              {/* Preview Notification Email */}
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                <h3 className="font-semibold text-indigo-900 mb-3">Preview Notification Email</h3>
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Device API Rate Limit override */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Device API Rate Limit (Requests/Min)</label>
                   <input
-                    type="email"
-                    value={notificationEmail}
-                    onChange={(e) => setNotificationEmail(e.target.value)}
-                    placeholder="user@example.com"
-                    className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                    type="number"
+                    min="1"
+                    max="10000"
+                    placeholder="Blank = inherit global default"
+                    value={editingTenant.customRateLimitRequestsPerMinute ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setEditingTenant({ ...editingTenant, customRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                   />
+                  <p className="mt-1 text-xs text-gray-500">Per-device (agent/cert) limit. Leave blank to inherit the global default.</p>
+                </div>
+
+                {/* MCP & integrations API Rate Limit override */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">MCP &amp; Integrations API Rate Limit (Requests/Min)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    placeholder="Blank = inherit global default"
+                    value={editingTenant.customUserRateLimitRequestsPerMinute ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setEditingTenant({ ...editingTenant, customUserRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Per-user limit for MCP and integration requests made on behalf of this tenant&apos;s standard users. Portal sessions use the global portal budget and are not affected. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
+                </div>
+
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingTenant.bootstrapTokenEnabled ?? false}
+                    onChange={(e) => setEditingTenant({ ...editingTenant, bootstrapTokenEnabled: e.target.checked })}
+                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable Bootstrap Token</span>
+                </label>
+
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingTenant.unrestrictedModeEnabled ?? false}
+                    onChange={(e) => setEditingTenant({ ...editingTenant, unrestrictedModeEnabled: e.target.checked })}
+                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Enable Unrestricted Mode</span>
+                </label>
+
+                <div>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTenant.enableEspContinueAnywayObservation ?? false}
+                      onChange={(e) => setEditingTenant({ ...editingTenant, enableEspContinueAnywayObservation: e.target.checked })}
+                      className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Enable Continue-Anyway Observation</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-1 ml-6">
+                    Device-phase ESP terminal failures on profiles that allow &quot;Continue anyway&quot; are
+                    observed for up to 60 min instead of failing immediately: a real-user desktop completes
+                    the session as Succeeded with an amber &quot;with issues&quot; badge; otherwise it fails with
+                    the original reason. Needs agent with ConfigVersion 37+; applies to new sessions only.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTenant.entraAppRolesEnabled ?? false}
+                      onChange={(e) => setEditingTenant({ ...editingTenant, entraAppRolesEnabled: e.target.checked })}
+                      className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Enable Entra App Roles</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mt-1 ml-6">
+                    Allow Admin/Operator roles to be granted via Entra app-role assignments on the Enterprise App (the token&apos;s roles claim), in addition to the member table. The member table always wins.
+                  </p>
+                </div>
+
+                {/* Data Management */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (Days)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingTenant.dataRetentionDays}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      setEditingTenant({ ...editingTenant, dataRetentionDays: isNaN(val) ? 90 : val });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                  />
+                  {editingTenant.dataRetentionDays === 0 ? (
+                    <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Infinite retention — data will never be automatically deleted</p>
+                  ) : (editingTenant.dataRetentionDays < 7 || editingTenant.dataRetentionDays > 365) ? (
+                    <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Outside tenant range (7–365) — field will be locked for tenant admins</p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Pro). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
+                  )}
+                </div>
+
+                {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
+                    deliberately NOT part of the modal's Save button) */}
+                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                  <h3 className="font-semibold text-red-900 mb-1">Offboard Tenant</h3>
+                  <p className="text-xs text-gray-600 mb-2">
+                    Suspends the tenant immediately and permanently deletes all of its data
+                    (sessions, events, rules, admins, configuration) after a short drain window.
+                    Same cascade as the tenant&apos;s self-service offboarding.
+                  </p>
+                  <p className="text-xs text-red-700 font-medium mb-3">
+                    Not a ban: the deletion includes the suspension, so once the cascade completes a
+                    new sign-in re-onboards (and auto-activates) the tenant. To lock a tenant out,
+                    suspend it above and leave its data in place.
+                  </p>
                   <button
-                    onClick={() => handleSendWelcomeEmail(editingTenant.tenantId, notificationEmail)}
-                    disabled={!canMutate || sendingWelcomeEmail || !notificationEmail.trim()}
-                    className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap flex items-center gap-1.5"
-                    title="Send or resend the activation welcome email"
+                    onClick={() => { setOffboardError(null); setOffboardDialogOpen(true); }}
+                    disabled={!canMutate || offboarding}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
                   >
-                    {sendingWelcomeEmail ? (
-                      <>
-                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
-                        <span>Sending...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
-                        <span>Send Welcome Email</span>
-                      </>
-                    )}
+                    Offboard Tenant…
                   </button>
                 </div>
-                <p className="text-xs text-indigo-600 mt-2">
-                  The email is saved and sent in one step. Also sent automatically on approval if set.
-                </p>
-                {(editingTenant.contactEmail || editingTenant.companyName) && (
-                  <p className="text-xs text-indigo-700 mt-2 pt-2 border-t border-indigo-200">
-                    <span className="font-medium">Tenant contact:</span>{" "}
-                    {editingTenant.companyName && <span>{editingTenant.companyName}{editingTenant.contactEmail ? ", " : ""}</span>}
-                    {editingTenant.contactEmail && <span className="font-mono">{editingTenant.contactEmail}</span>}
-                    <span className="text-indigo-500"> — maintained by the tenant, for service matters only</span>
-                  </p>
-                )}
+
               </div>
 
-              {/* Device API Rate Limit override */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Device API Rate Limit (Requests/Min)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  placeholder="Blank = inherit global default"
-                  value={editingTenant.customRateLimitRequestsPerMinute ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value.trim();
-                    setEditingTenant({ ...editingTenant, customRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                />
-                <p className="mt-1 text-xs text-gray-500">Per-device (agent/cert) limit. Leave blank to inherit the global default.</p>
-              </div>
-
-              {/* MCP & integrations API Rate Limit override */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">MCP &amp; Integrations API Rate Limit (Requests/Min)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="10000"
-                  placeholder="Blank = inherit global default"
-                  value={editingTenant.customUserRateLimitRequestsPerMinute ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value.trim();
-                    setEditingTenant({ ...editingTenant, customUserRateLimitRequestsPerMinute: v === "" ? null : (parseInt(v) || null) });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                />
-                <p className="mt-1 text-xs text-gray-500">Per-user limit for MCP and integration requests made on behalf of this tenant&apos;s standard users. Portal sessions use the global portal budget and are not affected. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
-              </div>
-
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingTenant.bootstrapTokenEnabled ?? false}
-                  onChange={(e) => setEditingTenant({ ...editingTenant, bootstrapTokenEnabled: e.target.checked })}
-                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
-                />
-                <span className="text-sm font-medium text-gray-700">Enable Bootstrap Token</span>
-              </label>
-
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingTenant.unrestrictedModeEnabled ?? false}
-                  onChange={(e) => setEditingTenant({ ...editingTenant, unrestrictedModeEnabled: e.target.checked })}
-                  className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
-                />
-                <span className="text-sm font-medium text-gray-700">Enable Unrestricted Mode</span>
-              </label>
-
-              <div>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingTenant.enableEspContinueAnywayObservation ?? false}
-                    onChange={(e) => setEditingTenant({ ...editingTenant, enableEspContinueAnywayObservation: e.target.checked })}
-                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Enable Continue-Anyway Observation</span>
-                </label>
-                <p className="text-xs text-gray-400 mt-1 ml-6">
-                  Device-phase ESP terminal failures on profiles that allow &quot;Continue anyway&quot; are
-                  observed for up to 60 min instead of failing immediately: a real-user desktop completes
-                  the session as Succeeded with an amber &quot;with issues&quot; badge; otherwise it fails with
-                  the original reason. Needs agent with ConfigVersion 37+; applies to new sessions only.
-                </p>
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingTenant.entraAppRolesEnabled ?? false}
-                    onChange={(e) => setEditingTenant({ ...editingTenant, entraAppRolesEnabled: e.target.checked })}
-                    className="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Enable Entra App Roles</span>
-                </label>
-                <p className="text-xs text-gray-400 mt-1 ml-6">
-                  Allow Admin/Operator roles to be granted via Entra app-role assignments on the Enterprise App (the token&apos;s roles claim), in addition to the member table. The member table always wins.
-                </p>
-              </div>
-
-              {/* Data Management */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Data Retention (Days)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editingTenant.dataRetentionDays}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    setEditingTenant({ ...editingTenant, dataRetentionDays: isNaN(val) ? 90 : val });
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
-                />
-                {editingTenant.dataRetentionDays === 0 ? (
-                  <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Infinite retention — data will never be automatically deleted</p>
-                ) : (editingTenant.dataRetentionDays < 7 || editingTenant.dataRetentionDays > 365) ? (
-                  <p className="text-xs text-amber-600 mt-1 font-medium">⚠ Outside tenant range (7–365) — field will be locked for tenant admins</p>
-                ) : (
-                  <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Pro). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
-                )}
-              </div>
-
-              {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
-                  deliberately NOT part of the modal's Save button) */}
-              <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
-                <h3 className="font-semibold text-red-900 mb-1">Offboard Tenant</h3>
-                <p className="text-xs text-gray-600 mb-2">
-                  Suspends the tenant immediately and permanently deletes all of its data
-                  (sessions, events, rules, admins, configuration) after a short drain window.
-                  Same cascade as the tenant&apos;s self-service offboarding.
-                </p>
-                <p className="text-xs text-red-700 font-medium mb-3">
-                  Not a ban: the deletion includes the suspension, so once the cascade completes a
-                  new sign-in re-onboards (and auto-activates) the tenant. To lock a tenant out,
-                  suspend it above and leave its data in place.
-                </p>
+              {/* Modal Actions */}
+              <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-lg flex justify-end space-x-3">
                 <button
-                  onClick={() => { setOffboardError(null); setOffboardDialogOpen(true); }}
-                  disabled={!canMutate || offboarding}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                  onClick={() => setEditingTenant(null)}
+                  disabled={savingTenant}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
-                  Offboard Tenant…
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSaveTenant(editingTenant)}
+                  disabled={!canMutate || savingTenant}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
+                >
+                  {savingTenant ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
                 </button>
               </div>
-
-            </div>
-
-            {/* Modal Actions */}
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 border-t border-gray-200 rounded-b-lg flex justify-end space-x-3">
-              <button
-                onClick={() => setEditingTenant(null)}
-                disabled={savingTenant}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleSaveTenant(editingTenant)}
-                disabled={!canMutate || savingTenant}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
-              >
-                {savingTenant ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <span>Save Changes</span>
-                )}
-              </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Offboarding confirmation (renders above the editor modal) */}

@@ -10,6 +10,7 @@ import type {
   RestoreRowPropertySnapshot,
 } from "@/utils/wire-types.generated";
 import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
+import { ModalPortal } from "@/components/ModalPortal";
 
 interface RestoreRowDiffModalProps {
   backupId: string;
@@ -63,102 +64,104 @@ export function RestoreRowDiffModal({
   const diffCounts = countDiff(preview.diff);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-        <header className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white">
-            Restore row from backup
-          </h2>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
-            {preview.tableName} · pk=<span className="text-gray-900 dark:text-gray-100">{preview.partitionKey}</span>{" "}
-            · rk=<span className="text-gray-900 dark:text-gray-100">{preview.rowKey}</span>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {preview.isAuthTable && (
-            <div className="border border-amber-400 bg-amber-50 dark:bg-amber-950 text-amber-900 dark:text-amber-100 rounded-md p-3 text-sm">
-              <div className="font-medium">Security-relevant table — check the <code className="font-mono">IsEnabled</code> column</div>
-              <div className="mt-1">
-                This is an <strong>authentication / authorization</strong> table
-                (<code className="font-mono">GlobalAdmins</code>, <code className="font-mono">TenantAdmins</code>,{" "}
-                <code className="font-mono">McpUsers</code>). Restoring this row will overwrite the live{" "}
-                <code className="font-mono">IsEnabled</code>{" "}flag — confirm that the backup row&apos;s enable/disable
-                state is what you intend.
-              </div>
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+          <header className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+              Restore row from backup
+            </h2>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+              {preview.tableName} · pk=<span className="text-gray-900 dark:text-gray-100">{preview.partitionKey}</span>{" "}
+              · rk=<span className="text-gray-900 dark:text-gray-100">{preview.rowKey}</span>
             </div>
-          )}
+          </header>
 
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            {preview.currentETag === null ? (
-              <span>
-                Live row <strong>does not exist</strong> — restore will <strong>insert</strong> the backup row.
-              </span>
-            ) : (
-              <span>
-                Live row exists (ETag <code className="font-mono">{preview.currentETag}</code>) — restore will{" "}
-                <strong>replace</strong> it with the backup row.
-              </span>
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            {preview.isAuthTable && (
+              <div className="border border-amber-400 bg-amber-50 dark:bg-amber-950 text-amber-900 dark:text-amber-100 rounded-md p-3 text-sm">
+                <div className="font-medium">Security-relevant table — check the <code className="font-mono">IsEnabled</code> column</div>
+                <div className="mt-1">
+                  This is an <strong>authentication / authorization</strong> table
+                  (<code className="font-mono">GlobalAdmins</code>, <code className="font-mono">TenantAdmins</code>,{" "}
+                  <code className="font-mono">McpUsers</code>). Restoring this row will overwrite the live{" "}
+                  <code className="font-mono">IsEnabled</code>{" "}flag — confirm that the backup row&apos;s enable/disable
+                  state is what you intend.
+                </div>
+              </div>
+            )}
+
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              {preview.currentETag === null ? (
+                <span>
+                  Live row <strong>does not exist</strong> — restore will <strong>insert</strong> the backup row.
+                </span>
+              ) : (
+                <span>
+                  Live row exists (ETag <code className="font-mono">{preview.currentETag}</code>) — restore will{" "}
+                  <strong>replace</strong> it with the backup row.
+                </span>
+              )}
+            </div>
+
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+              <span className="font-medium">{diffCounts.changed}</span> changed ·{" "}
+              <span className="font-medium">{diffCounts.added}</span> added ·{" "}
+              <span className="font-medium text-red-700 dark:text-red-300">{diffCounts.removed}</span> will be removed ·{" "}
+              <span className="font-medium">{diffCounts.unchanged}</span> unchanged
+            </div>
+
+            <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
+              <table className="w-full text-xs font-mono">
+                <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Property</th>
+                    <th className="px-3 py-2 text-left">Backup</th>
+                    <th className="px-3 py-2 text-left">Current</th>
+                    <th className="px-3 py-2 text-left">Change</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {preview.diff.map((d) => (
+                    <tr key={d.name} className={rowClass(d)}>
+                      <td className="px-3 py-2 align-top break-all">{d.name}</td>
+                      <td className="px-3 py-2 align-top break-all whitespace-pre-wrap">{snapshotPretty(d.backup)}</td>
+                      <td className="px-3 py-2 align-top break-all whitespace-pre-wrap">{snapshotPretty(d.current)}</td>
+                      <td className="px-3 py-2 align-top">{kindLabel(d.kind)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {error && (
+              <div className="border border-red-400 bg-red-50 dark:bg-red-950 text-red-900 dark:text-red-100 rounded-md p-3 text-sm font-mono break-all">
+                {error}
+              </div>
             )}
           </div>
 
-          <div className="text-xs text-gray-600 dark:text-gray-400">
-            <span className="font-medium">{diffCounts.changed}</span> changed ·{" "}
-            <span className="font-medium">{diffCounts.added}</span> added ·{" "}
-            <span className="font-medium text-red-700 dark:text-red-300">{diffCounts.removed}</span> will be removed ·{" "}
-            <span className="font-medium">{diffCounts.unchanged}</span> unchanged
-          </div>
-
-          <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
-            <table className="w-full text-xs font-mono">
-              <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300">
-                <tr>
-                  <th className="px-3 py-2 text-left">Property</th>
-                  <th className="px-3 py-2 text-left">Backup</th>
-                  <th className="px-3 py-2 text-left">Current</th>
-                  <th className="px-3 py-2 text-left">Change</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {preview.diff.map((d) => (
-                  <tr key={d.name} className={rowClass(d)}>
-                    <td className="px-3 py-2 align-top break-all">{d.name}</td>
-                    <td className="px-3 py-2 align-top break-all whitespace-pre-wrap">{snapshotPretty(d.backup)}</td>
-                    <td className="px-3 py-2 align-top break-all whitespace-pre-wrap">{snapshotPretty(d.current)}</td>
-                    <td className="px-3 py-2 align-top">{kindLabel(d.kind)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {error && (
-            <div className="border border-red-400 bg-red-50 dark:bg-red-950 text-red-900 dark:text-red-100 rounded-md p-3 text-sm font-mono break-all">
-              {error}
-            </div>
-          )}
+          <footer className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={committing}
+              className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white text-sm rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={commit}
+              disabled={committing}
+              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm rounded-md transition-colors"
+            >
+              {committing ? "Restoring…" : "Restore row"}
+            </button>
+          </footer>
         </div>
-
-        <footer className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={committing}
-            className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white text-sm rounded-md transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={commit}
-            disabled={committing}
-            className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm rounded-md transition-colors"
-          >
-            {committing ? "Restoring…" : "Restore row"}
-          </button>
-        </footer>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 

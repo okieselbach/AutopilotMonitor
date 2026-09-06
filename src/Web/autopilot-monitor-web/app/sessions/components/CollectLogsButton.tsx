@@ -12,6 +12,7 @@ import {
   evaluateCollectProgress,
   resolveCollectButtonState,
 } from "./collectLogsLogic";
+import { ModalPortal } from "@/components/ModalPortal";
 
 interface CollectLogsButtonProps {
   sessionId: string;
@@ -241,72 +242,74 @@ export default function CollectLogsButton({
       </button>
 
       {showQuickConfig && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => !quickConfigBusy && setShowQuickConfig(false)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </div>
-                <h3 className="ml-4 text-lg font-semibold text-gray-900">Enable Diagnostics Upload</h3>
-              </div>
-              <div className="mb-6 space-y-2">
-                <p className="text-sm text-gray-700">
-                  Diagnostics upload is not configured for this tenant, so the agent has nowhere to send the logs.
-                </p>
-                <p className="text-sm text-gray-700">
-                  <span className="font-semibold">Enable &amp; Collect</span> switches the upload destination to
-                  {" "}<span className="font-semibold">hosted storage</span> (managed by Autopilot Monitor) with mode
-                  {" "}<span className="font-semibold">On failure</span>, then collects the logs from this device right away.
-                </p>
-                {/* Data-boundary disclosure. This dialog is the SECOND opt-in path into hosted
-                    upload (the first is Settings → Diagnostics Package), and the privacy page and
-                    trust FAQ both promise that hosted upload is only ever enabled behind a clearly
-                    marked "data leaves your tenant" disclosure — this block is that promise here. */}
-                <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 space-y-1">
-                  <p className="text-sm text-sky-900">
-                    <span className="font-semibold">Uploaded packages leave your own Azure tenant boundary.</span>{" "}
-                    They are stored in the Autopilot Monitor backend&apos;s Azure Storage (Germany West Central),
-                    isolated per tenant, and each upload uses a fresh blob-scoped, write-only token.
-                  </p>
-                  <p className="text-xs text-sky-800">
-                    Packages are removed automatically according to your <span className="font-semibold">Data Retention Days</span> setting.
-                  </p>
-                </div>
-                <p className="text-sm text-gray-600">
-                  You can change the destination (e.g. to your own Azure Blob Storage) or turn uploads off again at any
-                  time under Settings → Diagnostics Package, which also lists exactly which paths are collected.
-                </p>
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowQuickConfig(false)}
-                  disabled={quickConfigBusy}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void handleQuickConfig()}
-                  disabled={quickConfigBusy}
-                  className="px-4 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {quickConfigBusy && (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => !quickConfigBusy && setShowQuickConfig(false)}>
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6">
+                <div className="flex items-center mb-4">
+                  <div className="flex-shrink-0 w-12 h-12 bg-sky-100 rounded-full flex items-center justify-center">
+                    <svg className="w-6 h-6 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                  )}
-                  Enable &amp; Collect
-                </button>
+                  </div>
+                  <h3 className="ml-4 text-lg font-semibold text-gray-900">Enable Diagnostics Upload</h3>
+                </div>
+                <div className="mb-6 space-y-2">
+                  <p className="text-sm text-gray-700">
+                    Diagnostics upload is not configured for this tenant, so the agent has nowhere to send the logs.
+                  </p>
+                  <p className="text-sm text-gray-700">
+                    <span className="font-semibold">Enable &amp; Collect</span> switches the upload destination to
+                    {" "}<span className="font-semibold">hosted storage</span> (managed by Autopilot Monitor) with mode
+                    {" "}<span className="font-semibold">On failure</span>, then collects the logs from this device right away.
+                  </p>
+                  {/* Data-boundary disclosure. This dialog is the SECOND opt-in path into hosted
+                      upload (the first is Settings → Diagnostics Package), and the privacy page and
+                      trust FAQ both promise that hosted upload is only ever enabled behind a clearly
+                      marked "data leaves your tenant" disclosure — this block is that promise here. */}
+                  <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 space-y-1">
+                    <p className="text-sm text-sky-900">
+                      <span className="font-semibold">Uploaded packages leave your own Azure tenant boundary.</span>{" "}
+                      They are stored in the Autopilot Monitor backend&apos;s Azure Storage (Germany West Central),
+                      isolated per tenant, and each upload uses a fresh blob-scoped, write-only token.
+                    </p>
+                    <p className="text-xs text-sky-800">
+                      Packages are removed automatically according to your <span className="font-semibold">Data Retention Days</span> setting.
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    You can change the destination (e.g. to your own Azure Blob Storage) or turn uploads off again at any
+                    time under Settings → Diagnostics Package, which also lists exactly which paths are collected.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowQuickConfig(false)}
+                    disabled={quickConfigBusy}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void handleQuickConfig()}
+                    disabled={quickConfigBusy}
+                    className="px-4 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {quickConfigBusy && (
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                    )}
+                    Enable &amp; Collect
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );
