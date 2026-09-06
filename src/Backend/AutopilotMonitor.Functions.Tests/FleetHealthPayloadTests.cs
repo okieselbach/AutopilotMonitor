@@ -147,11 +147,11 @@ public class FleetHealthPayloadTests
         var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 30);
 
         Assert.Equal(6, payload.ModelHealth.Count);
-        Assert.Equal("Contoso Model7", payload.ModelHealth[0].Model);
+        Assert.Equal("Contoso Model7", payload.ModelHealth[0].Label);
         Assert.Equal(7, payload.ModelHealth[0].Total);
         Assert.Equal(7, payload.ModelHealth[0].Succeeded);
         // The smallest (volume 1) is dropped by the top-6 cut.
-        Assert.DoesNotContain(payload.ModelHealth, m => m.Model == "Contoso Model1");
+        Assert.DoesNotContain(payload.ModelHealth, m => m.Label == "Contoso Model1");
     }
 
     [Fact]
@@ -182,7 +182,47 @@ public class FleetHealthPayloadTests
             new List<SessionSummary> { S(SessionStatus.Succeeded, manufacturer: "", model: "") },
             days: 7);
 
-        Assert.Equal("Unknown", Assert.Single(payload.ModelHealth).Model);
+        var m = Assert.Single(payload.ModelHealth);
+        Assert.Equal("Unknown", m.Label);
+        Assert.Equal("", m.Manufacturer);
+        Assert.Equal("", m.Model);
+    }
+
+    [Fact]
+    public void ModelBuckets_CarryManufacturerAndModelSeparately_OnAllThreeLists()
+    {
+        // The dashboard deep link addresses the two session fields as two qualified search
+        // terms; a client must never have to split the label again.
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Succeeded, durationSeconds: 600, manufacturer: " Contoso ", model: "EliteBook 840"),
+            S(SessionStatus.Failed, manufacturer: "Contoso", model: "EliteBook 840"),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        var health = Assert.Single(payload.ModelHealth);
+        Assert.Equal(("Contoso", "EliteBook 840", "Contoso EliteBook 840"), (health.Manufacturer, health.Model, health.Label));
+        Assert.Equal(2, health.Total);
+        var slow = Assert.Single(payload.SlowestModels);
+        Assert.Equal(("Contoso", "EliteBook 840", "Contoso EliteBook 840"), (slow.Manufacturer, slow.Model, slow.Label));
+        var failing = Assert.Single(payload.TopFailingModels);
+        Assert.Equal(("Contoso", "EliteBook 840", "Contoso EliteBook 840"), (failing.Manufacturer, failing.Model, failing.Label));
+    }
+
+    [Fact]
+    public void ModelBuckets_GroupOnThePair_NotOnTheLabel()
+    {
+        var sessions = new List<SessionSummary>
+        {
+            S(SessionStatus.Succeeded, manufacturer: "Contoso", model: "A B"),
+            S(SessionStatus.Succeeded, manufacturer: "Contoso A", model: "B"),
+        };
+
+        var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 7);
+
+        Assert.Equal(2, payload.ModelHealth.Count);
+        Assert.All(payload.ModelHealth, m => Assert.Equal("Contoso A B", m.Label));
     }
 
     [Fact]
@@ -199,10 +239,10 @@ public class FleetHealthPayloadTests
         var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 30);
 
         Assert.Equal(2, payload.SlowestModels.Count);
-        Assert.Equal("Contoso Slow", payload.SlowestModels[0].Model);
+        Assert.Equal("Contoso Slow", payload.SlowestModels[0].Label);
         Assert.Equal(30, payload.SlowestModels[0].AvgMinutes);
         Assert.Equal(1, payload.SlowestModels[0].Count);
-        Assert.Equal("Contoso Fast", payload.SlowestModels[1].Model);
+        Assert.Equal("Contoso Fast", payload.SlowestModels[1].Label);
         Assert.Equal(10, payload.SlowestModels[1].AvgMinutes);
     }
 
@@ -227,13 +267,13 @@ public class FleetHealthPayloadTests
         var payload = MetricsMath.BuildFleetHealthPayload(sessions, days: 30);
 
         Assert.Equal(2, payload.TopFailingModels.Count);
-        Assert.Equal("Contoso B", payload.TopFailingModels[0].Model);
+        Assert.Equal("Contoso B", payload.TopFailingModels[0].Label);
         Assert.Equal(2, payload.TopFailingModels[0].Failed);
         Assert.Equal(100, payload.TopFailingModels[0].FailureRate);
-        Assert.Equal("Contoso A", payload.TopFailingModels[1].Model);
+        Assert.Equal("Contoso A", payload.TopFailingModels[1].Label);
         Assert.Equal(4, payload.TopFailingModels[1].Total);
         Assert.Equal(50, payload.TopFailingModels[1].FailureRate);
-        Assert.DoesNotContain(payload.TopFailingModels, m => m.Model == "Contoso C");
+        Assert.DoesNotContain(payload.TopFailingModels, m => m.Label == "Contoso C");
     }
 
     [Fact]

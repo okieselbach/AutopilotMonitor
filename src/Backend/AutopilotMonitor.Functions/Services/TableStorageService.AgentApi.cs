@@ -594,7 +594,8 @@ namespace AutopilotMonitor.Functions.Services
             // Free-text queries backfill whole Azure pages until pageSize matches accumulated
             // (bounded rounds); non-q queries keep the single-page contract ("consume until
             // absent" — a page may contain fewer than pageSize items after client filters).
-            var maxRounds = string.IsNullOrEmpty(filter.Q) ? 1 : FreeTextBackfillMaxRounds;
+            var query = SessionSearchQuery.Parse(filter.Q);
+            var maxRounds = query.IsEmpty ? 1 : FreeTextBackfillMaxRounds;
 
             var sessions = new List<SessionSummary>(pageSize);
             var token = continuation;
@@ -610,7 +611,7 @@ namespace AutopilotMonitor.Functions.Services
                 foreach (var entity in entities)
                 {
                     var session = MapIndexEntityToSessionSummary(entity);
-                    if (!MatchesScanClientFilters(session, filter)) continue;
+                    if (!MatchesScanClientFilters(session, filter, query)) continue;
                     sessions.Add(session);
                 }
 
@@ -645,11 +646,12 @@ namespace AutopilotMonitor.Functions.Services
                 pageSize: pageSize,
                 continuation: continuation);
 
+            var query = SessionSearchQuery.Parse(filter.Q);
             var rows = new List<IReadOnlyDictionary<string, object?>>(entities.Count);
             foreach (var entity in entities)
             {
                 var session = MapIndexEntityToSessionSummary(entity);
-                if (!MatchesScanClientFilters(session, filter)) continue;
+                if (!MatchesScanClientFilters(session, filter, query)) continue;
                 rows.Add(RawEntityProjection.ToDictionary(entity));
             }
 
@@ -782,40 +784,20 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Free-text predicate for the dashboard search box (<c>q=</c>). Case-insensitive
-        /// substring over EXACTLY the fields the web dashboard's client-side filter searches
-        /// (useDashboardFilters.searchableText, minus its derived-only tokens: localized date
-        /// string, "N min" duration, "blocked"). Keep the two lists in sync — a field matched
-        /// only server-side would be filtered back out by the client and read as a ghost result.
+        /// Free-text predicate for the dashboard search box (<c>q=</c>): the search grammar
+        /// (<see cref="SessionSearchQuery"/> — AND-ed terms, exclusions, phrases, field
+        /// qualifiers) over EXACTLY the fields the web dashboard's client-side filter searches
+        /// (minus its derived-only tokens: localized date string, "N min" duration, "blocked").
+        /// The two sides share a case file — a field matched only server-side would be filtered
+        /// back out by the client and read as a ghost result. Parses per call; the page paths
+        /// parse once and use <see cref="MatchesScanClientFilters(SessionSummary, SessionSearchFilter, SessionSearchQuery)"/>.
         /// </summary>
         internal static bool MatchesFreeText(SessionSummary session, string? q)
+            => SessionSearchQuery.Parse(q).Matches(session);
+
+        private static bool MatchesScanClientFilters(SessionSummary session, SessionSearchFilter filter, SessionSearchQuery query)
         {
-            if (string.IsNullOrEmpty(q)) return true;
-
-            return ContainsIgnoreCase(session.DeviceName, q)
-                || ContainsIgnoreCase(session.SerialNumber, q)
-                || ContainsIgnoreCase(session.Manufacturer, q)
-                || ContainsIgnoreCase(session.Model, q)
-                || ContainsIgnoreCase(session.Status.ToString(), q)
-                || ContainsIgnoreCase(session.SessionId, q)
-                || ContainsIgnoreCase(session.GeoCountry, q)
-                || ContainsIgnoreCase(session.GeoRegion, q)
-                || ContainsIgnoreCase(session.GeoCity, q)
-                || ContainsIgnoreCase(session.AgentVersion, q)
-                || ContainsIgnoreCase(session.OsName, q)
-                || ContainsIgnoreCase(session.OsBuild, q)
-                || ContainsIgnoreCase(session.OsDisplayVersion, q)
-                || ContainsIgnoreCase(session.OsEdition, q)
-                || ContainsIgnoreCase(session.OsLanguage, q);
-        }
-
-        private static bool ContainsIgnoreCase(string? haystack, string needle)
-            => !string.IsNullOrEmpty(haystack)
-               && haystack!.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
-
-        private static bool MatchesScanClientFilters(SessionSummary session, SessionSearchFilter filter)
-        {
-            if (!MatchesFreeText(session, filter.Q)) return false;
+            if (!query.Matches(session)) return false;
             if (!string.IsNullOrEmpty(filter.SerialNumber) &&
                 !string.Equals(session.SerialNumber, filter.SerialNumber, StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -1074,6 +1056,7 @@ namespace AutopilotMonitor.Functions.Services
 
         private List<SessionSummary> ApplyBasicFilters(List<SessionSummary> sessions, SessionSearchFilter filter)
         {
+            var query = SessionSearchQuery.Parse(filter.Q);
             return sessions.Where(s =>
             {
                 if (!string.IsNullOrEmpty(filter.Status) && s.Status.ToString() != filter.Status) return false;
@@ -1106,7 +1089,7 @@ namespace AutopilotMonitor.Functions.Services
                 // query can't return non-matching sessions.
                 if (!MatchesRebootCountBounds(s, filter)) return false;
                 if (!MatchesConnectionType(s, filter)) return false;
-                if (!MatchesFreeText(s, filter.Q)) return false;
+                if (!query.Matches(s)) return false;
                 return true;
             }).ToList();
         }

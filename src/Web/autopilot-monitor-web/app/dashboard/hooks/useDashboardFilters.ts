@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { trackEvent } from "@/lib/appInsights";
 import type { Session } from "../types";
+import { buildSessionSearchMatcher, parseSessionSearchQuery } from "../utils/sessionSearchQuery";
 
 const SESSIONS_PER_PAGE_KEY = "sessionsPerPage";
 const DEFAULT_SESSIONS_PER_PAGE = 10;
@@ -101,13 +102,21 @@ export function useDashboardFilters({
 
   // Track search usage (debounced — fires 1s after user stops typing).
   // Skip empty query so initial mount and "clear search" don't pollute the event.
+  // `qualifiers` counts field-qualified terms (model=, manufacturer=, …) — a count, never
+  // the values, so the event stays free of device names.
   useEffect(() => {
     if (!searchQuery) return;
     const timer = setTimeout(() => {
-      trackEvent("session_searched", { queryLength: searchQuery.length });
+      const { include, exclude } = parseSessionSearchQuery(searchQuery);
+      const qualifiers = [...include, ...exclude].filter((t) => t.field).length;
+      trackEvent("session_searched", { queryLength: searchQuery.length, qualifiers });
     }, 1000);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Search grammar (terms AND-ed, `-` excludes, quotes, `field=value`) — see
+  // utils/sessionSearchQuery. Null while the query carries no filter.
+  const searchMatcher = useMemo(() => buildSessionSearchMatcher(searchQuery), [searchQuery]);
 
   // Reset to page 1 whenever the displayed set or its ordering changes —
   // includes external scope changes (tenant switch, global-admin toggle, tenant filter).
@@ -181,34 +190,23 @@ export function useDashboardFilters({
         if (operator === "<=") return durationMinutes <= value;
       }
 
-      const searchableText = [
-        session.deviceName,
-        session.serialNumber,
-        session.manufacturer,
-        session.model,
-        session.status,
-        session.sessionId,
+      if (!searchMatcher) return true;
+
+      // Client-derived tokens only a free term can reach; the session fields themselves
+      // are read by the matcher. Newline-joined so no term spans two tokens.
+      const extra = [
         new Date(session.startedAt).toLocaleString(),
         `${Math.round((session.durationSeconds ?? 0) / 60)} min`,
         blockedDevicesSet.has(`${session.tenantId}:${session.serialNumber}`) ? "blocked" : "",
-        session.geoCountry,
-        session.geoRegion,
-        session.geoCity,
-        session.agentVersion,
-        session.osName,
-        session.osBuild,
-        session.osDisplayVersion,
-        session.osEdition,
-        session.osLanguage,
         // Tenant column is cross-tenant only; keep single-tenant search free of a value
         // every row shares.
         globalAdminMode ? session.tenantId : "",
-        globalAdminMode ? tenantDomainById?.get(session.tenantId) : "",
-      ].join(" ").toLowerCase();
+        globalAdminMode ? tenantDomainById?.get(session.tenantId) ?? "" : "",
+      ].join("\n");
 
-      return searchableText.includes(query);
+      return searchMatcher(session, extra);
     });
-  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, blockedDevicesSet, globalAdminMode, tenantDomainById]);
+  }, [effectiveSessions, ruleSessionIds, statusFilter, columnFilters, searchQuery, searchMatcher, blockedDevicesSet, globalAdminMode, tenantDomainById]);
 
   const sortedSessions = useMemo(() => {
     if (!sortColumn) return filteredSessions;

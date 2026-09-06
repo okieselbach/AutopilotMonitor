@@ -13,7 +13,11 @@
 //   -"exit code 1"           excludes the whole phrase
 //
 // Matching is case-insensitive substring, so a partial type name such as
-// `-app_install` hides every app_install_* event.
+// `-app_install` hides every app_install_* event. The tokenizer is shared with the
+// session search (lib/searchQueryTokens); field qualifiers (`key=value`) exist only
+// there — here the token stays a literal term.
+
+import { literalText, tokenizeSearchQuery } from "@/lib/searchQueryTokens";
 
 /** The fields a search term is matched against. Structural subset of EnrollmentEvent. */
 export interface EventSearchFields {
@@ -29,55 +33,12 @@ export interface ParsedEventSearchQuery {
   exclude: string[];
 }
 
-interface Token {
-  text: string;
-  negated: boolean;
-}
-
-// Hand-rolled so a quote can protect a leading minus: the negation is decided at
-// the first character of a token, before any quote is consumed, which makes `"-1"`
-// a literal search term while `-"foo bar"` excludes the phrase.
-function tokenize(query: string): Token[] {
-  const tokens: Token[] = [];
-  let current: Token | null = null;
-  let inQuotes = false;
-
-  const flush = () => {
-    if (current && current.text !== "") tokens.push(current);
-    current = null;
-  };
-
-  for (const ch of query) {
-    if (!inQuotes && /\s/.test(ch)) {
-      flush();
-      continue;
-    }
-    if (ch === '"') {
-      current ??= { text: "", negated: false };
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (current === null) {
-      // First character of a token: a bare minus opens an exclusion.
-      if (ch === "-") {
-        current = { text: "", negated: true };
-        continue;
-      }
-      current = { text: "", negated: false };
-    }
-    current.text += ch;
-  }
-  flush();
-
-  return tokens;
-}
-
 export function parseEventSearchQuery(query: string): ParsedEventSearchQuery {
   const include: string[] = [];
   const exclude: string[] = [];
 
-  for (const token of tokenize(query)) {
-    const text = token.text.toLowerCase();
+  for (const token of tokenizeSearchQuery(query)) {
+    const text = literalText(token).toLowerCase();
     const target = token.negated ? exclude : include;
     if (!target.includes(text)) target.push(text);
   }

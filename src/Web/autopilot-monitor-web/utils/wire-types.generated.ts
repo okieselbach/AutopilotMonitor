@@ -1739,8 +1739,11 @@ export interface FleetDailyPoint {
   failed: number;
 }
 
+/** Same bucket shape as FleetModelHealth. */
 export interface FleetFailingModel {
+  manufacturer: string;
   model: string;
+  label: string;
   failed: number;
   /** All sessions on this model in the window, including in-flight ones. */
   total: number;
@@ -1788,8 +1791,11 @@ export interface FleetHealthStats {
   p90DurationMinutes: number;
 }
 
+/** One device-model bucket. Sessions are grouped by (Manufacturer, Model) as stored on the session; the two fields travel separately so a client can address them as the two session fields they are (the dashboard search's manufacturer=… model=…), and Label is the display key — "{Manufacturer} {Model}" trimmed, or "Unknown" when both are blank. */
 export interface FleetModelHealth {
+  manufacturer: string;
   model: string;
+  label: string;
   /** All sessions on this model in the window, including in-flight ones. */
   total: number;
   succeeded: number;
@@ -1797,8 +1803,11 @@ export interface FleetModelHealth {
   failed: number;
 }
 
+/** Same bucket shape as FleetModelHealth. */
 export interface FleetSlowModel {
+  manufacturer: string;
   model: string;
+  label: string;
   avgMinutes: number;
   count: number;
 }

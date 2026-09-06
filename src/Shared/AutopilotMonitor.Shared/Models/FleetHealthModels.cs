@@ -65,9 +65,18 @@ namespace AutopilotMonitor.Shared.Models
         public int Count { get; set; }
     }
 
+    /// <summary>
+    /// One device-model bucket. Sessions are grouped by (Manufacturer, Model) as stored on the
+    /// session; the two fields travel separately so a client can address them as the two
+    /// session fields they are (the dashboard search's <c>manufacturer=… model=…</c>), and
+    /// <see cref="Label"/> is the display key — "{Manufacturer} {Model}" trimmed, or "Unknown"
+    /// when both are blank.
+    /// </summary>
     public sealed class FleetModelHealth
     {
-        public string Model { get; set; } = default!;
+        public string Manufacturer { get; set; } = string.Empty;
+        public string Model { get; set; } = string.Empty;
+        public string Label { get; set; } = default!;
         /// <summary>All sessions on this model in the window, including in-flight ones.</summary>
         public int Total { get; set; }
         public int Succeeded { get; set; }
@@ -75,16 +84,22 @@ namespace AutopilotMonitor.Shared.Models
         public int Failed { get; set; }
     }
 
+    /// <summary>Same bucket shape as <see cref="FleetModelHealth"/>.</summary>
     public sealed class FleetSlowModel
     {
-        public string Model { get; set; } = default!;
+        public string Manufacturer { get; set; } = string.Empty;
+        public string Model { get; set; } = string.Empty;
+        public string Label { get; set; } = default!;
         public int AvgMinutes { get; set; }
         public int Count { get; set; }
     }
 
+    /// <summary>Same bucket shape as <see cref="FleetModelHealth"/>.</summary>
     public sealed class FleetFailingModel
     {
-        public string Model { get; set; } = default!;
+        public string Manufacturer { get; set; } = string.Empty;
+        public string Model { get; set; } = string.Empty;
+        public string Label { get; set; } = default!;
         public int Failed { get; set; }
         /// <summary>All sessions on this model in the window, including in-flight ones.</summary>
         public int Total { get; set; }

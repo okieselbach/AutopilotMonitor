@@ -287,13 +287,13 @@ public static class MetricsMath
 
     private static List<FleetModelHealth> BuildFleetModelHealth(IReadOnlyList<SessionSummary> sessions)
     {
-        var models = new Dictionary<string, FleetModelHealth>();
+        var models = new Dictionary<ModelBucket, FleetModelHealth>();
         foreach (var s in sessions)
         {
             var key = FleetModelKey(s);
             if (!models.TryGetValue(key, out var m))
             {
-                m = new FleetModelHealth { Model = key };
+                m = new FleetModelHealth { Manufacturer = key.Manufacturer, Model = key.Model, Label = key.Label };
                 models[key] = m;
             }
             m.Total++;
@@ -308,7 +308,7 @@ public static class MetricsMath
 
     private static List<FleetSlowModel> BuildFleetSlowestModels(IReadOnlyList<SessionSummary> sessions)
     {
-        var acc = new Dictionary<string, (long TotalDuration, int Count)>();
+        var acc = new Dictionary<ModelBucket, (long TotalDuration, int Count)>();
         foreach (var s in sessions)
         {
             if (s.Status != SessionStatus.Succeeded) continue;
@@ -320,7 +320,9 @@ public static class MetricsMath
         return acc
             .Select(kv => new FleetSlowModel
             {
-                Model = kv.Key,
+                Manufacturer = kv.Key.Manufacturer,
+                Model = kv.Key.Model,
+                Label = kv.Key.Label,
                 AvgMinutes = (int)Math.Round((double)kv.Value.TotalDuration / kv.Value.Count / 60.0, MidpointRounding.AwayFromZero),
                 Count = kv.Value.Count,
             })
@@ -331,7 +333,7 @@ public static class MetricsMath
 
     private static List<FleetFailingModel> BuildFleetTopFailingModels(IReadOnlyList<SessionSummary> sessions)
     {
-        var acc = new Dictionary<string, (int Failed, int Succeeded, int Total)>();
+        var acc = new Dictionary<ModelBucket, (int Failed, int Succeeded, int Total)>();
         foreach (var s in sessions)
         {
             var key = FleetModelKey(s);
@@ -347,7 +349,9 @@ public static class MetricsMath
             .Where(kv => kv.Value.Failed > 0)
             .Select(kv => new FleetFailingModel
             {
-                Model = kv.Key,
+                Manufacturer = kv.Key.Manufacturer,
+                Model = kv.Key.Model,
+                Label = kv.Key.Label,
                 Failed = kv.Value.Failed,
                 Total = kv.Value.Total,
                 FailureRate = (int)Math.Round(
@@ -358,12 +362,25 @@ public static class MetricsMath
             .ToList();
     }
 
-    /// <summary>"{Manufacturer} {Model}" trimmed, or "Unknown" when both are blank.</summary>
-    private static string FleetModelKey(SessionSummary s)
+    /// <summary>
+    /// Grouping key of the model buckets: the two session fields as stored (trimmed) plus the
+    /// display label "{Manufacturer} {Model}", or "Unknown" when both are blank. Grouping on the
+    /// pair keeps ("Contoso", "A B") and ("Contoso A", "B") apart even though their labels collide.
+    /// </summary>
+    private readonly record struct ModelBucket(string Manufacturer, string Model)
     {
-        var key = $"{s.Manufacturer} {s.Model}".Trim();
-        return string.IsNullOrEmpty(key) ? "Unknown" : key;
+        public string Label
+        {
+            get
+            {
+                var label = $"{Manufacturer} {Model}".Trim();
+                return string.IsNullOrEmpty(label) ? "Unknown" : label;
+            }
+        }
     }
+
+    private static ModelBucket FleetModelKey(SessionSummary s)
+        => new((s.Manufacturer ?? string.Empty).Trim(), (s.Model ?? string.Empty).Trim());
 
     /// <summary>Share of total bytes (0-100, one decimal) not pulled from the CDN. 0 when no bytes.</summary>
     private static double OffloadPercent(long offloaded, long total)

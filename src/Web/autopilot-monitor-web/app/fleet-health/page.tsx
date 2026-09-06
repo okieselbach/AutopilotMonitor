@@ -4,6 +4,8 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { dashboardUrl } from "@/lib/routes";
+import { buildSessionSearchQuery } from "../dashboard/utils/sessionSearchQuery";
+import type { FleetModelHealth } from "@/utils/wire-types.generated";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useSignalR } from "../../contexts/SignalRContext";
 import { useTenant } from "../../contexts/TenantContext";
@@ -175,15 +177,20 @@ export default function FleetHealthPage() {
   const slowestModels = data?.slowestModels ?? [];
 
   // Deep-link a model bucket into the dashboard, pre-filtered to Failed sessions of that
-  // model. The model key is "{Manufacturer} {Model}", which the dashboard search matches
-  // against its combined manufacturer+model text. Carry the selected tenant so a global
-  // admin scoped to one tenant lands on that tenant's list rather than their default scope.
-  const dashboardModelHref = (model: string): Route =>
-    dashboardUrl({
+  // model. Manufacturer and model are two session fields, so the search carries them as
+  // two qualified terms (`manufacturer=… model=…`) rather than one phrase that could
+  // never match across the field boundary. Null for the "Unknown" bucket (both blank):
+  // there is nothing to search for. Carry the selected tenant so a global admin scoped
+  // to one tenant lands on that tenant's list rather than their default scope.
+  const dashboardModelHref = (m: FleetModelHealth): Route | null => {
+    const search = buildSessionSearchQuery({ manufacturer: m.manufacturer, model: m.model });
+    if (!search) return null;
+    return dashboardUrl({
       status: "Failed",
-      search: model,
+      search,
       tenant: isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined,
     });
+  };
   const topFailingModels = data?.topFailingModels ?? [];
   // Memoized (unlike the sibling defaults above) because it feeds the maxFailureCount
   // useMemo below — a fresh [] each render would invalidate that memo every time.
@@ -483,14 +490,14 @@ export default function FleetHealthPage() {
               ) : (
                 <div className="space-y-3">
                   {slowestModels.map((m, i) => (
-                    <div key={m.model} className="flex items-center space-x-3">
+                    <div key={m.label} className="flex items-center space-x-3">
                       <span className="text-xs text-gray-400 w-4">
                         {i + 1}.
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
                           <TruncatedLabel
-                            text={m.model}
+                            text={m.label}
                             className="text-sm text-gray-700 pr-2"
                           />
                           <span className="text-sm font-medium text-gray-900 flex-shrink-0">
@@ -519,14 +526,14 @@ export default function FleetHealthPage() {
               ) : (
                 <div className="space-y-3">
                   {topFailingModels.map((m, i) => (
-                    <div key={m.model} className="flex items-center space-x-3">
+                    <div key={m.label} className="flex items-center space-x-3">
                       <span className="text-xs text-gray-400 w-4">
                         {i + 1}.
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
                           <TruncatedLabel
-                            text={m.model}
+                            text={m.label}
                             className="text-sm text-gray-700 pr-2"
                           />
                           <span className="text-sm font-medium text-red-600 flex-shrink-0">
@@ -711,15 +718,11 @@ export default function FleetHealthPage() {
                     finished > 0
                       ? Math.round((m.succeeded / finished) * 100)
                       : null;
-                  return (
-                    <Link
-                      key={m.model}
-                      href={dashboardModelHref(m.model)}
-                      className="block -mx-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors group cursor-pointer"
-                      title={`Show failed enrollments for ${m.model}`}
-                    >
+                  const href = dashboardModelHref(m);
+                  const row = (
+                    <>
                       <div className="flex items-baseline justify-between mb-1">
-                        <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.model}</span>
+                        <span className="text-sm text-gray-700 group-hover:text-green-600 break-words leading-snug">{m.label}</span>
                         <span className="ml-3 flex-shrink-0 text-sm font-medium text-gray-900">
                           {successRate !== null ? `${successRate}%` : "—"} <span className="text-xs font-normal text-gray-400">({m.total} devices)</span>
                         </span>
@@ -738,7 +741,22 @@ export default function FleetHealthPage() {
                           style={{ width: `${successRate ?? 0}%` }}
                         />
                       </div>
+                    </>
+                  );
+                  // The "Unknown" bucket (no manufacturer, no model) has nothing to search for.
+                  return href ? (
+                    <Link
+                      key={m.label}
+                      href={href}
+                      className="block -mx-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors group cursor-pointer"
+                      title={`Show failed enrollments for ${m.label}`}
+                    >
+                      {row}
                     </Link>
+                  ) : (
+                    <div key={m.label} className="-mx-2 px-2 py-1">
+                      {row}
+                    </div>
                   );
                 })}
               </div>

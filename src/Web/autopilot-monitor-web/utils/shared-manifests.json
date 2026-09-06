@@ -8107,9 +8107,24 @@
     },
     "FleetFailingModel": {
       "kind": "object",
+      "doc": "Same bucket shape as FleetModelHealth.",
       "fields": [
         {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
           "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
           "type": {
             "kind": "primitive",
             "name": "string"
@@ -8323,9 +8338,24 @@
     },
     "FleetModelHealth": {
       "kind": "object",
+      "doc": "One device-model bucket. Sessions are grouped by (Manufacturer, Model) as stored on the session; the two fields travel separately so a client can address them as the two session fields they are (the dashboard search's manufacturer=… model=…), and Label is the display key — \"{Manufacturer} {Model}\" trimmed, or \"Unknown\" when both are blank.",
       "fields": [
         {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
           "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
           "type": {
             "kind": "primitive",
             "name": "string"
@@ -8358,9 +8388,24 @@
     },
     "FleetSlowModel": {
       "kind": "object",
+      "doc": "Same bucket shape as FleetModelHealth.",
       "fields": [
         {
+          "name": "manufacturer",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
           "name": "model",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "label",
           "type": {
             "kind": "primitive",
             "name": "string"

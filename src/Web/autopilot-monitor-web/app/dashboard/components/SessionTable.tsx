@@ -9,6 +9,12 @@ import { Session } from "../types";
 import { trackEvent } from "@/lib/appInsights";
 import { fuzzyContains } from "@/utils/fuzzy";
 import { buildUniqueValuesByField } from "./uniqueValuesByField";
+import {
+  SESSION_SEARCH_FIELDS,
+  buildSessionSearchMatcher,
+  matchedSearchField,
+  parseSessionSearchQuery,
+} from "../utils/sessionSearchQuery";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { TenantFilterBar } from "./TenantFilterBar";
 import type { DeleteTarget } from "../hooks/useDeleteSession";
@@ -189,23 +195,6 @@ export function SessionTable({
     isExact: boolean;
   }
 
-  const SEARCH_FIELDS: { key: keyof Session; label: string }[] = [
-    { key: "deviceName", label: "Device" },
-    { key: "serialNumber", label: "Serial" },
-    { key: "model", label: "Model" },
-    { key: "manufacturer", label: "Manufacturer" },
-    { key: "sessionId", label: "Session ID" },
-    { key: "geoCountry", label: "Country" },
-    { key: "geoRegion", label: "Region" },
-    { key: "geoCity", label: "City" },
-    { key: "agentVersion", label: "Agent Version" },
-    { key: "osName", label: "OS Name" },
-    { key: "osBuild", label: "OS Build" },
-    { key: "osDisplayVersion", label: "OS Version" },
-    { key: "osEdition", label: "OS Edition" },
-    { key: "status", label: "Status" },
-  ];
-
   // Defer expensive suggestion scans so rapid typing keeps the input responsive.
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -213,41 +202,42 @@ export function SessionTable({
     const q = deferredSearchQuery.trim().toLowerCase();
     if (q.length < 2 || sessions.length === 0) return [];
     if (/^[><]=?\s*\d+$/.test(q)) return [];
+    // Same grammar as the list filter (terms AND-ed, `-`, quotes, `field=value`).
+    const parsed = parseSessionSearchQuery(deferredSearchQuery);
+    const matcher = buildSessionSearchMatcher(deferredSearchQuery);
+    if (!matcher) return [];
 
     const exactResults: SearchSuggestion[] = [];
     const fuzzyResults: SearchSuggestion[] = [];
     const seen = new Set<string>();
 
-    // Phase 1: exact substring matches (highest priority)
+    // Phase 1: sessions the query matches (highest priority), labelled with the field
+    // that satisfied it — a qualified term names the field the user meant.
     for (const session of sessions) {
       if (exactResults.length >= 8) break;
       if (seen.has(session.sessionId)) continue;
-      for (const f of SEARCH_FIELDS) {
-        const val = session[f.key];
-        if (val != null && String(val).toLowerCase().includes(q)) {
-          seen.add(session.sessionId);
-          exactResults.push({ session, matchedField: f.label, matchedValue: String(val), isExact: true });
-          break;
-        }
-      }
       // Tenant domain is not a Session field -- it comes from the tenant list (cross-tenant only).
-      if (seen.has(session.sessionId) || !globalAdminMode) continue;
-      const domain = tenantDomainById.get(session.tenantId);
-      if (domain && domain.toLowerCase().includes(q)) {
-        seen.add(session.sessionId);
-        exactResults.push({ session, matchedField: "Tenant", matchedValue: domain, isExact: true });
-      }
+      const domain = globalAdminMode ? tenantDomainById.get(session.tenantId) : undefined;
+      if (!matcher(session, domain)) continue;
+      const hit = matchedSearchField(parsed, session) ?? (domain ? { label: "Tenant", value: domain } : null);
+      if (!hit) continue;
+      seen.add(session.sessionId);
+      exactResults.push({ session, matchedField: hit.label, matchedValue: hit.value, isExact: true });
     }
 
-    // Phase 2: Levenshtein fuzzy matches (fill remaining slots, min 3 chars for fuzzy)
-    if (exactResults.length < 8 && q.length >= 3) {
-      const maxDist = q.length <= 4 ? 1 : 2;
+    // Phase 2: Levenshtein fuzzy matches (fill remaining slots) — only for a single free
+    // term of 3+ chars; a qualifier or an exclusion states intent too precisely to fuzz.
+    const [only] = parsed.include;
+    const fuzzable = parsed.include.length === 1 && parsed.exclude.length === 0 && !only.field && only.text.length >= 3;
+    if (fuzzable && exactResults.length < 8) {
+      const needle = only.text;
+      const maxDist = needle.length <= 4 ? 1 : 2;
       for (const session of sessions) {
         if (exactResults.length + fuzzyResults.length >= 8) break;
         if (seen.has(session.sessionId)) continue;
-        for (const f of SEARCH_FIELDS) {
+        for (const f of SESSION_SEARCH_FIELDS) {
           const val = session[f.key];
-          if (val != null && fuzzyContains(String(val), q, maxDist)) {
+          if (val != null && fuzzyContains(String(val), needle, maxDist)) {
             seen.add(session.sessionId);
             fuzzyResults.push({ session, matchedField: f.label, matchedValue: String(val), isExact: false });
             break;
@@ -257,8 +247,6 @@ export function SessionTable({
     }
 
     return [...exactResults, ...fuzzyResults];
-    // SEARCH_FIELDS is a stable literal — intentionally omitted from deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deferredSearchQuery, sessions, globalAdminMode, tenantDomainById]);
 
   // Persist visible columns to localStorage
@@ -574,7 +562,7 @@ export function SessionTable({
       <div className="mb-4 relative" ref={searchDropdownRef}>
         <input
           type="text"
-          placeholder="Search by device, serial, model, status, session ID, country, or duration (e.g., >30 for >30min)"
+          placeholder="Search by device, serial, model, status, session ID, country, or duration (>30) — narrow with model=, manufacturer=, -term"
           value={searchQuery}
           onChange={(e) => {
             onSearchQueryChange(e.target.value);

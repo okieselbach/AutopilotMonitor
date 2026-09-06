@@ -6,63 +6,12 @@ import { useLatest } from "@/hooks/useLatest";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
 import { ApiError, fetchJson } from "@/lib/apiClient";
 
-// Wire shape of the server-aggregated Fleet Health payload (camelCase of the
-// backend FleetHealthMetrics DTO). Presentation-only derivations (bar maxima,
-// axis labels) stay in the page.
-export interface FleetHealthStats {
-  total: number;
-  succeeded: number;
-  failed: number;
-  inProgress: number;
-  /** Terminal, non-failure (timeout reclassification). Surfaced separately; not counted as a failure. */
-  incomplete: number;
-  /** Succeeded / (succeeded + failed) — finished enrollments only. 0 when nothing finished yet. */
-  successRate: number;
-  avgDurationMinutes: number;
-  /** Median over the same population as avg — the card's headline value (outlier-robust). */
-  medianDurationMinutes: number;
-  /** 90th percentile — the tail signal the median alone would hide. */
-  p90DurationMinutes: number;
-}
-export interface FleetDailyPoint {
-  date: string;
-  success: number;
-  failed: number;
-}
-export interface FleetFailureReason {
-  reason: string;
-  count: number;
-}
-export interface FleetModelHealth {
-  model: string;
-  /** All sessions on this model in the window, including in-flight ones. */
-  total: number;
-  succeeded: number;
-  failed: number;
-}
-export interface FleetSlowModel {
-  model: string;
-  avgMinutes: number;
-  count: number;
-}
-export interface FleetFailingModel {
-  model: string;
-  failed: number;
-  total: number;
-  failureRate: number;
-}
-export interface FleetHealthData {
-  success: boolean;
-  days: number;
-  stats: FleetHealthStats;
-  dailyData: FleetDailyPoint[];
-  failureReasons: FleetFailureReason[];
-  modelHealth: FleetModelHealth[];
-  slowestModels: FleetSlowModel[];
-  topFailingModels: FleetFailingModel[];
-  computedAt: string;
-}
+// Wire shape of the server-aggregated Fleet Health payload: the generated mirror of the
+// backend FleetHealthMetrics DTO. Presentation-only derivations (bar maxima, axis
+// labels) stay in the page.
+import type { FleetHealthMetrics } from "@/utils/wire-types.generated";
 
+export type FleetHealthData = FleetHealthMetrics;
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
