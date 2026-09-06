@@ -14,6 +14,9 @@
             "Microsoft.Azure.WebJobs.Host": "Error",
             "Microsoft.Azure.WebJobs.Script": "Error",
             "Azure.Core": "Error",
+            "Azure.Identity": "Warning",
+            "Microsoft.AspNetCore": "Warning",
+            "Microsoft.Hosting.Lifetime": "Warning",
             "System": "Error"
         },
         "applicationInsights": {
