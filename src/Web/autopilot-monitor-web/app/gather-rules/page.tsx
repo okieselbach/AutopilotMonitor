@@ -13,7 +13,10 @@ import { FormJsonToggle, JsonModeToggleButtons } from "@/components/rules/FormJs
 import { useAuthenticatedFetch, useNotificationMessages, useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
-import { GatherRule, NewRuleForm, PastedGatherJson, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, gatherRuleToForm, targetBlocked, validateScopeSelection } from "./types";
+import { GatherRule, NewRuleForm, PastedGatherJson, EMPTY_FORM, PHASE_TRIGGERS, buildScopeFields, gatherRuleToForm, targetBlocked, validateScopeSelection, getCategoryColor } from "./types";
+import { groupRulesByCategory } from "@/lib/ruleGroups";
+import { RuleCategoryGroups } from "@/components/rules/RuleCategoryGroups";
+import { useCollapsedGroups } from "@/hooks/useCollapsedGroups";
 import { GatherRuleFormFields } from "./components/GatherRuleFormFields";
 import { GatherRuleCard } from "./components/GatherRuleCard";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
@@ -39,6 +42,9 @@ export default function GatherRulesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  // Collapsed category groups, remembered in this browser (one scope: the page has no tabs).
+  const groupState = useCollapsedGroups("gather-rules:collapsed-categories");
+  const GROUP_SCOPE = "rules";
 
   // Expanded / editing state
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
@@ -356,6 +362,10 @@ export default function GatherRulesPage() {
     return true;
   });
 
+  const ruleGroups = groupRulesByCategory(rulesList, filteredRules);
+  const searchActive = searchQuery.trim() !== "";
+  const filtersActive = searchActive || categoryFilter !== "all" || typeFilter !== "all";
+
   const totalRules = rulesList.length;
   const activeRules = rulesList.filter((r) => r.enabled).length;
   const builtInCount = rulesList.filter((r) => r.isBuiltIn).length;
@@ -578,27 +588,36 @@ export default function GatherRulesPage() {
               )}
 
               {/* Rules List */}
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2 px-1">
-                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                  </svg>
-                  <span className="text-sm text-gray-500">
-                    {filteredRules.length} rule{filteredRules.length !== 1 ? "s" : ""} found
-                    {(searchQuery || categoryFilter !== "all" || typeFilter !== "all") && " (filtered)"}
-                  </span>
-                </div>
-
-                {filteredRules.length === 0 ? (
-                  <EmptyState
-                    message="No rules match your filters."
-                    onClearFilters={() => { setSearchQuery(""); setCategoryFilter("all"); setTypeFilter("all"); }}
-                    showClearButton={!!(searchQuery || categoryFilter !== "all" || typeFilter !== "all")}
-                  />
-                ) : (
-                  filteredRules.map((rule) => (
+              {filteredRules.length === 0 ? (
+                <EmptyState
+                  message="No rules match your filters."
+                  onClearFilters={() => { setSearchQuery(""); setCategoryFilter("all"); setTypeFilter("all"); }}
+                  showClearButton={filtersActive}
+                />
+              ) : (
+                <RuleCategoryGroups
+                  groups={ruleGroups}
+                  collapsed={groupState.collapsed(GROUP_SCOPE)}
+                  onToggleGroup={(category) => groupState.toggle(GROUP_SCOPE, category)}
+                  onExpandAll={() => groupState.expandAll(GROUP_SCOPE)}
+                  onCollapseAll={() => groupState.collapseAll(GROUP_SCOPE, ruleGroups.map((g) => g.category))}
+                  forceExpanded={searchActive}
+                  filtered={filtersActive}
+                  summary={
+                    <>
+                      <svg className="w-5 h-5 text-indigo-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      <span>
+                        {filteredRules.length} rule{filteredRules.length !== 1 ? "s" : ""} in {ruleGroups.length} {ruleGroups.length !== 1 ? "categories" : "category"}
+                        {filtersActive && " (filtered)"}
+                      </span>
+                    </>
+                  }
+                  categoryColor={getCategoryColor}
+                  ruleKey={(r) => r.ruleId}
+                  renderRule={(rule) => (
                     <GatherRuleCard
-                      key={rule.ruleId}
                       rule={rule}
                       isExpanded={expandedRuleId === rule.ruleId}
                       isEditing={editingRuleId === rule.ruleId}
@@ -645,9 +664,9 @@ export default function GatherRulesPage() {
                       readOnly={isReadOnly}
                       unrestrictedMode={unrestrictedMode}
                     />
-                  ))
-                )}
-              </div>
+                  )}
+                />
+              )}
             </div>
           )}
         </main>

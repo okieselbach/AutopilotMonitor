@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { GatherRule, NewRuleForm, PastedGatherJson, CATEGORY_COLORS, COLLECTOR_TYPE_LABELS, formatTrigger, formatGatherPhase, gatherRuleToForm } from "../types";
+import { GatherRule, NewRuleForm, PastedGatherJson, getCategoryColor, COLLECTOR_TYPE_LABELS, formatTrigger, formatGatherPhase, gatherRuleToForm } from "../types";
 import { GatherRuleFormFields } from "./GatherRuleFormFields";
 import { FormJsonToggle, JsonModeToggleButtons, ReadOnlyJsonView } from "@/components/rules/FormJsonToggle";
 import { validateGatherRuleTarget } from "@/utils/guardValidation";
@@ -60,7 +60,7 @@ export function GatherRuleCard({
   unrestrictedMode = false,
 }: GatherRuleCardProps) {
   const [showJson, setShowJson] = useState(false);
-  const catColor = CATEGORY_COLORS[rule.category] || { bg: "bg-gray-100", text: "text-gray-700" };
+  const catColor = getCategoryColor(rule.category);
   const canEdit = !rule.isBuiltIn && !rule.isCommunity;
 
   const targetValidation = useMemo(

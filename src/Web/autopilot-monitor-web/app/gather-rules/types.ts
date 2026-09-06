@@ -94,6 +94,10 @@ export function formatGatherPhase(token: string): string {
   return GATHER_PHASES.find((p) => p.value === token)?.label ?? token;
 }
 
+export function getCategoryColor(category: string) {
+  return CATEGORY_COLORS[category.toLowerCase()] || { bg: "bg-gray-100", text: "text-gray-700" };
+}
+
 export const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
   network: { bg: "bg-blue-100", text: "text-blue-700" },
   identity: { bg: "bg-purple-100", text: "text-purple-700" },

@@ -15,7 +15,10 @@ import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdmin
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 
 import { isTemplateRule } from "@/lib/analyzeRuleTabs";
-import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, validateOnEventTypes } from "./types";
+import { groupRulesByCategory, categoryLabel } from "@/lib/ruleGroups";
+import { RuleCategoryGroups } from "@/components/rules/RuleCategoryGroups";
+import { useCollapsedGroups } from "@/hooks/useCollapsedGroups";
+import { AnalyzeRule, RuleForm, PastedAnalyzeJson, EMPTY_FORM, EMPTY_CONDITION, ruleToForm, jsonToForm, formToEvaluateOn, validateOnEventTypes, getCategoryColor } from "./types";
 import { BLOCKED_INTERIM_TRIGGER_EVENT_TYPES } from "@/utils/guardrails.generated";
 
 /** Pre-flight for the evaluation-trigger form fields; returns an error message or null. */
@@ -57,6 +60,8 @@ export default function AnalyzeRulesPage() {
 
   // Active tab: "rules" (all real rules) vs "templates" (copy blueprints)
   const [activeTab, setActiveTab] = useState<"rules" | "templates">("rules");
+  // Collapsed category groups, remembered per tab in this browser.
+  const groupState = useCollapsedGroups("analyze-rules:collapsed-categories");
 
   // Expanded / editing state
   const [expandedRuleId, setExpandedRuleId] = useState<string | null>(null);
@@ -446,9 +451,8 @@ export default function AnalyzeRulesPage() {
       showSuccess(`Custom rule created from "${configureTemplateRule.title}" and enabled — see the Rules tab.`);
       setConfigureTemplateRule(null);
       await fetchRules();
-      // Surface the new custom rule where it lives: switch to the Rules tab and expand it.
-      setActiveTab("rules");
-      setExpandedRuleId(newRuleId);
+      // Surface the new custom rule where it lives: Rules tab, its category group, expanded.
+      revealRule(newRuleId, configureTemplateRule.category);
     }
     setCreatingFromTemplate(false);
   };
@@ -501,6 +505,26 @@ export default function AnalyzeRulesPage() {
 
     return matchesTab && matchesSearch && matchesSeverity && matchesCategory && matchesType;
   });
+
+  // Category groups for the active tab: counters come from the whole tab, the list from the filter.
+  const tabRules = rulesList.filter((r) => (activeTab === "templates") === isTemplateRule(r));
+  const ruleGroups = groupRulesByCategory(tabRules, filteredRules);
+  const searchActive = searchQuery.trim() !== "";
+  const filtersActive = searchActive || severityFilter !== "all" || categoryFilter !== "all" || typeFilter !== "all";
+
+  // Open one rule where it lives: its tab, its category group (un-collapsed), the card expanded
+  // and scrolled into view. `categoryHint` covers a rule that is not in the list yet (fresh copy).
+  const revealRule = (ruleId: string, categoryHint?: string) => {
+    const target = rulesList.find((r) => r.ruleId === ruleId);
+    const tab = target && isTemplateRule(target) ? "templates" : "rules";
+    const category = (target?.category ?? categoryHint)?.toLowerCase();
+    if (category) groupState.expand(tab, category);
+    setActiveTab(tab);
+    setExpandedRuleId(ruleId);
+    setTimeout(() => {
+      document.getElementById(`rule-card-${ruleId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  };
 
   // Total template count (unfiltered) drives the tab badge + whether the tab bar shows at all.
   const templateCount = rulesList.filter(isTemplateRule).length;
@@ -624,12 +648,7 @@ export default function AnalyzeRulesPage() {
                           return (
                             <button
                               key={ruleId}
-                              onClick={() => {
-                                setExpandedRuleId(ruleId);
-                                setTimeout(() => {
-                                  document.getElementById(`rule-card-${ruleId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-                                }, 100);
-                              }}
+                              onClick={() => revealRule(ruleId)}
                               className="w-full text-left group"
                             >
                               <div className="flex items-center gap-3">
@@ -738,7 +757,7 @@ export default function AnalyzeRulesPage() {
                     onChange: setCategoryFilter,
                     options: [
                       { value: "all", label: "All Categories" },
-                      ...uniqueCategories.map((cat) => ({ value: cat, label: cat.charAt(0).toUpperCase() + cat.slice(1) })),
+                      ...uniqueCategories.map((cat) => ({ value: cat, label: categoryLabel(cat) })),
                     ],
                   },
                   // Type filter is meaningless in the Templates tab → hide it there.
@@ -845,9 +864,23 @@ export default function AnalyzeRulesPage() {
                   showClearButton={!!(searchQuery || severityFilter !== "all" || categoryFilter !== "all" || typeFilter !== "all")}
                 />
               ) : (
-                <div className="space-y-3">
-                  {filteredRules.map((rule) => (
-                    <div key={rule.ruleId} id={`rule-card-${rule.ruleId}`}>
+                <RuleCategoryGroups
+                  groups={ruleGroups}
+                  collapsed={groupState.collapsed(activeTab)}
+                  onToggleGroup={(category) => groupState.toggle(activeTab, category)}
+                  onExpandAll={() => groupState.expandAll(activeTab)}
+                  onCollapseAll={() => groupState.collapseAll(activeTab, ruleGroups.map((g) => g.category))}
+                  forceExpanded={searchActive}
+                  filtered={filtersActive}
+                  summary={
+                    <span>
+                      {filteredRules.length} {activeTab === "templates" ? "template" : "rule"}{filteredRules.length !== 1 ? "s" : ""} in {ruleGroups.length} {ruleGroups.length !== 1 ? "categories" : "category"}
+                      {filtersActive && " (filtered)"}
+                    </span>
+                  }
+                  categoryColor={getCategoryColor}
+                  ruleKey={(r) => r.ruleId}
+                  renderRule={(rule) => (
                     <AnalyzeRuleCard
                       rule={rule}
                       isExpanded={expandedRuleId === rule.ruleId}
@@ -882,15 +915,14 @@ export default function AnalyzeRulesPage() {
                       onConfigureTemplate={(r) => setConfigureTemplateRule(r)}
                       templateCopyExists={templateCopyMap.has(rule.ruleId)}
                       templateCopyRuleId={templateCopyMap.get(rule.ruleId)}
-                      onScrollToCopy={(copyId) => setExpandedRuleId(copyId)}
+                      onScrollToCopy={(copyId) => revealRule(copyId)}
                       hitRate={ruleStatsMap[rule.ruleId]?.hitRate ?? null}
                       fireCount={ruleStatsMap[rule.ruleId]?.fireCount ?? null}
                       trend={ruleStatsMap[rule.ruleId]?.trend ?? null}
                       regression={ruleStatsMap[rule.ruleId]?.regression ?? null}
                     />
-                    </div>
-                  ))}
-                </div>
+                  )}
+                />
               )}
             </div>
           )}
