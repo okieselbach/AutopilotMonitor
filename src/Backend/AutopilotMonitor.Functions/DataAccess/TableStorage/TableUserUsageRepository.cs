@@ -34,57 +34,46 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             _tenantTableClient = storage.GetTableClient(Constants.TableNames.McpTenantUsage);
         }
 
-        public async Task IncrementUsageAsync(string userId, string userPrincipalName, string tenantId, string endpoint)
+        /// <summary>
+        /// CAS attempts for the two usage counters — deliberately above
+        /// <see cref="TableCasRetry.DefaultRetries"/>. MCP clients fan tool calls out in parallel, so
+        /// six requests of one user hit the same (user, day, endpoint) row in the same instant; with
+        /// the helper's jittered backoff one writer lands per round, and eight rounds absorb a burst
+        /// of that size without dropping an increment (2026-09-06: three attempts without backoff lost
+        /// 3 of 6). The increment runs off the request path, so the extra latency is invisible.
+        /// </summary>
+        internal const int UsageCounterRetries = 8;
+
+        private static long ReadCount(TableEntity entity)
+            => entity.TryGetValue("RequestCount", out var c) ? Convert.ToInt64(c) : 0L;
+
+        public Task IncrementUsageAsync(string userId, string userPrincipalName, string tenantId, string endpoint)
         {
             var date = DateTime.UtcNow.ToString("yyyyMMdd");
             var rowKey = $"{date}_{endpoint}";
 
-            const int maxRetries = 3;
-            for (var attempt = 0; attempt < maxRetries; attempt++)
-            {
-                try
+            return TableCasRetry.MutateAsync(
+                _tableClient, userId, rowKey,
+                patch: read => new TableEntity(userId, rowKey)
                 {
-                    var result = await _tableClient.GetEntityAsync<TableEntity>(userId, rowKey);
-                    var entity = result.Value;
-                    var count = entity.TryGetValue("RequestCount", out var c) ? Convert.ToInt64(c) : 0L;
-                    entity["RequestCount"] = count + 1;
-                    entity["LastRequestAt"] = DateTimeOffset.UtcNow;
-                    await _tableClient.UpdateEntityAsync(entity, entity.ETag);
-                    return;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
+                    ["RequestCount"] = ReadCount(read) + 1,
+                    ["LastRequestAt"] = DateTimeOffset.UtcNow,
+                },
+                createMissing: () => new TableEntity(userId, rowKey)
                 {
-                    var entity = new TableEntity(userId, rowKey)
-                    {
-                        ["Date"] = date,
-                        ["Endpoint"] = endpoint,
-                        ["UserId"] = userId,
-                        ["UserPrincipalName"] = userPrincipalName,
-                        ["TenantId"] = tenantId,
-                        ["RequestCount"] = 1L,
-                        ["LastRequestAt"] = DateTimeOffset.UtcNow,
-                    };
-                    try
-                    {
-                        await _tableClient.AddEntityAsync(entity);
-                        return;
-                    }
-                    catch (RequestFailedException addEx) when (addEx.Status == 409)
-                    {
-                        _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Retried);
-                        continue;
-                    }
-                }
-                catch (RequestFailedException ex) when (ex.Status == 412)
-                {
-                    _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Retried);
-                    continue;
-                }
-            }
-
-            _metrics?.CasConflict("IncrementUserUsage", Constants.TableNames.UserUsageLog, CasOutcome.Exhausted);
-            _logger.LogWarning("Failed to increment user usage after {MaxRetries} retries: user={UserId}, endpoint={Endpoint}",
-                maxRetries, LogSanitizer.Clean(userId), LogSanitizer.Clean(endpoint));
+                    ["Date"] = date,
+                    ["Endpoint"] = endpoint,
+                    ["UserId"] = userId,
+                    ["UserPrincipalName"] = userPrincipalName,
+                    ["TenantId"] = tenantId,
+                    ["RequestCount"] = 1L,
+                    ["LastRequestAt"] = DateTimeOffset.UtcNow,
+                },
+                operation: "IncrementUserUsage",
+                tableName: Constants.TableNames.UserUsageLog,
+                metrics: _metrics,
+                logger: _logger,
+                retries: UsageCounterRetries);
         }
 
         public async Task<List<UserUsageRecord>> GetUsageByUserAsync(string userId, string? dateFrom = null, string? dateTo = null)
@@ -215,65 +204,45 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // ---- McpTenantUsage (organization-wide quota counters) ----
 
-        public async Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName, string? homeTenantId)
+        public Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName, string? homeTenantId)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(userId))
-                return;
+                return Task.CompletedTask;
 
             var date = DateTime.UtcNow.ToString("yyyyMMdd");
             var rowKey = $"{date}_{userId}";
 
-            const int maxRetries = 3;
-            for (var attempt = 0; attempt < maxRetries; attempt++)
-            {
-                try
+            return TableCasRetry.MutateAsync(
+                _tenantTableClient, tenantId, rowKey,
+                patch: read =>
                 {
-                    var result = await _tenantTableClient.GetEntityAsync<TableEntity>(tenantId, rowKey);
-                    var entity = result.Value;
-                    var count = entity.TryGetValue("RequestCount", out var c) ? Convert.ToInt64(c) : 0L;
-                    entity["RequestCount"] = count + 1;
-                    entity["LastRequestAt"] = DateTimeOffset.UtcNow;
-                    // Attribution columns (added 2026-09): the UPN as last seen, and the caller's home tenant
-                    // when this row was charged by a delegated (MSP) read. Refreshed on every increment so a
-                    // row created before the columns existed heals on its next hit.
-                    if (!string.IsNullOrEmpty(userPrincipalName))
-                        entity["UserPrincipalName"] = userPrincipalName;
-                    entity["HomeTenantId"] = homeTenantId ?? string.Empty;
-                    await _tenantTableClient.UpdateEntityAsync(entity, entity.ETag);
-                    return;
-                }
-                catch (RequestFailedException ex) when (ex.Status == 404)
-                {
-                    var entity = new TableEntity(tenantId, rowKey)
+                    var patch = new TableEntity(tenantId, rowKey)
                     {
-                        ["Date"] = date,
-                        ["UserId"] = userId,
-                        ["UserPrincipalName"] = userPrincipalName ?? string.Empty,
-                        ["HomeTenantId"] = homeTenantId ?? string.Empty,
-                        ["RequestCount"] = 1L,
+                        ["RequestCount"] = ReadCount(read) + 1,
                         ["LastRequestAt"] = DateTimeOffset.UtcNow,
+                        // Attribution columns (added 2026-09): the UPN as last seen, and the caller's home
+                        // tenant when this row was charged by a delegated (MSP) read. Refreshed on every
+                        // increment so a row created before the columns existed heals on its next hit.
+                        ["HomeTenantId"] = homeTenantId ?? string.Empty,
                     };
-                    try
-                    {
-                        await _tenantTableClient.AddEntityAsync(entity);
-                        return;
-                    }
-                    catch (RequestFailedException addEx) when (addEx.Status == 409)
-                    {
-                        _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Retried);
-                        continue;
-                    }
-                }
-                catch (RequestFailedException ex) when (ex.Status == 412)
+                    if (!string.IsNullOrEmpty(userPrincipalName))
+                        patch["UserPrincipalName"] = userPrincipalName;
+                    return patch;
+                },
+                createMissing: () => new TableEntity(tenantId, rowKey)
                 {
-                    _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Retried);
-                    continue;
-                }
-            }
-
-            _metrics?.CasConflict("IncrementTenantUsage", Constants.TableNames.McpTenantUsage, CasOutcome.Exhausted);
-            _logger.LogWarning("Failed to increment tenant usage after {MaxRetries} retries: tenant={TenantId}, user={UserId}",
-                maxRetries, LogSanitizer.Clean(tenantId), LogSanitizer.Clean(userId));
+                    ["Date"] = date,
+                    ["UserId"] = userId,
+                    ["UserPrincipalName"] = userPrincipalName ?? string.Empty,
+                    ["HomeTenantId"] = homeTenantId ?? string.Empty,
+                    ["RequestCount"] = 1L,
+                    ["LastRequestAt"] = DateTimeOffset.UtcNow,
+                },
+                operation: "IncrementTenantUsage",
+                tableName: Constants.TableNames.McpTenantUsage,
+                metrics: _metrics,
+                logger: _logger,
+                retries: UsageCounterRetries);
         }
 
         public async Task<List<TenantUsageRecord>> GetTenantUsageAsync(string tenantId, string? dateFrom = null, string? dateTo = null)
