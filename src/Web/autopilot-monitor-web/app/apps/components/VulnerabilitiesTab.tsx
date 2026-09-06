@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import VulnerabilityExposurePanel, { type VulnerabilitySummary } from "@/components/VulnerabilityExposurePanel";
+import VulnerabilityExposurePanel from "@/components/VulnerabilityExposurePanel";
+import type { CveExposureSummary } from "@/utils/wire-types.generated";
 import type { SoftwareTabScope, TimeRange } from "./types";
 import { rangeToDays } from "./types";
 import { ApiError, fetchJson } from "@/lib/apiClient";
@@ -17,7 +18,7 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
   const { addNotification } = useNotifications();
     const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
-  const [summary, setSummary] = useState<VulnerabilitySummary | null>(null);
+  const [summary, setSummary] = useState<CveExposureSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   // GA without a specific tenant selected sees the cross-tenant aggregate (incl. affected tenants).
@@ -32,7 +33,7 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
       try {
         setLoading(true);
         const url = scopedApi.vulnerability(scope, days, TOP_N);
-        const summary = await fetchJson<VulnerabilitySummary>(url, getAccessToken);
+        const summary = await fetchJson<CveExposureSummary>(url, getAccessToken);
         if (cancelled) return;
         setSummary(summary);
       } catch (err) {

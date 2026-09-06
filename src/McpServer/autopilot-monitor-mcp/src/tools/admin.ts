@@ -1823,7 +1823,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Vulnerability Summary',
       description:
         'Get a fleet-wide vulnerability exposure summary aggregated from detected CVEs: total affected devices, ' +
-        'distinct CVE count, KEV (CISA Known-Exploited) count, a severity breakdown, and the top CVEs ranked by how ' +
+        'distinct CVE count, KEV (CISA Known-Exploited) count, a severity breakdown, a priority breakdown ' +
+        '(act/attend/track counts over every CVE in the window), and the top CVEs ranked by how ' +
         'many devices they affect. Each top CVE carries cvssScore/cvssSeverity, isKev, epssScore (FIRST EPSS ' +
         'probability of exploitation within 30 days, 0-1, null when unscored) and priority ("act" = in CISA KEV, ' +
         '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = everything else) — rank remediation by priority, then EPSS, ' +

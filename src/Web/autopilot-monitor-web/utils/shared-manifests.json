@@ -6111,6 +6111,13 @@
           }
         },
         {
+          "name": "priorityBreakdown",
+          "type": {
+            "kind": "ref",
+            "name": "PriorityBreakdown"
+          }
+        },
+        {
           "name": "topCves",
           "type": {
             "kind": "array",
@@ -14462,6 +14469,33 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        }
+      ]
+    },
+    "PriorityBreakdown": {
+      "kind": "object",
+      "doc": "Distinct-CVE counts grouped by their highest remediation priority (act/attend/track). Rows written before priorities existed carry no band and are counted in none - the three add up to at most DistinctCves. act equals the KEV set by construction (CvePriority.Compute: KEV ⇒ act).",
+      "fields": [
+        {
+          "name": "act",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "attend",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "track",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]

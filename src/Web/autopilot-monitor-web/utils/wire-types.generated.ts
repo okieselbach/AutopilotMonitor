@@ -1206,6 +1206,7 @@ export interface CveExposureSummary {
   distinctCves: number;
   kevCves: number;
   severityBreakdown: SeverityBreakdown;
+  priorityBreakdown: PriorityBreakdown;
   topCves: TopCve[];
   truncated: boolean;
 }
@@ -3085,6 +3086,13 @@ export interface PreviewWhitelistActionResponse {
 /** One approved tenant on the wire. Deliberately NOT the storage entity: the pre-2026-08-31 wire carried synthetic PreviewWhitelistEntity rows whose only real datum was the tenant id in partitionKey (plus garbage defaults) — the contract is now just the id. */
 export interface PreviewWhitelistTenantEntry {
   tenantId: string;
+}
+
+/** Distinct-CVE counts grouped by their highest remediation priority (act/attend/track). Rows written before priorities existed carry no band and are counted in none - the three add up to at most DistinctCves. act equals the KEV set by construction (CvePriority.Compute: KEV ⇒ act). */
+export interface PriorityBreakdown {
+  act: number;
+  attend: number;
+  track: number;
 }
 
 /** Response of GET /api/progress/sessions/{sessionId}/events — the session's event stream after the serial knowledge proof passed. */
