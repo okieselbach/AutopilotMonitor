@@ -4,6 +4,20 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { api } from '@/lib/api';
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type {
+  AdminConfiguration,
+  TenantConfiguration,
+  TenantFeatureFlagsResponse,
+} from "@/utils/wire-types.generated";
+import {
+  isNonDefault,
+  RUNTIME_REPORT_SECTIONS,
+  TENANT_REPORT_SECTIONS,
+  UNRESOLVED,
+  type RowKind,
+  type RuntimeContext,
+  type RuntimeSource,
+} from './tenantConfigReportCatalog';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,201 +25,6 @@ interface TenantInfo {
   tenantId: string;
   domainName: string;
 }
-
-/** Full tenant configuration as returned by GET /api/config/{tenantId}. */
-interface TenantConfig {
-  tenantId: string;
-  domainName?: string;
-  lastUpdated?: string;
-  updatedBy?: string;
-  onboardedAt?: string;
-  contactEmail?: string | null;
-  companyName?: string | null;
-
-  // Tenant status
-  disabled?: boolean;
-  disabledReason?: string;
-  disabledUntil?: string;
-  mcpDisabled?: boolean;
-  mcpDisabledReason?: string;
-
-  // Security
-  customRateLimitRequestsPerMinute?: number | null;
-  customUserRateLimitRequestsPerMinute?: number | null;
-  manufacturerWhitelist?: string;
-  modelWhitelist?: string;
-  validateAutopilotDevice?: boolean;
-  validateCorporateIdentifier?: boolean;
-  allowInsecureAgentRequests?: boolean;
-
-  // Data management
-  dataRetentionDays?: number;
-  sessionTimeoutHours?: number;
-  maxNdjsonPayloadSizeMB?: number;
-
-  // Collectors
-  enablePerformanceCollector?: boolean;
-  performanceCollectorIntervalSeconds?: number;
-  helloWaitTimeoutSeconds?: number;
-
-  // Auth circuit breaker
-  maxAuthFailures?: number | null;
-  authFailureTimeoutMinutes?: number | null;
-  agentMaxLifetimeMinutes?: number | null;
-
-  // Agent behavior
-  selfDestructOnComplete?: boolean | null;
-  keepLogFile?: boolean | null;
-  rebootOnComplete?: boolean | null;
-  rebootDelaySeconds?: number | null;
-  enableGeoLocation?: boolean | null;
-  enableTimezoneAutoSet?: boolean | null;
-  enableDoGroupIdAutoSet?: boolean | null;
-  ntpServer?: string | null;
-  enableImeMatchLog?: boolean | null;
-  enableGatherRuleDebugLog?: boolean | null;
-  enableEspContinueAnywayObservation?: boolean | null;
-  logLevel?: string | null;
-  maxBatchSize?: number | null;
-  showEnrollmentSummary?: boolean | null;
-  enrollmentSummaryTimeoutSeconds?: number | null;
-  enrollmentSummaryBrandingImageUrl?: string | null;
-  enrollmentSummaryLaunchRetrySeconds?: number | null;
-  showScriptOutput?: boolean | null;
-  sendTraceEvents?: boolean;
-
-  // Analyzers
-  enableLocalAdminAnalyzer?: boolean | null;
-  enableSoftwareInventoryAnalyzer?: boolean | null;
-  localAdminAllowedAccountsJson?: string | null;
-
-  // Plan tier
-  planTier?: string;
-  trialExpiresUtc?: string | null;
-  trialConsumed?: boolean;
-
-  // Bootstrap & unrestricted
-  bootstrapTokenEnabled?: boolean;
-  unrestrictedModeEnabled?: boolean;
-  unrestrictedMode?: boolean;
-
-  // Diagnostics
-  diagnosticsBlobSasUrl?: string | null;
-  diagnosticsUploadMode?: string;
-  diagnosticsLogPathsJson?: string | null;
-
-  // Webhook notifications (new)
-  webhookProviderType?: number;
-  webhookUrl?: string | null;
-  webhookNotifyOnSuccess?: boolean;
-  webhookNotifyOnFailure?: boolean;
-  webhookNotifyOnStart?: boolean;
-  notificationChannelsJson?: string | null;
-
-  // Teams notifications (legacy)
-  teamsWebhookUrl?: string | null;
-  teamsNotifyOnSuccess?: boolean;
-  teamsNotifyOnFailure?: boolean;
-  teamsNotifyOnStart?: boolean;
-}
-
-// ── Defaults (mirrors C# TenantConfiguration defaults) ──────────────────────
-
-const DEFAULTS: Record<string, unknown> = {
-  disabled: false,
-  mcpDisabled: false,
-  customRateLimitRequestsPerMinute: null,
-  customUserRateLimitRequestsPerMinute: null,
-  manufacturerWhitelist: 'Dell*,HP*,Lenovo*,Microsoft Corporation',
-  modelWhitelist: '*',
-  validateAutopilotDevice: false,
-  validateCorporateIdentifier: false,
-  allowInsecureAgentRequests: false,
-  dataRetentionDays: 90,
-  sessionTimeoutHours: 5,
-  maxNdjsonPayloadSizeMB: 5,
-  enablePerformanceCollector: true,
-  performanceCollectorIntervalSeconds: 30,
-  helloWaitTimeoutSeconds: 30,
-  maxAuthFailures: null,
-  authFailureTimeoutMinutes: null,
-  agentMaxLifetimeMinutes: null,
-  selfDestructOnComplete: true,
-  keepLogFile: false,
-  rebootOnComplete: null,
-  rebootDelaySeconds: null,
-  enableGeoLocation: null,
-  enableTimezoneAutoSet: null,
-  enableDoGroupIdAutoSet: null,
-  ntpServer: 'time.windows.com',
-  enableImeMatchLog: null,
-  enableGatherRuleDebugLog: null,
-  enableEspContinueAnywayObservation: null,
-  logLevel: null,
-  maxBatchSize: null,
-  showEnrollmentSummary: null,
-  enrollmentSummaryTimeoutSeconds: null,
-  enrollmentSummaryBrandingImageUrl: null,
-  enrollmentSummaryLaunchRetrySeconds: null,
-  showScriptOutput: true,
-  sendTraceEvents: true,
-  enableLocalAdminAnalyzer: null,
-  enableSoftwareInventoryAnalyzer: null,
-  localAdminAllowedAccountsJson: null,
-  planTier: 'free',
-  bootstrapTokenEnabled: false,
-  unrestrictedModeEnabled: false,
-  unrestrictedMode: false,
-  diagnosticsBlobSasUrl: null,
-  diagnosticsUploadMode: 'Off',
-  diagnosticsLogPathsJson: null,
-  webhookProviderType: 0,
-  webhookUrl: null,
-  webhookNotifyOnSuccess: true,
-  webhookNotifyOnFailure: true,
-  webhookNotifyOnStart: false,
-  teamsWebhookUrl: null,
-  teamsNotifyOnSuccess: true,
-  teamsNotifyOnFailure: true,
-  teamsNotifyOnStart: false,
-};
-
-// Runtime defaults (what the agent actually receives if tenant didn't set a value)
-const RUNTIME_DEFAULTS: Record<string, unknown> = {
-  uploadIntervalSeconds: 30,
-  selfDestructOnComplete: true,
-  keepLogFile: false,
-  enableGeoLocation: true,
-  enableTimezoneAutoSet: false,
-  enableDoGroupIdAutoSet: false,
-  ntpServer: 'time.windows.com',
-  enableImeMatchLog: false,
-  enableGatherRuleDebugLog: false,
-  enableEspContinueAnywayObservation: false,
-  maxAuthFailures: 5,
-  authFailureTimeoutMinutes: 0,
-  logLevel: 'Info',
-  rebootOnComplete: false,
-  rebootDelaySeconds: 10,
-  showEnrollmentSummary: false,
-  enrollmentSummaryTimeoutSeconds: 60,
-  enrollmentSummaryLaunchRetrySeconds: 120,
-  maxBatchSize: 100,
-  diagnosticsUploadMode: 'Off',
-  sendTraceEvents: true,
-  unrestrictedMode: false,
-  // Collectors
-  enablePerformanceCollector: true,
-  performanceIntervalSeconds: 30,
-  collectorIdleTimeoutMinutes: 15,
-  enableAgentSelfMetrics: true,
-  agentSelfMetricsIntervalSeconds: 60,
-  helloWaitTimeoutSeconds: 30,
-  agentMaxLifetimeMinutes: 360,
-  // Analyzers
-  enableLocalAdminAnalyzer: true,
-  enableSoftwareInventoryAnalyzer: false,
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -218,19 +37,20 @@ const WEBHOOK_PROVIDERS: Record<number, string> = {
   30: 'Discord',
 };
 
+const SOURCE_LABELS: Record<RuntimeSource, string> = {
+  tenant: 'tenant',
+  admin: 'global',
+  flags: 'entitlement',
+  constant: 'fixed',
+};
+
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '—';
+  if (val === UNRESOLVED) return 'n/a (source not loaded)';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   if (typeof val === 'string') return val || '—';
+  if (Array.isArray(val)) return val.length ? val.join(', ') : '—';
   return String(val);
-}
-
-function isNonDefault(key: string, val: unknown, defaults: Record<string, unknown>): boolean {
-  if (!(key in defaults)) return false;
-  const def = defaults[key];
-  // Both null/undefined → same
-  if ((val === null || val === undefined) && (def === null || def === undefined)) return false;
-  return val !== def;
 }
 
 function maskSasUrl(url: string | null | undefined): string {
@@ -252,30 +72,37 @@ function formatDate(val: string | null | undefined): string {
   }
 }
 
-// ── Section component ────────────────────────────────────────────────────────
+function formatByKind(kind: RowKind | undefined, value: unknown): string {
+  switch (kind) {
+    case 'date':
+      return formatDate(value as string);
+    case 'masked':
+      return maskSasUrl(value as string);
+    case 'secret':
+      return value ? 'configured (hidden)' : '—';
+    default:
+      return formatValue(value);
+  }
+}
+
+// ── Row and section primitives ───────────────────────────────────────────────
 
 interface ConfigRowProps {
   label: string;
-  value: unknown;
-  configKey?: string;
-  defaults?: Record<string, unknown>;
-  masked?: boolean;
-  isDate?: boolean;
+  display: string;
+  highlight?: boolean;
+  sourceTag?: string;
 }
 
-function ConfigRow({ label, value, configKey, defaults, masked, isDate }: ConfigRowProps) {
-  const highlight = configKey && defaults ? isNonDefault(configKey, value, defaults) : false;
-  const displayVal = masked
-    ? maskSasUrl(value as string)
-    : isDate
-    ? formatDate(value as string)
-    : formatValue(value);
-
+function ConfigRow({ label, display, highlight, sourceTag }: ConfigRowProps) {
   return (
     <tr className={highlight ? 'bg-purple-50 dark:bg-purple-900/20' : ''}>
-      <td className="py-1.5 px-3 text-sm text-gray-600 dark:text-gray-400 font-medium whitespace-nowrap">{label}</td>
+      <td className="py-1.5 px-3 text-sm text-gray-600 dark:text-gray-400 font-medium whitespace-nowrap">
+        {label}
+        {sourceTag && <span className="ml-2 text-xs text-gray-400 dark:text-gray-500 font-normal">{sourceTag}</span>}
+      </td>
       <td className="py-1.5 px-3 text-sm text-gray-900 dark:text-gray-100 font-mono break-all">
-        {displayVal}
+        {display}
         {highlight && <span className="ml-2 text-xs text-purple-600 dark:text-purple-400 font-sans">(custom)</span>}
       </td>
     </tr>
@@ -300,46 +127,63 @@ function Section({ title, children }: SectionProps) {
   );
 }
 
-// ── Compute runtime parameters ───────────────────────────────────────────────
+// ── Notification channels (the one non-scalar block) ─────────────────────────
 
-function computeRuntime(c: TenantConfig): Record<string, unknown> {
-  return {
-    uploadIntervalSeconds: 30,
-    selfDestructOnComplete: c.selfDestructOnComplete ?? true,
-    keepLogFile: c.keepLogFile ?? false,
-    enableGeoLocation: c.enableGeoLocation ?? true,
-    enableTimezoneAutoSet: c.enableTimezoneAutoSet ?? false,
-    enableDoGroupIdAutoSet: c.enableDoGroupIdAutoSet ?? false,
-    ntpServer: c.ntpServer ?? 'time.windows.com',
-    enableImeMatchLog: c.enableImeMatchLog ?? false,
-    enableGatherRuleDebugLog: c.enableGatherRuleDebugLog ?? false,
-    enableEspContinueAnywayObservation: c.enableEspContinueAnywayObservation ?? false,
-    maxAuthFailures: c.maxAuthFailures ?? 5,
-    authFailureTimeoutMinutes: c.authFailureTimeoutMinutes ?? 0,
-    logLevel: c.logLevel ?? 'Info',
-    rebootOnComplete: c.rebootOnComplete ?? false,
-    rebootDelaySeconds: c.rebootDelaySeconds ?? 10,
-    showEnrollmentSummary: c.showEnrollmentSummary ?? false,
-    enrollmentSummaryTimeoutSeconds: c.enrollmentSummaryTimeoutSeconds ?? 60,
-    enrollmentSummaryBrandingImageUrl: c.enrollmentSummaryBrandingImageUrl ?? null,
-    enrollmentSummaryLaunchRetrySeconds: c.enrollmentSummaryLaunchRetrySeconds ?? 120,
-    maxBatchSize: c.maxBatchSize ?? 100,
-    diagnosticsUploadEnabled: !!(c.diagnosticsBlobSasUrl && c.diagnosticsUploadMode && c.diagnosticsUploadMode !== 'Off'),
-    diagnosticsUploadMode: c.diagnosticsUploadMode ?? 'Off',
-    sendTraceEvents: c.sendTraceEvents ?? true,
-    unrestrictedMode: c.unrestrictedMode ?? false,
-    // Collectors
-    enablePerformanceCollector: c.enablePerformanceCollector ?? true,
-    performanceIntervalSeconds: c.performanceCollectorIntervalSeconds ?? 30,
-    collectorIdleTimeoutMinutes: 15,
-    enableAgentSelfMetrics: true,
-    agentSelfMetricsIntervalSeconds: 60,
-    helloWaitTimeoutSeconds: c.helloWaitTimeoutSeconds ?? 30,
-    agentMaxLifetimeMinutes: c.agentMaxLifetimeMinutes ?? 360,
-    // Analyzers
-    enableLocalAdminAnalyzer: c.enableLocalAdminAnalyzer ?? true,
-    enableSoftwareInventoryAnalyzer: c.enableSoftwareInventoryAnalyzer ?? false,
-  };
+interface ChannelView {
+  id: string;
+  name?: string;
+  providerType?: number;
+  url?: string;
+  enabled?: boolean;
+  notifyOnStart?: boolean;
+  notifyOnSuccess?: boolean;
+  notifyOnFailure?: boolean;
+  notifyOnSlaEvents?: boolean;
+}
+
+/** Channel list when migrated, else the legacy single-webhook fields — mirrors TenantConfiguration.GetNotificationChannels. */
+function resolveChannels(config: TenantConfiguration): ChannelView[] {
+  if (config.notificationChannelsJson) {
+    try {
+      const parsed = JSON.parse(config.notificationChannelsJson);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed as ChannelView[];
+    } catch { /* malformed → fall back to legacy display */ }
+  }
+  if (config.webhookUrl && config.webhookProviderType) {
+    return [{ id: 'legacy', name: 'Default (legacy)', providerType: config.webhookProviderType, url: config.webhookUrl, enabled: true, notifyOnStart: config.webhookNotifyOnStart, notifyOnSuccess: config.webhookNotifyOnSuccess, notifyOnFailure: config.webhookNotifyOnFailure, notifyOnSlaEvents: true }];
+  }
+  if (config.teamsWebhookUrl) {
+    return [{ id: 'legacy', name: 'Default (legacy)', providerType: 1, url: config.teamsWebhookUrl, enabled: true, notifyOnStart: config.teamsNotifyOnStart, notifyOnSuccess: config.teamsNotifyOnSuccess, notifyOnFailure: config.teamsNotifyOnFailure, notifyOnSlaEvents: true }];
+  }
+  return [];
+}
+
+function ChannelRows({ config }: { config: TenantConfiguration }) {
+  const channels = resolveChannels(config);
+  if (channels.length === 0) {
+    return <ConfigRow label="Provider" display={WEBHOOK_PROVIDERS[0]} />;
+  }
+  return (
+    <>
+      {channels.map((ch, i) => (
+        <tr key={ch.id ?? i} className={i > 0 ? 'border-t-2 border-gray-200 dark:border-gray-600' : ''}>
+          <td colSpan={2} className="p-0">
+            <table className="w-full">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                <ConfigRow label="Channel" display={`${ch.name || ch.id}${ch.enabled === false ? ' (disabled)' : ''}`} />
+                <ConfigRow label="Provider" display={WEBHOOK_PROVIDERS[ch.providerType ?? 0] ?? 'Unknown'} />
+                <ConfigRow label="Webhook URL" display={maskSasUrl(ch.url)} />
+                <ConfigRow label="Notify On Start" display={formatValue(ch.notifyOnStart ?? false)} />
+                <ConfigRow label="Notify On Success" display={formatValue(ch.notifyOnSuccess ?? false)} />
+                <ConfigRow label="Notify On Failure" display={formatValue(ch.notifyOnFailure ?? false)} />
+                <ConfigRow label="Notify On SLA" display={formatValue(ch.notifyOnSlaEvents ?? false)} />
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
@@ -349,13 +193,13 @@ export function SectionTenantConfigReport() {
 
   const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState('');
-  // Mount-time clock for trial-expiry checks — render must stay pure
-  // (react-hooks/purity); day-granularity expiry doesn't need a live clock.
-  const [nowMs] = useState(() => Date.now());
-  const [config, setConfig] = useState<TenantConfig | null>(null);
+  const [config, setConfig] = useState<TenantConfiguration | null>(null);
+  const [flags, setFlags] = useState<TenantFeatureFlagsResponse | null>(null);
+  const [adminConfig, setAdminConfig] = useState<AdminConfiguration | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingTenants, setLoadingTenants] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sideError, setSideError] = useState<string | null>(null);
 
   // Fetch tenant list
   useEffect(() => {
@@ -379,20 +223,34 @@ export function SectionTenantConfigReport() {
     fetchTenants();
   }, [user?.isGlobalAdmin, getAccessToken]);
 
-  // Fetch config for selected tenant
+  // Fetch config plus its two runtime sources for the selected tenant. The full config is
+  // the report; feature-flags (entitlement) and global config (operator knobs) are fail-soft —
+  // their rows show "n/a" and a notice instead of blocking the whole report.
   const fetchConfig = useCallback(async () => {
     if (!selectedTenantId) return;
     try {
       setLoading(true);
       setError(null);
-      const data = await fetchJson<TenantConfig>(
-        api.config.tenant(selectedTenantId),
-        getAccessToken,
-      );
-      setConfig(data);
+      setSideError(null);
+      const [configResult, flagsResult, adminResult] = await Promise.allSettled([
+        fetchJson<TenantConfiguration>(api.config.tenant(selectedTenantId), getAccessToken),
+        fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(selectedTenantId), getAccessToken),
+        fetchJson<AdminConfiguration>(api.globalConfig.get(), getAccessToken),
+      ]);
+      if (configResult.status === 'rejected') throw configResult.reason;
+      setConfig(configResult.value);
+      setFlags(flagsResult.status === 'fulfilled' ? flagsResult.value : null);
+      setAdminConfig(adminResult.status === 'fulfilled' ? adminResult.value : null);
+      const sideFailures = [
+        flagsResult.status === 'rejected' ? `feature flags: ${apiErrorText(flagsResult.reason)}` : null,
+        adminResult.status === 'rejected' ? `global config: ${apiErrorText(adminResult.reason)}` : null,
+      ].filter((s): s is string => s !== null);
+      setSideError(sideFailures.length ? `Runtime sources unavailable — ${sideFailures.join('; ')}` : null);
     } catch (err) {
       setError(apiErrorText(err));
       setConfig(null);
+      setFlags(null);
+      setAdminConfig(null);
     } finally {
       setLoading(false);
     }
@@ -405,30 +263,7 @@ export function SectionTenantConfigReport() {
     void run();
   }, [fetchConfig]);
 
-  // Computed runtime
-  const runtime = config ? computeRuntime(config) : null;
-
-  // Webhook display helper: channel list when migrated, else legacy single-webhook fields
-  // (mirrors the backend's GetNotificationChannels fallback order).
-  const webhookChannels = config
-    ? (() => {
-        if (config.notificationChannelsJson) {
-          try {
-            const parsed = JSON.parse(config.notificationChannelsJson);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              return parsed as { id: string; name?: string; providerType?: number; url?: string; enabled?: boolean; notifyOnStart?: boolean; notifyOnSuccess?: boolean; notifyOnFailure?: boolean; notifyOnSlaEvents?: boolean }[];
-            }
-          } catch { /* malformed → fall back to legacy display */ }
-        }
-        if (config.webhookUrl && config.webhookProviderType) {
-          return [{ id: 'legacy', name: 'Default (legacy)', providerType: config.webhookProviderType, url: config.webhookUrl, enabled: true, notifyOnStart: config.webhookNotifyOnStart, notifyOnSuccess: config.webhookNotifyOnSuccess, notifyOnFailure: config.webhookNotifyOnFailure, notifyOnSlaEvents: true }];
-        }
-        if (config.teamsWebhookUrl) {
-          return [{ id: 'legacy', name: 'Default (legacy)', providerType: 1, url: config.teamsWebhookUrl, enabled: true, notifyOnStart: config.teamsNotifyOnStart, notifyOnSuccess: config.teamsNotifyOnSuccess, notifyOnFailure: config.teamsNotifyOnFailure, notifyOnSlaEvents: true }];
-        }
-        return [];
-      })()
-    : [];
+  const runtimeCtx: RuntimeContext | null = config ? { config, adminConfig, flags } : null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -487,7 +322,7 @@ export function SectionTenantConfigReport() {
       )}
 
       {/* Config report */}
-      {!loading && config && (
+      {!loading && config && runtimeCtx && (
         <>
           {/* Tenant header card */}
           <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
@@ -509,6 +344,34 @@ export function SectionTenantConfigReport() {
                 <span className="font-medium text-gray-900 dark:text-gray-100">{config.updatedBy || '—'}</span>
               </div>
             </div>
+            {/* Effective entitlement — backend-resolved (feature-flags), not the stored plan tier */}
+            {flags && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mt-3 pt-3 border-t border-purple-200 dark:border-purple-800">
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400 block">Effective Edition</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                    {flags.edition}
+                    <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">via {flags.editionSource}</span>
+                    {flags.isTrial && flags.trialExpiresUtc ? ` (trial until ${formatDate(flags.trialExpiresUtc)})` : ''}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400 block">MCP Usage Plan</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{flags.entitlements.mcpUsagePlan || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400 block">Delegated Tenant Slots</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                    {flags.entitlements.maxDelegatedTenants}
+                    {!flags.entitlements.delegatedAdminAllowed && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">(delegation not included)</span>}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400 block">Retention Cap (days)</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{flags.entitlements.retentionCapDays}</span>
+                </div>
+              </div>
+            )}
             {config.disabled && (
               <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/40 rounded text-sm text-red-700 dark:text-red-300 font-medium">
                 TENANT DISABLED{config.disabledReason ? `: ${config.disabledReason}` : ''}
@@ -522,6 +385,12 @@ export function SectionTenantConfigReport() {
             )}
           </div>
 
+          {sideError && (
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+              {sideError}
+            </div>
+          )}
+
           {/* Legend */}
           <div className="mb-4 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
             <span className="inline-block w-3 h-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded" />
@@ -533,177 +402,48 @@ export function SectionTenantConfigReport() {
             <div>
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Tenant Configuration</h2>
 
-              <Section title="Tenant Status">
-                <ConfigRow label="Disabled" value={config.disabled} configKey="disabled" defaults={DEFAULTS} />
-                <ConfigRow label="Disabled Reason" value={config.disabledReason} />
-                <ConfigRow label="Disabled Until" value={config.disabledUntil} isDate />
-                <ConfigRow label="Onboarded At" value={config.onboardedAt} isDate />
-                <ConfigRow label="Contact Email" value={config.contactEmail} />
-                <ConfigRow label="Company" value={config.companyName} />
-                <ConfigRow
-                  label="Plan Tier"
-                  value={`${config.planTier || 'free'}${config.trialExpiresUtc && new Date(config.trialExpiresUtc).getTime() > nowMs ? ` (trial until ${formatDate(config.trialExpiresUtc)})` : ''}`}
-                  configKey="planTier"
-                  defaults={DEFAULTS}
-                />
-              </Section>
-
-              <Section title="Security & Validation">
-                <ConfigRow label="Validate Autopilot Device" value={config.validateAutopilotDevice} configKey="validateAutopilotDevice" defaults={DEFAULTS} />
-                <ConfigRow label="Validate Corporate Identifier" value={config.validateCorporateIdentifier} configKey="validateCorporateIdentifier" defaults={DEFAULTS} />
-                <ConfigRow label="Allow Insecure Agent Requests" value={config.allowInsecureAgentRequests} configKey="allowInsecureAgentRequests" defaults={DEFAULTS} />
-                <ConfigRow label="Device API Rate Limit Override" value={config.customRateLimitRequestsPerMinute} configKey="customRateLimitRequestsPerMinute" defaults={DEFAULTS} />
-                <ConfigRow label="MCP & Integrations API Rate Limit Override" value={config.customUserRateLimitRequestsPerMinute} configKey="customUserRateLimitRequestsPerMinute" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Hardware Whitelist">
-                <ConfigRow label="Manufacturers" value={config.manufacturerWhitelist} configKey="manufacturerWhitelist" defaults={DEFAULTS} />
-                <ConfigRow label="Models" value={config.modelWhitelist} configKey="modelWhitelist" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Data Management">
-                <ConfigRow label="Data Retention (days)" value={config.dataRetentionDays} configKey="dataRetentionDays" defaults={DEFAULTS} />
-                <ConfigRow label="Session Timeout (hours)" value={config.sessionTimeoutHours} configKey="sessionTimeoutHours" defaults={DEFAULTS} />
-                <ConfigRow label="Max NDJSON Payload (MB)" value={config.maxNdjsonPayloadSizeMB} configKey="maxNdjsonPayloadSizeMB" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Agent Collectors">
-                <ConfigRow label="Performance Collector" value={config.enablePerformanceCollector} configKey="enablePerformanceCollector" defaults={DEFAULTS} />
-                <ConfigRow label="Perf. Interval (sec)" value={config.performanceCollectorIntervalSeconds} configKey="performanceCollectorIntervalSeconds" defaults={DEFAULTS} />
-                <ConfigRow label="Hello Wait Timeout (sec)" value={config.helloWaitTimeoutSeconds} configKey="helloWaitTimeoutSeconds" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Auth Circuit Breaker">
-                <ConfigRow label="Max Auth Failures" value={config.maxAuthFailures} configKey="maxAuthFailures" defaults={DEFAULTS} />
-                <ConfigRow label="Auth Failure Timeout (min)" value={config.authFailureTimeoutMinutes} configKey="authFailureTimeoutMinutes" defaults={DEFAULTS} />
-                <ConfigRow label="Agent Max Lifetime (min)" value={config.agentMaxLifetimeMinutes} configKey="agentMaxLifetimeMinutes" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Agent Behavior">
-                <ConfigRow label="Self-Destruct On Complete" value={config.selfDestructOnComplete} configKey="selfDestructOnComplete" defaults={DEFAULTS} />
-                <ConfigRow label="Keep Log File" value={config.keepLogFile} configKey="keepLogFile" defaults={DEFAULTS} />
-                <ConfigRow label="Reboot On Complete" value={config.rebootOnComplete} configKey="rebootOnComplete" defaults={DEFAULTS} />
-                <ConfigRow label="Reboot Delay (sec)" value={config.rebootDelaySeconds} configKey="rebootDelaySeconds" defaults={DEFAULTS} />
-                <ConfigRow label="Geo-Location" value={config.enableGeoLocation} configKey="enableGeoLocation" defaults={DEFAULTS} />
-                <ConfigRow label="Timezone Auto-Set" value={config.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={DEFAULTS} />
-                <ConfigRow label="DO GroupId Auto-Set" value={config.enableDoGroupIdAutoSet} configKey="enableDoGroupIdAutoSet" defaults={DEFAULTS} />
-                <ConfigRow label="NTP Server" value={config.ntpServer} configKey="ntpServer" defaults={DEFAULTS} />
-                <ConfigRow label="IME Match Log" value={config.enableImeMatchLog} configKey="enableImeMatchLog" defaults={DEFAULTS} />
-                <ConfigRow label="Gather Rule Debug Log" value={config.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={DEFAULTS} />
-                <ConfigRow label="Continue-Anyway Observation" value={config.enableEspContinueAnywayObservation} configKey="enableEspContinueAnywayObservation" defaults={DEFAULTS} />
-                <ConfigRow label="Log Level" value={config.logLevel} configKey="logLevel" defaults={DEFAULTS} />
-                <ConfigRow label="Max Batch Size" value={config.maxBatchSize} configKey="maxBatchSize" defaults={DEFAULTS} />
-                <ConfigRow label="Show Script Output" value={config.showScriptOutput} configKey="showScriptOutput" defaults={DEFAULTS} />
-                <ConfigRow label="Send Trace Events" value={config.sendTraceEvents} configKey="sendTraceEvents" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Enrollment Summary">
-                <ConfigRow label="Show Summary" value={config.showEnrollmentSummary} configKey="showEnrollmentSummary" defaults={DEFAULTS} />
-                <ConfigRow label="Timeout (sec)" value={config.enrollmentSummaryTimeoutSeconds} configKey="enrollmentSummaryTimeoutSeconds" defaults={DEFAULTS} />
-                <ConfigRow label="Branding Image URL" value={config.enrollmentSummaryBrandingImageUrl} configKey="enrollmentSummaryBrandingImageUrl" defaults={DEFAULTS} />
-                <ConfigRow label="Launch Retry (sec)" value={config.enrollmentSummaryLaunchRetrySeconds} configKey="enrollmentSummaryLaunchRetrySeconds" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Analyzers">
-                <ConfigRow label="Local Admin Analyzer" value={config.enableLocalAdminAnalyzer} configKey="enableLocalAdminAnalyzer" defaults={DEFAULTS} />
-                <ConfigRow label="Software Inventory Analyzer" value={config.enableSoftwareInventoryAnalyzer} configKey="enableSoftwareInventoryAnalyzer" defaults={DEFAULTS} />
-                <ConfigRow label="Allowed Local Admin Accounts" value={config.localAdminAllowedAccountsJson} configKey="localAdminAllowedAccountsJson" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Webhooks">
-                {webhookChannels.length === 0 && (
-                  <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[0] ?? 'None'} />
-                )}
-                {webhookChannels.map((ch, i) => (
-                  <div key={ch.id ?? i} className={i > 0 ? 'mt-2 pt-2 border-t border-gray-100 dark:border-gray-700' : ''}>
-                    <ConfigRow label="Channel" value={`${ch.name || ch.id}${ch.enabled === false ? ' (disabled)' : ''}`} />
-                    <ConfigRow label="Provider" value={WEBHOOK_PROVIDERS[ch.providerType ?? 0] ?? 'Unknown'} />
-                    <ConfigRow label="Webhook URL" value={ch.url} masked />
-                    <ConfigRow label="Notify On Start" value={ch.notifyOnStart ?? false} />
-                    <ConfigRow label="Notify On Success" value={ch.notifyOnSuccess ?? false} />
-                    <ConfigRow label="Notify On Failure" value={ch.notifyOnFailure ?? false} />
-                    <ConfigRow label="Notify On SLA" value={ch.notifyOnSlaEvents ?? false} />
-                  </div>
-                ))}
-              </Section>
-
-              <Section title="Diagnostics">
-                <ConfigRow label="Upload Mode" value={config.diagnosticsUploadMode} configKey="diagnosticsUploadMode" defaults={DEFAULTS} />
-                <ConfigRow label="Blob SAS URL" value={config.diagnosticsBlobSasUrl} masked />
-                <ConfigRow label="Custom Log Paths" value={config.diagnosticsLogPathsJson} configKey="diagnosticsLogPathsJson" defaults={DEFAULTS} />
-              </Section>
-
-              <Section title="Feature Flags (Global)">
-                <ConfigRow label="Bootstrap Token Enabled" value={config.bootstrapTokenEnabled} configKey="bootstrapTokenEnabled" defaults={DEFAULTS} />
-                <ConfigRow label="Unrestricted Mode Enabled" value={config.unrestrictedModeEnabled} configKey="unrestrictedModeEnabled" defaults={DEFAULTS} />
-                <ConfigRow label="Unrestricted Mode Active" value={config.unrestrictedMode} configKey="unrestrictedMode" defaults={DEFAULTS} />
-              </Section>
+              {TENANT_REPORT_SECTIONS.map(({ section, rows }) => (
+                <Section key={section} title={section}>
+                  {section === 'Webhooks' && <ChannelRows config={config} />}
+                  {rows.map(({ key, row }) => {
+                    const value = config[key as keyof TenantConfiguration];
+                    return (
+                      <ConfigRow
+                        key={key}
+                        label={row.label}
+                        display={formatByKind(row.kind, value)}
+                        highlight={'default' in row && isNonDefault(value, row.default)}
+                      />
+                    );
+                  })}
+                </Section>
+              ))}
             </div>
 
             {/* ────── RIGHT: Runtime Parameters (Agent Config) ────── */}
             <div>
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Runtime Parameters (Agent)</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                These are the effective values the agent receives at runtime, with defaults applied for unset fields.
+                The effective values the agent receives at runtime, with defaults applied for unset fields.
+                The tag says where a value is resolved from: tenant config, global config, the tenant&apos;s entitlement, or a fixed backend constant.
               </p>
 
-              {runtime && (
-                <>
-                  <Section title="Upload & Batching">
-                    <ConfigRow label="Upload Interval (sec)" value={runtime.uploadIntervalSeconds} configKey="uploadIntervalSeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Max Batch Size" value={runtime.maxBatchSize} configKey="maxBatchSize" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Agent Behavior">
-                    <ConfigRow label="Self-Destruct" value={runtime.selfDestructOnComplete} configKey="selfDestructOnComplete" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Keep Log File" value={runtime.keepLogFile} configKey="keepLogFile" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Reboot On Complete" value={runtime.rebootOnComplete} configKey="rebootOnComplete" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Reboot Delay (sec)" value={runtime.rebootDelaySeconds} configKey="rebootDelaySeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Geo-Location" value={runtime.enableGeoLocation} configKey="enableGeoLocation" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Timezone Auto-Set" value={runtime.enableTimezoneAutoSet} configKey="enableTimezoneAutoSet" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="DO GroupId Auto-Set" value={runtime.enableDoGroupIdAutoSet} configKey="enableDoGroupIdAutoSet" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="NTP Server" value={runtime.ntpServer} configKey="ntpServer" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="IME Match Log" value={runtime.enableImeMatchLog} configKey="enableImeMatchLog" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Gather Rule Debug Log" value={runtime.enableGatherRuleDebugLog} configKey="enableGatherRuleDebugLog" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Continue-Anyway Observation" value={runtime.enableEspContinueAnywayObservation} configKey="enableEspContinueAnywayObservation" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Log Level" value={runtime.logLevel} configKey="logLevel" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Send Trace Events" value={runtime.sendTraceEvents} configKey="sendTraceEvents" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Unrestricted Mode" value={runtime.unrestrictedMode} configKey="unrestrictedMode" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Auth Circuit Breaker">
-                    <ConfigRow label="Max Auth Failures" value={runtime.maxAuthFailures} configKey="maxAuthFailures" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Auth Failure Timeout (min)" value={runtime.authFailureTimeoutMinutes} configKey="authFailureTimeoutMinutes" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Enrollment Summary">
-                    <ConfigRow label="Show Summary" value={runtime.showEnrollmentSummary} configKey="showEnrollmentSummary" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Timeout (sec)" value={runtime.enrollmentSummaryTimeoutSeconds} configKey="enrollmentSummaryTimeoutSeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Branding Image URL" value={runtime.enrollmentSummaryBrandingImageUrl} />
-                    <ConfigRow label="Launch Retry (sec)" value={runtime.enrollmentSummaryLaunchRetrySeconds} configKey="enrollmentSummaryLaunchRetrySeconds" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Collectors">
-                    <ConfigRow label="Performance Collector" value={runtime.enablePerformanceCollector} configKey="enablePerformanceCollector" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Perf. Interval (sec)" value={runtime.performanceIntervalSeconds} configKey="performanceIntervalSeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Idle Timeout (min)" value={runtime.collectorIdleTimeoutMinutes} configKey="collectorIdleTimeoutMinutes" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Agent Self-Metrics" value={runtime.enableAgentSelfMetrics} configKey="enableAgentSelfMetrics" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Self-Metrics Interval (sec)" value={runtime.agentSelfMetricsIntervalSeconds} configKey="agentSelfMetricsIntervalSeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Hello Wait Timeout (sec)" value={runtime.helloWaitTimeoutSeconds} configKey="helloWaitTimeoutSeconds" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Agent Max Lifetime (min)" value={runtime.agentMaxLifetimeMinutes} configKey="agentMaxLifetimeMinutes" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Diagnostics">
-                    <ConfigRow label="Upload Enabled" value={runtime.diagnosticsUploadEnabled} />
-                    <ConfigRow label="Upload Mode" value={runtime.diagnosticsUploadMode} configKey="diagnosticsUploadMode" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-
-                  <Section title="Analyzers">
-                    <ConfigRow label="Local Admin Analyzer" value={runtime.enableLocalAdminAnalyzer} configKey="enableLocalAdminAnalyzer" defaults={RUNTIME_DEFAULTS} />
-                    <ConfigRow label="Software Inventory Analyzer" value={runtime.enableSoftwareInventoryAnalyzer} configKey="enableSoftwareInventoryAnalyzer" defaults={RUNTIME_DEFAULTS} />
-                  </Section>
-                </>
-              )}
+              {RUNTIME_REPORT_SECTIONS.map(({ section, rows }) => (
+                <Section key={section} title={section}>
+                  {rows.map(({ key, row }) => {
+                    const value = row.value(runtimeCtx);
+                    return (
+                      <ConfigRow
+                        key={key}
+                        label={row.label}
+                        sourceTag={SOURCE_LABELS[row.source]}
+                        display={formatValue(value)}
+                        highlight={'default' in row && value !== UNRESOLVED && isNonDefault(value, row.default)}
+                      />
+                    );
+                  })}
+                </Section>
+              ))}
             </div>
           </div>
         </>
