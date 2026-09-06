@@ -99,6 +99,11 @@ COPY rules/ime-log-patterns/ ./rules/ime-log-patterns/
 # context so it is provably the same bytes the embeddings were computed over.
 COPY --from=build /app/docs/ ./docs/
 
+# Error-code catalog — the Shared resource the backend embeds, served by
+# lookup_error_code and the search_knowledge literal fallback. Outside rules/ on
+# purpose: it is not part of the knowledge corpus hash.
+COPY src/Shared/AutopilotMonitor.Shared/Resources/error-codes.json ./error-codes/error-codes.json
+
 ARG DOCS_COMMIT=unknown
 ENV DOCS_COMMIT=${DOCS_COMMIT}
 
@@ -116,6 +121,7 @@ ENV PORT=8080
 ENV RULES_DIR=/app/rules
 ENV DOCS_DIR=/app/docs
 ENV SEARCH_INDEX_PATH=/app/search-index/search-index.json
+ENV ERROR_CODES_PATH=/app/error-codes/error-codes.json
 EXPOSE 8080
 
 # Drop root: run as the unprivileged `node` user the base image ships (uid 1000).

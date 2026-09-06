@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { buildInstallItems, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
@@ -404,7 +404,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
                   Exit: {formatErrorCode(item.exitCode)}
                 </span>
                 {entry && (
-                  <span className={descColor} title={`${entry.source} (${entry.confidence} confidence)`}>
+                  <span className={descColor} title={errorCodeTooltip(entry)}>
                     {entry.description}
                   </span>
                 )}
@@ -421,7 +421,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
                   HRESULT: {formatErrorCode(item.hresultFromWin32)}
                 </span>
                 {entry && (
-                  <span className={descColor} title={`${entry.source} (${entry.confidence} confidence)`}>
+                  <span className={descColor} title={errorCodeTooltip(entry)}>
                     {entry.description}
                   </span>
                 )}
@@ -439,7 +439,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
                   ESP HRESULT: {formatErrorCode(item.errorCode)}
                 </span>
                 {entry && (
-                  <span className="text-red-600" title={`${entry.source} (${entry.confidence} confidence)`}>
+                  <span className="text-red-600" title={errorCodeTooltip(entry)}>
                     {entry.description}
                   </span>
                 )}

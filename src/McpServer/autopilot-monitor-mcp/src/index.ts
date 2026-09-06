@@ -7,6 +7,7 @@ import { createMcpRequestHandler } from './mcp-http.js';
 import { createServerForCaller, type ServerDeps } from './mcp-server-factory.js';
 import { loadKnowledgeDocs } from './knowledge-base.js';
 import { loadDocsCorpus, docSections } from './docs-corpus.js';
+import { getErrorCodeCatalog, DEFAULT_ERROR_CODES_PATH } from './error-code-catalog.js';
 import { createSearchProvider, resolveBackend } from './search-factory.js';
 import type { SearchBackend, SearchProvider } from './search-provider.js';
 import { MODEL_NAME, VectorSearchProvider, embed } from './vector-search-provider.js';
@@ -69,6 +70,10 @@ console.error(`[boot ${bootMark()}] node started, loading corpora from disk…`)
 const docs = await loadKnowledgeDocs(RULES_DIR);
 const eventTypeDocs = buildEventTypeSearchDocs();
 const docsDocs = DOCS_DIR ? await loadDocsCorpus(DOCS_DIR) : [];
+// Error-code catalog: read once here so a missing/incompatible file fails the boot loudly
+// (lookup_error_code and the search_knowledge fallback would otherwise degrade silently).
+const errorCodeCatalog = getErrorCodeCatalog();
+console.error(`[startup] Error-code catalog: ${errorCodeCatalog.size} entries, ${errorCodeCatalog.enforcementStates.size} enforcement states (${DEFAULT_ERROR_CODES_PATH}).`);
 if (DOCS_DIR && docsDocs.length === 0) {
   console.error(`[startup] DOCS_DIR=${DOCS_DIR} yielded no documents — search_docs will NOT be registered.`);
 }

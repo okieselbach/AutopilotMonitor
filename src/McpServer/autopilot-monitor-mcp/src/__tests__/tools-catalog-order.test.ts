@@ -156,6 +156,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'list_tables',
     'list_tenant_config_backups',
     'list_tenants',
+    // Every role: public reference data (the shared error-code catalog), no tenant data.
+    'lookup_error_code',
     'query_backend_logs',
     'query_raw_events',
     'query_raw_sessions',

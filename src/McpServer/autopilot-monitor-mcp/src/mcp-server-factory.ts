@@ -70,6 +70,7 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
     'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
     'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
     'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
+    'Error codes: lookup_error_code explains one HRESULT / MSI exit code / symbol / IME enforcement state from the shared catalog; search_knowledge finds the rules that name a code.',
     scopeLine,
   ].join('\n');
 }

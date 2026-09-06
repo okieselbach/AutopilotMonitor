@@ -17,6 +17,10 @@ public sealed class ErrorCodeEnricherTests
         Data = data,
     };
 
+    /// <summary>The <c>*Info</c> sibling as the wire sees it: a string-keyed dictionary.</summary>
+    private static Dictionary<string, object> Info(EnrollmentEvent evt, string key) =>
+        Assert.IsType<Dictionary<string, object>>(evt.Data[key]);
+
     [Fact]
     public void EnrichEvent_adds_errorCodeInfo_for_known_hex_code()
     {
@@ -25,13 +29,13 @@ public sealed class ErrorCodeEnricherTests
         ErrorCodeEnricher.EnrichEvent(evt);
 
         Assert.True(evt.Data.ContainsKey("errorCodeInfo"));
-        var info = evt.Data["errorCodeInfo"];
-        var description = info.GetType().GetProperty("description")?.GetValue(info)?.ToString();
-        var confidence = info.GetType().GetProperty("confidence")?.GetValue(info)?.ToString();
-        var source = info.GetType().GetProperty("source")?.GetValue(info)?.ToString();
-        Assert.Contains("Access denied", description ?? "");
-        Assert.Equal("high", confidence);
-        Assert.False(string.IsNullOrEmpty(source));
+        var info = Info(evt, "errorCodeInfo");
+        Assert.Equal("Access is denied", info["description"]);
+        Assert.Equal("high", info["confidence"]);
+        Assert.StartsWith("msdoc:", (string)info["source"]);
+        Assert.Equal("win32", info["category"]);
+        Assert.Equal("ERROR_ACCESS_DENIED", info["symbol"]);
+        Assert.False(info.ContainsKey("derivedFromWin32"));
     }
 
     [Fact]
@@ -41,29 +45,35 @@ public sealed class ErrorCodeEnricherTests
 
         ErrorCodeEnricher.EnrichEvent(evt);
 
-        Assert.True(evt.Data.ContainsKey("exitCodeInfo"));
-        var info = evt.Data["exitCodeInfo"];
-        Assert.Contains("Fatal error", info.GetType().GetProperty("description")?.GetValue(info)?.ToString() ?? "");
+        var info = Info(evt, "exitCodeInfo");
+        Assert.Contains("fatal error", (string)info["description"]);
+        Assert.Equal("ERROR_INSTALL_FAILURE", info["symbol"]);
+        Assert.Equal("msi", info["category"]);
     }
 
     [Fact]
-    public void EnrichEvent_handles_hresult_key()
+    public void EnrichEvent_reports_hresult_from_win32_derivation_as_data()
+    {
+        var evt = EventWithData(new() { { "hresultFromWin32", "0x80070643" } });
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        var info = Info(evt, "hresultFromWin32Info");
+        Assert.Equal(1603, info["derivedFromWin32"]);
+        Assert.Equal("ERROR_INSTALL_FAILURE", info["symbol"]);
+        Assert.DoesNotContain("1603", (string)info["description"]);
+    }
+
+    [Fact]
+    public void EnrichEvent_omits_symbol_when_the_entry_has_none()
     {
         var evt = EventWithData(new() { { "hresult", "0x87d1041c" } });
 
         ErrorCodeEnricher.EnrichEvent(evt);
 
-        Assert.True(evt.Data.ContainsKey("hresultInfo"));
-    }
-
-    [Fact]
-    public void EnrichEvent_handles_hresultFromWin32_key()
-    {
-        var evt = EventWithData(new() { { "hresultFromWin32", "0x80070005" } });
-
-        ErrorCodeEnricher.EnrichEvent(evt);
-
-        Assert.True(evt.Data.ContainsKey("hresultFromWin32Info"));
+        var info = Info(evt, "hresultInfo");
+        Assert.False(info.ContainsKey("symbol"));
+        Assert.Equal("intune-win32", info["category"]);
     }
 
     [Fact]
@@ -112,6 +122,45 @@ public sealed class ErrorCodeEnricherTests
     }
 
     [Fact]
+    public void EnrichEvent_adds_enforcementStateInfo_for_numeric_state()
+    {
+        // registry_app_state carries the IME enforcement state as a numeric string.
+        var evt = EventWithData(new() { { "enforcementState", "1000" } });
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        var info = evt.Data["enforcementStateInfo"];
+        Assert.Equal("Success", info.GetType().GetProperty("name")?.GetValue(info));
+        Assert.False(string.IsNullOrEmpty(info.GetType().GetProperty("description")?.GetValue(info) as string));
+    }
+
+    [Fact]
+    public void EnrichEvent_skips_unknown_enforcement_state_and_stays_idempotent()
+    {
+        var unknown = EventWithData(new() { { "enforcementState", "424242" } });
+        ErrorCodeEnricher.EnrichEvent(unknown);
+        Assert.False(unknown.Data.ContainsKey("enforcementStateInfo"));
+
+        var existing = new { name = "kept" };
+        var evt = EventWithData(new() { { "enforcementState", "1000" }, { "enforcementStateInfo", existing } });
+        ErrorCodeEnricher.EnrichEvent(evt);
+        Assert.Same(existing, evt.Data["enforcementStateInfo"]);
+    }
+
+    [Fact]
+    public void EnrichEvent_leaves_nested_objects_untouched()
+    {
+        // app_install_summary carries per-app objects; only top-level keys are enriched.
+        var nested = new Dictionary<string, object> { { "exitCode", "1603" } };
+        var evt = EventWithData(new() { { "apps", new List<object> { nested } } });
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.Single(evt.Data);
+        Assert.Single(nested);
+    }
+
+    [Fact]
     public void EnrichEvent_handles_null_data_dictionary()
     {
         var evt = new EnrollmentEvent { EventType = "x", Source = "x", Message = "x", Data = null! };
@@ -137,9 +186,7 @@ public sealed class ErrorCodeEnricherTests
 
         ErrorCodeEnricher.EnrichEvent(evt);
 
-        Assert.True(evt.Data.ContainsKey("errorCodeInfo"));
-        var info = evt.Data["errorCodeInfo"];
-        Assert.Contains("Access denied", info.GetType().GetProperty("description")?.GetValue(info)?.ToString() ?? "");
+        Assert.Equal("Access is denied", Info(evt, "errorCodeInfo")["description"]);
     }
 
     [Fact]

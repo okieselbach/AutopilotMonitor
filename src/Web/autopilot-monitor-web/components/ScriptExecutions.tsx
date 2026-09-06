@@ -20,6 +20,7 @@ import {
   type ScriptItem,
 } from "@/lib/scriptExecutions";
 import { lookupScriptDisplayName, type DisplayNamesByRefKey } from "@/lib/scriptDisplayNames";
+import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 
 interface ScriptExecutionsProps {
   events: ScriptInputEvent[];
@@ -501,9 +502,20 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
             {item.result && <span><span className="font-medium text-gray-700">Result:</span> {item.result}</span>}
             {item.complianceResult && <span><span className="font-medium text-gray-700">Compliance:</span> {item.complianceResult === "True" ? "Compliant" : "Non-compliant"}</span>}
             {!nested && remediationStatusLabel && <span><span className="font-medium text-gray-700">Status:</span> {remediationStatusLabel}</span>}
-            {item.errorCode != null && item.errorCode !== 0 && (
-              <span><span className="font-medium text-gray-700">Error Code:</span> <span className="font-mono">{item.errorCode}</span></span>
-            )}
+            {item.errorCode != null && item.errorCode !== 0 && (() => {
+              // IME error code (an HRESULT, usually signed decimal on the wire); the script's own
+              // exitCode stays raw above — its meaning is defined by the script author.
+              const entry = getErrorCodeEntry(item.errorCode);
+              return (
+                <span>
+                  <span className="font-medium text-gray-700">Error Code:</span>{" "}
+                  <span className="font-mono">{formatErrorCode(item.errorCode)}</span>
+                  {entry && (
+                    <span className="text-red-600" title={errorCodeTooltip(entry)}>{" "}{entry.description}</span>
+                  )}
+                </span>
+              );
+            })()}
             <span><span className="font-medium text-gray-700">Time:</span> {new Date(item.timestamp).toLocaleTimeString()}</span>
           </div>
 

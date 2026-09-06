@@ -615,7 +615,7 @@
       "description": "Detects when the Enrollment Status Page failed on the Apps subcategory and the agent's AppX deployment log scan identified a suspected MSIX/Store package. Store/MSIX apps install outside the Win32 pipeline, so the regular per-app tracking sees nothing — this correlation names the likely culprit.",
       "severity": "warning",
       "category": "apps",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "enabled": true,
       "evaluateOn": [
         "enrollment_end",
@@ -703,7 +703,7 @@
           "steps": [
             "Open Event Viewer → Applications and Services Logs → Microsoft → Windows → AppXDeploymentServer → Operational on the device (or in the diagnostics archive if uploaded)",
             "Filter for Error-level events around the ESP failure time and confirm the package name and HRESULT match this finding",
-            "Look up the HRESULT: 0x80073cf9 = generic install failure, 0x80073cf0 = invalid/corrupt package, 0x80073cff = sideloading/licensing policy block, 0x80073d02 = blocked because app is in use"
+            "Look up the HRESULT: 0x80073cf9 = generic install failure, 0x80073cf0 = package could not be opened (unsigned, publisher mismatch, or not found), 0x80073cff = sideloading/licensing policy block, 0x80073d02 = blocked because app is in use"
           ]
         },
         {

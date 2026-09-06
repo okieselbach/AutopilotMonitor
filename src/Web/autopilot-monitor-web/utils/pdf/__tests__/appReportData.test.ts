@@ -153,7 +153,7 @@ describe("prepareReportModel", () => {
       })
     );
     expect(model.failureCodes.rows[0][0]).toBe("esp_apps_install_failure");
-    expect(model.failureCodes.rows[0][2]).toBe("1618 (Another installation already in progress)");
+    expect(model.failureCodes.rows[0][2]).toMatch(/^1618 \(Another installation is already in progress/);
   });
 
   it("enriches known error codes and labels unknown ones", () => {

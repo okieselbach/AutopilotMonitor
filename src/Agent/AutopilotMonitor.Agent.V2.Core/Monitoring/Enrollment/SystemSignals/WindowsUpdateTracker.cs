@@ -9,6 +9,7 @@ using AutopilotMonitor.Agent.V2.Core.Logging;
 using AutopilotMonitor.Agent.V2.Core.Orchestration;
 using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models;
+using AutopilotMonitor.Shared.Services;
 using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
@@ -303,7 +304,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             if (TryNormalizeHResult(errorCode, out var hresultValue, out hresultHex))
             {
                 data["hresult"] = hresultHex;
-                data["hresultSymbol"] = DecodeHResult(hresultValue);
+                data["hresultSymbol"] = ResolveHResultSymbol(hresultValue);
             }
 
             var title = string.IsNullOrEmpty(updateTitle) ? "(unknown update)" : updateTitle;
@@ -462,36 +463,25 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         }
 
         /// <summary>
-        /// Maps common Windows Update HRESULTs to their symbolic name. Not exhaustive — the full
-        /// catalog lives at
-        /// https://learn.microsoft.com/windows/deployment/update/windows-update-error-reference.
-        /// Unknown codes return "WU_E_UNKNOWN" so the raw <c>hresult</c> hex still carries the value.
+        /// Symbolic name of a WU HRESULT from the shared error-code catalog (WU, CBS, Win32 and
+        /// COM families). <c>S_OK</c> for zero, <c>WU_E_UNKNOWN</c> when the catalog has no symbol,
+        /// so the raw <c>hresult</c> hex still carries the value. A catalog load failure is
+        /// swallowed the same way: decoding is decoration and must never cost the event.
         /// </summary>
-        internal static string DecodeHResult(uint hresult)
+        internal static string ResolveHResultSymbol(uint hresult)
+            => ResolveHResultSymbol(hresult, code => ErrorCodeCatalog.TryLookup(code));
+
+        internal static string ResolveHResultSymbol(uint hresult, Func<string, ErrorCodeEntry> lookup)
         {
-            switch (hresult)
+            if (hresult == 0) return "S_OK";
+            try
             {
-                case 0x00000000: return "S_OK";
-                // WU agent codes (0x8024xxxx)
-                case 0x80240022: return "WU_E_ALL_UPDATES_FAILED";
-                case 0x8024200B: return "WU_E_UH_INSTALLERFAILURE";
-                case 0x80240020: return "WU_E_NO_INTERACTIVE_USER";
-                case 0x80240016: return "WU_E_INSTALL_NOT_ALLOWED";
-                case 0x8024000B: return "WU_E_CALL_CANCELLED";
-                case 0x8024000C: return "WU_E_NOOP";
-                case 0x80240FFF: return "WU_E_UNEXPECTED";
-                case 0x80248007: return "WU_E_DS_NODATA";
-                case 0x8024402C: return "WU_E_PT_WINHTTP_NAME_NOT_RESOLVED";
-                // Generic Win32 / HRESULT
-                case 0x80070005: return "E_ACCESSDENIED";
-                case 0x80070002: return "ERROR_FILE_NOT_FOUND";
-                case 0x80070003: return "ERROR_PATH_NOT_FOUND";
-                case 0x800705B4: return "ERROR_TIMEOUT";
-                // CBS / servicing (LCU install failures)
-                case 0x800F0831: return "CBS_E_STORE_CORRUPTION";
-                case 0x800F0922: return "CBS_E_INSTALLERS_FAILED";
-                case 0x800F0991: return "PSFX_E_MISSING_PAYLOAD_FILE";
-                default: return "WU_E_UNKNOWN";
+                var symbol = lookup("0x" + hresult.ToString("x8", CultureInfo.InvariantCulture))?.Symbol;
+                return string.IsNullOrEmpty(symbol) ? "WU_E_UNKNOWN" : symbol;
+            }
+            catch
+            {
+                return "WU_E_UNKNOWN";
             }
         }
 

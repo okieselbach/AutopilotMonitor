@@ -9,7 +9,7 @@ import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
+import { getErrorCodeEntry, formatErrorCode, formatErrorCodeSource } from "@/utils/errorCodeMap";
 import { trackEvent } from "@/lib/appInsights";
 // Static import is safe: appReportData is pure data prep with no jsPDF dependency —
 // jsPDF itself only loads with the dynamic import inside handleExportPdf.
@@ -687,7 +687,7 @@ function AppDetailContent() {
                                           ? "bg-amber-100 text-amber-800"
                                           : "bg-gray-100 text-gray-700"
                                       }`}
-                                      title={`Source: ${entry.source}`}
+                                      title={`Source: ${formatErrorCodeSource(entry.source)}`}
                                     >
                                       {entry.confidence}
                                     </span>

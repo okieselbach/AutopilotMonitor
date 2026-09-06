@@ -243,12 +243,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.SystemSignals
         }
 
         [Fact]
-        public void DecodeHResult_KnownAndUnknown()
+        public void ResolveHResultSymbol_ReadsTheSharedCatalog()
         {
-            Assert.Equal("WU_E_ALL_UPDATES_FAILED", WindowsUpdateTracker.DecodeHResult(0x80240022));
-            Assert.Equal("CBS_E_INSTALLERS_FAILED", WindowsUpdateTracker.DecodeHResult(0x800F0922));
-            Assert.Equal("S_OK", WindowsUpdateTracker.DecodeHResult(0x00000000));
-            Assert.Equal("WU_E_UNKNOWN", WindowsUpdateTracker.DecodeHResult(0x8888DEAD));
+            Assert.Equal("WU_E_ALL_UPDATES_FAILED", WindowsUpdateTracker.ResolveHResultSymbol(0x80240022));
+            Assert.Equal("CBS_E_INSTALLERS_FAILED", WindowsUpdateTracker.ResolveHResultSymbol(0x800F0922));
+            Assert.Equal("ERROR_TIMEOUT", WindowsUpdateTracker.ResolveHResultSymbol(0x800705B4));
+            Assert.Equal("S_OK", WindowsUpdateTracker.ResolveHResultSymbol(0x00000000));
+            Assert.Equal("WU_E_UNKNOWN", WindowsUpdateTracker.ResolveHResultSymbol(0x8888DEAD));
+        }
+
+        [Fact]
+        public void ResolveHResultSymbol_FallsBackWhenTheCatalogHasNoSymbolOrThrows()
+        {
+            // An entry without a symbol (IME/Intune paraphrases) still yields the sentinel.
+            Assert.Equal("WU_E_UNKNOWN", WindowsUpdateTracker.ResolveHResultSymbol(0x87D1041C));
+            // A catalog load failure is decoration lost, never an event lost.
+            Assert.Equal("WU_E_UNKNOWN", WindowsUpdateTracker.ResolveHResultSymbol(0x80240022, _ => throw new InvalidOperationException("catalog")));
+            Assert.Equal("S_OK", WindowsUpdateTracker.ResolveHResultSymbol(0, _ => throw new InvalidOperationException("catalog")));
         }
 
         // ---------------------------------------------------------------------------

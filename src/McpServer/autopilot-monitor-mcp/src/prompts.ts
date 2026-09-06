@@ -87,8 +87,8 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
               'If available=false, note it and continue with backend data only.\n' +
               '3. Build a correlated timeline merging the agent log (client truth) with the backend Events. ' +
               'Use get_session_events / query_raw_events for the raw stream around the first error; gaps ' +
-              'between agent log and Events reveal upload/network issues. Use search_knowledge to look up ' +
-              'rules / IME patterns / error codes you encounter.\n' +
+              'between agent log and Events reveal upload/network issues. Use lookup_error_code for every error code ' +
+              'you encounter (meaning, symbol, family) and search_knowledge for the rules / IME patterns that name it.\n' +
               // strictGa, not ga: query_backend_logs / query_table are registered for a real Global
               // Admin only — a Global Reader must not be pointed at tools it cannot see.
               (strictGa

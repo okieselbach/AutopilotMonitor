@@ -13,8 +13,10 @@ namespace AutopilotMonitor.Functions.Services
     /// time via the shared <see cref="ErrorCodeCatalog"/>. Web/MCP/API consumers all
     /// benefit without each having to ship its own catalog.
     /// <para>
-    /// Idempotent: when a sibling <c>errorCodeInfo</c> is already present the entry is
-    /// skipped. Read-only on the storage layer — never writes back to the table.
+    /// Sibling shape: <c>{ description, confidence, source, category, symbol?, derivedFromWin32? }</c>;
+    /// for <c>enforcementState</c> the sibling is <c>{ name, description }</c>.
+    /// Idempotent: when a sibling info key is already present the entry is skipped.
+    /// Read-only on the storage layer — never writes back to the table.
     /// </para>
     /// </summary>
     public static class ErrorCodeEnricher
@@ -34,6 +36,9 @@ namespace AutopilotMonitor.Functions.Services
             ("lasterror", "lastErrorInfo"),
         };
 
+        private const string EnforcementStateKey = "enforcementstate";
+        private const string EnforcementStateInfoKey = "enforcementStateInfo";
+
         public static void EnrichEvent(EnrollmentEvent evt)
         {
             if (evt?.Data == null || evt.Data.Count == 0) return;
@@ -44,16 +49,36 @@ namespace AutopilotMonitor.Functions.Services
                 if (evt.Data.ContainsKey(pair.InfoKey)) continue; // idempotent
 
                 var raw = evt.Data[actualKey]?.ToString();
-                var entry = ErrorCodeCatalog.TryLookup(raw);
-                if (entry == null) continue;
+                var result = ErrorCodeCatalog.TryLookupDetailed(raw);
+                if (result == null) continue;
 
-                evt.Data[pair.InfoKey] = new
-                {
-                    description = entry.Description,
-                    confidence = entry.Confidence.ToString().ToLowerInvariant(),
-                    source = entry.Source,
-                };
+                evt.Data[pair.InfoKey] = ToInfo(result);
             }
+
+            if (TryFindKey(evt.Data, EnforcementStateKey, out var stateKey) && !evt.Data.ContainsKey(EnforcementStateInfoKey))
+            {
+                var state = ErrorCodeCatalog.TryLookupEnforcementState(evt.Data[stateKey]?.ToString());
+                if (state != null)
+                {
+                    evt.Data[EnforcementStateInfoKey] = new { name = state.Name, description = state.Description };
+                }
+            }
+        }
+
+        /// <summary>Wire shape of an <c>*Info</c> sibling; optional members are omitted when absent.</summary>
+        private static object ToInfo(ErrorCodeLookupResult result)
+        {
+            var entry = result.Entry;
+            var info = new Dictionary<string, object>(6, StringComparer.Ordinal)
+            {
+                ["description"] = entry.Description,
+                ["confidence"] = entry.Confidence.ToString().ToLowerInvariant(),
+                ["source"] = entry.Source,
+                ["category"] = entry.Category,
+            };
+            if (!string.IsNullOrEmpty(entry.Symbol)) info["symbol"] = entry.Symbol!;
+            if (result.DerivedFromWin32.HasValue) info["derivedFromWin32"] = result.DerivedFromWin32.Value;
+            return info;
         }
 
         public static void EnrichEvents(IEnumerable<EnrollmentEvent>? events)

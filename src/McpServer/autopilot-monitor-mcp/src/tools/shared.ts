@@ -67,13 +67,16 @@ export function leanFieldSelection(
 /**
  * What get_session_summary reads per event, and nothing more: the triage fields plus the
  * handful of payload keys its two guards inspect (isBenignHealthDetectionReport,
- * isHistoricImeReplay), requested as `data.<key>` slices so the backend never ships the
- * full payload for a summary that drops it anyway.
+ * isHistoricImeReplay) and the error-code keys with their backend-enriched `*Info`
+ * siblings (errorCode/errorText on the key events), requested as `data.<key>` slices so the
+ * backend never ships the full payload for a summary that drops it anyway.
  */
 export const SUMMARY_EVENT_FIELDS =
   'eventType,severity,source,phase,timestamp,message,sequence,' +
   'data.scriptType,data.script_type,data.scriptPart,data.script_part,data.result,' +
-  'data.rejectedSourceTimestamp,data.rejected_source_timestamp';
+  'data.rejectedSourceTimestamp,data.rejected_source_timestamp,' +
+  'data.errorCode,data.exitCode,data.hresult,data.hresultFromWin32,data.hresultSymbol,' +
+  'data.errorCodeInfo,data.exitCodeInfo,data.hresultInfo,data.hresultFromWin32Info';
 
 /**
  * Zod validator for session IDs. Sessions are UUIDs and the value is

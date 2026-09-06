@@ -4,6 +4,7 @@ import { ApiError, apiFetch, buildQuery, jsonBody, DEFAULT_FIRST_PAGE_SIZE, effe
 import { withToolTelemetry } from '../telemetry.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
+import { lookupErrorCode } from '../error-code-catalog.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
 import { API_BASE_URL } from '../config.js';
@@ -484,8 +485,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'Returns: session overview (status, duration, device, enrollment config), ' +
         'key events timeline (errors, warnings, phase transitions, app installs — noise filtered out, ' +
         'capped at 50 most-relevant entries; stats.keyEventsTruncated indicates if more were dropped), ' +
-        'rule analysis results (probable cause, remediation), and aggregate stats. Heavy event payloads ' +
-        '(data JSON) are NOT included — pull them via get_session_events for the same sessionId when needed. ' +
+        'rule analysis results (probable cause, remediation), and aggregate stats. A key event that carries an ' +
+        'error code shows it as errorCode plus errorText (symbol and catalog meaning); heavy event payloads ' +
+        '(data JSON) are otherwise NOT included — pull them via get_session_events for the same sessionId when needed. ' +
         'Use this as the first tool when investigating a session. ' +
         'For raw unfiltered events use get_session_events. For full metadata use get_session.',
       inputSchema: {
@@ -624,6 +626,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           phase: phaseName(e.phase, s.enrollmentType),
           message: e.message,
           source: e.source,
+          ...keyEventErrorCode(e.data),
         }));
 
         let analysis = null;
@@ -884,4 +887,47 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       }
     })
   );
+}
+
+/** Payload keys that carry an error code, in the order a reader wants them explained. */
+const ERROR_CODE_KEYS: ReadonlyArray<[code: string, info: string]> = [
+  ['errorCode', 'errorCodeInfo'],
+  ['hresult', 'hresultInfo'],
+  ['exitCode', 'exitCodeInfo'],
+  ['hresultFromWin32', 'hresultFromWin32Info'],
+];
+
+/**
+ * `errorCode` + `errorText` for a key event, only when the payload carries a code. The text
+ * comes from the backend-enriched `*Info` sibling (symbol + catalog meaning); an older
+ * response without the sibling falls back to the server's own catalog. A code the catalog
+ * does not know is still surfaced as errorCode, without errorText.
+ */
+export function keyEventErrorCode(data: Record<string, unknown> | undefined): { errorCode?: string; errorText?: string } {
+  if (!data) return {};
+  for (const [codeKey, infoKey] of ERROR_CODE_KEYS) {
+    const raw = data[codeKey];
+    if (raw === undefined || raw === null || raw === '' || raw === 0 || raw === '0') continue;
+    const errorCode = String(raw);
+    const info = data[infoKey] as { description?: unknown; symbol?: unknown } | undefined;
+    let symbol: string | undefined;
+    let description: string | undefined;
+    if (info && typeof info === 'object' && typeof info.description === 'string') {
+      description = info.description;
+      symbol = typeof info.symbol === 'string' ? info.symbol : undefined;
+    } else {
+      try {
+        const hit = lookupErrorCode(errorCode);
+        if (hit.found && 'description' in hit) { description = hit.description; symbol = hit.symbol; }
+      } catch {
+        // Catalog unavailable: the raw code still travels.
+      }
+    }
+    if (!symbol && codeKey === 'hresult' && typeof data.hresultSymbol === 'string' && data.hresultSymbol !== 'WU_E_UNKNOWN') {
+      symbol = data.hresultSymbol;
+    }
+    const errorText = [symbol, description].filter(Boolean).join(' — ');
+    return errorText ? { errorCode, errorText } : { errorCode };
+  }
+  return {};
 }

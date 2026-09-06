@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
 import { buildEventSearchMatcher, parseEventSearchQuery } from "../utils/eventSearchQuery";
-import { getEnrichedOrLookup, formatErrorCode, type ErrorCodeEntry } from "@/utils/errorCodeMap";
+import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/utils/errorCodeMap";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 
@@ -609,8 +609,8 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
             if (!hasNonZero) return null;
             // Prefer backend-enriched *Info sibling, fall back to local lookup for older
             // responses that pre-date the backend ErrorCodeEnricher.
-            const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo as ErrorCodeEntry | undefined, String(ec)) : null;
-            const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info as ErrorCodeEntry | undefined, String(hr)) : null;
+            const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo as ErrorCodeInfo | undefined, String(ec)) : null;
+            const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info as ErrorCodeInfo | undefined, String(hr)) : null;
             return (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 {ec && String(ec) !== "0" && (
@@ -619,7 +619,7 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                       Exit: {formatErrorCode(String(ec))}
                     </span>
                     {ecEntry && (
-                      <span className="text-red-600" title={`${ecEntry.source} (${ecEntry.confidence} confidence)`}>
+                      <span className="text-red-600" title={errorCodeTooltip(ecEntry)}>
                         {ecEntry.description}
                       </span>
                     )}
@@ -631,11 +631,33 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                       HRESULT: {formatErrorCode(String(hr))}
                     </span>
                     {hrEntry && (
-                      <span className="text-red-600" title={`${hrEntry.source} (${hrEntry.confidence} confidence)`}>
+                      <span className="text-red-600" title={errorCodeTooltip(hrEntry)}>
                         {hrEntry.description}
                       </span>
                     )}
                   </>
+                )}
+              </div>
+            );
+          })()}
+          {/* HRESULT badge for Windows Update failures: the agent stamps the normalised hex
+              (data.hresult) and the catalog symbol (data.hresultSymbol); the backend adds the
+              description as data.hresultInfo. WU_E_UNKNOWN is the agent's "no symbol" sentinel. */}
+          {event.eventType === "windows_update_failed" && (() => {
+            const hresult = event.data?.hresult as string | undefined;
+            if (!hresult) return null;
+            const symbol = event.data?.hresultSymbol as string | undefined;
+            const entry = getEnrichedOrLookup(event.data?.hresultInfo as ErrorCodeInfo | undefined, hresult);
+            const shownSymbol = entry?.symbol ?? (symbol && symbol !== "WU_E_UNKNOWN" ? symbol : undefined);
+            return (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-mono font-medium">
+                  HRESULT: {formatErrorCode(hresult)}{shownSymbol ? ` ${shownSymbol}` : ""}
+                </span>
+                {entry && (
+                  <span className="text-red-600" title={errorCodeTooltip(entry)}>
+                    {entry.description}
+                  </span>
                 )}
               </div>
             );
@@ -652,7 +674,7 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
             const isAdvisory = event.eventType === "esp_failure_advisory";
             if (!code && !isAdvisory) return null;
             const codeStr = code ? String(code) : null;
-            const entry = codeStr ? getEnrichedOrLookup(event.data?.errorCodeInfo as ErrorCodeEntry | undefined, codeStr) : null;
+            const entry = codeStr ? getEnrichedOrLookup(event.data?.errorCodeInfo as ErrorCodeInfo | undefined, codeStr) : null;
             // Advisory path uses warning-color palette (amber); the device continued past the
             // failure via ContinueAnyway, so this is not a hard error. PR1 Session 4fa5a2d4.
             const badgeBg = isAdvisory ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
@@ -673,7 +695,7 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
                   </span>
                 )}
                 {entry && (
-                  <span className={descColor} title={`${entry.source} (${entry.confidence} confidence)`}>
+                  <span className={descColor} title={errorCodeTooltip(entry)}>
                     {entry.description}
                   </span>
                 )}

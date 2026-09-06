@@ -164,6 +164,8 @@ describe('first-page defaults', () => {
     // The guards' payload keys travel as slices, never the whole payload.
     expect(SUMMARY_EVENT_FIELDS.split(',')).not.toContain('data');
     expect(SUMMARY_EVENT_FIELDS).toContain('data.rejectedSourceTimestamp');
+    // The error-code keys and their enriched siblings travel as slices too (errorCode/errorText).
+    expect(SUMMARY_EVENT_FIELDS.split(',')).toEqual(expect.arrayContaining(['data.errorCode', 'data.errorCodeInfo', 'data.hresultSymbol', 'data.exitCodeInfo']));
   });
 });
 

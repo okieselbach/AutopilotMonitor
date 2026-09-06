@@ -12,6 +12,8 @@ import type {
 } from '../generated/wire-types.generated.js';
 import { ALL_EVENT_TYPES } from '../resource-catalog.js';
 import { DOCS_BASE_URL } from '../config.js';
+import { scanLexical } from '../search-provider.js';
+import { errorCodeSearchDocuments, lookupErrorCode } from '../error-code-catalog.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1028,6 +1030,15 @@ export function extractDistinctiveTerms(query: string): string[] {
 
 // ── Registration ────────────────────────────────────────────────────────
 
+/** Catalog scan for the literal fallback; a catalog that failed to load costs the fallback, never the tool. */
+function safeCatalogScan(needles: string[]): ReturnType<typeof scanLexical> {
+  try {
+    return scanLexical(errorCodeSearchDocuments(), needles);
+  } catch {
+    return [];
+  }
+}
+
 export function registerSearchTools(
   server: McpServer,
   knowledgeBase: SearchProvider | undefined,
@@ -1168,19 +1179,22 @@ export function registerSearchTools(
     {
       title: 'Search Knowledge Base',
       description:
-        'Semantic/fuzzy search over the Autopilot Monitor knowledge base: analysis rules, gather rules, and IME log patterns. ' +
+        'Semantic/fuzzy search over the Autopilot Monitor knowledge base: analysis rules, gather rules, IME log patterns, ' +
+        'and (literal matches only) the error-code catalog. ' +
         'Use natural language queries like "app install timeout", "BitLocker issues", "detection script failure". ' +
         'Returns the most relevant rules and patterns ranked by similarity. ' +
         'Great for finding remediation steps, understanding error patterns, or discovering relevant diagnostic rules. ' +
         'QUERY IN ENGLISH: the rules and the embedding model are English-only, so a query in another language ' +
         'matches nothing at all. Translate the user\'s question first and answer them in their own language. ' +
         'ERROR CODES: a query containing an HRESULT/Win32 hex code (e.g. "0x87D1041C", "0x80070002") also triggers a ' +
-        'literal substring fallback — any rule that names the code verbatim is returned regardless of minScore, since ' +
-        'such opaque codes embed poorly and the semantic score alone would miss them. Those hits are flagged `matchType: "error-code"`.',
+        'literal substring fallback — any rule that names the code verbatim AND the catalog entry for the code itself ' +
+        '(type "error-code": symbol, meaning, family) are returned regardless of minScore, since such opaque codes embed ' +
+        'poorly and the semantic score alone would miss them. Those hits are flagged `matchType: "error-code"`. ' +
+        'For one known code, lookup_error_code is the direct answer (decimal, symbol and enforcement-state input too).',
       inputSchema: {
         query: z.string().describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
         topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
-        type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern']).optional().default('all')
+        type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern', 'error-code']).optional().default('all')
           .describe('Filter by document type. Default: search all types.'),
         minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
           .describe('Minimum similarity score threshold (0-1, default 0.25). Lower = more results, higher = stricter matching. ' +
@@ -1211,9 +1225,15 @@ export function registerSearchTools(
         // Fold in literal substring matches, exempt from minScore and scored 1.0 so they rank first.
         const needles = extractErrorCodeNeedles(query);
         const errorCodeHitIds = new Set<string>();
-        if (needles.length > 0 && knowledgeBase.lexicalMatch) {
+        if (needles.length > 0) {
           const byId = new Map(results.map((r) => [r.id, r] as const));
-          for (const hit of knowledgeBase.lexicalMatch(needles)) {
+          // Rules that name the code verbatim, plus the catalog entry for the code itself (the
+          // catalog is lexical-only: it never enters the vector index, see error-code-catalog.ts).
+          const lexicalHits = [
+            ...(knowledgeBase.lexicalMatch ? knowledgeBase.lexicalMatch(needles) : []),
+            ...safeCatalogScan(needles),
+          ];
+          for (const hit of lexicalHits) {
             errorCodeHitIds.add(hit.id);
             const existing = byId.get(hit.id);
             if (!existing || hit.score > existing.score) byId.set(hit.id, hit);
@@ -1254,6 +1274,39 @@ export function registerSearchTools(
         }, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('search_knowledge', args, error);
+      }
+    })
+  );
+
+  // Tool 10b: lookup_error_code — point lookup in the error-code catalog. Every role: the
+  // catalog is public reference data (Windows / MSI / Intune codes), no tenant data.
+  server.registerTool(
+    'lookup_error_code',
+    {
+      title: 'Look Up Error Code',
+      description:
+        'Explain ONE Windows / MSI / Windows Update / AppX / Intune error code from the shared error-code catalog ' +
+        '(the same catalog the backend uses to enrich events and the portal shows in tooltips). ' +
+        'Input: hex ("0x87D30067", "87d30067"), signed or unsigned decimal as the IME logs print it ("-2016214937"), ' +
+        'an MSI exit code ("1603"), a symbol ("ERROR_INSTALL_FAILURE", "WU_E_ALL_UPDATES_FAILED", "UnzipError") or an ' +
+        'IME app enforcement state by number or name ("6001", "NotAttemptedDependencyWithFailure"). ' +
+        'Returns the normalised hex, the signed decimal, symbol, category (family), the catalog meaning, confidence ' +
+        'and source kind; a 0x8007xxxx value that resolves through its low word to an MSI exit code reports ' +
+        '`derivedFromWin32`. `imeRetriesDuringEsp` marks the MSI return codes the IME retries automatically during ' +
+        'the ESP. An unknown code answers `found: false` with the normalised hex — say so rather than guessing a meaning. ' +
+        'For "which rule covers this code" use search_knowledge with the code in the query.',
+      inputSchema: {
+        code: z.string().min(1).max(80).describe('The code, symbol or enforcement state to explain (one value).'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('lookup_error_code', args, async () => {
+      try {
+        const result = lookupErrorCode(args.code);
+        if (!result.found) logSearchZeroHit('lookup_error_code', args.code, { normalizedHex: result.normalizedHex });
+        return toolResultText(result, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('lookup_error_code', args, error);
       }
     })
   );

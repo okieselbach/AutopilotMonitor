@@ -31,8 +31,8 @@ const ALLOWED_INLINE_ENUMS: Record<string, string> = {
     'get_geographic_metrics grouping level — an MCP-side knob, not a backend vocabulary.',
   "'fast', 'deep'":
     'search_events search depth — an MCP-side ranking knob.',
-  "'all', 'analyze-rule', 'gather-rule', 'ime-log-pattern'":
-    'search_knowledge corpus selector — MCP-side, spans two backend catalogs.',
+  "'all', 'analyze-rule', 'gather-rule', 'ime-log-pattern', 'error-code'":
+    'search_knowledge corpus selector — MCP-side, spans two backend catalogs plus the error-code catalog.',
   "'inventory', 'unmatched'":
     'get_software_inventory scope selector — an MCP-side view switch.',
   "'cmtrace', 'text'":
