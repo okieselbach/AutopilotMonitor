@@ -282,8 +282,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
                 errorPatternId: null,
                 errorDetail: null,
                 errorCode: null,
-                exitCode: null,
+                exitCode: "0",
                 hresultFromWin32: null,
+                exitCodeClass: "Success",
                 appVersion: "11.2.1787.0",
                 appType: "WinGet",
                 attemptNumber: 1,
@@ -293,6 +294,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             var info = Assert.Single(f.InfoEvents(SharedEventTypes.AppInstallComplete));
             Assert.Equal("app-xyz", info.Payload!["appId"]);
+            // Installer outcome surfaces on the terminal event even when the app succeeded: the
+            // return-code class is the only evidence of a SoftReboot/HardReboot mapping and the
+            // number says which code was mapped (IME-EXITCODE-CLASS, ANALYZE-APP-018).
+            Assert.Equal("Success", info.Payload["exitCodeClass"]);
+            Assert.Equal("0", info.Payload["exitCode"]);
             Assert.Equal("Company Portal", info.Payload["appName"]);
             Assert.Equal("Installed", info.Payload["state"]);
             Assert.Equal("Install", info.Payload["intent"]);
@@ -331,6 +337,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
                 errorCode: "60001",
                 exitCode: "60001",
                 hresultFromWin32: "-2146964895",
+                exitCodeClass: "Failed",
                 attemptNumber: 1,
                 detectionResult: "NotDetected");
 
@@ -340,6 +347,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
             Assert.Equal("true", info.Payload!["isError"]);
             Assert.Equal("IME-ERROR-UNMAPPED-EXIT", info.Payload["errorPatternId"]);
             Assert.Equal("60001", info.Payload["errorCode"]);
+            Assert.Equal("60001", info.Payload["exitCode"]);
+            Assert.Equal("Failed", info.Payload["exitCodeClass"]);
             Assert.Equal("-2146964895", info.Payload["hresultFromWin32"]);
             Assert.Equal(EventSeverity.Error.ToString(), info.Payload[SignalPayloadKeys.Severity]);
             // Codex review follow-up (P1): an unrelated ErrorPatternId (here a regular

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInstallItems, type InstallEvent } from "@/lib/installProgress";
+import { buildInstallItems, isRebootOrRetryClass, type InstallEvent } from "@/lib/installProgress";
 
 function evt(eventType: string, timestamp: string, data: Record<string, unknown>): InstallEvent {
   return { eventType, timestamp, data };
@@ -190,5 +190,39 @@ describe("buildInstallItems — intent & skip-via-completed folding", () => {
 
     expect(items[0].state).toBe("Installing");
     expect(items[0].intent).toBe("Uninstall");
+  });
+
+  it("keeps the exit code and its return-code class on a completed row", () => {
+    // Agents forward exitCode + exitCodeClass on every terminal event (IME-EXITCODE-CLASS);
+    // a 3010 mapped to SoftReboot is a successful install that is pending a restart.
+    const items = buildInstallItems([
+      evt("app_install_started", "2026-09-06T08:00:00Z", { appName: "Contoso VPN", appId: "a1" }),
+      evt("app_install_completed", "2026-09-06T08:03:00Z", { appName: "Contoso VPN", appId: "a1", exitCode: "3010", exitCodeClass: "SoftReboot" }),
+    ]);
+
+    expect(items[0].state).toBe("Installed");
+    expect(items[0].isError).toBe(false);
+    expect(items[0].exitCode).toBe("3010");
+    expect(items[0].exitCodeClass).toBe("SoftReboot");
+  });
+
+  it("keeps the return-code class on a failed row", () => {
+    const items = buildInstallItems([
+      evt("app_install_failed", "2026-09-06T08:03:00Z", { appName: "Contoso Agent", appId: "a2", exitCode: "1603", exitCodeClass: "Failed" }),
+    ]);
+
+    expect(items[0].state).toBe("Failed");
+    expect(items[0].exitCodeClass).toBe("Failed");
+  });
+});
+
+describe("isRebootOrRetryClass", () => {
+  it("names only the classes that change what happens next", () => {
+    expect(isRebootOrRetryClass("SoftReboot")).toBe(true);
+    expect(isRebootOrRetryClass("HardReboot")).toBe(true);
+    expect(isRebootOrRetryClass("Retry")).toBe(true);
+    expect(isRebootOrRetryClass("Success")).toBe(false);
+    expect(isRebootOrRetryClass("Failed")).toBe(false);
+    expect(isRebootOrRetryClass(undefined)).toBe(false);
   });
 });

@@ -1628,6 +1628,15 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (app.AttemptNumber > 0) data["attemptNumber"] = app.AttemptNumber.ToString(culture);
             if (!string.IsNullOrEmpty(app.DetectionResult)) data["detectionResult"] = app.DetectionResult!;
 
+            // Installer outcome of the last attempt (IME-EXITCODE + IME-EXITCODE-CLASS). The class
+            // is the admin's return-code mapping (Success/SoftReboot/HardReboot/Retry/Failed) and
+            // the only evidence that an app asked for a reboot; the number says which code was
+            // mapped (3010 vs 1641 vs custom). Both are known from the terminal lpExitCode lines
+            // only, so they surface on the terminal events - completed, postponed, skipped and
+            // failed alike - never on progress events.
+            if (!string.IsNullOrEmpty(app.ExitCodeClass)) data["exitCodeClass"] = app.ExitCodeClass!;
+            if (IsCompletedState(newState) && !string.IsNullOrEmpty(app.ExitCode)) data["exitCode"] = app.ExitCode!;
+
             // Plan §5 Fix 4c — per-app install-lifecycle timing. StartedAt appears on the
             // first Downloading/Installing/InProgress event; CompletedAt + DurationSeconds
             // light up on the terminal event. Values are omitted when not yet known so the
@@ -1644,7 +1653,6 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 if (!string.IsNullOrEmpty(app.ErrorPatternId)) data["errorPatternId"] = app.ErrorPatternId!;
                 if (!string.IsNullOrEmpty(app.ErrorDetail)) data["errorDetail"] = app.ErrorDetail!;
                 if (!string.IsNullOrEmpty(app.ErrorCode)) data["errorCode"] = app.ErrorCode!;
-                if (!string.IsNullOrEmpty(app.ExitCode)) data["exitCode"] = app.ExitCode!;
                 if (!string.IsNullOrEmpty(app.HResultFromWin32)) data["hresultFromWin32"] = app.HResultFromWin32!;
 
                 // Likely-stuck / detection-failure / install-failure classification: when the

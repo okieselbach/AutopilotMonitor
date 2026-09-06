@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
-import { buildInstallItems, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
+import { buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 
@@ -398,6 +398,9 @@ function InstallItemRow({ item }: { item: InstallItem }) {
             const entry = getErrorCodeEntry(item.exitCode);
             const badgeBg = item.isError ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800";
             const descColor = item.isError ? "text-red-600" : "text-amber-600";
+            // Return-code class from the app's Intune return-code table; only the classes that
+            // change what happens next are worth a word — Success/Failed already show as state.
+            const rebootClass = isRebootOrRetryClass(item.exitCodeClass) ? item.exitCodeClass : undefined;
             return (
               <div className="flex items-center gap-2 text-xs">
                 <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${badgeBg}`}>
@@ -406,6 +409,11 @@ function InstallItemRow({ item }: { item: InstallItem }) {
                 {entry && (
                   <span className={descColor} title={errorCodeTooltip(entry)}>
                     {entry.description}
+                  </span>
+                )}
+                {rebootClass && (
+                  <span className={descColor} title="How the app's Intune return-code table maps this exit code (Program > Return codes)">
+                    mapped as {rebootClass}
                   </span>
                 )}
               </div>

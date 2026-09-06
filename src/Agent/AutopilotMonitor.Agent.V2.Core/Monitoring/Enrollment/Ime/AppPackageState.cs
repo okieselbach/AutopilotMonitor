@@ -99,6 +99,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // Installer result codes (captured from lpExitCode / hResultFromWin32 log lines)
         public string ExitCode { get; private set; }
         public string HResultFromWin32 { get; private set; }
+        /// <summary>
+        /// Admin-defined return-code class of the last installer exit code: Success, SoftReboot,
+        /// HardReboot, Retry or Failed (IME's AppReturnCodeType, captured from the
+        /// "lpExitCode is defined as X" line by IME-EXITCODE-CLASS). Last value wins, so a Retry
+        /// loop that ends in Success reports Success.
+        /// </summary>
+        public string ExitCodeClass { get; private set; }
 
         // App metadata (captured from IME log patterns — used by App Dashboard / reports)
         /// <summary>Product version detected after install (e.g. "11.2.1787.0"). From ReportingManager DetectedIdentityVersion.</summary>
@@ -167,6 +174,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             int? progressPercent, long bytesDownloaded, long bytesTotal,
             string errorPatternId = null, string errorDetail = null, string errorCode = null,
             string exitCode = null, string hresultFromWin32 = null,
+            string exitCodeClass = null,
             long doFileSize = 0, long doTotalBytesDownloaded = 0,
             long doBytesFromPeers = 0, int doPercentPeerCaching = 0,
             long doBytesFromLanPeers = 0, long doBytesFromGroupPeers = 0,
@@ -195,6 +203,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 ErrorCode = errorCode,
                 ExitCode = exitCode,
                 HResultFromWin32 = hresultFromWin32,
+                ExitCodeClass = exitCodeClass,
                 InstallationStateLastChangedTicks = Stopwatch.GetTimestamp(),
                 DoFileSize = doFileSize,
                 DoTotalBytesDownloaded = doTotalBytesDownloaded,
@@ -300,6 +309,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public void UpdateHResult(string code)
         {
             HResultFromWin32 = code;
+        }
+
+        /// <summary>
+        /// Captures the return-code class (Success/SoftReboot/HardReboot/Retry/Failed) IME assigned
+        /// to the last exit code. Last value wins; empty values are ignored.
+        /// </summary>
+        public bool UpdateExitCodeClass(string exitCodeClass)
+        {
+            if (string.IsNullOrWhiteSpace(exitCodeClass)) return false;
+            var trimmed = exitCodeClass.Trim();
+            if (ExitCodeClass == trimmed) return false;
+            ExitCodeClass = trimmed;
+            return true;
         }
 
         /// <summary>
@@ -547,6 +569,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 data["exitCode"] = ExitCode;
             if (!string.IsNullOrEmpty(HResultFromWin32))
                 data["hresultFromWin32"] = HResultFromWin32;
+            if (!string.IsNullOrEmpty(ExitCodeClass))
+                data["exitCodeClass"] = ExitCodeClass;
 
             // App metadata fields (emitted whenever available so ingest can merge them).
             if (!string.IsNullOrEmpty(AppVersion))

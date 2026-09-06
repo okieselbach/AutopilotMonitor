@@ -79,7 +79,8 @@
             "captureAppTypeWinGet",
             "captureAppTypeMsi",
             "captureAttemptNumber",
-            "captureDetectionResult"
+            "captureDetectionResult",
+            "captureExitCodeClass"
           ]
         },
         "parameters": {

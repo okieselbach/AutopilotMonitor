@@ -311,6 +311,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 "[Win32App] Admin did NOT set mapping for lpExitCode: 1603 of app: " + Guid1,
                 new[] { "exitCode=1603", "id=" + Guid1 }
             };
+            // Win32AppInstaller.cs "[Win32App] lpExitCode is defined as {0}", enum AppReturnCodeType
+            // (identical 1.50–1.105).
+            yield return new object[]
+            {
+                "IME-EXITCODE-CLASS",
+                "[Win32App] lpExitCode is defined as SoftReboot",
+                new[] { "exitCodeClass=SoftReboot" }
+            };
             yield return new object[]
             {
                 "IME-GRS-SKIP",
@@ -359,6 +367,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
                 var value = expected.Substring(eq + 1);
                 Assert.Equal(value, m.Groups[group].Value);
             }
+        }
+
+        [Theory]
+        [InlineData("Success")]
+        [InlineData("SoftReboot")]
+        [InlineData("HardReboot")]
+        [InlineData("Retry")]
+        [InlineData("Failed")]
+        public void IME_EXITCODE_CLASS_captures_every_AppReturnCodeType_member(string member)
+        {
+            var m = Compile(Get("IME-EXITCODE-CLASS")).Match("[Win32App] lpExitCode is defined as " + member);
+            Assert.True(m.Success);
+            Assert.Equal(member, m.Groups["exitCodeClass"].Value);
+        }
+
+        [Fact]
+        public void IME_EXITCODE_CLASS_ignores_the_no_mapping_warning_and_raw_numeric_types()
+        {
+            // The default branch logs "... defined as {0}, fall into default now." and an admin
+            // type outside the enum prints as a raw number; neither is a class the app carries.
+            var regex = Compile(Get("IME-EXITCODE-CLASS"));
+            Assert.DoesNotMatch(regex, "[Win32App] lpExitCode is defined as 5, fall into default now.");
+            Assert.DoesNotMatch(regex, "[Win32App] lpExitCode is defined as SoftReboot, fall into default now.");
+            Assert.DoesNotMatch(regex, "[Win32App] lpExitCode is defined as 5");
+            Assert.DoesNotMatch(regex, "[Win32App] lpExitCode 3010");
         }
 
         [Fact]

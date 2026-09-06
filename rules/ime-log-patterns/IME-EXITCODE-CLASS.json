@@ -1,0 +1,10 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "IME-EXITCODE-CLASS",
+  "category": "currentPhase",
+  "pattern": "^\\[Win32App\\] lpExitCode is defined as (?<exitCodeClass>Success|SoftReboot|HardReboot|Retry|Failed)$",
+  "action": "captureExitCodeClass",
+  "parameters": { "useCurrentApp": "true" },
+  "description": "Captures the admin-defined return-code class of the installer exit code for the current app ('[Win32App] lpExitCode is defined as <Failed|Success|SoftReboot|HardReboot|Retry>', Win32AppInstaller.cs, enum AppReturnCodeType - literal identical from IME 1.50 through 1.105). Stored as exitCodeClass on the app and emitted on its terminal events; the last value wins, so a Retry loop that ends in Success reports Success. Anchored on both ends on purpose: the no-mapping warning ('... defined as <n>, fall into default now.') and an unparsable numeric type print a raw number and must not match. Companion of IME-EXITCODE (the number, logged just before) and IME-EXITCODE-MAPPED-FAILED (the Failed state transition), which still owns the error path.",
+  "enabled": true
+}

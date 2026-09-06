@@ -491,7 +491,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             "imeshutdown", "espphasedetected", "setcurrentapp",
             "updatestateinstalled", "updatestatedownloading", "updatestateinstalling",
             "updatestateskipped", "updatestateerror", "updatestatepostponed",
-            "captureexitcode", "capturehresult", "captureappversion",
+            "captureexitcode", "capturehresult", "captureexitcodeclass", "captureappversion",
             "captureapptypewinget", "captureapptypemsi", "captureattemptnumber",
             "capturedetectionresult", "esptrackstatus", "policiesdiscovered",
             "ignorecompletedapp", "updatename", "updatewin32appstate",
@@ -713,6 +713,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         var hresultVal = match.Groups["hresult"]?.Value;
                         if (!string.IsNullOrEmpty(hresultVal) && !string.IsNullOrEmpty(_packageStates.CurrentPackageId))
                             _packageStates.GetPackage(_packageStates.CurrentPackageId)?.UpdateHResult(hresultVal);
+                        break;
+
+                    case "captureexitcodeclass":
+                        // Return-code class of the exit code captured just before (IME logs the
+                        // number, then "lpExitCode is defined as <class>"). Same current-app
+                        // addressing as captureExitCode; last value wins across a Retry loop.
+                        var exitCodeClassVal = match.Groups["exitCodeClass"]?.Value;
+                        if (!string.IsNullOrEmpty(exitCodeClassVal) && !string.IsNullOrEmpty(_packageStates.CurrentPackageId))
+                            _packageStates.GetPackage(_packageStates.CurrentPackageId)?.UpdateExitCodeClass(exitCodeClassVal);
                         break;
 
                     case "captureappversion":

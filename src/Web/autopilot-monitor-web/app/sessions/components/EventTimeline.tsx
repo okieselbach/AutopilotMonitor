@@ -6,6 +6,7 @@ import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../util
 import { buildEventSearchMatcher, parseEventSearchQuery } from "../utils/eventSearchQuery";
 import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/utils/errorCodeMap";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
+import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 
 const SEARCH_SYNTAX_HINT =
@@ -611,27 +612,39 @@ function EventRow({ event, showScriptOutput, prevEvent, clockDeltas }: { event: 
             // responses that pre-date the backend ErrorCodeEnricher.
             const ecEntry = ec ? getEnrichedOrLookup(event.data?.exitCodeInfo as ErrorCodeInfo | undefined, String(ec)) : null;
             const hrEntry = hr ? getEnrichedOrLookup(event.data?.hresultFromWin32Info as ErrorCodeInfo | undefined, String(hr)) : null;
+            // A completed app also carries its exit code now (3010 "restart required" is a
+            // success), so the badge is red only on the failure event — amber on completion.
+            const failed = event.eventType === "app_install_failed";
+            const badgeBg = failed ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800";
+            const descColor = failed ? "text-red-600" : "text-amber-600";
+            const exitCodeClass = event.data?.exitCodeClass as string | undefined;
+            const rebootClass = isRebootOrRetryClass(exitCodeClass) ? exitCodeClass : undefined;
             return (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 {ec && String(ec) !== "0" && (
                   <>
-                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-mono font-medium">
+                    <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${badgeBg}`}>
                       Exit: {formatErrorCode(String(ec))}
                     </span>
                     {ecEntry && (
-                      <span className="text-red-600" title={errorCodeTooltip(ecEntry)}>
+                      <span className={descColor} title={errorCodeTooltip(ecEntry)}>
                         {ecEntry.description}
+                      </span>
+                    )}
+                    {rebootClass && (
+                      <span className={descColor} title="How the app's Intune return-code table maps this exit code (Program > Return codes)">
+                        mapped as {rebootClass}
                       </span>
                     )}
                   </>
                 )}
                 {hr && String(hr) !== "0" && (
                   <>
-                    <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-mono font-medium">
+                    <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${badgeBg}`}>
                       HRESULT: {formatErrorCode(String(hr))}
                     </span>
                     {hrEntry && (
-                      <span className="text-red-600" title={errorCodeTooltip(hrEntry)}>
+                      <span className={descColor} title={errorCodeTooltip(hrEntry)}>
                         {hrEntry.description}
                       </span>
                     )}

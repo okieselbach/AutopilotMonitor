@@ -190,6 +190,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // Installer result codes
         public string ExitCode { get; set; }
         public string HResultFromWin32 { get; set; }
+        // Return-code class of the last exit code (null on state files written before the field
+        // existed) - must survive the reboot a SoftReboot/HardReboot app asks for.
+        public string ExitCodeClass { get; set; }
 
         // Delivery Optimization telemetry
         public long DoFileSize { get; set; }

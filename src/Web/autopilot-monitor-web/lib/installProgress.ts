@@ -26,6 +26,8 @@ interface InstallEventData {
   last_exit_code?: string;
   hresultFromWin32?: string;
   hresult_from_win32?: string;
+  exitCodeClass?: string;
+  exit_code_class?: string;
   failureType?: string;
   failure_type?: string;
   confidence?: string;
@@ -69,6 +71,11 @@ export interface InstallItem {
   errorPatternId?: string;
   exitCode?: string;
   hresultFromWin32?: string;
+  // Admin-defined return-code class of the exit code (Intune return-code table, captured from
+  // the IME "lpExitCode is defined as X" line): Success, SoftReboot, HardReboot, Retry or
+  // Failed. Present on terminal app events from agents that forward it; SoftReboot/HardReboot
+  // is the only evidence that an installer asked for a restart.
+  exitCodeClass?: string;
   // ESP-level HRESULT extracted from the failed subcategory's statusText (e.g.
   // 0x87D1041C). Only set on `app_install_failed` events produced by the V2
   // termination-handler promotion, where it carries the cross-app failure cause.
@@ -109,6 +116,15 @@ const OFFICE_TYPES: ReadonlySet<string> = new Set([
   "office_install_failed",
   "office_preinstalled_detected",
 ]);
+
+/**
+ * The return-code classes worth a word next to the exit code: they change what happens next
+ * (a pending restart, a forced restart, a retry loop). Success and Failed are already visible
+ * as the row's state.
+ */
+export function isRebootOrRetryClass(exitCodeClass: string | undefined): exitCodeClass is string {
+  return exitCodeClass === "SoftReboot" || exitCodeClass === "HardReboot" || exitCodeClass === "Retry";
+}
 
 function sourceOf(eventType: string | undefined): InstallSource {
   if (eventType && REALMJOIN_TYPES.has(eventType)) return "realmjoin";
@@ -221,6 +237,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         isInstallFailure: false,
         exitCode: d.exitCode ?? d.exit_code ?? d.lastExitCode ?? d.last_exit_code,
         hresultFromWin32: d.hresultFromWin32 ?? d.hresult_from_win32,
+        exitCodeClass: d.exitCodeClass ?? d.exit_code_class,
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
         eventData: d,
       });
@@ -251,6 +268,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
         errorPatternId: d.errorPatternId ?? d.error_pattern_id,
         exitCode: d.exitCode ?? d.exit_code ?? d.lastExitCode ?? d.last_exit_code,
         hresultFromWin32: d.hresultFromWin32 ?? d.hresult_from_win32,
+        exitCodeClass: d.exitCodeClass ?? d.exit_code_class,
         // Session 080edee9 follow-up — ESP-level HRESULT carried on promoted
         // app_install_failed events from the V2 termination handler.
         errorCode: d.errorCode ?? d.error_code,

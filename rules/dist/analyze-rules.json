@@ -1035,6 +1035,103 @@
       ]
     },
     {
+      "ruleId": "ANALYZE-APP-018",
+      "title": "App Return Code Requested a Reboot During Enrollment",
+      "description": "Detects Win32 apps whose installer exit code maps to Soft reboot or Hard reboot in the app's Intune return-code table (the '[Win32App] lpExitCode is defined as ...' line). Hard reboot stops app processing and restarts the device in Device Setup - the mid-enrollment restart and second sign-in; Soft reboot leaves the app pending until the next restart while the ESP moves on. Confidence rises for Hard reboot and when a reboot was actually observed in the session.",
+      "severity": "warning",
+      "category": "apps",
+      "version": "1.0.0",
+      "author": "Autopilot Monitor",
+      "enabled": true,
+      "evaluateOn": [
+        "enrollment_end",
+        "whiteglove_sealed"
+      ],
+      "trigger": "single",
+      "baseConfidence": 60,
+      "conditions": [
+        {
+          "signal": "reboot_return_code",
+          "source": "event_data",
+          "eventType": "app_install_completed",
+          "dataField": "exitCodeClass",
+          "operator": "in",
+          "value": "SoftReboot,HardReboot",
+          "required": true
+        },
+        {
+          "signal": "hard_reboot_return_code",
+          "source": "event_data",
+          "eventType": "app_install_completed",
+          "dataField": "exitCodeClass",
+          "operator": "equals",
+          "value": "HardReboot",
+          "required": false
+        },
+        {
+          "signal": "reboot_observed",
+          "source": "event_count",
+          "eventType": "system_reboot_detected",
+          "operator": "count_gte",
+          "value": "1",
+          "required": false
+        }
+      ],
+      "confidenceFactors": [
+        {
+          "signal": "hard_reboot_return_code",
+          "condition": "exists",
+          "weight": 25
+        },
+        {
+          "signal": "reboot_observed",
+          "condition": "exists",
+          "weight": 15
+        }
+      ],
+      "confidenceThreshold": 60,
+      "explanation": "App **{{appName}}** returned exit code **{{exitCode}}**, which its Intune return-code table maps to **{{exitCodeClass}}** - the installer asked for a restart before its work is complete.\n\n- **SoftReboot**: the Intune Management Extension reports the app as *pending reboot*. The Enrollment Status Page treats it as completed and moves on, and Intune only marks the app installed after the next restart re-evaluates the detection rule. Until then the app may be unusable or half-configured, and the user sees a restart notification.\n- **HardReboot**: the Intune Management Extension stops processing further apps and, in Device Setup, restarts the device right away (the restart grace period does not apply during the ESP) - the same mid-enrollment restart and second sign-in that ANALYZE-ESP-005 attributes to reboot-required policies. In Account Setup the extension does not restart the device itself and the app stays pending.\n\nA restart requested by an installer is normal for many MSI packages (exit codes 3010 and 1641), but during Autopilot it lengthens the ESP, can surprise the user with a restart, and hides the app's real state until after the reboot. The return-code class is the app's own configuration in Intune, not a device fault.",
+      "remediation": [
+        {
+          "title": "Check the app's return-code mapping",
+          "steps": [
+            "Open the app in the Intune admin center > Properties > Program and review the return codes table: exit code {{exitCode}} is currently mapped to {{exitCodeClass}}",
+            "If the installer only recommends a restart (MSI 3010 ERROR_SUCCESS_REBOOT_REQUIRED, 1641 ERROR_SUCCESS_REBOOT_INITIATED), map the code to Soft reboot instead of Hard reboot so the next app can install before the restart",
+            "If the app works without an immediate restart, suppress the installer's own reboot (for MSI: REBOOT=ReallySuppress on the install command) so it returns 0 and the restart happens on your schedule",
+            "Keep Hard reboot only when the following apps genuinely cannot install before the restart - and then expect the mid-ESP restart in every enrollment"
+          ]
+        },
+        {
+          "title": "Take the app out of the ESP critical path",
+          "steps": [
+            "If the app is not needed for first use, remove it from the ESP blocking-app list so the restart happens after the user reaches the desktop",
+            "If it must stay blocking, order it last in Device Setup (dependencies or install order) so a hard reboot does not interrupt the remaining apps",
+            "For Soft reboot apps, plan a restart at the end of enrollment or accept that the app finishes on the user's first restart"
+          ]
+        }
+      ],
+      "relatedDocs": [
+        {
+          "title": "Microsoft Learn: Add a Win32 app - Program step (device restart behavior and return codes)",
+          "url": "https://learn.microsoft.com/en-us/intune/app-management/deployment/add-win32#step-2-program"
+        },
+        {
+          "title": "Microsoft Learn: Enrollment Status Page tracking",
+          "url": "https://learn.microsoft.com/en-us/autopilot/enrollment-status"
+        }
+      ],
+      "markSessionAsFailedDefault": false,
+      "tags": [
+        "apps",
+        "reboot",
+        "return-code",
+        "soft-reboot",
+        "hard-reboot",
+        "esp",
+        "second-sign-in"
+      ]
+    },
+    {
       "ruleId": "ANALYZE-CORR-003",
       "title": "Proxy Configuration Causing Download Failure",
       "description": "Correlates an active proxy configuration with app content download failures (Delivery Optimization timeout or download error), suggesting the proxy is blocking or throttling Intune content delivery.",
