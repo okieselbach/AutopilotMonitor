@@ -1,10 +1,10 @@
-using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tests for <see cref="GetAgentConfigFunction.ParseAgentMajor"/> — the pure decision logic that picks
+/// Tests for <see cref="AgentConfigResolver.ParseAgentMajor"/> — the pure decision logic that picks
 /// the per-line hash-oracle field set based on the X-Agent-Version header value.
 /// </summary>
 public class GetAgentConfigFunctionTests
@@ -29,7 +29,7 @@ public class GetAgentConfigFunctionTests
     [InlineData("vNEXT", 1)]
     public void ParseAgentMajor_ExtractsMajor(string? agentVersion, int expectedMajor)
     {
-        var actual = GetAgentConfigFunction.ParseAgentMajor(agentVersion);
+        var actual = AgentConfigResolver.ParseAgentMajor(agentVersion);
         Assert.Equal(expectedMajor, actual);
     }
 
@@ -49,7 +49,7 @@ public class GetAgentConfigFunctionTests
             P(@"C:\Windows\SetupDiag\*.log", "tenant"),
         };
 
-        var merged = GetAgentConfigFunction.MergeDiagnosticsLogPaths(global, tenant);
+        var merged = AgentConfigResolver.MergeDiagnosticsLogPaths(global, tenant);
 
         Assert.Equal(new[]
         {
@@ -63,7 +63,7 @@ public class GetAgentConfigFunctionTests
     [Fact]
     public void MergeDiagnosticsLogPaths_DropsBlankEntries()
     {
-        var merged = GetAgentConfigFunction.MergeDiagnosticsLogPaths(
+        var merged = AgentConfigResolver.MergeDiagnosticsLogPaths(
             new[] { P(""), P("   "), P(@"C:\Install\Log\*.log") },
             new DiagnosticsLogPath[] { null!, P(@"C:\Install\Log\*.log") });
 
@@ -90,7 +90,7 @@ public class GetAgentConfigFunctionTests
     public void ResolveDiagnosticsUploadEnabled_GatesOnSasOrHosted(
         string? diagnosticsBlobSasUrl, string? destination, bool expected)
     {
-        var actual = GetAgentConfigFunction.ResolveDiagnosticsUploadEnabled(diagnosticsBlobSasUrl, destination);
+        var actual = AgentConfigResolver.ResolveDiagnosticsUploadEnabled(diagnosticsBlobSasUrl, destination);
         Assert.Equal(expected, actual);
     }
 }

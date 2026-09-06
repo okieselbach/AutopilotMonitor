@@ -20,8 +20,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         private readonly ILogger<GetAgentConfigFunction> _logger;
         private readonly TenantConfigurationService _configService;
         private readonly AdminConfigurationService _adminConfigService;
-        private readonly GatherRuleService _gatherRuleService;
-        private readonly ImeLogPatternService _imeLogPatternService;
+        private readonly AgentConfigResolver _resolver;
         private readonly RateLimitService _rateLimitService;
         private readonly AutopilotDeviceValidator _autopilotDeviceValidator;
         private readonly CorporateIdentifierValidator _corporateIdentifierValidator;
@@ -35,8 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             ILogger<GetAgentConfigFunction> logger,
             TenantConfigurationService configService,
             AdminConfigurationService adminConfigService,
-            GatherRuleService gatherRuleService,
-            ImeLogPatternService imeLogPatternService,
+            AgentConfigResolver resolver,
             RateLimitService rateLimitService,
             AutopilotDeviceValidator autopilotDeviceValidator,
             CorporateIdentifierValidator corporateIdentifierValidator,
@@ -49,8 +47,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _logger = logger;
             _configService = configService;
             _adminConfigService = adminConfigService;
-            _gatherRuleService = gatherRuleService;
-            _imeLogPatternService = imeLogPatternService;
+            _resolver = resolver;
             _rateLimitService = rateLimitService;
             _autopilotDeviceValidator = autopilotDeviceValidator;
             _corporateIdentifierValidator = corporateIdentifierValidator;
@@ -105,108 +102,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
-        /// Parses the major-version from an X-Agent-Version header value.
-        /// Accepts SemVer-ish strings like "2.0.114" or "2.0.114+abc123".
-        /// Missing/unparsable → returns 1 (backward-compat: very old agents may omit the
-        /// header). The V1 line is retired, so major 1 resolves to empty hashes via
-        /// GetAgentLine's default arm — legacy stragglers just skip their integrity check.
-        /// Deliberately NOT defaulting to 2: that would hand V2 hashes to V1 binaries and
-        /// could trigger the runtime_hash_mismatch force-update path against the wrong line.
-        /// </summary>
-        internal static int ParseAgentMajor(string? agentVersion)
-        {
-            if (string.IsNullOrWhiteSpace(agentVersion))
-                return 1;
-
-            var dot = agentVersion.IndexOf('.');
-            var majorStr = dot > 0 ? agentVersion.Substring(0, dot) : agentVersion;
-            return int.TryParse(majorStr, out var major) ? major : 1;
-        }
-
-        /// <summary>
-        /// Decides whether the agent should perform diagnostics uploads at all.
-        /// The CustomerSas destination is gated on a per-tenant SAS URL being present, but the
-        /// Hosted destination has no such URL (the platform owns the storage) — so gating purely
-        /// on the SAS URL silently disabled uploads for every Hosted-destination tenant. Enable
-        /// when either a customer SAS is configured OR the destination is Hosted.
-        /// </summary>
-        internal static bool ResolveDiagnosticsUploadEnabled(string? diagnosticsBlobSasUrl, string? destination)
-        {
-            return !string.IsNullOrEmpty(diagnosticsBlobSasUrl)
-                || string.Equals(destination, "Hosted", StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// Global ∪ tenant diagnostics paths: global first, order preserved, blank paths dropped,
-        /// duplicates (trimmed, case-insensitive) collapsed onto the first occurrence. The agent
-        /// keys ZIP entries on the path, so a path present in both lists would otherwise produce
-        /// duplicate entry names inside the archive.
-        /// </summary>
-        internal static List<DiagnosticsLogPath> MergeDiagnosticsLogPaths(
-            IEnumerable<DiagnosticsLogPath> global,
-            IEnumerable<DiagnosticsLogPath> tenant)
-        {
-            return global.Concat(tenant)
-                .Where(p => !string.IsNullOrWhiteSpace(p?.Path))
-                .GroupBy(p => p.Path.Trim(), StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                .ToList();
-        }
-
-        /// <summary>
-        /// Returns the (ZipSha256, ExeSha256) pair appropriate for the calling agent.
-        /// Reads the X-Agent-Version header, parses the major, and dispatches to the
-        /// corresponding per-line field set on <see cref="AdminConfiguration"/> via
-        /// <see cref="AdminConfiguration.GetAgentLine(int)"/>. Future V3 = no change here;
-        /// add a switch arm in GetAgentLine and a field set on AdminConfiguration.
-        /// </summary>
-        internal static (string ZipSha256, string ExeSha256) SelectAgentHashesForClient(
-            HttpRequestData req,
-            AutopilotMonitor.Shared.Models.AdminConfiguration adminConfig)
-        {
-            var agentVersion = req.Headers.Contains("X-Agent-Version")
-                ? req.Headers.GetValues("X-Agent-Version").FirstOrDefault()
-                : null;
-
-            var line = adminConfig.GetAgentLine(ParseAgentMajor(agentVersion));
-            return (line.ZipSha256, line.ExeSha256);
-        }
-
-        /// <summary>
-        /// Resolves the endpoint-migration target for a tenant: per-tenant override wins over
-        /// the global value; an override entry with an empty value pins the tenant (no
-        /// migration even while the global target is set — staged rollout). The winning value
-        /// is validated against <see cref="AutopilotMonitor.Shared.Services.AgentEndpointMigrationRules"/>;
-        /// invalid values resolve to null (fail-safe: better to strand an agent on the old
-        /// backend than to serve a broken or non-allowlisted URL).
-        /// </summary>
-        internal static string? ResolveMigrateTarget(
-            AutopilotMonitor.Shared.Models.AdminConfiguration adminConfig,
-            string tenantId,
-            out string? rejectedCandidate)
-        {
-            rejectedCandidate = null;
-            string? candidate = adminConfig.AgentMigrateApiBaseUrl;
-
-            var overrides = adminConfig.GetAgentMigrateTenantOverrides();
-            if (!string.IsNullOrEmpty(tenantId) && overrides.TryGetValue(tenantId, out var tenantTarget))
-                candidate = tenantTarget; // empty string = pinned, handled below
-
-            if (string.IsNullOrWhiteSpace(candidate))
-                return null;
-
-            if (AutopilotMonitor.Shared.Services.AgentEndpointMigrationRules
-                .TryNormalizeTarget(candidate, out var normalized))
-            {
-                return normalized;
-            }
-
-            rejectedCandidate = candidate;
-            return null;
-        }
-
-        /// <summary>
-        /// Core config logic: fetch tenant + admin config, gather rules, IME patterns.
+        /// Core config logic: kill verdict for this device, then the shared derivation
+        /// (<see cref="AgentConfigResolver"/>) with the device verdict applied on top.
         /// Called by both the cert-auth Run() method and the bootstrap wrapper.
         /// <paramref name="intuneDeviceId"/> is the certificate identity from the cert Subject CN
         /// (cert-auth callers); the bootstrap wrapper has none and leaves it null.
@@ -236,114 +133,30 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 intuneDeviceId: intuneDeviceId);
             DeviceIdentityBinding.Stamp(req, killVerdict.IdentityBinding);
 
-            // Get tenant configuration
-            var tenantConfig = await _configService.GetConfigurationAsync(tenantId);
+            // Select the per-line hash oracle from the X-Agent-Version header (parametric per major).
+            var resolution = await _resolver.ResolveAsync(tenantId, AgentConfigResolver.ParseAgentMajor(agentVersionHeader));
+            var response = resolution.Response;
 
-            // Get global admin config for platform-wide policy settings
-            var adminConfig = await _adminConfigService.GetConfigurationAsync();
-
-            // Build collector configuration from tenant settings + global policy
-            var collectors = new CollectorConfiguration
-            {
-                EnablePerformanceCollector = tenantConfig.EnablePerformanceCollector,
-                PerformanceIntervalSeconds = tenantConfig.PerformanceCollectorIntervalSeconds,
-                CollectorIdleTimeoutMinutes = adminConfig.CollectorIdleTimeoutMinutes,
-                DesktopDetectorNoCandidateTimeoutMinutes = adminConfig.DesktopDetectorNoCandidateTimeoutMinutes,
-                HelloWaitTimeoutSeconds = tenantConfig.HelloWaitTimeoutSeconds,
-                AgentMaxLifetimeMinutes = tenantConfig.AgentMaxLifetimeMinutes ?? 360,
-                ModernDeploymentHarmlessEventIds = adminConfig.GetModernDeploymentHarmlessEventIds().ToArray()
-            };
-
-            // Active gather rules + active IME log patterns for this tenant. Independent reads,
-            // both served from per-instance catalog caches — fetch them concurrently.
-            var gatherRulesTask = _gatherRuleService.GetActiveRulesForTenantAsync(tenantId);
-            var imeLogPatternsTask = _imeLogPatternService.GetActivePatternsForTenantAsync(tenantId);
-            await Task.WhenAll(gatherRulesTask, imeLogPatternsTask);
-            var gatherRules = await gatherRulesTask;
-            var imeLogPatterns = await imeLogPatternsTask;
-
-            // Merge global + tenant-specific diagnostics log paths (the built-in sections are
-            // compiled into the agent — DiagnosticsBuiltInSections — and never travel here)
-            var diagLogPaths = MergeDiagnosticsLogPaths(
-                adminConfig.GetDiagnosticsGlobalLogPaths(), tenantConfig.GetDiagnosticsLogPaths());
-
-            // Select per-line hash oracle from the X-Agent-Version header (parametric per major).
-            // The wire response keeps generic field names (LatestAgentSha256 / LatestAgentExeSha256)
-            // so agent code is unchanged across all major lines.
-            var (latestAgentSha256, latestAgentExeSha256) = SelectAgentHashesForClient(req, adminConfig);
-
-            // Endpoint migration on the control channel: serve the (validated) re-home target
-            // so agents still bound to this backend's compiled-in URL move themselves to the
-            // new deployment at their next start. LogWarning (not Information) because worker
-            // logs below Warning never reach App Insights — this line is the delivery evidence
-            // during a migration window.
-            var migrateTarget = ResolveMigrateTarget(adminConfig, tenantId, out var rejectedMigrateCandidate);
-            if (migrateTarget != null)
+            // LogWarning (not Information) because worker logs below Warning never reach App
+            // Insights — this line is the delivery evidence during a migration window.
+            if (response.MigrateToApiBaseUrl != null)
             {
                 _logger.LogWarning(
                     "AgentMigrateServed: tenant={TenantId} serial={Serial} agentVersion={AgentVersion} target={Target}",
-                    tenantId, serialNumberHeader, agentVersionHeader, migrateTarget);
+                    tenantId, serialNumberHeader, agentVersionHeader, response.MigrateToApiBaseUrl);
             }
-            else if (rejectedMigrateCandidate != null)
+            else if (resolution.RejectedMigrateCandidate != null)
             {
                 _logger.LogWarning(
                     "AgentMigrateRejected: configured migration target failed validation and is NOT served. tenant={TenantId} candidate={Candidate}",
-                    tenantId, rejectedMigrateCandidate);
+                    tenantId, resolution.RejectedMigrateCandidate);
             }
 
-            var response = await req.OkAsync(new AgentConfigResponse
-            {
-                ConfigVersion = 40, // EnableDoGroupIdAutoSet (Delivery Optimization group ID from network fingerprint)
-                UploadIntervalSeconds = Shared.Constants.DefaultUploadIntervalSeconds,
-                SelfDestructOnComplete = tenantConfig.SelfDestructOnComplete ?? true,
-                KeepLogFile = tenantConfig.KeepLogFile ?? false,
-                EnableGeoLocation = tenantConfig.EnableGeoLocation ?? true,
-                EnableImeMatchLog = tenantConfig.EnableImeMatchLog ?? false,
-                EnableGatherRuleDebugLog = tenantConfig.EnableGatherRuleDebugLog ?? false,
-                EnableEspContinueAnywayObservation = tenantConfig.EnableEspContinueAnywayObservation ?? false,
-                MaxAuthFailures = tenantConfig.MaxAuthFailures ?? 5,
-                AuthFailureTimeoutMinutes = tenantConfig.AuthFailureTimeoutMinutes ?? 0,
-                LogLevel = tenantConfig.LogLevel ?? "Info",
-                RebootOnComplete = tenantConfig.RebootOnComplete ?? false,
-                RebootDelaySeconds = tenantConfig.RebootDelaySeconds ?? 10,
-                ShowEnrollmentSummary = tenantConfig.ShowEnrollmentSummary ?? false,
-                EnrollmentSummaryTimeoutSeconds = tenantConfig.EnrollmentSummaryTimeoutSeconds ?? 60,
-                EnrollmentSummaryBrandingImageUrl = tenantConfig.EnrollmentSummaryBrandingImageUrl,
-                EnrollmentSummaryLaunchRetrySeconds = tenantConfig.EnrollmentSummaryLaunchRetrySeconds ?? 120,
-                MaxBatchSize = tenantConfig.MaxBatchSize ?? 100,
-                DiagnosticsUploadEnabled = ResolveDiagnosticsUploadEnabled(
-                    tenantConfig.DiagnosticsBlobSasUrl, tenantConfig.DiagnosticsUploadDestination),
-                DiagnosticsUploadMode = tenantConfig.DiagnosticsUploadMode ?? "Off",
-                DiagnosticsLogPaths = diagLogPaths,
-                Collectors = collectors,
-                Analyzers = new AnalyzerConfiguration
-                {
-                    EnableLocalAdminAnalyzer = tenantConfig.EnableLocalAdminAnalyzer ?? true,
-                    LocalAdminAllowedAccounts = tenantConfig.GetLocalAdminAllowedAccounts(),
-                    EnableSoftwareInventoryAnalyzer = tenantConfig.EnableSoftwareInventoryAnalyzer ?? false,
-                    EnableIntegrityBypassAnalyzer = tenantConfig.EnableIntegrityBypassAnalyzer ?? true,
-                    EnableRealmJoinWatcher = tenantConfig.EnableRealmJoinWatcher ?? false,
-                    KeepAwakeDuringUserEsp = tenantConfig.KeepAwakeDuringUserEsp ?? false,
-                    EnableConsoleBypassDetection = tenantConfig.EnableConsoleBypassDetection ?? true
-                },
-                LatestAgentSha256 = latestAgentSha256,
-                LatestAgentExeSha256 = latestAgentExeSha256,
-                AllowAgentDowngrade = adminConfig.AllowAgentDowngrade,
-                NtpServer = string.IsNullOrEmpty(tenantConfig.NtpServer) ? "time.windows.com" : tenantConfig.NtpServer,
-                EnableTimezoneAutoSet = tenantConfig.EnableTimezoneAutoSet ?? false,
-                EnableDoGroupIdAutoSet = tenantConfig.EnableDoGroupIdAutoSet ?? false,
-                SendTraceEvents = tenantConfig.SendTraceEvents,
-                UnrestrictedMode = TenantEntitlementService.IsUnrestrictedModeActive(tenantConfig, DateTime.UtcNow),
-                GatherRules = gatherRules,
-                ImeLogPatterns = imeLogPatterns,
-                WhiteGloveSealingPatternIds = adminConfig.GetWhiteGloveSealingPatternIds(),
-                DeviceBlocked = killVerdict.IsBlocked,
-                DeviceKillSignal = killVerdict.IsKill,
-                UnblockAt = killVerdict.UnblockAt,
-                MigrateToApiBaseUrl = migrateTarget,
-            });
+            response.DeviceBlocked = killVerdict.IsBlocked;
+            response.DeviceKillSignal = killVerdict.IsKill;
+            response.UnblockAt = killVerdict.UnblockAt;
 
-            return response;
+            return await req.OkAsync(response);
         }
     }
 }

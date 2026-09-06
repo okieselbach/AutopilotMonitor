@@ -2,28 +2,29 @@
  * Parity pins for the Tenant Config Report catalog.
  *
  * The catalog is compile-time exhaustive over the generated wire types; this file adds the
- * runtime half against SHARED_MANIFEST.tenantConfiguration.fields (the C#-reflected field
- * list, independent of the TS type) and pins the runtime resolution rules that mirror
- * GetAgentConfigFunction.cs with test-local fixtures.
+ * runtime half against the shared manifest (the C#-reflected field lists and initializer
+ * defaults, independent of the TS types): every field is catalogued, every catalogued field
+ * has a default to compare against, and the value accessors read the effective agent config
+ * the backend returns. The derivation rules themselves are pinned in the backend
+ * (AgentConfigResolverTests) — nothing is re-computed here.
  */
 import { describe, expect, it } from "vitest";
 import { SHARED_MANIFEST } from "@/utils/shared-manifests.generated";
-import type { AdminConfiguration, TenantConfiguration, TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
+import type { AgentConfigResponse } from "@/utils/wire-types.generated";
 import {
   ANALYZER_FIELDS,
   COLLECTOR_FIELDS,
-  DEFAULT_UPLOAD_INTERVAL_SECONDS,
   isExcluded,
   isNonDefault,
   RUNTIME_FIELDS,
   RUNTIME_REPORT_SECTIONS,
+  RUNTIME_SECTIONS_COLLAPSED,
   TENANT_FIELDS,
   TENANT_REPORT_SECTIONS,
-  UNRESOLVED,
-  type RuntimeContext,
 } from "../tenantConfigReportCatalog";
 
 const manifestFields = [...SHARED_MANIFEST.tenantConfiguration.fields] as string[];
+const manifestDefaults = SHARED_MANIFEST.tenantConfiguration.defaults as Record<string, unknown>;
 
 describe("TENANT_FIELDS parity with the C# field manifest", () => {
   it("catalogues every wire field of TenantConfiguration (rendered or excluded with a reason)", () => {
@@ -36,6 +37,11 @@ describe("TENANT_FIELDS parity with the C# field manifest", () => {
     expect(stale).toEqual([]);
   });
 
+  it("the manifest carries an initializer default for every field", () => {
+    const withoutDefault = manifestFields.filter((f) => !(f in manifestDefaults));
+    expect(withoutDefault).toEqual([]);
+  });
+
   it("gives every exclusion a reason and every row a non-empty label", () => {
     for (const [key, spec] of Object.entries(TENANT_FIELDS)) {
       if (isExcluded(spec)) expect(spec.excluded, key).not.toBe("");
@@ -44,7 +50,7 @@ describe("TENANT_FIELDS parity with the C# field manifest", () => {
   });
 
   it("renders the fields the operator asked for by name", () => {
-    const rendered = new Set(TENANT_REPORT_SECTIONS.flatMap((s) => s.rows.map((r) => r.key)));
+    const rendered = new Set(TENANT_REPORT_SECTIONS.flatMap((s) => s.rows.map((r) => r.key as string)));
     for (const key of [
       "payingCustomer", "maxDelegatedTenantsOverride", "mcpUsagePlanOverride", "managedByProTenantId",
       "trialConsumed", "proDowngradedUtc", "validateDeviceAssociation", "validateCloudPcDevice",
@@ -56,154 +62,94 @@ describe("TENANT_FIELDS parity with the C# field manifest", () => {
     }
   });
 
-  it("renders each field in exactly one section", () => {
+  it("renders each field in exactly one section, with its manifest default attached", () => {
     const seen = new Map<string, number>();
     for (const { rows } of TENANT_REPORT_SECTIONS) {
-      for (const { key } of rows) seen.set(key, (seen.get(key) ?? 0) + 1);
+      for (const { key, default: def } of rows) {
+        seen.set(key, (seen.get(key) ?? 0) + 1);
+        expect(def, key).toEqual(manifestDefaults[key]);
+      }
     }
     expect([...seen.entries()].filter(([, n]) => n !== 1)).toEqual([]);
   });
+
+  it("secrets, masked values and timestamps are informational (never marked custom)", () => {
+    for (const [key, spec] of Object.entries(TENANT_FIELDS)) {
+      if (isExcluded(spec)) continue;
+      if (spec.kind === "secret" || spec.kind === "masked" || spec.kind === "date") {
+        expect(spec.informational, key).toBe(true);
+      }
+    }
+  });
+
+  it("pins a few manifest defaults the report relies on", () => {
+    expect(manifestDefaults.planTier).toBe("free");
+    expect(manifestDefaults.dataRetentionDays).toBe(90);
+    expect(manifestDefaults.diagnosticsUploadDestination).toBe("CustomerSas");
+    expect(manifestDefaults.payingCustomer).toBe(false);
+    // The one string default the table read also applies to a blank cell — a stored
+    // "time.windows.com" must not read as custom.
+    expect(manifestDefaults.ntpServer).toBe("time.windows.com");
+  });
 });
 
-// ── Runtime rules ────────────────────────────────────────────────────────────
+// ── Runtime catalog ──────────────────────────────────────────────────────────
 
-/** Minimal stored config: everything nullable unset, non-nullables at their C# initializers. */
-function storedConfig(overrides: Partial<TenantConfiguration> = {}): TenantConfiguration {
-  return {
-    tenantId: "00000000-0000-0000-0000-000000000001",
-    domainName: "contoso.example",
-    lastUpdated: "2026-09-06T00:00:00Z",
-    updatedBy: "ga@operator.example",
-    disabled: false,
-    mcpDisabled: false,
-    planTier: "free",
-    trialConsumed: false,
-    payingCustomer: false,
-    manufacturerWhitelist: "Dell*,HP*,Lenovo*,Microsoft Corporation",
-    modelWhitelist: "*",
-    validateAutopilotDevice: false,
-    validateCorporateIdentifier: false,
-    validateDeviceAssociation: false,
-    validateCloudPcDevice: false,
-    validateIntuneDeviceBinding: false,
-    allowInsecureAgentRequests: false,
-    dataRetentionDays: 90,
-    sessionTimeoutHours: 5,
-    sessionGraceHours: 0,
-    maxNdjsonPayloadSizeMB: 5,
-    enablePerformanceCollector: true,
-    performanceCollectorIntervalSeconds: 30,
-    helloWaitTimeoutSeconds: 30,
-    ntpServer: "time.windows.com",
-    logLevel: "",
-    enrollmentSummaryBrandingImageUrl: "",
-    localAdminAllowedAccountsJson: "",
-    bootstrapTokenEnabled: false,
-    unrestrictedModeEnabled: false,
-    unrestrictedMode: false,
-    entraAppRolesEnabled: false,
-    diagnosticsLogPathsJson: "",
-    diagnosticsBlobSasUrl: "",
-    diagnosticsUploadMode: "Off",
-    diagnosticsUploadDestination: "CustomerSas",
-    sendTraceEvents: true,
-    teamsWebhookUrl: "",
-    teamsNotifyOnSuccess: true,
-    teamsNotifyOnFailure: true,
-    teamsNotifyOnStart: false,
-    webhookProviderType: 0,
-    webhookUrl: "",
-    webhookNotifyOnSuccess: true,
-    webhookNotifyOnFailure: true,
-    webhookNotifyOnHardwareRejection: false,
-    webhookNotifyOnStart: false,
-    webhookCustomHeadersJson: "",
-    notificationChannelsJson: "",
-    slaNotifyOnSuccessRateBreach: false,
-    slaNotifyOnDurationBreach: false,
-    slaNotifyOnAppInstallBreach: false,
-    slaNotifyOnConsecutiveFailures: false,
-    slaConsecutiveFailureThreshold: 5,
-    ...overrides,
-  };
-}
+const agentDefaults = SHARED_MANIFEST.agentConfig;
 
-const adminConfig = { collectorIdleTimeoutMinutes: 25, desktopDetectorNoCandidateTimeoutMinutes: 7, allowAgentDowngrade: true, modernDeploymentHarmlessEventIdsJson: "[100, 42]" } as AdminConfiguration;
-const flags = (unrestrictedMode: boolean) => ({ unrestrictedMode }) as TenantFeatureFlagsResponse;
-
-const ctx = (overrides: Partial<TenantConfiguration> = {}, extra: Partial<RuntimeContext> = {}): RuntimeContext => ({
-  config: storedConfig(overrides),
-  adminConfig: null,
-  flags: null,
-  ...extra,
-});
-
-const runtimeValue = (record: typeof RUNTIME_FIELDS | typeof COLLECTOR_FIELDS | typeof ANALYZER_FIELDS, key: string, c: RuntimeContext) => {
-  const spec = (record as Record<string, (typeof RUNTIME_FIELDS)[keyof typeof RUNTIME_FIELDS]>)[key];
-  if (!spec || isExcluded(spec)) throw new Error(`${key} is not a rendered runtime row`);
-  return spec.value(c);
-};
-
-describe("runtime rows mirror GetAgentConfigFunction", () => {
-  it("upload interval is the backend constant (10), not the old 30", () => {
-    expect(DEFAULT_UPLOAD_INTERVAL_SECONDS).toBe(10);
-    expect(runtimeValue(RUNTIME_FIELDS, "uploadIntervalSeconds", ctx())).toBe(10);
-  });
-
-  it("diagnostics upload is enabled by a SAS URL or the hosted destination, regardless of mode", () => {
-    expect(runtimeValue(RUNTIME_FIELDS, "diagnosticsUploadEnabled", ctx())).toBe(false);
-    expect(runtimeValue(RUNTIME_FIELDS, "diagnosticsUploadEnabled", ctx({ diagnosticsUploadDestination: "Hosted" }))).toBe(true);
-    expect(runtimeValue(RUNTIME_FIELDS, "diagnosticsUploadEnabled", ctx({ diagnosticsBlobSasUrl: "https://x.blob.core.windows.net/c?sig=1", diagnosticsUploadMode: "Off" }))).toBe(true);
-  });
-
-  it("unrestricted mode comes from the entitlement flags, never from the stored toggle alone", () => {
-    expect(runtimeValue(RUNTIME_FIELDS, "unrestrictedMode", ctx({ unrestrictedModeEnabled: true, unrestrictedMode: true }))).toBe(UNRESOLVED);
-    expect(runtimeValue(RUNTIME_FIELDS, "unrestrictedMode", ctx({ unrestrictedModeEnabled: true, unrestrictedMode: true }, { flags: flags(false) }))).toBe(false);
-    expect(runtimeValue(RUNTIME_FIELDS, "unrestrictedMode", ctx({}, { flags: flags(true) }))).toBe(true);
-  });
-
-  it("operator knobs resolve from the global config and are unresolved without it", () => {
-    expect(runtimeValue(COLLECTOR_FIELDS, "collectorIdleTimeoutMinutes", ctx())).toBe(UNRESOLVED);
-    const c = ctx({}, { adminConfig });
-    expect(runtimeValue(COLLECTOR_FIELDS, "collectorIdleTimeoutMinutes", c)).toBe(25);
-    expect(runtimeValue(COLLECTOR_FIELDS, "desktopDetectorNoCandidateTimeoutMinutes", c)).toBe(7);
-    expect(runtimeValue(COLLECTOR_FIELDS, "modernDeploymentHarmlessEventIds", c)).toEqual([100, 42]);
-    expect(runtimeValue(RUNTIME_FIELDS, "allowAgentDowngrade", c)).toBe(true);
-  });
-
-  it("applies the analyzer defaults of the agent config builder", () => {
-    const c = ctx();
-    expect(runtimeValue(ANALYZER_FIELDS, "enableLocalAdminAnalyzer", c)).toBe(true);
-    expect(runtimeValue(ANALYZER_FIELDS, "enableIntegrityBypassAnalyzer", c)).toBe(true);
-    expect(runtimeValue(ANALYZER_FIELDS, "enableConsoleBypassDetection", c)).toBe(true);
-    expect(runtimeValue(ANALYZER_FIELDS, "enableSoftwareInventoryAnalyzer", c)).toBe(false);
-    expect(runtimeValue(ANALYZER_FIELDS, "enableRealmJoinWatcher", c)).toBe(false);
-    expect(runtimeValue(ANALYZER_FIELDS, "keepAwakeDuringUserEsp", c)).toBe(false);
-    expect(runtimeValue(ANALYZER_FIELDS, "localAdminAllowedAccounts", ctx({ localAdminAllowedAccountsJson: '["Admin","Helpdesk"]' }))).toEqual(["Admin", "Helpdesk"]);
-    expect(runtimeValue(ANALYZER_FIELDS, "localAdminAllowedAccounts", ctx({ localAdminAllowedAccountsJson: "not json" }))).toEqual([]);
-  });
-
-  it("nullable agent knobs fall back to the agent defaults", () => {
-    const c = ctx();
-    expect(runtimeValue(RUNTIME_FIELDS, "maxAuthFailures", c)).toBe(5);
-    expect(runtimeValue(RUNTIME_FIELDS, "authFailureTimeoutMinutes", c)).toBe(0);
-    expect(runtimeValue(RUNTIME_FIELDS, "logLevel", ctx({ logLevel: null as unknown as string }))).toBe("Info");
-    expect(runtimeValue(RUNTIME_FIELDS, "ntpServer", ctx({ ntpServer: "" }))).toBe("time.windows.com");
-    expect(runtimeValue(COLLECTOR_FIELDS, "agentMaxLifetimeMinutes", c)).toBe(360);
-    expect(runtimeValue(RUNTIME_FIELDS, "rebootDelaySeconds", ctx({ rebootDelaySeconds: 30 }))).toBe(30);
+describe("runtime catalogs parity with the agent-config defaults manifest", () => {
+  it.each([
+    ["responseDefaults", RUNTIME_FIELDS],
+    ["collectorDefaults", COLLECTOR_FIELDS],
+    ["analyzerDefaults", ANALYZER_FIELDS],
+  ] as const)("%s ↔ catalog: same key set", (section, record) => {
+    const keys = Object.keys(agentDefaults[section]);
+    expect(keys.filter((k) => !(k in record))).toEqual([]);
+    expect(Object.keys(record).filter((k) => !keys.includes(k))).toEqual([]);
   });
 
   it("renders every runtime row in exactly one section", () => {
     const keys = RUNTIME_REPORT_SECTIONS.flatMap((s) => s.rows.map((r) => r.key));
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).toContain("uploadIntervalSeconds");
-    expect(keys).toContain("collectorIdleTimeoutMinutes");
-    expect(keys).toContain("enableConsoleBypassDetection");
+    expect(keys).toContain("collectors.collectorIdleTimeoutMinutes");
+    expect(keys).toContain("analyzers.enableConsoleBypassDetection");
+    expect(keys).toContain("configVersion");
+    expect(keys).not.toContain("deviceKillSignal");
+  });
+
+  it("collapsed sections exist in the section list", () => {
+    const sections = new Set(RUNTIME_REPORT_SECTIONS.map((s) => s.section));
+    for (const s of RUNTIME_SECTIONS_COLLAPSED) expect(sections.has(s), s).toBe(true);
+  });
+
+  it("value accessors read the top level and the two sub-objects of the response", () => {
+    const response = {
+      uploadIntervalSeconds: 10,
+      collectors: { collectorIdleTimeoutMinutes: 25 },
+      analyzers: { enableConsoleBypassDetection: false },
+      diagnosticsLogPaths: [{ path: "a" }, { path: "b" }],
+    } as unknown as AgentConfigResponse;
+    const byKey = new Map(RUNTIME_REPORT_SECTIONS.flatMap((s) => s.rows.map((r) => [r.key, r] as const)));
+
+    expect(byKey.get("uploadIntervalSeconds")!.value(response)).toBe(10);
+    expect(byKey.get("collectors.collectorIdleTimeoutMinutes")!.value(response)).toBe(25);
+    expect(byKey.get("analyzers.enableConsoleBypassDetection")!.value(response)).toBe(false);
+    expect(byKey.get("diagnosticsLogPaths")!.row.kind).toBe("count");
+    expect(byKey.get("diagnosticsLogPaths")!.value(response)).toHaveLength(2);
+  });
+
+  it("pins the agent defaults the report highlights against", () => {
+    expect(agentDefaults.responseDefaults.uploadIntervalSeconds).toBe(10);
+    expect(agentDefaults.responseDefaults.maxBatchSize).toBe(100);
+    expect(agentDefaults.collectorDefaults.collectorIdleTimeoutMinutes).toBe(15);
+    expect(agentDefaults.analyzerDefaults.enableIntegrityBypassAnalyzer).toBe(true);
+    expect(agentDefaults.analyzerDefaults.enableRealmJoinWatcher).toBe(false);
   });
 });
 
 describe("isNonDefault", () => {
-  it("treats null and undefined as one value and compares arrays by content", () => {
+  it("treats null, undefined and the empty string as one value and compares arrays by content", () => {
     expect(isNonDefault(undefined, null)).toBe(false);
     expect(isNonDefault("", null)).toBe(false);
     expect(isNonDefault("", "Off")).toBe(true);

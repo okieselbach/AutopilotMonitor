@@ -60,13 +60,26 @@ public sealed class SharedManifestParityTests
             // v2: adds the "types" section (full wire-type graph) and drops v1's
             // "sessionSummary" (it had no TS consumer; SessionSummary now rides in "types").
             ["schemaVersion"] = 2,
+            // "defaults" = the value of every wire field on a freshly constructed instance (the C#
+            // initializer): the web's "custom" highlight compares stored values against these
+            // instead of a hand-copied map. Nested objects appear as null — they have their own section.
             ["adminConfiguration"] = new Dictionary<string, object?>
             {
                 ["fields"] = WireFieldNames(typeof(AdminConfiguration)),
+                ["defaults"] = WireDefaults(typeof(AdminConfiguration)),
             },
             ["tenantConfiguration"] = new Dictionary<string, object?>
             {
                 ["fields"] = WireFieldNames(typeof(TenantConfiguration)),
+                ["defaults"] = WireDefaults(typeof(TenantConfiguration)),
+            },
+            // What an agent receives (GET agent/config) at its class defaults — the runtime column of
+            // the Tenant Config Report highlights every effective value that differs from these.
+            ["agentConfig"] = new Dictionary<string, object?>
+            {
+                ["responseDefaults"] = WireDefaults(typeof(AgentConfigResponse)),
+                ["collectorDefaults"] = WireDefaults(typeof(CollectorConfiguration)),
+                ["analyzerDefaults"] = WireDefaults(typeof(AnalyzerConfiguration)),
             },
             // Enum member order is load-bearing (append-only ordinals) — declaration order kept.
             ["sessionStatuses"] = Enum.GetNames(typeof(SessionStatus)),
@@ -115,6 +128,29 @@ public sealed class SharedManifestParityTests
     /// <summary>Wire (camelCase) names of the public instance properties, declaration order.</summary>
     private static string[] WireFieldNames(Type type)
         => WireProperties(type).Select(p => JsonNamingPolicy.CamelCase.ConvertName(p.Name)).ToArray();
+
+    /// <summary>
+    /// Wire name → initializer value of a fresh instance. Scalars, strings, enums (by name),
+    /// DateTime (round-trip) and arrays/lists of those travel as-is; a nested object is null.
+    /// </summary>
+    private static Dictionary<string, object?> WireDefaults(Type type)
+    {
+        var instance = Activator.CreateInstance(type)!;
+        return WireProperties(type).ToDictionary(
+            p => JsonNamingPolicy.CamelCase.ConvertName(p.Name),
+            p => DefaultValue(p.GetValue(instance)));
+    }
+
+    private static object? DefaultValue(object? value) => value switch
+    {
+        null => null,
+        string s => s,
+        bool or int or long or double or float or decimal => value,
+        Enum e => e.ToString(),
+        DateTime d => d.ToString("O"),
+        System.Collections.IEnumerable list => list.Cast<object?>().Select(DefaultValue).ToArray(),
+        _ => null,
+    };
 
     private static IEnumerable<PropertyInfo> WireProperties(Type type)
         => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)

@@ -458,6 +458,8 @@ public static class EndpointAccessPolicyCatalog
         // config writes remain a future policy decision.
         new("PATCH",  "config/{tenantId}/fields",  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/backups", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
+        // Operator view of the AgentConfigResponse an agent of the tenant receives (Tenant Config Report).
+        new("GET",    "config/{tenantId}/effective-agent-config", EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/revert",  EndpointPolicy.GlobalAdminOnly, TenantScoping.RouteParam),
         // Field schema for the write surface above: tenant-independent reflection over the model
         // + deny-lists (no tenant data), but GA-only to match the surface it describes. Literal

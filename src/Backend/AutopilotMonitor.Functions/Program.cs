@@ -310,6 +310,8 @@ builder.Services.AddSingleton<BlockedDeviceService>();
 builder.Services.AddSingleton<HardwareRejectionThrottleService>();
 builder.Services.AddSingleton<BlockedVersionService>();
 builder.Services.AddSingleton<KillSwitchEvaluator>();
+// Shared agent-config derivation for the agent channel and the GA effective-config route.
+builder.Services.AddSingleton<AgentConfigResolver>();
 builder.Services.AddSingleton<BlobStorageService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.HostedDiagnosticsBlobService>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.DiagnosticsBlobStreamer>();

@@ -1,5 +1,4 @@
 using System;
-using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Services
@@ -33,7 +32,7 @@ namespace AutopilotMonitor.Functions.Services
         {
             if (config == null) return false;
             return !string.Equals(config.DiagnosticsUploadMode ?? "Off", "Off", StringComparison.OrdinalIgnoreCase)
-                && GetAgentConfigFunction.ResolveDiagnosticsUploadEnabled(
+                && AgentConfigResolver.ResolveDiagnosticsUploadEnabled(
                     config.DiagnosticsBlobSasUrl, config.DiagnosticsUploadDestination);
         }
 

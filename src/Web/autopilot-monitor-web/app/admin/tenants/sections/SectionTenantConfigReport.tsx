@@ -5,17 +5,16 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { api } from '@/lib/api';
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import type {
-  AdminConfiguration,
+  AgentConfigResponse,
   TenantConfiguration,
   TenantFeatureFlagsResponse,
 } from "@/utils/wire-types.generated";
 import {
   isNonDefault,
   RUNTIME_REPORT_SECTIONS,
+  RUNTIME_SECTIONS_COLLAPSED,
   TENANT_REPORT_SECTIONS,
-  UNRESOLVED,
   type RowKind,
-  type RuntimeContext,
   type RuntimeSource,
 } from './tenantConfigReportCatalog';
 
@@ -39,14 +38,13 @@ const WEBHOOK_PROVIDERS: Record<number, string> = {
 
 const SOURCE_LABELS: Record<RuntimeSource, string> = {
   tenant: 'tenant',
-  admin: 'global',
-  flags: 'entitlement',
-  constant: 'fixed',
+  global: 'global',
+  entitlement: 'entitlement',
+  fixed: 'fixed',
 };
 
 function formatValue(val: unknown): string {
   if (val === null || val === undefined) return '—';
-  if (val === UNRESOLVED) return 'n/a (source not loaded)';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   if (typeof val === 'string') return val || '—';
   if (Array.isArray(val)) return val.length ? val.join(', ') : '—';
@@ -80,6 +78,8 @@ function formatByKind(kind: RowKind | undefined, value: unknown): string {
       return maskSasUrl(value as string);
     case 'secret':
       return value ? 'configured (hidden)' : '—';
+    case 'count':
+      return Array.isArray(value) ? String(value.length) : '—';
     default:
       return formatValue(value);
   }
@@ -111,18 +111,35 @@ function ConfigRow({ label, display, highlight, sourceTag }: ConfigRowProps) {
 
 interface SectionProps {
   title: string;
+  /** Rendered as a closed <details> — for rows that are rarely relevant (agent class defaults). */
+  collapsed?: boolean;
   children: React.ReactNode;
 }
 
-function Section({ title, children }: SectionProps) {
+function Section({ title, collapsed, children }: SectionProps) {
+  const heading = <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">{title}</h3>;
+  const table = (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <table className="w-full">
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">{children}</tbody>
+      </table>
+    </div>
+  );
+  if (collapsed) {
+    return (
+      <details className="mb-6 group">
+        <summary className="cursor-pointer list-none mb-2 flex items-center gap-2">
+          <span className="text-xs text-gray-400 dark:text-gray-500 group-open:rotate-90 transition-transform">▶</span>
+          {heading}
+        </summary>
+        {table}
+      </details>
+    );
+  }
   return (
     <div className="mb-6">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">{title}</h3>
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <table className="w-full">
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">{children}</tbody>
-        </table>
-      </div>
+      <div className="mb-2">{heading}</div>
+      {table}
     </div>
   );
 }
@@ -195,7 +212,7 @@ export function SectionTenantConfigReport() {
   const [selectedTenantId, setSelectedTenantId] = useState('');
   const [config, setConfig] = useState<TenantConfiguration | null>(null);
   const [flags, setFlags] = useState<TenantFeatureFlagsResponse | null>(null);
-  const [adminConfig, setAdminConfig] = useState<AdminConfiguration | null>(null);
+  const [effective, setEffective] = useState<AgentConfigResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingTenants, setLoadingTenants] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -223,34 +240,34 @@ export function SectionTenantConfigReport() {
     fetchTenants();
   }, [user?.isGlobalAdmin, getAccessToken]);
 
-  // Fetch config plus its two runtime sources for the selected tenant. The full config is
-  // the report; feature-flags (entitlement) and global config (operator knobs) are fail-soft —
-  // their rows show "n/a" and a notice instead of blocking the whole report.
+  // Fetch the stored config plus the two backend-resolved views of it. The stored config is
+  // the report; feature-flags (effective entitlement, header) and the effective agent config
+  // (runtime column) are fail-soft — a notice replaces them instead of blocking the page.
   const fetchConfig = useCallback(async () => {
     if (!selectedTenantId) return;
     try {
       setLoading(true);
       setError(null);
       setSideError(null);
-      const [configResult, flagsResult, adminResult] = await Promise.allSettled([
+      const [configResult, flagsResult, effectiveResult] = await Promise.allSettled([
         fetchJson<TenantConfiguration>(api.config.tenant(selectedTenantId), getAccessToken),
         fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(selectedTenantId), getAccessToken),
-        fetchJson<AdminConfiguration>(api.globalConfig.get(), getAccessToken),
+        fetchJson<AgentConfigResponse>(api.config.effectiveAgentConfig(selectedTenantId), getAccessToken),
       ]);
       if (configResult.status === 'rejected') throw configResult.reason;
       setConfig(configResult.value);
       setFlags(flagsResult.status === 'fulfilled' ? flagsResult.value : null);
-      setAdminConfig(adminResult.status === 'fulfilled' ? adminResult.value : null);
+      setEffective(effectiveResult.status === 'fulfilled' ? effectiveResult.value : null);
       const sideFailures = [
         flagsResult.status === 'rejected' ? `feature flags: ${apiErrorText(flagsResult.reason)}` : null,
-        adminResult.status === 'rejected' ? `global config: ${apiErrorText(adminResult.reason)}` : null,
+        effectiveResult.status === 'rejected' ? `effective agent config: ${apiErrorText(effectiveResult.reason)}` : null,
       ].filter((s): s is string => s !== null);
-      setSideError(sideFailures.length ? `Runtime sources unavailable — ${sideFailures.join('; ')}` : null);
+      setSideError(sideFailures.length ? `Backend-resolved views unavailable — ${sideFailures.join('; ')}` : null);
     } catch (err) {
       setError(apiErrorText(err));
       setConfig(null);
       setFlags(null);
-      setAdminConfig(null);
+      setEffective(null);
     } finally {
       setLoading(false);
     }
@@ -262,8 +279,6 @@ export function SectionTenantConfigReport() {
     };
     void run();
   }, [fetchConfig]);
-
-  const runtimeCtx: RuntimeContext | null = config ? { config, adminConfig, flags } : null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -322,7 +337,7 @@ export function SectionTenantConfigReport() {
       )}
 
       {/* Config report */}
-      {!loading && config && runtimeCtx && (
+      {!loading && config && (
         <>
           {/* Tenant header card */}
           <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
@@ -405,14 +420,14 @@ export function SectionTenantConfigReport() {
               {TENANT_REPORT_SECTIONS.map(({ section, rows }) => (
                 <Section key={section} title={section}>
                   {section === 'Webhooks' && <ChannelRows config={config} />}
-                  {rows.map(({ key, row }) => {
-                    const value = config[key as keyof TenantConfiguration];
+                  {rows.map(({ key, row, default: def }) => {
+                    const value = config[key];
                     return (
                       <ConfigRow
                         key={key}
                         label={row.label}
                         display={formatByKind(row.kind, value)}
-                        highlight={'default' in row && isNonDefault(value, row.default)}
+                        highlight={!row.informational && isNonDefault(value, def)}
                       />
                     );
                   })}
@@ -424,21 +439,27 @@ export function SectionTenantConfigReport() {
             <div>
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Runtime Parameters (Agent)</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                The effective values the agent receives at runtime, with defaults applied for unset fields.
-                The tag says where a value is resolved from: tenant config, global config, the tenant&apos;s entitlement, or a fixed backend constant.
+                What an agent of this tenant receives from the backend right now, resolved server-side.
+                The tag says which knob a value comes from: tenant config, global config, the tenant&apos;s entitlement, or a fixed agent default.
               </p>
 
-              {RUNTIME_REPORT_SECTIONS.map(({ section, rows }) => (
-                <Section key={section} title={section}>
-                  {rows.map(({ key, row }) => {
-                    const value = row.value(runtimeCtx);
+              {!effective && (
+                <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  Effective agent configuration not available.
+                </div>
+              )}
+
+              {effective && RUNTIME_REPORT_SECTIONS.map(({ section, rows }) => (
+                <Section key={section} title={section} collapsed={RUNTIME_SECTIONS_COLLAPSED.has(section)}>
+                  {rows.map(({ key, row, value: read, default: def }) => {
+                    const value = read(effective);
                     return (
                       <ConfigRow
                         key={key}
                         label={row.label}
                         sourceTag={SOURCE_LABELS[row.source]}
-                        display={formatValue(value)}
-                        highlight={'default' in row && value !== UNRESOLVED && isNonDefault(value, row.default)}
+                        display={formatByKind(row.kind, value)}
+                        highlight={!row.informational && isNonDefault(value, def)}
                       />
                     );
                   })}

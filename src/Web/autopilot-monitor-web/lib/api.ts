@@ -135,6 +135,13 @@ export const api = {
      */
     fields: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/fields`,
     featureFlags: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/feature-flags`,
+    /**
+     * GET — GA-only: the AgentConfigResponse an agent of the tenant receives right now (same
+     * derivation as agent/config, minus the per-device kill verdict). Optional agentVersion
+     * selects the hash-oracle line like X-Agent-Version would; absent = the current line.
+     */
+    effectiveAgentConfig: (tenantId: string, agentVersion?: string) =>
+      `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/effective-agent-config${agentVersion ? `?agentVersion=${encodeURIComponent(agentVersion)}` : ''}`,
     /** PATCH — GA-only plan/trial mutation: { planTier?, trialExpiresUtc?: ISO | null }. */
     plan: (tenantId: string) => `${API_BASE_URL}/api/config/${encodeURIComponent(tenantId)}/plan`,
     /** POST — tenant-admin self-service 30-day Pro trial (once per tenant, 409 after). */

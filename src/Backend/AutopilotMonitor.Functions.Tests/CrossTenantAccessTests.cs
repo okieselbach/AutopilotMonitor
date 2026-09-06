@@ -182,6 +182,7 @@ public class CrossTenantAccessTests
 
     [Theory]
     [InlineData("PATCH", "/api/config/{0}/plan")]
+    [InlineData("GET", "/api/config/{0}/effective-agent-config")]
     [InlineData("POST", "/api/preview/whitelist/{0}")]
     [InlineData("DELETE", "/api/preview/whitelist/{0}")]
     [InlineData("POST", "/api/preview/send-welcome-email/{0}")]

@@ -9,7 +9,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// is a new private parser copy — the state the 2026-09-04 API audit found six times over for
 /// <c>days</c> alone, each with its own default, cap and out-of-range rule. The baseline lists
 /// the sites that parse something other than a query parameter (a header, a stored cell, a
-/// version string); it only shrinks.
+/// version string); it only shrinks. The X-Agent-Version major parse moved to
+/// <c>Services/AgentConfigResolver.cs</c> (outside the scanned roots) with D-216.
 /// </summary>
 public class QueryParamGuardTests
 {
@@ -19,7 +20,6 @@ public class QueryParamGuardTests
     /// <summary>Non-query parses, reviewed: file → why it is allowed.</summary>
     private static readonly IReadOnlyDictionary<string, string> Baseline = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["Functions/Config/GetAgentConfigFunction.cs"] = "major of the X-Agent-Version header",
         ["Functions/Ingest/IngestTelemetryFunction.cs"] = "X-Send-Time-Utc header (RoundtripKind, deliberately not a query instant)",
         ["Functions/Raw/QueryRawEventsFunction.cs"] = "Severity / Sequence cells of raw table rows",
         ["Functions/Diagnostics/GetDiagnosticsUploadUrlFunction.cs"] = "se= expiry inside the tenant's stored SAS URL",

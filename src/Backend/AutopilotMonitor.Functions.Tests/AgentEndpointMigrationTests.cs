@@ -1,4 +1,4 @@
-using AutopilotMonitor.Functions.Functions.Config;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Services;
 using Xunit;
@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Pins the endpoint-migration serving contract: the shared allowlist rules
 /// (<see cref="AgentEndpointMigrationRules"/>, used verbatim by the agent too) and the
-/// backend-side per-tenant resolution (<see cref="GetAgentConfigFunction.ResolveMigrateTarget"/> —
+/// backend-side per-tenant resolution (<see cref="AgentConfigResolver.ResolveMigrateTarget"/> —
 /// tenant override wins, empty override pins, invalid values are never served).
 /// </summary>
 public class AgentEndpointMigrationTests
@@ -75,7 +75,7 @@ public class AgentEndpointMigrationTests
     {
         var config = new AdminConfiguration();
 
-        Assert.Null(GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out var rejected));
+        Assert.Null(AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out var rejected));
         Assert.Null(rejected);
     }
 
@@ -84,8 +84,8 @@ public class AgentEndpointMigrationTests
     {
         var config = new AdminConfiguration { AgentMigrateApiBaseUrl = UsUrl };
 
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out _));
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantB, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantB, out _));
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public class AgentEndpointMigrationTests
             AgentMigrateTenantOverridesJson = $"{{\"{TenantA}\": \"{EuUrl}\"}}"
         };
 
-        Assert.Equal(EuUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out _));
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantB, out _));
+        Assert.Equal(EuUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantB, out _));
     }
 
     [Fact]
@@ -110,9 +110,9 @@ public class AgentEndpointMigrationTests
             AgentMigrateTenantOverridesJson = $"{{\"{TenantA}\": \"\"}}"
         };
 
-        Assert.Null(GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out var rejected));
+        Assert.Null(AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out var rejected));
         Assert.Null(rejected); // pinned, not rejected
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantB, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantB, out _));
     }
 
     [Fact]
@@ -123,7 +123,7 @@ public class AgentEndpointMigrationTests
             AgentMigrateTenantOverridesJson = $"{{\"{TenantA.ToUpperInvariant()}\": \"{UsUrl}\"}}"
         };
 
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out _));
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class AgentEndpointMigrationTests
     {
         var config = new AdminConfiguration { AgentMigrateApiBaseUrl = "https://attacker.example.com" };
 
-        Assert.Null(GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out var rejected));
+        Assert.Null(AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out var rejected));
         Assert.Equal("https://attacker.example.com", rejected);
     }
 
@@ -144,7 +144,7 @@ public class AgentEndpointMigrationTests
             AgentMigrateTenantOverridesJson = "{not json"
         };
 
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out _));
     }
 
     [Fact]
@@ -155,6 +155,6 @@ public class AgentEndpointMigrationTests
             AgentMigrateApiBaseUrl = "https://AutopilotMonitor-API-US.azurewebsites.net/"
         };
 
-        Assert.Equal(UsUrl, GetAgentConfigFunction.ResolveMigrateTarget(config, TenantA, out _));
+        Assert.Equal(UsUrl, AgentConfigResolver.ResolveMigrateTarget(config, TenantA, out _));
     }
 }

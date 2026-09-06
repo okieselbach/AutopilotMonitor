@@ -449,10 +449,11 @@ namespace AutopilotMonitor.Shared.Models
         public bool? EnableGeoLocation { get; set; }
 
         /// <summary>
-        /// NTP server address for time check during enrollment.
-        /// null = use agent default ("time.windows.com").
+        /// NTP server address for time check during enrollment. The initializer is the same
+        /// value the table read maps a blank cell to and the agent falls back to, so a fresh
+        /// configuration, a stored one and the manifest default agree (D-216).
         /// </summary>
-        public string NtpServer { get; set; } = default!;
+        public string NtpServer { get; set; } = "time.windows.com";
 
         /// <summary>
         /// Whether to automatically set the device timezone based on IP geolocation.
