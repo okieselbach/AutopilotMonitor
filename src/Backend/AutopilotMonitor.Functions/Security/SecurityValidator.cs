@@ -408,6 +408,9 @@ namespace AutopilotMonitor.Functions.Security
             string? autopilotDeviceId = null;
             bool deviceValidated = false;
             bool deviceValidationTransient = false;
+            // Largest Retry-After any transient validator asked for (GraphAuthFailure: a fresh
+            // token that still lacks the permission wants 120 s, not the 30-s default).
+            int? deviceValidationRetryAfter = null;
             string? deviceValidationError = null;
             ValidatorType validatedBy = ValidatorType.Unknown;
 
@@ -430,6 +433,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     deviceValidationError = autopilotResult.ErrorMessage;
                     deviceValidationTransient = autopilotResult.IsTransient;
+                    deviceValidationRetryAfter = MaxRetryAfter(deviceValidationRetryAfter, autopilotResult.RetryAfterSeconds);
                 }
             }
 
@@ -470,6 +474,7 @@ namespace AutopilotMonitor.Functions.Security
                 {
                     deviceValidationError = CombineValidationErrors(deviceValidationError, associationResult.ErrorMessage);
                     deviceValidationTransient |= associationResult.IsTransient;
+                    deviceValidationRetryAfter = MaxRetryAfter(deviceValidationRetryAfter, associationResult.RetryAfterSeconds);
                 }
             }
 
@@ -511,7 +516,7 @@ namespace AutopilotMonitor.Functions.Security
                         StatusCode = HttpStatusCode.ServiceUnavailable,
                         ErrorMessage = "Device validation temporarily unavailable",
                         Details = deviceValidationError,
-                        RetryAfterSeconds = 30
+                        RetryAfterSeconds = deviceValidationRetryAfter ?? 30
                     };
                 }
 
@@ -617,6 +622,10 @@ namespace AutopilotMonitor.Functions.Security
             if (string.IsNullOrEmpty(accumulated)) return next;
             return accumulated + " | " + next;
         }
+
+        /// <summary>Largest Retry-After requested so far (null when no validator asked for one).</summary>
+        internal static int? MaxRetryAfter(int? accumulated, int? next)
+            => next is int n && (accumulated is not int a || n > a) ? n : accumulated;
 
         /// <summary>
         /// Extracts the Intune device id from an MDM client certificate subject. Certs issued by

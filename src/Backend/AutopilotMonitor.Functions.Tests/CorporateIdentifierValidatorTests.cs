@@ -224,17 +224,36 @@ public class CorporateIdentifierValidatorTests
     }
 
     [Fact]
-    public async Task ValidateAsync_graphPermissionDenied_isCached_notRetried()
+    public async Task ValidateAsync_graphPermissionDenied_isCached_afterOneFreshTokenRetry()
     {
         // Definitive permission failures are negative-cached so an agent retry storm does not
-        // hammer Graph while consent is being fixed; the in-call retry loop must not fire either.
+        // hammer Graph while consent is being fixed. Attempt 1 may have used a token minted before
+        // the consent (GraphAuthFailure), so exactly ONE retry with a fresh token precedes the
+        // verdict; the cached verdict then answers the next call without Graph.
         var (sut, handler) = BuildSut(Json("""{"error":{"code":"Forbidden"}}""", HttpStatusCode.Forbidden));
 
-        await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+        var first = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
         var second = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
 
+        Assert.False(first.IsTransient);
         Assert.False(second.IsValid);
-        Assert.Single(handler.Requests);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_staleTokenForbidden_thenFound_validatesWithTheFreshToken()
+    {
+        // Field case 2026-09-02 in this validator's shape: a stale roleless token gets 403, the
+        // fresh one finds the identifier. Without the retry the stale token would have been cached
+        // as "not permitted" for 5 minutes, every 5 minutes, until its 55-minute TTL.
+        var (sut, handler) = BuildSut(
+            Json("""{"error":{"code":"Forbidden"}}""", HttpStatusCode.Forbidden),
+            Json($$"""{"value":[{"importedDeviceIdentityType":"manufacturerModelSerial","importedDeviceIdentifier":"{{StoredIdentifier}}"}]}"""));
+
+        var result = await sut.ValidateAsync(TenantId, "Microsoft Corporation", "Virtual Machine", Serial);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Fact]

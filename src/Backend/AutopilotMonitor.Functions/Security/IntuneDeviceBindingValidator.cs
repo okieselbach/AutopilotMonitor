@@ -146,8 +146,22 @@ namespace AutopilotMonitor.Functions.Security
                     }, isPositive: false);
                 }
 
+                // 401/403 on attempt 1: the cached token may predate the tenant's consent (see
+                // GraphAuthFailure) — drop it and let the loop retry with a fresh one before the
+                // definitive "not granted" verdict below is cached against a stale token.
+                if (GraphAuthFailure.TryRecoverStaleToken(_graphTokenService, _logger, nameof(IntuneDeviceBindingValidator), tenantId, response.StatusCode, attempt))
+                {
+                    return new IntuneDeviceBindingResult
+                    {
+                        Outcome = IntuneDeviceBindingOutcome.Transient,
+                        IntuneDeviceId = normalizedId,
+                        ErrorMessage = $"Graph auth failure {(int)response.StatusCode}; token refreshed"
+                    };
+                }
+
                 if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
+                    GraphAuthFailure.LogPermissionMissing(_logger, nameof(IntuneDeviceBindingValidator), tenantId, response.StatusCode);
                     // Configuration state, not an outage: retrying cannot fix a missing grant.
                     // Cached briefly so a fresh grant is picked up quickly.
                     return CacheAndReturn(cacheKey, new IntuneDeviceBindingResult

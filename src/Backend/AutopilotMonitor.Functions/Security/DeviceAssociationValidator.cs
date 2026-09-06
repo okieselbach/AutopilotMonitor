@@ -144,6 +144,33 @@ namespace AutopilotMonitor.Functions.Security
                         "Device association Graph query failed for tenant {TenantId} (attempt {Attempt}). Status: {StatusCode}. Body: {ResponseBody}",
                         tenantId, attempt, (int)response.StatusCode, responseBody);
 
+                    // Same contract as AutopilotDeviceValidator: attempt 1 drops a possibly stale
+                    // token and retries; a fresh token that still gets 401/403 stays transient for
+                    // the agent with a longer Retry-After (see GraphAuthFailure).
+                    if (GraphAuthFailure.TryRecoverStaleToken(_graphTokenService, _logger, nameof(DeviceAssociationValidator), tenantId, response.StatusCode, attempt))
+                    {
+                        return new DeviceAssociationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            SerialNumber = normalizedSerial,
+                            ErrorMessage = $"Graph auth failure {(int)response.StatusCode}; token refreshed"
+                        };
+                    }
+
+                    if (GraphAuthFailure.IsAuthFailure(response.StatusCode))
+                    {
+                        GraphAuthFailure.LogPermissionMissing(_logger, nameof(DeviceAssociationValidator), tenantId, response.StatusCode);
+                        return new DeviceAssociationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            RetryAfterSeconds = GraphAuthFailure.PermissionMissingRetryAfterSeconds,
+                            SerialNumber = normalizedSerial,
+                            ErrorMessage = $"Graph permission missing (status {(int)response.StatusCode})"
+                        };
+                    }
+
                     return new DeviceAssociationResult
                     {
                         IsValid = false,

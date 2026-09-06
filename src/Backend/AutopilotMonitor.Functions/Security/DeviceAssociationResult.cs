@@ -20,6 +20,12 @@ namespace AutopilotMonitor.Functions.Security
         /// </summary>
         public bool IsTransient { get; set; }
 
+        /// <summary>
+        /// Retry-After the agent should see for this transient failure; null = the caller's default.
+        /// Set when a fresh token still lacks the Graph permission (<see cref="GraphAuthFailure"/>).
+        /// </summary>
+        public int? RetryAfterSeconds { get; set; }
+
         public string? SerialNumber { get; set; }
 
         // ---- Fields populated when a matching tenantAssociatedDevices entry is found ----
@@ -69,6 +75,7 @@ namespace AutopilotMonitor.Functions.Security
         {
             IsValid = IsValid,
             IsTransient = IsTransient,
+            RetryAfterSeconds = RetryAfterSeconds,
             SerialNumber = SerialNumber,
             AssociationState = AssociationState,
             DevicePreparationPolicyId = DevicePreparationPolicyId,

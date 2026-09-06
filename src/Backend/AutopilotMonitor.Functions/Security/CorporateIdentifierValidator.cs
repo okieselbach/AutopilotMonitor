@@ -189,7 +189,22 @@ namespace AutopilotMonitor.Functions.Security
                             ErrorMessage = $"Device '{rawIdentifier}' (normalized '{normalizedIdentifier}') is not registered as a Corporate Identifier (manufacturerModelSerial)"
                         }, isPositive: false);
 
+                    case ScanOutcome.PermissionDenied when GraphAuthFailure.TryRecoverStaleToken(
+                        _graphTokenService, _logger, nameof(CorporateIdentifierValidator), tenantId, scan.Status ?? System.Net.HttpStatusCode.Forbidden, attempt):
+                        // Attempt 1: the cached token may predate the tenant's consent (see
+                        // GraphAuthFailure). Transient so the loop retries with a fresh token; the
+                        // definitive branch below is reserved for a fresh token that still lacks the
+                        // permission — without this step a stale token would be cached as
+                        // "not permitted" every 5 minutes for up to 55 minutes.
+                        return new CorporateIdentifierValidationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            ErrorMessage = "Graph auth failure; token refreshed"
+                        };
+
                     case ScanOutcome.PermissionDenied:
+                        GraphAuthFailure.LogPermissionMissing(_logger, nameof(CorporateIdentifierValidator), tenantId, scan.Status ?? System.Net.HttpStatusCode.Forbidden);
                         // 401/403 = missing application permission / admin consent. Retries can
                         // never heal that, so it is a DEFINITIVE failure — a transient
                         // classification would trap every agent in an endless 503 Retry-After
@@ -250,7 +265,7 @@ namespace AutopilotMonitor.Functions.Security
 
         private enum ScanOutcome { Found, NotFound, PermissionDenied, FilterRejected, Transient }
 
-        private readonly record struct ScanResult(ScanOutcome Outcome, string? Error = null);
+        private readonly record struct ScanResult(ScanOutcome Outcome, string? Error = null, System.Net.HttpStatusCode? Status = null);
 
         /// <summary>
         /// Pages through an importedDeviceIdentities GET url (following @odata.nextLink) and
@@ -277,7 +292,7 @@ namespace AutopilotMonitor.Functions.Security
                     return response.StatusCode switch
                     {
                         System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
-                            => new ScanResult(ScanOutcome.PermissionDenied),
+                            => new ScanResult(ScanOutcome.PermissionDenied, Status: response.StatusCode),
                         // 400 on the first page = the $filter was rejected; mid-pagination a 400
                         // is unexpected and treated as transient like any other Graph error.
                         System.Net.HttpStatusCode.BadRequest when page == 0

@@ -48,6 +48,12 @@ public class AutopilotDeviceValidatorTests
 
     private static (AutopilotDeviceValidator Sut, DelayingHandler Handler, MemoryCache Cache) BuildSut(params HttpResponseMessage?[] responses)
     {
+        var built = BuildSutWithTokens(responses);
+        return (built.Sut, built.Handler, built.Cache);
+    }
+
+    private static (AutopilotDeviceValidator Sut, DelayingHandler Handler, MemoryCache Cache, Mock<GraphTokenService> Tokens) BuildSutWithTokens(params HttpResponseMessage?[] responses)
+    {
         var handler = new DelayingHandler(responses);
         var factory = new Mock<IHttpClientFactory>();
         factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient(handler));
@@ -71,10 +77,52 @@ public class AutopilotDeviceValidatorTests
 
         var sut = new AutopilotDeviceValidator(
             NullLogger<AutopilotDeviceValidator>.Instance, factory.Object, cache, tokenService.Object);
-        return (sut, handler, cache);
+        return (sut, handler, cache, tokenService);
     }
 
     private const string FoundBody = "{\"value\":[{\"id\":\"ap-1\",\"serialNumber\":\"PF3XKQ7\"}]}";
+    private const string ForbiddenBody = "{\"error\":{\"code\":\"Authorization_RequestDenied\",\"message\":\"Application is not authorized to perform this operation.\"}}";
+
+    [Fact]
+    public async Task StaleTokenForbidden_ThenSuccess_InvalidatesOnce_AndValidatesWithTheFreshToken()
+    {
+        // Field case 2026-09-02: a second instance held a roleless app-only token minted before the
+        // tenant's consent; Graph answered 403 for 45 minutes. Attempt 1 must drop that token and
+        // attempt 2 must succeed with the re-minted one — no 503 loop, no cached negative.
+        var (sut, handler, cache, tokens) = BuildSutWithTokens(
+            Json(ForbiddenBody, HttpStatusCode.Forbidden),
+            Json(FoundBody));
+
+        var result = await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
+
+        Assert.True(result.IsValid);
+        Assert.Equal("ap-1", result.AutopilotDeviceId);
+        Assert.Equal(2, handler.Requests.Count);
+        tokens.Verify(t => t.InvalidateTenant(TenantId), Times.Once);
+        tokens.Verify(t => t.GetAccessTokenAsync(TenantId, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        Assert.True(cache.TryGetValue($"autopilot-device-validation:{TenantId}:{Serial}", out _));
+    }
+
+    [Fact]
+    public async Task ForbiddenWithFreshToken_StaysTransient_WithLongerRetryAfter_NotCached()
+    {
+        // Consent genuinely missing (or not yet propagated): the agent must keep getting 503 (a 403
+        // would make it shut down as "device not registered"), but with the permission-gap
+        // Retry-After and nothing cached so a granted consent takes effect on the next call.
+        var (sut, handler, cache, tokens) = BuildSutWithTokens(
+            Json(ForbiddenBody, HttpStatusCode.Forbidden),
+            Json(ForbiddenBody, HttpStatusCode.Forbidden));
+
+        var result = await sut.ValidateAutopilotDeviceAsync(TenantId, Serial, null, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.True(result.IsTransient);
+        Assert.Equal(GraphAuthFailure.PermissionMissingRetryAfterSeconds, result.RetryAfterSeconds);
+        Assert.Contains("permission missing", result.ErrorMessage);
+        Assert.Equal(2, handler.Requests.Count);
+        tokens.Verify(t => t.InvalidateTenant(TenantId), Times.Once);
+        Assert.False(cache.TryGetValue($"autopilot-device-validation:{TenantId}:{Serial}", out _));
+    }
 
     [Fact]
     public async Task Budget_defaults_sit_inside_the_agents_30s_client_timeout()

@@ -150,12 +150,27 @@ namespace AutopilotMonitor.Functions.Security
                         "Cloud PC validation Graph query failed for tenant {TenantId} (attempt {Attempt}). Status: {StatusCode}. Body: {ResponseBody}",
                         tenantId, attempt, (int)response.StatusCode, responseBody);
 
+                    // 401/403 on attempt 1: the cached token may predate the tenant's consent (see
+                    // GraphAuthFailure) — drop it and let the loop retry with a fresh one before the
+                    // definitive "not granted" verdict below is cached against a stale token.
+                    if (GraphAuthFailure.TryRecoverStaleToken(_graphTokenService, _logger, nameof(CloudPcDeviceValidator), tenantId, response.StatusCode, attempt))
+                    {
+                        return new CloudPcValidationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            IntuneDeviceId = normalizedId,
+                            ErrorMessage = $"Graph auth failure {(int)response.StatusCode}; token refreshed"
+                        };
+                    }
+
                     // 403 = CloudPC.Read.All not granted in this tenant. That is a configuration
                     // state, not an outage: retrying cannot fix it, and a 503 Retry-After would
                     // keep every W365 agent in a futile retry loop. Cache it as a definitive
                     // negative (5 min) so a fresh grant is picked up quickly.
                     if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
                     {
+                        GraphAuthFailure.LogPermissionMissing(_logger, nameof(CloudPcDeviceValidator), tenantId, response.StatusCode);
                         return CacheAndReturn(cacheKey, new CloudPcValidationResult
                         {
                             IsValid = false,

@@ -144,6 +144,36 @@ namespace AutopilotMonitor.Functions.Security
                         "Autopilot device validation Graph query failed for tenant {TenantId} (attempt {Attempt}). Status: {StatusCode}. Body: {ResponseBody}",
                         tenantId, attempt, (int)response.StatusCode, responseBody);
 
+                    // 401/403 on attempt 1: the cached token may predate the tenant's consent
+                    // (see GraphAuthFailure) — drop it and let the loop retry with a fresh one.
+                    if (GraphAuthFailure.TryRecoverStaleToken(_graphTokenService, _logger, nameof(AutopilotDeviceValidator), tenantId, response.StatusCode, attempt))
+                    {
+                        return new AutopilotDeviceValidationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            SerialNumber = normalizedSerial,
+                            ErrorMessage = $"Graph auth failure {(int)response.StatusCode}; token refreshed"
+                        };
+                    }
+
+                    // 401/403 with a fresh token = consent missing or not yet propagated. Still
+                    // transient for the agent (a definitive 403 would make it shut down as
+                    // "device not registered"), but with a longer Retry-After and never cached so a
+                    // granted consent takes effect on the next call.
+                    if (GraphAuthFailure.IsAuthFailure(response.StatusCode))
+                    {
+                        GraphAuthFailure.LogPermissionMissing(_logger, nameof(AutopilotDeviceValidator), tenantId, response.StatusCode);
+                        return new AutopilotDeviceValidationResult
+                        {
+                            IsValid = false,
+                            IsTransient = true,
+                            RetryAfterSeconds = GraphAuthFailure.PermissionMissingRetryAfterSeconds,
+                            SerialNumber = normalizedSerial,
+                            ErrorMessage = $"Graph permission missing (status {(int)response.StatusCode})"
+                        };
+                    }
+
                     // Graph errors are transient — do NOT cache
                     return new AutopilotDeviceValidationResult
                     {
@@ -265,6 +295,12 @@ namespace AutopilotMonitor.Functions.Security
         /// Transient failures are NOT cached and should trigger a 503 Retry-After to the agent.
         /// </summary>
         public bool IsTransient { get; set; }
+
+        /// <summary>
+        /// Retry-After the agent should see for this transient failure; null = the caller's default.
+        /// Set when a fresh token still lacks the Graph permission (<see cref="GraphAuthFailure"/>).
+        /// </summary>
+        public int? RetryAfterSeconds { get; set; }
 
         public string? SerialNumber { get; set; }
         public string? AutopilotDeviceId { get; set; }
