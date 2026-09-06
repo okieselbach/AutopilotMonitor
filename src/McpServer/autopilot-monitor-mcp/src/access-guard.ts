@@ -453,28 +453,19 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
           return;
         }
         console.error(`[mcp-auth] 403 not-whitelisted (method=${rpcMethod}, upn=${upn})`);
-        // Genuine authorization denial — most commonly the user's account is not
-        // on the MCP whitelist. Spell that out and tell them what to do, so they
-        // can ask the MCP server owner to enable their account instead of being
-        // left guessing why authentication "failed". A service principal is
-        // granted under Members (as a Viewer) rather than whitelisted.
-        res.status(403).json(isApplicationKey(upn)
-          ? {
-              error: 'Service principal not enabled for MCP usage',
-              reason: result.reason,
-              message:
-                `The service principal (${upn.slice(APPLICATION_KEY_PREFIX.length)}) is not enabled to use this ` +
-                'Autopilot Monitor MCP server. Ask a Tenant Admin to add it under Members as a service principal ' +
-                '(read-only), then retry.',
-            }
-          : {
-              error: 'User not enabled for MCP usage',
-              reason: result.reason,
-              message:
-                `Your account (${upn}) is not enabled to use this Autopilot Monitor MCP server. ` +
-                'Ask the MCP server owner/administrator to whitelist your account for MCP access, ' +
-                'then reconnect.',
-            });
+        // Genuine authorization denial. The backend's reason names the cause AND the remedy
+        // (not on the whitelist → ask the MCP server administrator; no role in the tenant → ask a
+        // Tenant Admin; the organization switched MCP off → the operator's recorded reason), so it
+        // is surfaced verbatim instead of a fixed "ask to be whitelisted" that would send a user
+        // whose whole organization is closed for MCP chasing the wrong fix.
+        const subject = isApplicationKey(upn)
+          ? `The service principal (${upn.slice(APPLICATION_KEY_PREFIX.length)})`
+          : `Your account (${upn})`;
+        res.status(403).json({
+          error: isApplicationKey(upn) ? 'Service principal not enabled for MCP usage' : 'User not enabled for MCP usage',
+          reason: result.reason,
+          message: `${subject} cannot use this Autopilot Monitor MCP server: ${result.reason}. Reconnect once access has been granted.`,
+        });
         return;
       }
 

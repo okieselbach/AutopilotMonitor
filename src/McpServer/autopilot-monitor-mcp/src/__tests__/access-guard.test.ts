@@ -199,14 +199,30 @@ describe('accessGuard — 403 (authorization + fail-closed)', () => {
 
   it('gives a genuine whitelist denial an actionable message naming the user', async () => {
     const upn = uniqueUpn();
-    stubBackend({ body: { allowed: false, reason: 'User not enabled for MCP usage' } });
+    // The backend's reason carries cause AND remedy; the guard surfaces it verbatim.
+    const reason = 'User not enabled for MCP usage (account is not on the MCP whitelist — ask the MCP server administrator to whitelist your account)';
+    stubBackend({ body: { allowed: false, reason } });
     const out = await runGuard(mockReq(`Bearer ${validToken(upn)}`));
     expect(out.status).toBe(403);
     const body = out.body as { error: string; message: string };
     expect(body.error).toBe('User not enabled for MCP usage');
     // The message must name the account and point at the fix (get whitelisted).
     expect(body.message).toContain(upn);
+    expect(body.message).toContain(reason);
     expect(body.message).toMatch(/whitelist/i);
+  });
+
+  it('surfaces an organization-level MCP switch-off without whitelist advice', async () => {
+    // Tenant closed for MCP by the operator: the recorded reason is the whole story — telling the
+    // user to "get whitelisted" would send them chasing a fix that cannot help.
+    const upn = uniqueUpn();
+    stubBackend({ body: { allowed: false, reason: 'No AI access by customer request' } });
+    const out = await runGuard(mockReq(`Bearer ${validToken(upn)}`));
+    expect(out.status).toBe(403);
+    const body = out.body as { error: string; reason: string; message: string };
+    expect(body.reason).toBe('No AI access by customer request');
+    expect(body.message).toContain('No AI access by customer request');
+    expect(body.message).not.toMatch(/whitelist/i);
   });
 
   it('does NOT label an infrastructure failure as a whitelist problem', async () => {
@@ -394,7 +410,8 @@ describe('accessGuard — application principals (app-only tokens)', () => {
 
   it('names the service principal and the Members fix in a denial', async () => {
     const appId = uniqueAppId();
-    stubBackend({ body: { allowed: false, reason: 'Service principal not enabled for MCP usage' } });
+    const reason = 'Service principal not enabled for MCP usage (the application is not a member of its tenant — ask a Tenant Admin to add it under Members as a service principal)';
+    stubBackend({ body: { allowed: false, reason } });
 
     const out = await runGuard(mockReq(`Bearer ${appToken(appId)}`));
 
@@ -402,6 +419,7 @@ describe('accessGuard — application principals (app-only tokens)', () => {
     const body = out.body as { error: string; message: string };
     expect(body.error).toBe('Service principal not enabled for MCP usage');
     expect(body.message).toContain(appId);
+    expect(body.message).toContain(reason);
     expect(body.message).toMatch(/Members/);
     expect(body.message).not.toMatch(/whitelist/i);
   });

@@ -50,7 +50,8 @@ public class McpUserServiceAllMembersTests
 
         _sut = new McpUserService(
             _adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            _globalAdmin.Object, _delegatedAdmin.Object, adminConfig.Object, _memberRoles);
+            _globalAdmin.Object, _delegatedAdmin.Object, adminConfig.Object, _memberRoles,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
     }
 
     private void MemberOf(string tenantId, string role) =>

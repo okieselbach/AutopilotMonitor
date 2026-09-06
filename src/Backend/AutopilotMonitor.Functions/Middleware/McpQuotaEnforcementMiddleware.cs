@@ -84,9 +84,7 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
             return;
         }
 
-        var isMcpRequest = string.Equals(
-            httpContext.Request.Headers["X-Client-Source"].FirstOrDefault(), "mcp", StringComparison.OrdinalIgnoreCase);
-        if (!isMcpRequest)
+        if (!ClientSourceHeader.IsMcp(httpContext))
         {
             await next(context);
             return;

@@ -27,6 +27,13 @@ namespace AutopilotMonitor.Functions.Services;
 /// mutable, so a foreign-tenant (or recycled) token carrying a whitelisted UPN string resolves to NO row.
 /// Rows without a binding are inert, exactly like GlobalAdmins rows (no grandfathering).
 /// </para>
+/// <para>
+/// A tenant whose configuration carries <see cref="TenantConfiguration.McpDisabled"/> (operator control,
+/// Global Admin → Tenant Management) is closed for MCP: every caller whose token was issued for that tenant
+/// is denied unless they hold a platform role — delegated (MSP) scope and McpUsers rows included, mirroring
+/// the suspension gate. The per-request half of the same switch (the tenant as a data TARGET) lives in
+/// <c>PolicyEnforcementMiddleware</c>.
+/// </para>
 /// </summary>
 public class McpUserService
 {
@@ -38,6 +45,7 @@ public class McpUserService
     private readonly DelegatedAdminService _delegatedAdminService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly TenantMemberRoleResolver _memberRoleResolver;
+    private readonly TenantConfigurationService _tenantConfigService;
     // Per-process cache for the McpUsers whitelist lookup. On scaled-out Flex Consumption an add/remove
     // of an McpUsers row only invalidates the mutating instance, so other instances serve a stale
     // allow/deny until expiry. A short TTL caps that cross-instance window so an MCP-access grant/revoke
@@ -53,7 +61,8 @@ public class McpUserService
         GlobalAdminService globalAdminService,
         DelegatedAdminService delegatedAdminService,
         AdminConfigurationService adminConfigService,
-        TenantMemberRoleResolver memberRoleResolver)
+        TenantMemberRoleResolver memberRoleResolver,
+        TenantConfigurationService tenantConfigService)
     {
         _adminRepo = adminRepo;
         _bindings = bindings;
@@ -63,6 +72,7 @@ public class McpUserService
         _delegatedAdminService = delegatedAdminService;
         _adminConfigService = adminConfigService;
         _memberRoleResolver = memberRoleResolver;
+        _tenantConfigService = tenantConfigService;
     }
 
     /// <summary>
@@ -134,6 +144,18 @@ public class McpUserService
             return McpAccessCheckResult.Allowed(
                 upn, globalRole, isGlobalAdmin, globalRole, delegatedTenantIds, delegatedRole);
 
+        // Operator control (tenant-level MCP switch): the tenant the token was issued for has MCP disabled →
+        // denied for everyone below the platform roles, delegated scope and McpUsers rows included — the
+        // same reach a suspension takes away. Side-effect-free cached read; a tenant without a config row
+        // (never onboarded) is simply not disabled. Checked here, at the front door, so the caller gets one
+        // clear message on connect instead of a 403 per tool call from the per-request gate.
+        if (!string.IsNullOrWhiteSpace(homeTenantId))
+        {
+            var (homeConfig, _) = await _tenantConfigService.TryGetConfigurationAsync(homeTenantId);
+            if (homeConfig.McpDisabled)
+                return McpAccessCheckResult.Denied(McpDisabledMessage(homeConfig));
+        }
+
         // A delegated (MSP) admin with an active scope is granted MCP access automatically — "delegated =
         // scoped global", and they are already curated via the Delegated Admins UI, so a separate enabled
         // McpUsers row would be redundant friction. Their reach is bounded client- and server-side to the
@@ -149,10 +171,12 @@ public class McpUserService
             return McpAccessCheckResult.Allowed(upn, "McpUser", false, null, delegatedTenantIds, delegatedRole);
 
         if (policy != McpAccessPolicy.AllMembers)
-            // Surfaced to the end user by the MCP server's access guard. Keep it
-            // self-explanatory so a denied colleague understands they simply need
+            // Surfaced verbatim to the end user by the MCP server's access guard. Keep it
+            // self-explanatory, advice included, so a denied colleague understands they simply need
             // to be whitelisted, rather than reading it as an auth failure.
-            return McpAccessCheckResult.Denied("User not enabled for MCP usage (account is not on the MCP whitelist)");
+            return McpAccessCheckResult.Denied(Constants.PrincipalKeys.IsApplication(upn)
+                ? "Service principal not enabled for MCP usage (the application is not on the MCP whitelist — ask the MCP server administrator to enable it)"
+                : "User not enabled for MCP usage (account is not on the MCP whitelist — ask the MCP server administrator to whitelist your account)");
 
         // AllMembers: "member" = an effective role (Admin / Operator / Viewer) in the tenant the token was
         // issued for — the same resolver the policy middleware uses on every tenant endpoint. A token from
@@ -167,6 +191,15 @@ public class McpUserService
             ? "Service principal not enabled for MCP usage (the application is not a member of its tenant — ask a Tenant Admin to add it under Members as a service principal)"
             : "User not enabled for MCP usage (account has no role in its organization's tenant — ask a Tenant Admin to add you)");
     }
+
+    /// <summary>
+    /// The 403 text for a tenant that has MCP switched off: the operator's reason when one was given, else a
+    /// neutral default. Shared with the per-request gate so both halves of the switch speak the same words.
+    /// </summary>
+    public static string McpDisabledMessage(TenantConfiguration config)
+        => !string.IsNullOrWhiteSpace(config.McpDisabledReason)
+            ? config.McpDisabledReason!
+            : "MCP access is disabled for your organization. Contact your administrator.";
 
     /// <summary>
     /// Whitelists a UPN, binding it to its home tenant (and object id, when known) FIRST — a row without a

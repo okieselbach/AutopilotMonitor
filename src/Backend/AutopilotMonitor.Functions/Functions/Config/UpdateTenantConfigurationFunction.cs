@@ -127,7 +127,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         config.EnableEspContinueAnywayObservation != existingConfig.EnableEspContinueAnywayObservation ||
                         config.CustomRateLimitRequestsPerMinute != existingConfig.CustomRateLimitRequestsPerMinute ||
                         config.CustomUserRateLimitRequestsPerMinute != existingConfig.CustomUserRateLimitRequestsPerMinute ||
-                        config.Disabled != existingConfig.Disabled)
+                        config.Disabled != existingConfig.Disabled ||
+                        config.McpDisabled != existingConfig.McpDisabled)
                     {
                         _logger.LogWarning(
                             "Tenant Admin {User} attempted to modify GA-only fields for tenant {TenantId}",
@@ -146,6 +147,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                     config.Disabled = existingConfig.Disabled;
                     config.DisabledReason = existingConfig.DisabledReason;
                     config.DisabledUntil = existingConfig.DisabledUntil;
+                    config.McpDisabled = existingConfig.McpDisabled;
+                    config.McpDisabledReason = existingConfig.McpDisabledReason;
                 }
 
                 // Safety: if GA gate is off, force UnrestrictedMode to false

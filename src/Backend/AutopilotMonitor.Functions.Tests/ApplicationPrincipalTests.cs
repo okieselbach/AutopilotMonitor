@@ -356,7 +356,8 @@ public class ApplicationPrincipalTests
         var members = new StubTenantMemberRoleResolver();
         var sut = new McpUserService(
             adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, members);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, members,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
         return (sut, members);
     }
 }

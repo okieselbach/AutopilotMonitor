@@ -1676,4 +1676,115 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(result.Allowed);
         h.ConfigRepo.Verify(r => r.GetTenantConfigurationAsync(It.IsAny<string>()), Times.Never);
     }
+
+    // ── Tenant MCP switch (TenantConfiguration.McpDisabled) — the per-request half ────────────
+    // The MCP front door (McpUserService) already denies a caller whose home tenant is closed; this gate
+    // is what makes the switch hold per request (front-door verdicts are cached) and what keeps a closed
+    // tenant out of reach as a TARGET — a delegated read into it, or its rows in the MSP's aggregate.
+    // It fires only for requests the MCP server forwards (X-Client-Source: mcp): the switch closes the AI
+    // channel, not the tenant's own portal/API access.
+
+    private static void AsMcpDisabled(Harness h, string tenantId, string? reason = null) =>
+        h.ConfigRepo.Setup(r => r.GetTenantConfigurationAsync(tenantId))
+            .ReturnsAsync(new TenantConfiguration { TenantId = tenantId, McpDisabled = true, McpDisabledReason = reason });
+
+    [Fact]
+    public async Task McpDisabled_HomeTenant_McpClient_IsForbidden_WithOperatorReason()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsMcpDisabled(h, TenantA, reason: "No AI access by customer request");
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Equal("McpDisabled", result.ErrorCode);
+        Assert.Equal("No AI access by customer request", result.ErrorMessage);
+        Assert.Equal("McpDisabled", result.LogReason);
+    }
+
+    [Fact]
+    public async Task McpDisabled_HomeTenant_PortalClient_IsAllowed()
+    {
+        // The same caller without the MCP marker is a portal user — the tenant keeps its own data access.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsMcpDisabled(h, TenantA);
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+    }
+
+    [Fact]
+    public async Task McpDisabled_GlobalAdmin_McpClient_BypassesGate()
+    {
+        const string upn = "ga@platform.example";
+        var h = BuildHarness();
+        h.AsGlobalRole(Constants.GlobalRoles.GlobalAdmin);
+        AsMcpDisabled(h, TenantA);
+        AsMcpDisabled(h, TenantB);
+
+        var own = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+        var cross = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+
+        Assert.True(own.Allowed);
+        Assert.True(cross.Allowed);
+    }
+
+    [Fact]
+    public async Task McpDisabled_DelegatedReader_TargetClosed_IsForbidden()
+    {
+        // The customer said "no MCP": its MSP cannot read it through MCP either, even with a valid grant.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+        AsMcpDisabled(h, TenantB, reason: "closed");
+
+        var mcp = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+        var portal = await h.Middleware.DecideAsync("GET", $"/api/config/{TenantB}", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(mcp.Allowed);
+        Assert.Equal("McpDisabled", mcp.ErrorCode);
+        Assert.Equal("closed", mcp.ErrorMessage);
+        Assert.True(portal.Allowed);
+    }
+
+    [Fact]
+    public async Task McpDisabled_DelegatedAggregate_McpClient_NarrowsBound_NeverToNull()
+    {
+        // The bounded fleet aggregate drops the closed tenant instead of failing: the published bound shrinks
+        // to the open subset (here: empty) and must never become null — null means "all tenants" downstream.
+        const string upn = "msp@partner.example";
+        var h = BuildHarness();
+        h.AsDelegated(TenantB);
+        AsMcpDisabled(h, TenantB);
+
+        var mcp = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+        var portal = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(mcp.Allowed);
+        Assert.NotNull(mcp.Context!.AllowedTenantIds);
+        Assert.Empty(mcp.Context!.AllowedTenantIds!);
+        Assert.True(mcp.Context!.IsDelegatedAggregate);
+        Assert.Contains(TenantB.ToLowerInvariant(), portal.Context!.AllowedTenantIds!);
+    }
+
+    [Fact]
+    public async Task Suspended_And_McpDisabled_SuspensionWins()
+    {
+        // Both flags set: the stronger, longer-standing verdict is reported so support reads the right cause.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        h.ConfigRepo.Setup(r => r.GetTenantConfigurationAsync(TenantA))
+            .ReturnsAsync(new TenantConfiguration { TenantId = TenantA, Disabled = true, McpDisabled = true });
+
+        var result = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn), isMcpClient: true);
+
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+    }
 }

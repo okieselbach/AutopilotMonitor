@@ -34,6 +34,9 @@ namespace AutopilotMonitor.Functions.Helpers
             ("managedByProTenantId", c => c.ManagedByProTenantId),
             ("disabled",          c => c.Disabled),
             ("disabledReason",    c => c.DisabledReason),
+            // Operator MCP switch — a flag plus its reason, rendered by the GA tenant list.
+            ("mcpDisabled",       c => c.McpDisabled),
+            ("mcpDisabledReason", c => c.McpDisabledReason),
             ("onboardedAt",       c => c.OnboardedAt),
             ("onboardedBy",       c => c.OnboardedBy),
             ("lastUpdated",       c => c.LastUpdated),

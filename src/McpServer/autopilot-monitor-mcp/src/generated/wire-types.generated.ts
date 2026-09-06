@@ -4505,6 +4505,10 @@ export interface TenantConfiguration {
   disabledReason?: string | null;
   /** Optional date/time until which the tenant is disabled If set and in the past, the tenant can be automatically re-enabled If null, the tenant remains disabled until manually re-enabled */
   disabledUntil?: string | null;
+  /** Operator control: when true, the MCP (AI assistant) surface is closed for this tenant — its members cannot open an MCP session and no MCP call may read it as a target, delegated (MSP) reads included. Platform roles bypass it. Blocks only requests marked X-Client-Source: mcp; portal and direct API use with a personal token are unaffected. Global Admin only. Default: false */
+  mcpDisabled: boolean;
+  /** Optional reason why MCP access was disabled. Shown to the caller in the 403 response. */
+  mcpDisabledReason?: string | null;
   /** Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate). */
   customRateLimitRequestsPerMinute?: number | null;
   /** Optional per-tenant override for the user (portal/JWT) API rate limit applied to standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the global AdminConfiguration.UserRateLimitRequestsPerMinute. Global-Admin-only. Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute (cross-tenant), so this override does not apply to them. */

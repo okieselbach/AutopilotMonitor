@@ -78,6 +78,8 @@ export const SHARED_MANIFEST = {
       "disabled",
       "disabledReason",
       "disabledUntil",
+      "mcpDisabled",
+      "mcpDisabledReason",
       "customRateLimitRequestsPerMinute",
       "customUserRateLimitRequestsPerMinute",
       "planTier",

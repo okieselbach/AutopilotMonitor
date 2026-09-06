@@ -45,9 +45,7 @@ public class GlobalExceptionMiddleware : IFunctionsWorkerMiddleware
             _logger.LogError(ex, "Unhandled exception in {Function} [CorrelationId={CorrelationId}]",
                 functionName, correlationId);
 
-            var isMcp = string.Equals(
-                httpContext.Request.Headers["X-Client-Source"].FirstOrDefault(),
-                "mcp", StringComparison.OrdinalIgnoreCase);
+            var isMcp = ClientSourceHeader.IsMcp(httpContext);
 
             // Same envelope as ResponseHelper.InternalServerErrorAsync: MCP clients get the
             // operation + recovery hint; the CLR exception type never leaves the process.

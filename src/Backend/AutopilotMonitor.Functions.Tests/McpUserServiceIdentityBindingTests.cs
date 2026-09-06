@@ -59,7 +59,8 @@ public class McpUserServiceIdentityBindingTests
 
         _sut = new McpUserService(
             _adminRepo.Object, _bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
     }
 
     private void SetRow(bool enabled, string? plan = "pro") =>
@@ -131,7 +132,8 @@ public class McpUserServiceIdentityBindingTests
         adminConfig.Setup(x => x.GetConfigurationAsync())
             .ReturnsAsync(new AdminConfiguration { McpAccessPolicy = McpAccessPolicy.WhitelistOnly.ToString() });
         var sut = new McpUserService(_adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
         _adminRepo.Setup(x => x.GetMcpUserAsync(It.IsAny<string>())).ReturnsAsync((McpUserEntry?)null);
 
         var result = await sut.IsAllowedAsync(Upn, HomeTenant, Oid);
@@ -171,7 +173,8 @@ public class McpUserServiceIdentityBindingTests
         adminConfig.Setup(x => x.GetConfigurationAsync())
             .ReturnsAsync(new AdminConfiguration { McpAccessPolicy = McpAccessPolicy.AllMembers.ToString() });
         var sut = new McpUserService(_adminRepo.Object, _bindings, cache, NullLogger<McpUserService>.Instance,
-            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles);
+            globalAdmin.Object, delegatedAdmin.Object, adminConfig.Object, _memberRoles,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
         SetRow(enabled: false);
 
         var bound = await sut.IsAllowedAsync(Upn, HomeTenant, Oid);

@@ -588,6 +588,14 @@ function TenantManagementSectionInner({
                                   Suspended
                                 </span>
                               )}
+                              {tenant.mcpDisabled && (
+                                <span
+                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+                                  title={tenant.mcpDisabledReason || 'MCP access is switched off for this tenant'}
+                                >
+                                  MCP off
+                                </span>
+                              )}
                               {!previewApproved.has(tenant.tenantId) && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                                   Waitlist
@@ -760,6 +768,40 @@ function TenantManagementSectionInner({
                           <p className="text-xs text-gray-500 mt-1">Optional: Auto-enable after this date/time</p>
                         </div>
                       </>
+                    )}
+                  </div>
+                </div>
+
+                {/* MCP switch (operator control, GA-only field — saved by the modal's generic Save) */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-amber-900 mb-1">MCP Access</h3>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Closes the MCP (AI assistant) surface for this tenant: its members cannot connect,
+                    and no MCP call can read it as a target, delegated (MSP) reads included. Portal and
+                    API access with a personal token stay unchanged. Platform roles bypass the switch.
+                  </p>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingTenant.mcpDisabled}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabled: e.target.checked })}
+                        className="w-4 h-4 text-amber-600 border-gray-300 rounded focus:ring-amber-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Disable MCP access</span>
+                    </label>
+
+                    {editingTenant.mcpDisabled && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                        <input
+                          type="text"
+                          value={editingTenant.mcpDisabledReason || ''}
+                          onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabledReason: e.target.value })}
+                          placeholder="Optional: shown to every caller that is refused"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        />
+                      </div>
                     )}
                   </div>
                 </div>

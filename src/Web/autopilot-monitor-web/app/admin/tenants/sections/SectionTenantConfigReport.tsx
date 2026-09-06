@@ -26,6 +26,8 @@ interface TenantConfig {
   disabled?: boolean;
   disabledReason?: string;
   disabledUntil?: string;
+  mcpDisabled?: boolean;
+  mcpDisabledReason?: string;
 
   // Security
   customRateLimitRequestsPerMinute?: number | null;
@@ -111,6 +113,7 @@ interface TenantConfig {
 
 const DEFAULTS: Record<string, unknown> = {
   disabled: false,
+  mcpDisabled: false,
   customRateLimitRequestsPerMinute: null,
   customUserRateLimitRequestsPerMinute: null,
   manufacturerWhitelist: 'Dell*,HP*,Lenovo*,Microsoft Corporation',
@@ -510,6 +513,11 @@ export function SectionTenantConfigReport() {
               <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/40 rounded text-sm text-red-700 dark:text-red-300 font-medium">
                 TENANT DISABLED{config.disabledReason ? `: ${config.disabledReason}` : ''}
                 {config.disabledUntil ? ` (until ${formatDate(config.disabledUntil)})` : ''}
+              </div>
+            )}
+            {config.mcpDisabled && (
+              <div className="mt-3 p-2 bg-amber-100 dark:bg-amber-900/40 rounded text-sm text-amber-800 dark:text-amber-300 font-medium">
+                MCP ACCESS DISABLED{config.mcpDisabledReason ? `: ${config.mcpDisabledReason}` : ''}
               </div>
             )}
           </div>

@@ -142,6 +142,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static readonly HashSet<string> GaOnlyFields = new(StringComparer.OrdinalIgnoreCase)
         {
             "Disabled", "DisabledReason", "DisabledUntil",
+            "McpDisabled", "McpDisabledReason",
             "AllowInsecureAgentRequests", "BootstrapTokenEnabled",
             "UnrestrictedModeEnabled", "EntraAppRolesEnabled",
             "EnableEspContinueAnywayObservation",

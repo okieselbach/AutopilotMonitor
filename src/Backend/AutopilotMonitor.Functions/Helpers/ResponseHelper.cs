@@ -134,13 +134,7 @@ public static class ResponseHelper
 
     /// <summary>Detect MCP clients via the X-Client-Source header set by the MCP server.</summary>
     internal static bool IsMcpRequest(HttpRequestData req)
-    {
-        var httpContext = req.FunctionContext.GetHttpContext();
-        if (httpContext == null) return false;
-        return string.Equals(
-            httpContext.Request.Headers["X-Client-Source"].FirstOrDefault(),
-            "mcp", StringComparison.OrdinalIgnoreCase);
-    }
+        => ClientSourceHeader.IsMcp(req.FunctionContext.GetHttpContext());
 
     /// <summary>
     /// Extract a safe, human-readable error message from known exception types.

@@ -54,7 +54,8 @@ public class McpUserServiceDelegatedTests
 
         _sut = new McpUserService(
             _adminRepo.Object, bindings, cache, NullLogger<McpUserService>.Instance,
-            _globalAdmin.Object, _delegatedAdmin.Object, _adminConfig.Object, _memberRoles);
+            _globalAdmin.Object, _delegatedAdmin.Object, _adminConfig.Object, _memberRoles,
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, cache));
     }
 
     private void SetPolicy(McpAccessPolicy policy) =>

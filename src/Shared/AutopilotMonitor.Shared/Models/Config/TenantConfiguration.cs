@@ -133,6 +133,20 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public DateTime? DisabledUntil { get; set; }
 
+        /// <summary>
+        /// Operator control: when true, the MCP (AI assistant) surface is closed for this tenant — its
+        /// members cannot open an MCP session and no MCP call may read it as a target, delegated (MSP)
+        /// reads included. Platform roles bypass it. Blocks only requests marked X-Client-Source: mcp;
+        /// portal and direct API use with a personal token are unaffected. Global Admin only.
+        /// Default: false
+        /// </summary>
+        public bool McpDisabled { get; set; } = false;
+
+        /// <summary>
+        /// Optional reason why MCP access was disabled. Shown to the caller in the 403 response.
+        /// </summary>
+        public string? McpDisabledReason { get; set; }
+
         // ===== SECURITY SETTINGS =====
 
         /// <summary>
@@ -1059,6 +1073,8 @@ namespace AutopilotMonitor.Shared.Models
                 Disabled = false,
                 DisabledReason = null,
                 DisabledUntil = null,
+                McpDisabled = false,
+                McpDisabledReason = null,
                 CustomRateLimitRequestsPerMinute = null,
                 CustomUserRateLimitRequestsPerMinute = null,
                 ManufacturerWhitelist = "Dell*,HP*,Lenovo*,Microsoft Corporation",

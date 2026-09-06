@@ -92,7 +92,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         PolicyResult result;
         try
         {
-            result = await DecideAsync(httpMethod, requestPath, queryTenantId, principal);
+            result = await DecideAsync(httpMethod, requestPath, queryTenantId, principal, ClientSourceHeader.IsMcp(httpContext));
         }
         catch (Exception ex)
         {
@@ -122,7 +122,7 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
             LogSanitizer.Clean(principal?.GetObjectId()), LogSanitizer.Clean(principal?.GetTenantId()), clientSource, mcpToolName);
         await ReportPrivilegedDenialAsync(context, result, httpMethod, requestPath, principal, clientSource, mcpToolName);
         // Envelope: the human message is `error`, the policy code (Forbidden, CrossTenantAccessDenied,
-        // TenantSuspended, AuthenticationRequired, InsufficientPermissions) is `code`.
+        // TenantSuspended, McpDisabled, AuthenticationRequired, InsufficientPermissions) is `code`.
         await ApiErrorWriter.WriteAsync(
             httpContext, context.GetCorrelationId(), (HttpStatusCode)result.StatusCode,
             result.ErrorCode ?? Constants.ApiErrorCodes.Forbidden, result.ErrorMessage ?? "Access denied.");
@@ -204,9 +204,12 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// full decision — including the additive tenant-role resolution that drives RequestContext.IsTenantAdmin —
     /// is unit-testable without faking the worker's HttpContext feature. <see cref="Invoke"/> is a thin
     /// adapter that reads the request, calls this, and writes the response.
+    /// <paramref name="isMcpClient"/> is the self-declared <c>X-Client-Source: mcp</c> marker: it only ever
+    /// narrows (the tenant MCP switch), never grants.
     /// </summary>
     internal async Task<PolicyResult> DecideAsync(
-        string httpMethod, string requestPath, string? queryTenantId, ClaimsPrincipal? principal)
+        string httpMethod, string requestPath, string? queryTenantId, ClaimsPrincipal? principal,
+        bool isMcpClient = false)
     {
         // Sanitized copies for logging only — never used for routing/authorization decisions.
         var logPath = LogSanitizer.Clean(requestPath);
@@ -308,7 +311,8 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // (SecurityValidator → 403 TenantDisabled). Cached, side-effect-free read; a missing row is not disabled.
         if (principal != null && !hasGlobalScope)
         {
-            var suspended = await FindSuspendedTenantAsync(jwtTenantId, targetTenantId);
+            var gateConfigs = await LoadGateConfigsAsync(jwtTenantId, targetTenantId);
+            var suspended = gateConfigs.FirstOrDefault(c => c.IsCurrentlyDisabled());
             if (suspended != null)
             {
                 _logger.LogWarning("[PolicyEnforcement] BLOCKED suspended tenant: user={User} tenant={Tenant} path={Path}",
@@ -319,6 +323,24 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
                         : "Your tenant has been suspended. Please contact support for more information.",
                     decision.UserIdentifier, decision.UserRole, "TenantSuspended", catalogEntry.Policy);
             }
+
+            // Tenant MCP switch (TenantConfiguration.McpDisabled, operator control) — the per-request half of
+            // the gate McpUserService applies at the MCP front door. Same reach as the suspension gate, but only
+            // for requests the MCP server forwards: a member of a closed tenant loses MCP everywhere, and no
+            // MCP call reaches a closed tenant as its target (delegated / MSP reads included). Direct portal
+            // or API use with a personal token is untouched — the switch closes the AI channel, not the data.
+            if (isMcpClient)
+            {
+                var mcpClosed = gateConfigs.FirstOrDefault(c => c.McpDisabled);
+                if (mcpClosed != null)
+                {
+                    _logger.LogWarning("[PolicyEnforcement] BLOCKED MCP-disabled tenant: user={User} tenant={Tenant} path={Path}",
+                        LogSanitizer.Clean(decision.UserIdentifier), LogSanitizer.Clean(mcpClosed.TenantId), logPath);
+                    return PolicyResult.Deny((int)HttpStatusCode.Forbidden, "McpDisabled",
+                        McpUserService.McpDisabledMessage(mcpClosed),
+                        decision.UserIdentifier, decision.UserRole, "McpDisabled", catalogEntry.Policy);
+                }
+            }
         }
 
         // Merge delegated state from the two delegated admission paths:
@@ -328,6 +350,11 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         //    managed tenant set on the decision instead. Either way the caller is a delegated reader here.
         var admittedViaDelegatedSubset = decision.AllowedTenantIds != null;
         var effectiveAllowedTenantIds = allowedTenantIds ?? decision.AllowedTenantIds;
+        // The bounded (MSP) set seen through MCP loses every tenant that closed its MCP surface — otherwise a
+        // closed customer's data would still flow into the MSP's fleet aggregate. Narrowing only ever shrinks
+        // the bound and never turns it into null (null = unbounded for the repository); an empty set is fine.
+        if (isMcpClient && effectiveAllowedTenantIds != null)
+            effectiveAllowedTenantIds = await WithoutMcpDisabledAsync(effectiveAllowedTenantIds);
 
         var requestContext = new RequestContext
         {
@@ -381,17 +408,30 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
     /// <see cref="TenantConfiguration.IsCurrentlyDisabled"/> already treats an elapsed DisabledUntil as
     /// re-enabled, so the gate lifts on its own; auth/me persists the flip on the next login.
     /// </summary>
-    private async Task<TenantConfiguration?> FindSuspendedTenantAsync(string jwtTenantId, string targetTenantId)
+    private async Task<IReadOnlyList<TenantConfiguration>> LoadGateConfigsAsync(string jwtTenantId, string targetTenantId)
     {
         var (homeConfig, _) = await _tenantConfigService.TryGetConfigurationAsync(jwtTenantId);
-        if (homeConfig.IsCurrentlyDisabled())
-            return homeConfig;
-
         if (string.Equals(targetTenantId, jwtTenantId, StringComparison.OrdinalIgnoreCase))
-            return null;
+            return new[] { homeConfig };
 
         var (targetConfig, _) = await _tenantConfigService.TryGetConfigurationAsync(targetTenantId);
-        return targetConfig.IsCurrentlyDisabled() ? targetConfig : null;
+        return new[] { homeConfig, targetConfig };
+    }
+
+    /// <summary>
+    /// The bound minus every tenant whose MCP surface is closed (cached, side-effect-free reads — one per
+    /// managed tenant, only on delegated MCP requests). Never null: see the isolation invariant at the call site.
+    /// </summary>
+    private async Task<IReadOnlyCollection<string>> WithoutMcpDisabledAsync(IReadOnlyCollection<string> tenantIds)
+    {
+        var admitted = new List<string>(tenantIds.Count);
+        foreach (var tenantId in tenantIds)
+        {
+            var (config, _) = await _tenantConfigService.TryGetConfigurationAsync(tenantId);
+            if (!config.McpDisabled)
+                admitted.Add(tenantId);
+        }
+        return admitted;
     }
 
     /// <summary>
