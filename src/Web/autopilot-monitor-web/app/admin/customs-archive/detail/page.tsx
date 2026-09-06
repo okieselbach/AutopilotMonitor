@@ -3,17 +3,12 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  api,
-  type CustomsArchiveEntrySummary,
-  type CustomsArchiveFullEntry,
-  type CustomsArchiveListEntriesResponse,
-} from "@/lib/api";
+import { api } from "@/lib/api";
 import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
-import type { CustomsArchiveEntryResponse } from "@/utils/wire-types.generated";
+import type { CustomsArchiveEntryListResponse, CustomsArchiveEntryResponse, CustomsArchiveEntrySummary, TenantOffboardingCustomsArchiveEntry } from "@/utils/wire-types.generated";
 
 export default function CustomsArchiveDetailPage() {
   // useSearchParams() in CustomsArchiveDetailContent requires a Suspense boundary
@@ -33,7 +28,7 @@ function CustomsArchiveDetailContent() {
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
   const [entries, setEntries] = useState<CustomsArchiveEntrySummary[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [expanded, setExpanded] = useState<Record<string, CustomsArchiveFullEntry | "loading" | undefined>>({});
+  const [expanded, setExpanded] = useState<Record<string, TenantOffboardingCustomsArchiveEntry | "loading" | undefined>>({});
   const [deletingRk, setDeletingRk] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CustomsArchiveEntrySummary | null>(null);
 
@@ -41,7 +36,7 @@ function CustomsArchiveDetailContent() {
     try {
       setLoading(true);
       const url = api.customsArchive.listEntries(tenantId, historyRowKey);
-      const body = await fetchJson<CustomsArchiveListEntriesResponse>(url, getAccessToken);
+      const body = await fetchJson<CustomsArchiveEntryListResponse>(url, getAccessToken);
       setEntries(body.entries ?? []);
     } catch (err) {
       setError(apiErrorText(err));
@@ -75,7 +70,7 @@ function CustomsArchiveDetailContent() {
         api.customsArchive.getEntry(tenantId, historyRowKey, entry.rowKey),
         getAccessToken,
       );
-      setExpanded((prev) => ({ ...prev, [key]: body.entry as CustomsArchiveFullEntry }));
+      setExpanded((prev) => ({ ...prev, [key]: body.entry }));
     } catch (err) {
       setExpanded((prev) => {
         const next = { ...prev };
@@ -153,7 +148,7 @@ function CustomsArchiveDetailContent() {
             const detail = expanded[entry.rowKey];
             const isOpen = !!detail;
             const isLoadingFull = detail === "loading";
-            const fullEntry = typeof detail === "object" ? (detail as CustomsArchiveFullEntry) : null;
+            const fullEntry = typeof detail === "object" ? (detail as TenantOffboardingCustomsArchiveEntry) : null;
 
             return (
               <div

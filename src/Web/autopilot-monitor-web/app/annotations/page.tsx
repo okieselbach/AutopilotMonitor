@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { sessionUrl } from "@/lib/routes";
 import { scopedApi } from "@/lib/scopedApi";
-import { API_BASE_URL } from "@/utils/config";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminMode, useAggregatedAdminScope } from "@/hooks";
@@ -23,6 +22,7 @@ import {
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { fetchJson, nullOn404 } from "@/lib/apiClient";
+import { extractContinuation } from "@/lib/paginationLink";
 
 /**
  * Annotations overview: every annotated session in one list, so a judged session can be
@@ -294,7 +294,13 @@ export default function AnnotationsPage() {
                   onClick={() => {
                     setLoading(true);
                     setLoadError(null);
-                    fetchPage(`${API_BASE_URL}${nextLink}`, true);
+                    fetchPage(
+                      scopedApi.annotationsList(
+                        { routeGlobal, selectedTenantId, effectiveTenantId },
+                        { verdict: verdictFilter || undefined, lane: laneFilter || undefined, q: submittedQuery || undefined, continuation: extractContinuation(nextLink) ?? undefined },
+                      ),
+                      true,
+                    );
                   }}
                   className="px-4 py-1.5 text-sm font-medium bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                 >

@@ -8,16 +8,6 @@
  * url builder.
  */
 
-export interface PaginatedResponse<T> {
-  count: number;
-  nextLink?: string | null;
-  /** legacy collection key — varies per endpoint (events / sessions / logs / reports) */
-  events?: T[];
-  sessions?: T[];
-  logs?: T[];
-  reports?: T[];
-}
-
 /**
  * Extracts the `continuation` query param from a backend-supplied nextLink.
  * Returns null when the input is empty or carries no continuation.

@@ -1,3 +1,5 @@
+// GET /api/diagnostics/paths has no wire DTO in the shared manifest (the payload is assembled
+// in GetDiagnosticsPathsFunction); this module is the client-owned shape of that response.
 export interface DiagnosticsLogPath {
   path: string;
   description: string;

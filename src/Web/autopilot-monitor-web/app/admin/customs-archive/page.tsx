@@ -3,16 +3,12 @@
 import { customsArchiveUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  api,
-  type CustomsArchiveListRunsResponse,
-  type CustomsArchiveRunSummary,
-} from "@/lib/api";
+import { api } from "@/lib/api";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../AdminConfigContext";
 import { AdminNotifications } from "../AdminNotifications";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
-import type { CustomsArchiveDeleteRunResponse } from "@/utils/wire-types.generated";
+import type { CustomsArchiveDeleteRunResponse, CustomsArchiveRunListResponse, CustomsArchiveRunSummary } from "@/utils/wire-types.generated";
 
 export default function CustomsArchivePage() {
   const { getAccessToken, setError, setSuccessMessage } = useAdminConfig();
@@ -26,7 +22,7 @@ export default function CustomsArchivePage() {
     try {
       setLoading(true);
       const url = api.customsArchive.listRuns({ tenantId: filter.trim() || undefined });
-      const body = await fetchJson<CustomsArchiveListRunsResponse>(url, getAccessToken);
+      const body = await fetchJson<CustomsArchiveRunListResponse>(url, getAccessToken);
       setRuns(body.runs ?? []);
     } catch (err) {
       setError(apiErrorText(err));
