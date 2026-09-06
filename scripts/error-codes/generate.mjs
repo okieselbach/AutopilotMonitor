@@ -112,13 +112,24 @@ async function fetchPage(url) {
 
 // ── HTML helpers ─────────────────────────────────────────────────────────────
 
-const decode = (s) => s
-  .replace(/<br\s*\/?>/gi, " ")
-  .replace(/<\/(p|li|div)>/gi, " ")
-  .replace(/<[^>]+>/g, "")
-  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-  .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'")
-  .replace(/\s+/g, " ").trim();
+const ENTITIES = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#x27": "'" };
+
+/**
+ * Cell markup → plain text. Tags are stripped until none remain (a nested "<scr<b>ipt>" cannot
+ * survive), and entities are decoded in ONE pass so "&amp;lt;" yields "&lt;", never "<".
+ */
+const decode = (s) => {
+  let text = s.replace(/<br\s*\/?>/gi, " ").replace(/<\/(p|li|div)>/gi, " ");
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(/<[^>]*>/g, "");
+  } while (text !== previous);
+  return text
+    .replace(/&(nbsp|amp|lt|gt|quot|#39|#x27);/g, (_, name) => ENTITIES[name])
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 /** Every <table> of a page as rows of decoded cell strings, in document order. */
 function parseTables(html) {
