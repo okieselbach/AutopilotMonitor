@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
+import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
 import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
@@ -72,6 +72,7 @@ import type {
   CveExposureSummary,
   DeviceJourneyMetricsResponse,
   DiagnosticsDownloadTicketResponse,
+  DownloadTicketRequest,
   GeographicLocationSessionsLeanResponse,
   GeographicMetricsResponse,
   GetAllTenantConfigurationsResponse,
@@ -85,12 +86,15 @@ import type {
   GetUnmatchedSoftwareResponse,
   ListRawTablesResponse,
   ListTenantConfigBackupsResponse,
+  LogQueryRequest,
   OpsEventListResponse,
+  PatchTenantConfigurationFieldsRequest,
   PlatformAgentMetricsResponse,
   PlatformUsageMetrics,
   QueryBackendLogsResponse,
   QueryRawSessionsResponse,
   QueryRawTableResponse,
+  RevertTenantConfigurationRequest,
   RuleStatsResponse,
   RuleStatsRuleAggregate,
   SessionAnnotationListResponse,
@@ -102,6 +106,7 @@ import type {
   TenantConfiguration,
   TimeAttributionMetricsResponse,
   UpsertSessionAnnotationDeletedResponse,
+  UpsertSessionAnnotationRequest,
   UpsertSessionAnnotationResponse,
   VerdictCalibrationResponse,
 } from '../generated/wire-types.generated.js';
@@ -1169,7 +1174,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const { blobName } = args;
         const ticket = await apiFetch<DiagnosticsDownloadTicketResponse>('/api/global/session-reports/download-ticket', {
           method: 'POST',
-          body: JSON.stringify({ blobName }),
+          body: jsonBody<DownloadTicketRequest>({ blobName }),
         });
 
         if (!ticket?.url) {
@@ -1283,7 +1288,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
         const data = await apiFetch<UpsertSessionAnnotationResponse | UpsertSessionAnnotationDeletedResponse>(`/api/sessions/${sessionId}/annotations/globaladmin${query}`, {
           method: 'PUT',
-          body: JSON.stringify({ verdict: verdict ?? null, note: note ?? null }),
+          body: jsonBody<UpsertSessionAnnotationRequest>({ verdict: verdict ?? undefined, note: note ?? undefined }),
         });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -1574,7 +1579,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         const budget = args.budgetSeconds ?? 30;
         const data = await apiFetch<QueryBackendLogsResponse>('/api/global/raw/logs', {
           method: 'POST',
-          body: JSON.stringify({ query: args.query, timespan: args.timespan, source: args.source, budgetSeconds: budget }),
+          body: jsonBody<LogQueryRequest>({ query: args.query, timespan: args.timespan, source: args.source, budgetSeconds: budget }),
           // The backend enforces the budget; the client only needs to outlast it (token mint + transfer margin).
           signal: AbortSignal.timeout((budget + 15) * 1000),
         });
@@ -1678,7 +1683,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const data = await apiFetch<TenantConfigPatchOutcomeResponse>(`/api/config/${encodeURIComponent(args.tenantId)}/fields`, {
           method: 'PATCH',
-          body: JSON.stringify({ fields: args.fields, reason: args.reason }),
+          body: jsonBody<PatchTenantConfigurationFieldsRequest>({ fields: args.fields, reason: args.reason }),
         });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -1743,7 +1748,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       try {
         const data = await apiFetch<TenantConfigPatchOutcomeResponse>(`/api/config/${encodeURIComponent(args.tenantId)}/revert`, {
           method: 'POST',
-          body: JSON.stringify({
+          body: jsonBody<RevertTenantConfigurationRequest>({
             backupId: args.backupId,
             includeProtectedFields: args.includeProtectedFields ?? false,
             reason: args.reason,

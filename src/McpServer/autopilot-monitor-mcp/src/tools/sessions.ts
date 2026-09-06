@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { ApiError, apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
+import { ApiError, apiFetch, buildQuery, jsonBody, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
 import { toolError } from './error-handler.js';
@@ -11,6 +11,7 @@ import type {
   AppMetricsResponse,
   BlockedDeviceListResponse,
   DiagnosticsDownloadTicketResponse,
+  DownloadTicketRequest,
   EnrollmentEvent,
   GetRuleResultsResponse,
   GetSessionAnnotationsResponse,
@@ -373,7 +374,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         const ticketPath = `/api/diagnostics/download-ticket${buildQuery({ tenantId: resolvedTenantId } as Record<string, string | undefined>)}`;
         const ticket = await apiFetch<DiagnosticsDownloadTicketResponse>(ticketPath, {
           method: 'POST',
-          body: JSON.stringify({ blobName }),
+          body: jsonBody<DownloadTicketRequest>({ blobName }),
         });
 
         if (!ticket?.url) {

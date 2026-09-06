@@ -1,13 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { apiFetch } from '../client.js';
+import { apiFetch, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { READ_ONLY, MAX_RESULT_SIZE_CHARS, toolResultText, SessionIdSchema } from './shared.js';
 import { toolError } from './error-handler.js';
 import { validateRuleDraft } from '../rule-validation.js';
 import { interpolateRuleTemplate } from '../interpolate-rule-template.js';
 import type {
+  AnalyzeRule,
+  DryRunAnalyzeRuleRequest,
   DryRunAnalyzeRuleResponse,
+  TestLogPatternRequest,
   TestLogPatternResponse,
 } from '../generated/wire-types.generated.js';
 
@@ -92,7 +95,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
       try {
         const data = await apiFetch<TestLogPatternResponse>('/api/rules/gather/test-pattern', {
           method: 'POST',
-          body: JSON.stringify({ pattern: args.pattern, format: args.format, sampleLines: args.sampleLines }),
+          body: jsonBody<TestLogPatternRequest>({ pattern: args.pattern, format: args.format, sampleLines: args.sampleLines }),
         });
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
@@ -127,7 +130,9 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
       try {
         const data = await apiFetch<DryRunAnalyzeRuleResponse>('/api/rules/analyze/dryrun', {
           method: 'POST',
-          body: JSON.stringify({ sessionId: args.sessionId, rule: args.rule }),
+          // The draft arrives as a loose object; the backend validates it (ValidateDraftRule) and
+          // answers 400 with the reasons. The cast names the wire document the endpoint deserialises.
+          body: jsonBody<DryRunAnalyzeRuleRequest>({ sessionId: args.sessionId, rule: args.rule as unknown as AnalyzeRule }),
         });
 
         const rule = args.rule as Record<string, unknown>;

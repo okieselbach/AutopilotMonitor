@@ -54,4 +54,27 @@ describe('apiFetch<T> guard', () => {
     // Plausibility floor: the guard must still be looking at the real call sites.
     expect(typedCalls).toBeGreaterThan(40);
   });
+
+  it('every request body names its wire type (jsonBody<SomeRequest>, never body: JSON.stringify)', () => {
+    // D-207: the request side of the contract. `body: JSON.stringify(` ships whatever shape the
+    // tool built; `jsonBody<T>` makes tsc check it against the generated request DTO.
+    const violations: string[] = [];
+    let typedBodies = 0;
+    for (const file of files) {
+      const rel = relative(SRC_ROOT, file).replace(/\\/g, '/');
+      if (EXEMPT.has(rel)) continue;
+      const lines = readFileSync(file, 'utf-8').split('\n');
+      lines.forEach((line, i) => {
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
+        if (/\bbody:\s*JSON\.stringify\(/.test(line) || /\bjsonBody\(/.test(line)) violations.push(`src/${rel}:${i + 1}: ${trimmed}`);
+        typedBodies += line.match(/\bjsonBody<[^(]+\(/g)?.length ?? 0;
+      });
+    }
+    expect(
+      violations,
+      'request body without a wire type — use jsonBody<SomeRequest>(…) from client.ts:\n  ' + violations.join('\n  '),
+    ).toEqual([]);
+    expect(typedBodies).toBeGreaterThanOrEqual(8);
+  });
 });

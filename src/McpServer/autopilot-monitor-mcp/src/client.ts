@@ -354,6 +354,15 @@ export function getCurrentCorrelationId(): string | undefined {
   return toolCallStore.getStore()?.correlationId;
 }
 
+/**
+ * The one way a request body is encoded (D-207): the generic names the generated request wire
+ * type (src/generated/wire-types.generated.ts), so a renamed or retyped backend field fails tsc
+ * here instead of surfacing as a 400 at runtime. A guard test refuses `body: JSON.stringify(`.
+ */
+export function jsonBody<TReq>(value: TReq): string {
+  return JSON.stringify(value);
+}
+
 export interface ApiFetchOptions extends RequestInit {
   /**
    * Retry once on 429 (rate limit — never the MCP quota) or 503 when the server's Retry-After is at
