@@ -213,9 +213,13 @@ namespace AutopilotMonitor.Shared.Models
         // ===== MCP ACCESS CONTROL =====
 
         /// <summary>
-        /// Controls who can access the remote MCP server.
-        /// "Disabled" = MCP off, "WhitelistOnly" = GlobalAdmins + McpUsers table (default),
-        /// "AllMembers" = any authenticated user.
+        /// Controls who can access the remote MCP server (evaluated by McpUserService.IsAllowedAsync).
+        /// "Disabled" = MCP off for everyone, platform roles included.
+        /// "WhitelistOnly" = platform roles, delegated (MSP) admins and enabled McpUsers rows (default).
+        /// "AllMembers" = the same grants plus every account holding an effective member role
+        /// (Admin / Operator / Viewer) in the tenant its token was issued for — never "any authenticated
+        /// token": an employee without a role, or a tenant that never onboarded, is denied.
+        /// An explicitly disabled McpUsers row denies under every policy.
         /// </summary>
         public string McpAccessPolicy { get; set; } = nameof(Models.McpAccessPolicy.WhitelistOnly);
 

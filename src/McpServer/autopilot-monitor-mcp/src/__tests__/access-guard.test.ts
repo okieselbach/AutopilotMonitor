@@ -225,6 +225,22 @@ describe('accessGuard — 403 (authorization + fail-closed)', () => {
     expect(body.message).not.toMatch(/whitelist/i);
   });
 
+  it('surfaces the suspension text when the policy middleware answers with the error envelope', async () => {
+    // A suspended home tenant is stopped by the suspension gate BEFORE the auth/mcp handler runs, so
+    // the body is the generic ApiErrorResponse (error + code), not the handler's verdict shape.
+    const upn = uniqueUpn();
+    stubBackend({
+      status: 403,
+      body: { error: 'Your tenant has been suspended. Please contact support for more information.', code: 'TenantSuspended', correlationId: 'c-1' },
+    });
+    const out = await runGuard(mockReq(`Bearer ${validToken(upn)}`));
+    expect(out.status).toBe(403);
+    const body = out.body as { error: string; reason: string; message: string };
+    expect(body.reason).toBe('Your tenant has been suspended. Please contact support for more information.');
+    expect(body.message).toContain('has been suspended');
+    expect(body.reason).not.toBe('denied');
+  });
+
   it('does NOT label an infrastructure failure as a whitelist problem', async () => {
     // A cold/unreachable backend must not tell the user they are "not enabled".
     stubBackend({ reject: true });

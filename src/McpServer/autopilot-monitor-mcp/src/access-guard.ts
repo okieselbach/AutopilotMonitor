@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 import { APPLICATION_KEY_PREFIX, extractTokenClaims, isApplicationKey, isTokenExpired, principalKeyOf } from './auth.js';
 import { runWithCaller, wantsPrettyJson } from './client.js';
 import { API_BASE_URL, getPublicBaseUrl, parsePositiveInt } from './config.js';
-import type { CheckMcpAccessResponse } from './generated/wire-types.generated.js';
+import type { ApiErrorResponse, CheckMcpAccessResponse } from './generated/wire-types.generated.js';
 
 const BASE_URL = API_BASE_URL;
 
@@ -190,7 +190,14 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
 
     // Wire type is generated from the backend DTO (CheckMcpAccessResponse). The read-only
     // GlobalReader gets the same cross-tenant routing as GA because this server is read-only.
-    const data = JSON.parse(text) as CheckMcpAccessResponse;
+    // A suspended home tenant never reaches the handler: the policy middleware's suspension gate
+    // answers first with the generic error envelope (ApiErrorResponse: `error` + `code`), whose
+    // message is the operator's suspension text. Fold it into a front-door deny so the user reads
+    // that text instead of a bare 'denied'.
+    const parsed = JSON.parse(text) as CheckMcpAccessResponse | ApiErrorResponse;
+    const data: CheckMcpAccessResponse = 'allowed' in parsed
+      ? parsed
+      : { allowed: false, upn, accessGrant: '', reason: parsed.error };
     // Normalize defensively: accept only a non-empty array of strings, lowercased. Anything else
     // (missing, wrong type, empty) collapses to undefined → the caller is treated as non-delegated.
     const delegatedTenantIds = Array.isArray(data.delegatedTenantIds)
