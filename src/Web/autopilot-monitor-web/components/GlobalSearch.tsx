@@ -4,12 +4,13 @@ import { sessionUrl } from "@/lib/routes";
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
 // Wire type of the typeahead endpoint — matchedField is "sessionId" | "serialNumber" |
 // "deviceName" on the wire but typed string; fieldLabel handles unknown values anyway.
 import type { QuickSearchResult } from '@/utils/wire-types.generated';
+import type { QuickSearchSessionsResponse } from "@/utils/wire-types.generated";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 const fieldLabel = (field: string) => {
   switch (field) {
@@ -163,19 +164,7 @@ export default function GlobalSearch() {
 
     setLoading(true);
     try {
-      const response = await authenticatedFetch(
-        api.sessions.quickSearch(q),
-        getAccessToken,
-        { signal: controller.signal },
-      );
-
-      if (!response.ok) {
-        setResults([]);
-        setShowDropdown(true);
-        return;
-      }
-
-      const data = await response.json();
+      const data = await fetchJson<QuickSearchSessionsResponse>(api.sessions.quickSearch(q), getAccessToken, { signal: controller.signal });
       setResults(data.results ?? []);
       setShowDropdown(true);
       setSelectedIndex(-1);
@@ -183,6 +172,8 @@ export default function GlobalSearch() {
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setResults([]);
+      // A refused search still opens the (empty) dropdown so the user sees the query ran.
+      if (err instanceof ApiError) setShowDropdown(true);
     } finally {
       setLoading(false);
     }

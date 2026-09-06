@@ -4,17 +4,18 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import VulnerabilityExposurePanel, { type VulnerabilitySummary } from "@/components/VulnerabilityExposurePanel";
 import type { SoftwareTabScope, TimeRange } from "./types";
 import { rangeToDays } from "./types";
+import { ApiError, fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
 const TOP_N = 20;
 
 export default function VulnerabilitiesTab({ scope, timeRange }: { scope: SoftwareTabScope; timeRange: TimeRange }) {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
+    const { isGlobalAdmin, selectedTenantId, scopeInitialized, scopeKey } = scope;
 
   const [summary, setSummary] = useState<VulnerabilitySummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,20 +32,16 @@ export default function VulnerabilitiesTab({ scope, timeRange }: { scope: Softwa
       try {
         setLoading(true);
         const url = scopedApi.vulnerability(scope, days, TOP_N);
-        const res = await authenticatedFetch(url, getAccessToken);
+        const summary = await fetchJson<VulnerabilitySummary>(url, getAccessToken);
         if (cancelled) return;
-        if (res.ok) {
-          setSummary((await res.json()) as VulnerabilitySummary);
-        } else {
-          addNotification("error", "Backend Error", `Failed to load vulnerability exposure: ${res.statusText}`, "vuln-exposure-error");
-        }
+        setSummary(summary);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof TokenExpiredError) {
-          addNotification("error", "Session Expired", err.message, "session-expired-error");
+        if (err instanceof ApiError) {
+          notifyApiError(addNotification, "Backend Error", err, "vuln-exposure-error", "Failed to load vulnerability exposure.");
         } else {
           console.error("Failed to fetch vulnerability exposure", err);
-          addNotification("error", "Backend Not Reachable", "Unable to load vulnerability exposure.", "vuln-exposure-error");
+          notifyApiError(addNotification, "Backend Not Reachable", err, "vuln-exposure-error", "Unable to load vulnerability exposure.");
         }
       } finally {
         if (!cancelled) setLoading(false);

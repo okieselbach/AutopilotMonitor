@@ -5,7 +5,6 @@ import Link from "next/link";
 import { sessionUrl } from "@/lib/routes";
 import { scopedApi } from "@/lib/scopedApi";
 import { API_BASE_URL } from "@/utils/config";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdminMode, useAggregatedAdminScope } from "@/hooks";
@@ -23,6 +22,7 @@ import {
 } from "../sessions/components/sessionAnnotationLogic";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { fetchJson, nullOn404 } from "@/lib/apiClient";
 
 /**
  * Annotations overview: every annotated session in one list, so a judged session can be
@@ -92,16 +92,14 @@ export default function AnnotationsPage() {
   const fetchPage = useCallback(
     async (url: string, append: boolean) => {
       try {
-        const res = await authenticatedFetch(url, getAccessToken);
-        if (res.status === 404) {
-          // Deploy skew: a backend without the route yet. Reads as "nothing annotated",
-          // never as an error — the empty state below carries the call to action.
+        // Deploy skew: a backend without the route yet (404) reads as "nothing annotated",
+        // never as an error; the empty state below carries the call to action.
+        const json = await fetchJson<AnnotationsListResponse>(url, getAccessToken).catch(nullOn404);
+        if (!json) {
           if (!append) setRows([]);
           setNextLink(null);
           return;
         }
-        if (!res.ok) throw new Error(res.statusText);
-        const json = (await res.json()) as AnnotationsListResponse;
         setRows((prev) => (append ? [...prev, ...(json.annotations ?? [])] : (json.annotations ?? [])));
         setNextLink(json.nextLink ?? null);
       } catch {

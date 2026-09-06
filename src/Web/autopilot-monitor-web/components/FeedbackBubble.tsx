@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import type { FeedbackEligibilityResponse } from "@/utils/wire-types.generated";
+import { fetchJson, fetchOk, nullOnApiError } from "@/lib/apiClient";
 
 type Phase = "loading" | "bubble" | "form" | "thankyou" | "hidden";
 
@@ -27,14 +28,10 @@ export default function FeedbackBubble() {
 
     const checkEligibility = async () => {
       try {
-        const response = await authenticatedFetch(
-          api.feedback.status(),
-          getAccessToken
-        );
+        const data = await fetchJson<FeedbackEligibilityResponse>(api.feedback.status(), getAccessToken).catch(nullOnApiError);
         if (cancelled) return;
 
-        if (response.ok) {
-          const data = await response.json();
+        if (data) {
           if (data.eligible) {
             // Show bubble after 3s delay
             setTimeout(() => {
@@ -58,9 +55,8 @@ export default function FeedbackBubble() {
   const handleDismiss = useCallback(async () => {
     setPhase("hidden");
     try {
-      await authenticatedFetch(api.feedback.submit(), getAccessToken, {
+      await fetchOk(api.feedback.submit(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dismissed: true }),
       });
     } catch {
@@ -73,9 +69,8 @@ export default function FeedbackBubble() {
     setSubmitting(true);
 
     try {
-      await authenticatedFetch(api.feedback.submit(), getAccessToken, {
+      await fetchOk(api.feedback.submit(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating, comment: comment.trim() || null, dismissed: false }),
       });
 

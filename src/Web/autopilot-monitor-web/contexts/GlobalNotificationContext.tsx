@@ -4,8 +4,8 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { useAuth } from './AuthContext';
 import { useSignalR } from './SignalRContext';
 import { api } from '@/lib/api';
-import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
+import { fetchJson, fetchOk } from "@/lib/apiClient";
 
 // Wire type is generated from the backend DTO; the alias keeps the established local name.
 export type GlobalNotification = GlobalNotificationDto;
@@ -41,14 +41,8 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     fetchingRef.current = true;
 
     try {
-      const response = await authenticatedFetch(
-        api.notifications.list(),
-        getAccessToken,
-      );
-      if (response.ok) {
-        const data = (await response.json()) as NotificationListResponse;
-        setNotifications(data.notifications ?? []);
-      }
+      const data = await fetchJson<NotificationListResponse>(api.notifications.list(), getAccessToken);
+      setNotifications(data.notifications ?? []);
     } catch {
       // Silently ignore — notifications are best-effort
     } finally {
@@ -129,7 +123,7 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     setNotifications(prev => prev.filter(n => n.id !== id));
 
     try {
-      await authenticatedFetch(
+      await fetchOk(
         api.notifications.dismiss(id),
         getAccessToken,
         { method: 'POST' },
@@ -144,7 +138,7 @@ export function GlobalNotificationProvider({ children }: { children: React.React
     setNotifications([]);
 
     try {
-      await authenticatedFetch(
+      await fetchOk(
         api.notifications.dismissAll(),
         getAccessToken,
         { method: 'POST' },

@@ -8,11 +8,12 @@ import { useGlobalAdminUi } from '@/hooks/useGlobalAdminUi';
 import { useState, useEffect, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { isUrlDetail, visibleHealthChecks, visibleHealthDetails } from '@/lib/healthCheckView';
 import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/utils/wire-types.generated';
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { ApiError, fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
 function formatDetailValue(value: unknown): string {
   return Array.isArray(value) ? value.join(', ') : typeof value === 'object' ? JSON.stringify(value) : String(value);
@@ -88,26 +89,22 @@ export default function HealthCheckPage() {
   const performHealthCheck = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await authenticatedFetch(api.health.detailed(), getAccessToken);
-
-      if (!response.ok) {
-        if (response.status === 403) {
+      let data: DetailedHealthCheckResponse;
+      try {
+        data = await fetchJson<DetailedHealthCheckResponse>(api.health.detailed(), getAccessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
+        if (err.status === 403) {
           addNotification('error', 'Access Denied', 'You do not have permission to access health checks', 'health-check-forbidden');
         } else {
-          addNotification('error', 'Health Check Failed', `Status: ${response.status}`, 'health-check-failed');
+          notifyApiError(addNotification, 'Health Check Failed', err, 'health-check-failed');
         }
         return;
       }
-
-      const data = (await response.json()) as DetailedHealthCheckResponse;
       setHealthResult(data);
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error('Health check error:', error);
-        addNotification('error', 'Health Check Error', error instanceof Error ? error.message : 'Unknown error', 'health-check-error');
-      }
+      console.error('Health check error:', error);
+      addNotification('error', 'Health Check Error', error instanceof Error ? error.message : 'Unknown error', 'health-check-error');
     } finally {
       setLoading(false);
       setHasRun(true);
@@ -121,19 +118,21 @@ export default function HealthCheckPage() {
   const performMcpCheck = useCallback(async () => {
     setMcpLoading(true);
     try {
-      const response = await authenticatedFetch(api.health.mcp(), getAccessToken);
-      if (!response.ok) {
+      let data: McpHealthCheckResponse;
+      try {
+        data = await fetchJson<McpHealthCheckResponse>(api.health.mcp(), getAccessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
         setMcpCheck({
           name: 'MCP Server',
           description: 'AI query interface availability',
-          status: response.status === 403 ? 'unknown' : 'unhealthy',
-          message: response.status === 403
+          status: err.status === 403 ? 'unknown' : 'unhealthy',
+          message: err.status === 403
             ? 'Not permitted to view the MCP server status'
-            : `MCP status check failed (HTTP ${response.status})`,
+            : `MCP status check failed (HTTP ${err.status})`,
         });
         return;
       }
-      const data = (await response.json()) as McpHealthCheckResponse;
       if (data?.check) setMcpCheck(data.check);
     } catch (error) {
       // Network/token errors: surface on the card itself, never as a blocking page error.

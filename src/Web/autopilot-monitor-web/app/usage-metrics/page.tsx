@@ -5,93 +5,29 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useGlobalAdminScope } from "@/hooks";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
 import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { PlatformUsageMetrics } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
-interface SessionMetrics {
-  total: number;
-  totalAllTime?: number;
-  today: number;
-  last7Days: number;
-  last30Days: number;
-  succeeded: number;
-  failed: number;
-  inProgress: number;
-  incomplete: number;
-  successRate: number;
-}
 
-interface TenantMetrics {
-  total: number;
-  active7Days: number;
-  active30Days: number;
-}
 
-interface UserMetrics {
-  total: number;
-  dailyLogins: number;
-  active7Days: number;
-  active30Days: number;
-  note: string;
-}
 
-interface PerformanceMetrics {
-  avgDurationMinutes: number;
-  medianDurationMinutes: number;
-  p95DurationMinutes: number;
-  p99DurationMinutes: number;
-}
 
-interface HardwareCount {
-  name: string;
-  count: number;
-  percentage: number;
-}
 
-interface HardwareMetrics {
-  topManufacturers: HardwareCount[];
-  topModels: HardwareCount[];
-}
 
-interface DeploymentTypeMetrics {
-  userDriven: number;
-  whiteGlove: number;
-  userDrivenPercentage: number;
-  whiteGlovePercentage: number;
-}
 
-interface AppScriptMetrics {
-  avgAppsPerSession: number;
-  totalUniqueApps: number;
-  avgPlatformScriptsPerSession: number;
-  avgRemediationScriptsPerSession: number;
-  totalPlatformScripts: number;
-  totalRemediationScripts: number;
-}
 
-interface PlatformUsageMetrics {
-  sessions: SessionMetrics;
-  tenants: TenantMetrics;
-  users: UserMetrics;
-  performance: PerformanceMetrics;
-  hardware: HardwareMetrics;
-  deploymentTypes: DeploymentTypeMetrics;
-  appScripts?: AppScriptMetrics;
-  windowDays?: number;
-  computedAt: string;
-  computeDurationMs: number;
-  fromCache: boolean;
-}
 
 export default function UsageMetricsPage() {
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-  const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);
+    const [metrics, setMetrics] = useState<PlatformUsageMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -120,25 +56,13 @@ export default function UsageMetricsPage() {
         ? api.metrics.globalUsage(effectiveTenantId)
         : api.metrics.usage(effectiveTenantId);
 
-      const response = await authenticatedFetch(url, getAccessToken);
-      if (!isCurrent()) return;
-
-      if (!response.ok) {
-        addNotification('error', 'Backend Error', `Failed to load usage metrics: ${response.statusText}`, 'usage-metrics-fetch-error');
-        return;
-      }
-
-      const data = await response.json();
+      const data = await fetchJson<PlatformUsageMetrics>(url, getAccessToken);
       if (!isCurrent()) return;
       setMetrics(data);
     } catch (err) {
       if (!isCurrent()) return;
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error('Error fetching usage metrics:', err);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load usage metrics. Please check your connection.', 'usage-metrics-fetch-error');
-      }
+      console.error('Error fetching usage metrics:', err);
+      notifyApiError(addNotification, 'Backend Error', err, 'usage-metrics-fetch-error', 'Unable to load usage metrics.');
     } finally {
       // A superseded request must not clear the newer request's loading/refreshing state.
       if (isCurrent()) {

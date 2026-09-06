@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scopedApi } from "@/lib/scopedApi";
 import { useLatest } from "@/hooks/useLatest";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
-import type { NotificationType } from "@/contexts/NotificationContext";
 import type { SignalRMessageName } from "@/lib/signalrMessages";
+import { ApiError, fetchJson } from "@/lib/apiClient";
 
 // Wire shape of the server-aggregated Fleet Health payload (camelCase of the
 // backend FleetHealthMetrics DTO). Presentation-only derivations (bar maxima,
@@ -64,13 +63,6 @@ export interface FleetHealthData {
   computedAt: string;
 }
 
-type AddNotification = (
-  type: NotificationType,
-  title: string,
-  message: string,
-  key?: string,
-  href?: string,
-) => void;
 
 interface SignalRApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,7 +90,6 @@ interface UseFleetHealthParams {
   scopeKey: string;
   days: number;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
-  addNotification: AddNotification;
   signalR: SignalRApi;
 }
 
@@ -127,7 +118,6 @@ export function useFleetHealth({
   scopeKey,
   days,
   getAccessToken,
-  addNotification,
   signalR,
 }: UseFleetHealthParams): UseFleetHealthReturn {
   const [data, setData] = useState<FleetHealthData | null>(null);
@@ -161,24 +151,22 @@ export function useFleetHealth({
         daysRef.current,
       );
 
-      const response = await authenticatedFetch(url, getAccessToken);
-
-      // Stale fetch — a newer scope change won the race. Drop silently.
-      if (myGen !== fetchGenRef.current) return;
-
-      if (!response.ok) {
-        let detail = response.statusText;
-        try {
-          const body = await response.json();
-          if (body?.message) detail = body.message;
-        } catch {
-          /* not JSON */
+      let body: FleetHealthData;
+      try {
+        body = await fetchJson<FleetHealthData>(url, getAccessToken);
+      } catch (err) {
+        // Stale fetch: a newer scope change won the race. Drop silently.
+        if (myGen !== fetchGenRef.current) return;
+        if (err instanceof ApiError) {
+          setError(err.message);
+          return;
         }
-        setError(detail);
-        return;
+        throw err;
       }
 
-      const body = (await response.json()) as FleetHealthData;
+      // Stale fetch: a newer scope change won the race. Drop silently.
+      if (myGen !== fetchGenRef.current) return;
+
       if (body?.success) {
         setData(body);
       } else {
@@ -186,16 +174,12 @@ export function useFleetHealth({
       }
     } catch (e) {
       if (myGen !== fetchGenRef.current) return;
-      if (e instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", e.message, "session-expired-error");
-      } else {
-        console.error("Failed to fetch fleet health:", e);
-        setError("Unable to load fleet health data");
-      }
+      console.error("Failed to fetch fleet health:", e);
+      setError("Unable to load fleet health data");
     } finally {
       if (myGen === fetchGenRef.current) setLoading(false);
     }
-  }, [getAccessToken, addNotification, routeGlobalRef, selectedTenantIdRef, tenantIdRef, daysRef]);
+  }, [getAccessToken, routeGlobalRef, selectedTenantIdRef, tenantIdRef, daysRef]);
 
   const refresh = useCallback(() => {
     if (debounceTimerRef.current) {

@@ -5,8 +5,8 @@ import { useAuth } from './AuthContext';
 import { useSignalR } from './SignalRContext';
 import { canFetchTenantNotifications } from './tenantNotificationsGate';
 import { api } from '@/lib/api';
-import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import type { GlobalNotificationDto, NotificationListResponse } from '@/utils/wire-types.generated';
+import { fetchJson, fetchOk } from "@/lib/apiClient";
 
 // Both notification endpoints share one backend DTO; the alias keeps the established local name.
 export type TenantNotification = GlobalNotificationDto;
@@ -44,14 +44,8 @@ export function TenantNotificationProvider({ children }: { children: React.React
     fetchingRef.current = true;
 
     try {
-      const response = await authenticatedFetch(
-        api.notifications.tenantList(),
-        getAccessToken,
-      );
-      if (response.ok) {
-        const data = (await response.json()) as NotificationListResponse;
-        setTenantNotifications(data.notifications ?? []);
-      }
+      const data = await fetchJson<NotificationListResponse>(api.notifications.tenantList(), getAccessToken);
+      setTenantNotifications(data.notifications ?? []);
     } catch {
       // Silently ignore — notifications are best-effort
     } finally {
@@ -132,7 +126,7 @@ export function TenantNotificationProvider({ children }: { children: React.React
     setTenantNotifications(prev => prev.filter(n => n.id !== id));
 
     try {
-      await authenticatedFetch(
+      await fetchOk(
         api.notifications.tenantDismiss(id),
         getAccessToken,
         { method: 'POST' },
@@ -146,7 +140,7 @@ export function TenantNotificationProvider({ children }: { children: React.React
     setTenantNotifications([]);
 
     try {
-      await authenticatedFetch(
+      await fetchOk(
         api.notifications.tenantDismissAll(),
         getAccessToken,
         { method: 'POST' },

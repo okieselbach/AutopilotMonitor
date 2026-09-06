@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import {
@@ -143,7 +142,6 @@ export default function SessionAnnotationsCard({
       });
       setLaneEdit(lane, { saving: false, saveResult: "saved" });
     } catch (err) {
-      if (err instanceof TokenExpiredError) console.error("Session expired while saving annotation");
       setLaneEdit(lane, {
         saving: false,
         saveResult: apiErrorText(err, "Failed to save annotation"),

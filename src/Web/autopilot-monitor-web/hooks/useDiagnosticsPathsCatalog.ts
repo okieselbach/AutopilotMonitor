@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import type { DiagnosticsBuiltInSection, DiagnosticsLogPath, DiagnosticsPathsCatalog } from "@/types/diagnostics";
+import { fetchJson } from "@/lib/apiClient";
 
 export interface DiagnosticsPathsCatalogState {
   /** Sections compiled into the agent — what every diagnostics package collects first. */
@@ -34,12 +34,7 @@ export function useDiagnosticsPathsCatalog(): DiagnosticsPathsCatalogState {
     let cancelled = false;
     const run = async () => {
       try {
-        const res = await authenticatedFetch(api.diagnostics.paths(), getAccessToken);
-        if (!res.ok) {
-          if (!cancelled) setState((s) => ({ ...s, loading: false }));
-          return;
-        }
-        const data = (await res.json()) as Partial<DiagnosticsPathsCatalog>;
+        const data = await fetchJson<Partial<DiagnosticsPathsCatalog>>(api.diagnostics.paths(), getAccessToken);
         if (!cancelled) {
           setState({
             builtIn: Array.isArray(data.builtIn) ? data.builtIn : [],

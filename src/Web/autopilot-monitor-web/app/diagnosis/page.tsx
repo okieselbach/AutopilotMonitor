@@ -11,7 +11,6 @@ import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { api } from "@/lib/api";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { interpolateRuleTemplate } from "@/lib/interpolateRuleTemplate";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { ConfidenceBadge, SeverityBadge } from "./components/DiagnosisBadges";
 import { Session, EnrollmentEvent, RuleResult } from "@/types";
 import { useAdminMode } from "@/hooks/useAdminMode";
@@ -19,6 +18,9 @@ import { isGuid } from "@/utils/inputValidation";
 import { safeHttpUrl } from "@/lib/safeDocUrl";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { GetRuleResultsResponse, GetSessionEventsResponse, GetSessionResponse } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
 export default function DiagnosisPage() {
   // useSearchParams() in DiagnosisContent requires a Suspense boundary for static prerender.
@@ -65,7 +67,7 @@ function DiagnosisContent() {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-
+  
   const { globalAdminMode } = useAdminMode();
 
   // Declared ahead of the effects that call them (react-hooks/immutability:
@@ -80,64 +82,38 @@ function DiagnosisContent() {
         knownTenantId && isGuid(knownTenantId)
           ? api.sessions.get(sessionId, knownTenantId)
           : api.sessions.get(sessionId);
-      const response = await authenticatedFetch(endpoint, getAccessToken);
-      if (response.ok) {
-        const data = await response.json();
-        const found =
-          data.session ??
-          data.sessions?.find((s: Session) => s.sessionId === sessionId);
-        if (found) {
-          setSession(found);
-          setSessionTenantId(found.tenantId);
-        }
-      } else {
-        addNotification('error', 'Backend Error', `Failed to load session: ${response.statusText}`, 'diagnosis-fetch-error');
+      const data = await fetchJson<GetSessionResponse>(endpoint, getAccessToken);
+      const found = data.session;
+      if (found) {
+        setSession(found);
+        setSessionTenantId(found.tenantId);
       }
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch session details:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load session details. Please check your connection.', 'diagnosis-fetch-error');
-      }
+      console.error("Failed to fetch session details:", error);
+      notifyApiError(addNotification, 'Backend Error', error, 'diagnosis-fetch-error', 'Unable to load session details.');
     } finally {
       sessionFetchDone.current = true;
       finishLoadingWhenSettled();
     }
-  }, [sessionId, sessionTenantId, tenantId, globalAdminMode, getAccessToken, addNotification, finishLoadingWhenSettled]);
+  }, [sessionId, sessionTenantId, tenantId, globalAdminMode, getAccessToken, finishLoadingWhenSettled, addNotification]);
 
   const fetchEvents = useCallback(async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
-      const response = await authenticatedFetch(
-        api.sessions.events(sessionId, effectiveTenantId),
-        getAccessToken
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setEvents(data.events || []);
-      } else {
-        addNotification('error', 'Backend Error', `Failed to load events: ${response.statusText}`, 'diagnosis-events-error');
-      }
+      const data = await fetchJson<GetSessionEventsResponse>(api.sessions.events(sessionId, effectiveTenantId), getAccessToken);
+      // No `fields` projection on this read, so every event is complete.
+      setEvents((data.events || []) as EnrollmentEvent[]);
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch events:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load session events. Please check your connection.', 'diagnosis-events-error');
-      }
+      console.error("Failed to fetch events:", error);
+      notifyApiError(addNotification, 'Backend Error', error, 'diagnosis-events-error', 'Unable to load session events.');
     }
   }, [sessionId, sessionTenantId, tenantId, getAccessToken, addNotification]);
 
   const fetchAnalysisResults = useCallback(async () => {
     const effectiveTenantId = sessionTenantId || tenantId;
     try {
-      const response = await authenticatedFetch(
-        api.sessions.analysis(sessionId, effectiveTenantId),
-        getAccessToken
-      );
-      if (response.ok) {
-        const data = await response.json();
+      const data = await fetchJson<GetRuleResultsResponse>(api.sessions.analysis(sessionId, effectiveTenantId), getAccessToken);
+      {
         if (data.results) {
           // Resolved findings (no longer detected by a later evaluation) are audit-only —
           // the diagnosis flow must not present them as the probable cause.
@@ -152,16 +128,12 @@ function DiagnosisContent() {
         }
       }
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch analysis results:", error);
-      }
+      console.error("Failed to fetch analysis results:", error);
     } finally {
       analysisFetchDone.current = true;
       finishLoadingWhenSettled();
     }
-  }, [sessionId, sessionTenantId, tenantId, getAccessToken, addNotification, finishLoadingWhenSettled]);
+  }, [sessionId, sessionTenantId, tenantId, getAccessToken, finishLoadingWhenSettled]);
 
   useEffect(() => {
     if (!sessionId) return;

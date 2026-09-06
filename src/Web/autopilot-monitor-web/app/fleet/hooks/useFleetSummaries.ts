@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import type { FleetSummary } from "../lib/fleetRollup";
+import type { SessionStatsResponse } from "@/utils/wire-types.generated";
+import { fetchJson, nullOnApiError } from "@/lib/apiClient";
 
 export interface FleetSummariesState {
   /** tenantId (verbatim) → summary. Absent while loading or if that tenant's fetch failed. */
@@ -58,9 +59,7 @@ export function useFleetSummaries(tenantIds: string[], days: number, homeTenantI
             const url = isHomeTenantTarget(tenantId, homeTenantId)
               ? api.sessions.stats({ days })
               : api.globalSessions.stats({ tenantId, days });
-            const response = await authenticatedFetch(url, getAccessToken);
-            if (!response.ok) continue;
-            const body = await response.json();
+            const body = await fetchJson<SessionStatsResponse>(url, getAccessToken).catch(nullOnApiError);
             if (body?.stats) result[tenantId] = body.stats as FleetSummary;
           } catch (err) {
             // One tenant's failure must not sink the whole fleet view — skip it; the card shows "—".

@@ -5,8 +5,9 @@ import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import type { SoftwareTabScope } from "./types";
+import { ApiError, fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
 interface InventoryItem {
   displayName: string;
@@ -59,18 +60,14 @@ export default function InventoryTab({ scope }: { scope: SoftwareTabScope }) {
         const url = routeGlobal
           ? api.vulnerability.softwareInventory(selectedTenantId)
           : api.metrics.softwareInventory();
-        const res = await authenticatedFetch(url, getAccessToken);
+        const data = await fetchJson<InventoryResponse>(url, getAccessToken);
         if (cancelled) return;
-        if (res.ok) {
-          setResp((await res.json()) as InventoryResponse);
-          setPage(0);
-        } else {
-          addNotification("error", "Backend Error", `Failed to load inventory: ${res.statusText}`, "inventory-error");
-        }
+        setResp(data);
+        setPage(0);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof TokenExpiredError) {
-          addNotification("error", "Session Expired", err.message, "session-expired-error");
+        if (err instanceof ApiError) {
+          notifyApiError(addNotification, "Backend Error", err, "inventory-error", "Failed to load inventory.");
         } else {
           console.error("Failed to fetch software inventory", err);
           addNotification("error", "Backend Not Reachable", "Unable to load software inventory.", "inventory-error");

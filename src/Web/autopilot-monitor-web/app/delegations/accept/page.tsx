@@ -4,10 +4,10 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { api } from "@/lib/api";
 import { describeDelegationError, invitationStatusLabel } from "@/lib/delegations";
 import type { AcceptDelegationInvitationResponse, DelegationAcceptPreviewResponse } from "@/utils/wire-types.generated";
+import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
 
 export default function AcceptDelegationPage() {
   // useSearchParams needs a Suspense boundary for the static prerender (query-string route).
@@ -32,12 +32,15 @@ function AcceptDelegationInner() {
   const [accepting, setAccepting] = useState(false);
   const [done, setDone] = useState<AcceptDelegationInvitationResponse | null>(null);
 
-  const explain = useCallback(async (response: Response, fallback: string) => {
-    const data = await response.json().catch(() => ({}));
-    if (response.status === 403) {
-      return "Only a tenant administrator of your tenant can accept an invitation. Ask an administrator to open this link.";
+  /** The user-facing text for a refused invitation call; other failures render through apiErrorText. */
+  const explain = useCallback((err: unknown, fallback: string) => {
+    if (err instanceof ApiError) {
+      if (err.status === 403) {
+        return "Only a tenant administrator of your tenant can accept an invitation. Ask an administrator to open this link.";
+      }
+      return describeDelegationError(err.code, err.message || fallback);
     }
-    return describeDelegationError(data.code, data.error || fallback);
+    return apiErrorText(err, fallback);
   }, []);
 
   useEffect(() => {
@@ -45,16 +48,12 @@ function AcceptDelegationInner() {
     let cancelled = false;
     const run = async () => {
       try {
-        const response = await authenticatedFetch(api.delegations.acceptPreview(token), getAccessToken);
+        const preview = await fetchJson<DelegationAcceptPreviewResponse>(api.delegations.acceptPreview(token), getAccessToken);
         if (cancelled) return;
-        if (!response.ok) {
-          setError(await explain(response, `Could not read the invitation (${response.status}).`));
-          return;
-        }
-        setPreview((await response.json()) as DelegationAcceptPreviewResponse);
+        setPreview(preview);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof TokenExpiredError ? "Session expired. Please refresh the page." : err instanceof Error ? err.message : "Could not read the invitation.");
+        setError(explain(err, "Could not read the invitation."));
       } finally {
         if (!cancelled) setLoadingState(false);
       }
@@ -69,18 +68,12 @@ function AcceptDelegationInner() {
     setAccepting(true);
     setError(null);
     try {
-      const response = await authenticatedFetch(api.delegations.accept(), getAccessToken, {
+      setDone(await fetchJson<AcceptDelegationInvitationResponse>(api.delegations.accept(), getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
-      });
-      if (!response.ok) {
-        setError(await explain(response, `Could not accept the invitation (${response.status}).`));
-        return;
-      }
-      setDone((await response.json()) as AcceptDelegationInvitationResponse);
+      }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not accept the invitation.");
+      setError(explain(err, "Could not accept the invitation."));
     } finally {
       setAccepting(false);
       setConfirming(false);

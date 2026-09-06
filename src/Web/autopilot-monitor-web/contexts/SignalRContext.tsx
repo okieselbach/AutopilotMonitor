@@ -3,10 +3,10 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
-import { authenticatedFetch } from '@/lib/authenticatedFetch';
 import { trackEvent } from '@/lib/appInsights';
 import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { useAuth } from './AuthContext';
+import { ApiError, fetchOk } from "@/lib/apiClient";
 
 // Hub payloads are untyped JSON; mirror @microsoft/signalr's own callback signature so
 // consumer handlers keep their narrower parameter types without laundering here.
@@ -140,28 +140,18 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
 
       for (const groupName of previousGroups) {
         try {
-          const response = await authenticatedFetch(
-            api.realtime.joinGroup(),
-            getAccessToken,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              // Re-present the stored serial proof for session groups — a roleless
-              // Progress-Portal user's rejoin is refused without it.
-              body: JSON.stringify({
-                connectionId,
-                groupName,
-                serialNumber: joinSerialsRef.current.get(groupName),
-              })
-            }
-          );
-
-          if (response.ok) {
-            joinedGroupsRef.current.add(groupName);
-            syncJoinedGroups();
-          } else {
-            console.warn(`[SignalR] Failed to rejoin group ${groupName} after reconnect (status ${response.status})`);
-          }
+          await fetchOk(api.realtime.joinGroup(), getAccessToken, {
+            method: 'POST',
+            // Re-present the stored serial proof for session groups: a roleless
+            // Progress-Portal user's rejoin is refused without it.
+            body: JSON.stringify({
+              connectionId,
+              groupName,
+              serialNumber: joinSerialsRef.current.get(groupName),
+            }),
+          });
+          joinedGroupsRef.current.add(groupName);
+          syncJoinedGroups();
         } catch (error) {
           console.warn(`[SignalR] Error rejoining group ${groupName} after reconnect:`, error);
         }
@@ -290,29 +280,25 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const response = await authenticatedFetch(
-        api.realtime.joinGroup(),
-        getAccessToken,
-        {
+      try {
+        await fetchOk(api.realtime.joinGroup(), getAccessToken, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             connectionId,
             groupName,
             serialNumber: options?.serialNumber,
-          })
-        }
-      );
-
-      if (!response.ok) {
-        // Remove from Set if API call failed (so we can retry). A refused join must be
+          }),
+        });
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err;
+        // Remove from Set if the join was refused (so we can retry). A refused join must be
         // VISIBLE: a silently swallowed 403 here historically left the page looking frozen
-        // (no live updates, no error) — see the c4dabeee regression.
-        console.warn(`[SignalR] Failed to join group ${groupName} (status ${response.status})`);
+        // (no live updates, no error): see the c4dabeee regression.
+        console.warn(`[SignalR] Failed to join group ${groupName} (status ${err.status})`);
         joinedGroupsRef.current.delete(groupName);
         joinSerialsRef.current.delete(groupName);
         syncJoinedGroups();
-        options?.onDenied?.(response.status);
+        options?.onDenied?.(err.status);
       }
     } catch (error) {
       console.error(`[SignalR] Error joining group ${groupName}:`, error);
@@ -343,24 +329,12 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const response = await authenticatedFetch(
-        api.realtime.leaveGroup(),
-        getAccessToken,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ connectionId, groupName })
-        }
-      );
-
-      if (!response.ok) {
-        // Re-add to Set if API call failed (so we can retry)
-        joinedGroupsRef.current.add(groupName);
-        syncJoinedGroups();
-      } else {
-        // Confirmed leave — drop the stored serial proof for this group.
-        joinSerialsRef.current.delete(groupName);
-      }
+      await fetchOk(api.realtime.leaveGroup(), getAccessToken, {
+        method: 'POST',
+        body: JSON.stringify({ connectionId, groupName }),
+      });
+      // Confirmed leave: drop the stored serial proof for this group (a refusal lands in the catch, which re-adds the group).
+      joinSerialsRef.current.delete(groupName);
     } catch (error) {
       console.error(`[SignalR] Error leaving group ${groupName}:`, error);
       // Re-add to Set if API call failed (so we can retry)

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
+import { fetchJson } from "@/lib/apiClient";
 
 export interface TenantInfo {
   tenantId: string;
@@ -33,10 +33,9 @@ export function useTenantList(enabled: boolean): TenantInfo[] {
     let cancelled = false;
     const loadTenants = async () => {
       try {
-        const response = await authenticatedFetch(api.config.all(), getAccessToken);
-        if (!response.ok) return;
-        const data = await response.json();
-        const mapped: TenantInfo[] = (data as Array<{ tenantId: string; domainName?: string }>).map((t) => ({
+        // config/all is a bare array of tenant configurations (deliberately untyped, D-043).
+        const data = await fetchJson<Array<{ tenantId: string; domainName?: string }>>(api.config.all(), getAccessToken);
+        const mapped: TenantInfo[] = data.map((t) => ({
           tenantId: t.tenantId,
           domainName: t.domainName || "",
         }));

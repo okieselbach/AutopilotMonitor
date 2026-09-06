@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { downloadAsJson, stripInternalFields, bumpVersion } from "@/lib/rulePageHelpers";
 import { StatCard } from "@/components/rules/StatCard";
@@ -20,6 +19,8 @@ import { GatherRuleCard } from "./components/GatherRuleCard";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
+import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 export default function GatherRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -111,11 +112,8 @@ export default function GatherRulesPage() {
       // Reset first so a failed/forbidden fetch never carries the previous tenant's mode over.
       setUnrestrictedMode(false);
       try {
-        const response = await authenticatedFetch(api.config.featureFlags(effectiveTenantId), getAccessToken);
-        if (!stale && response.ok) {
-          const data = await response.json();
-          setUnrestrictedMode(data.unrestrictedMode ?? false);
-        }
+        const data = await fetchJson<TenantFeatureFlagsResponse>(api.config.featureFlags(effectiveTenantId), getAccessToken);
+        if (!stale) setUnrestrictedMode(data.unrestrictedMode ?? false);
       } catch {
         // Silently default to restricted mode
       }

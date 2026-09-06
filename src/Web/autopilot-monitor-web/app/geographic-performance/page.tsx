@@ -7,7 +7,6 @@ import { ProtectedRoute } from "../../components/ProtectedRoute";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { useAuth } from "../../contexts/AuthContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useAggregatedAdminScope } from "@/hooks";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { GlobalAdminBanner, globalAdminSubtitle } from "@/components/GlobalAdminBanner";
@@ -28,6 +27,7 @@ import {
   type MapColorModeId,
 } from "./mapColorModes";
 import { MapLegend } from "./MapLegend";
+import { fetchJson } from "@/lib/apiClient";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
@@ -88,20 +88,10 @@ export default function GeographicPerformancePage() {
       progressBegin();
       const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
       const endpoint = scopedApi.geographic({ routeGlobal, selectedTenantId, effectiveTenantId }, days, group);
-      const response = await authenticatedFetch(endpoint, getAccessToken, {
-        signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setGeoMetrics(data);
-        succeeded = true;
-      }
+      setGeoMetrics(await fetchJson<GeographicMetricsResponse>(endpoint, getAccessToken, { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) }));
+      succeeded = true;
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        console.error("Session expired:", error.message);
-      } else {
-        console.error("Failed to fetch geographic metrics:", error);
-      }
+      console.error("Failed to fetch geographic metrics:", error);
     } finally {
       progressFinish(succeeded);
       setLoading(false);

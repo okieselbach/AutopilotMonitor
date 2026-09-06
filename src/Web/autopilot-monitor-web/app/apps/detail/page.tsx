@@ -9,7 +9,6 @@ import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useNotifications } from "../../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { getErrorCodeEntry, formatErrorCode } from "@/utils/errorCodeMap";
 import { trackEvent } from "@/lib/appInsights";
 // Static import is safe: appReportData is pure data prep with no jsPDF dependency —
@@ -21,6 +20,7 @@ import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { CalculatingInline } from "@/components/CalculatingCard";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { chartColors } from "../../../components/charts/chartTheme";
+import { fetchJson } from "@/lib/apiClient";
 
 // A cross-tenant analytics aggregation can take tens of seconds server-side; the default 30s
 // fetch timeout would abort it client-side while the server keeps computing.
@@ -324,32 +324,16 @@ function AppDetailContent() {
       setLoading(true);
       progressBegin();
       const url = scopedApi.appAnalytics(scope, appName, days);
-      const response = await authenticatedFetch(url, getAccessToken, {
-        signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        setAnalytics((await response.json()) as AnalyticsResponse);
-        succeeded = true;
-      } else {
-        addNotification(
-          "error",
-          "Backend Error",
-          `Failed to load app analytics: ${response.statusText}`,
-          "app-analytics-error"
-        );
-      }
+      setAnalytics(await fetchJson<AnalyticsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
+      succeeded = true;
     } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        addNotification("error", "Session Expired", err.message, "session-expired-error");
-      } else {
-        console.error("Failed to fetch app analytics", err);
-        addNotification(
-          "error",
-          "Backend Not Reachable",
-          "Unable to load app analytics.",
-          "app-analytics-error"
-        );
-      }
+      console.error("Failed to fetch app analytics", err);
+      addNotification(
+        "error",
+        "Backend Not Reachable",
+        "Unable to load app analytics.",
+        "app-analytics-error"
+      );
     } finally {
       progressFinish(succeeded);
       setLoading(false);
@@ -362,16 +346,9 @@ function AppDetailContent() {
     try {
       setSessionsLoading(true);
       const url = scopedApi.appSessions(scope, appName, days, status, offset, SESSIONS_PAGE_SIZE);
-      const response = await authenticatedFetch(url, getAccessToken, {
-        signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        setSessions((await response.json()) as SessionsResponse);
-      }
+      setSessions(await fetchJson<SessionsResponse>(url, getAccessToken, { signal: AbortSignal.timeout(APPS_FETCH_TIMEOUT_MS) }));
     } catch (err) {
-      if (!(err instanceof TokenExpiredError)) {
-        console.error("Failed to fetch sessions", err);
-      }
+      console.error("Failed to fetch sessions", err);
     } finally {
       setSessionsLoading(false);
     }

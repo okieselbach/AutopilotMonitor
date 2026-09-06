@@ -4,6 +4,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
+import { apiErrorText, fetchOk } from "@/lib/apiClient";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
 
@@ -117,29 +118,15 @@ export default function ActivationPage() {
       setEmailStatus("saving");
       setEmailError("");
 
-      const token = await getAccessToken();
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
-
-      const response = await fetch(api.preview.notificationEmail(), {
+      await fetchOk(api.preview.notificationEmail(), getAccessToken, {
         method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ email }),
       });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save email");
-      }
 
       setEmailStatus("saved");
       markAddressDecided();
     } catch (err) {
-      setEmailError(err instanceof Error ? err.message : "Failed to save email");
+      setEmailError(apiErrorText(err, "Failed to save email"));
       setEmailStatus("error");
     }
   };

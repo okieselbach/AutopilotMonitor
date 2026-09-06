@@ -1,8 +1,8 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { nextSlotLimit, slotTenantLabel, type SlotLimitError } from "@/lib/delegatedSlots";
+import { ApiError, fetchOk } from "@/lib/apiClient";
 
 /**
  * Raises a managing tenant's delegated slot override via PATCH config/{tenantId}/plan (GlobalAdminOnly).
@@ -14,17 +14,19 @@ export async function raiseDelegatedSlotLimit(
   homeTenantId: string,
   newLimit: number,
 ): Promise<string | null> {
-  const response = await authenticatedFetch(api.config.plan(homeTenantId), getAccessToken, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ maxDelegatedTenants: newLimit }),
-  });
-  if (response.ok) return null;
-  if (response.status === 404) {
-    return "The managing tenant is not onboarded yet (no tenant configuration) — onboard it first, then raise its slot limit.";
+  try {
+    await fetchOk(api.config.plan(homeTenantId), getAccessToken, {
+      method: "PATCH",
+      body: JSON.stringify({ maxDelegatedTenants: newLimit }),
+    });
+    return null;
+  } catch (err) {
+    if (!(err instanceof ApiError)) throw err;
+    if (err.status === 404) {
+      return "The managing tenant is not onboarded yet (no tenant configuration) — onboard it first, then raise its slot limit.";
+    }
+    return err.message || "Failed to raise the slot limit.";
   }
-  const data = await response.json().catch(() => ({}));
-  return data.error || `Failed to raise the slot limit: ${response.statusText}`;
 }
 
 interface DelegatedSlotPromptProps {

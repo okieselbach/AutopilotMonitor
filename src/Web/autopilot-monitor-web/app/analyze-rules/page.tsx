@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { ProtectedRoute } from "../../components/ProtectedRoute";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
 import { trackEvent } from "@/lib/appInsights";
 import { downloadAsJson, stripInternalFields, bumpVersion } from "@/lib/rulePageHelpers";
 import { StatCard } from "@/components/rules/StatCard";
@@ -34,6 +33,8 @@ import TemplateConfigModal from "./components/TemplateConfigModal";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
+import type { RuleStatsResponse, TenantConfiguration } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 export default function AnalyzeRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -133,9 +134,8 @@ export default function AnalyzeRulesPage() {
         const statsUrl = scope.routeGlobal
           ? api.metrics.globalRuleStats(undefined, undefined, "analyze", effectiveTenantId)
           : api.metrics.ruleStats(undefined, undefined, "analyze");
-        const response = await authenticatedFetch(statsUrl, getAccessToken);
-        if (response.ok) {
-          const data = await response.json();
+        const data = await fetchJson<RuleStatsResponse>(statsUrl, getAccessToken);
+        {
           const map: Record<string, {
             hitRate: number; fireCount: number; trend: RuleTrendPoint[]; regression?: RuleRegressionInfo;
           }> = {};
@@ -175,15 +175,7 @@ export default function AnalyzeRulesPage() {
     if (!effectiveTenantId) return;
     const fetchChannels = async () => {
       try {
-        const response = await authenticatedFetch(api.config.tenant(effectiveTenantId), getAccessToken);
-        if (!response.ok) return;
-        const data = await response.json();
-        const cfg = (data?.config ?? data) as {
-          notificationChannelsJson?: string;
-          webhookUrl?: string;
-          webhookProviderType?: number;
-          teamsWebhookUrl?: string;
-        };
+        const cfg = await fetchJson<TenantConfiguration>(api.config.tenant(effectiveTenantId), getAccessToken);
         if (cfg?.notificationChannelsJson) {
           try {
             const parsed = JSON.parse(cfg.notificationChannelsJson);

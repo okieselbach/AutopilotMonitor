@@ -7,7 +7,6 @@ import { ProtectedRoute } from "../../../components/ProtectedRoute";
 import { useTenant } from "../../../contexts/TenantContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import { GlobalAdminBanner } from "@/components/GlobalAdminBanner";
@@ -15,7 +14,8 @@ import { boundTenantToDelegatedScope } from "@/utils/delegatedScope";
 import { isHomeTenantTarget } from "@/utils/homeTenantScope";
 import { useFetchProgress } from "@/hooks/useFetchProgress";
 import { CalculatingCard } from "@/components/CalculatingCard";
-import type { LocationSessionRow } from "@/utils/wire-types.generated";
+import type { GeographicLocationSessionsResponse, LocationSessionRow } from "@/utils/wire-types.generated";
+import { fetchJson } from "@/lib/apiClient";
 
 // A cross-tenant drilldown can take tens of seconds server-side; the default 30s fetch
 // timeout would abort it client-side while the server keeps computing.
@@ -107,20 +107,10 @@ function LocationSessionsContent() {
       const endpoint = crossTenant
         ? api.metrics.globalGeographicSessions(Number(days), groupBy, locationKey, boundedTenantId)
         : api.metrics.geographicSessions(tenantId, Number(days), groupBy, locationKey);
-      const response = await authenticatedFetch(endpoint, getAccessToken, {
-        signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setData(result);
-        succeeded = true;
-      }
+      setData(await fetchJson<GeographicLocationSessionsResponse>(endpoint, getAccessToken, { signal: AbortSignal.timeout(GEO_FETCH_TIMEOUT_MS) }));
+      succeeded = true;
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        console.error("Session expired:", error.message);
-      } else {
-        console.error("Failed to fetch location sessions:", error);
-      }
+      console.error("Failed to fetch location sessions:", error);
     } finally {
       progressFinish(succeeded);
       setLoading(false);

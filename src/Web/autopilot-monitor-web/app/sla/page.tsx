@@ -8,7 +8,6 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import TruncatedLabel from '@/components/TruncatedLabel';
 import { ProtectedRoute } from '../../components/ProtectedRoute';
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import dynamic from "next/dynamic";
 import { SlaGauge } from "@/components/charts/SlaGauge";
 import { chartColors } from "@/components/charts/chartTheme";
@@ -31,65 +30,19 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import Link from "next/link";
 import { CardSkeleton } from "@/components/skeletons/PageSkeleton";
 
-interface SlaSnapshot {
-  week: string;
-  totalCompleted: number;
-  succeeded: number;
-  failed: number;
-  successRate: number;
-  avgDurationMinutes: number;
-  p95DurationMinutes: number;
-  durationViolationCount: number;
-  successRateMet: boolean;
-  durationTargetMet: boolean;
-}
 
-interface SlaWeeklyTrend {
-  week: string;
-  successRate: number;
-  p95DurationMinutes: number;
-  appInstallSuccessRate: number;
-  totalCompleted: number;
-  successRateMet: boolean;
-  durationTargetMet: boolean;
-  appInstallTargetMet: boolean;
-}
 
 // Wire type of the SLA endpoint — note status is a NUMBER there (the C# SessionStatus
 // enum serialized as int; rendered via statusLabels below), unlike the string status
 // on SessionSummary.
-import type { SlaViolatorSession } from "@/utils/wire-types.generated";
+import type { SlaMetricsResponse } from "@/utils/wire-types.generated";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { fetchJson } from "@/lib/apiClient";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
-interface TopFailingApp {
-  appName: string;
-  failCount: number;
-  totalCount: number;
-  successRate: number;
-}
 
-interface AppInstallSlaSnapshot {
-  totalInstalls: number;
-  succeeded: number;
-  failed: number;
-  successRate: number;
-  targetMet: boolean;
-  topFailingApps: TopFailingApp[];
-}
 
-interface SlaMetricsResponse {
-  targetSuccessRate: number | null;
-  targetMaxDurationMinutes: number | null;
-  targetAppInstallSuccessRate: number | null;
-  currentWeek: SlaSnapshot;
-  weeklyTrend: SlaWeeklyTrend[];
-  violators: SlaViolatorSession[];
-  appInstallSla: AppInstallSlaSnapshot | null;
-  computedAt: string;
-  fromCache: boolean;
-  computeDurationMs: number;
-}
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -107,7 +60,7 @@ export default function SlaPage() {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-
+  
   const [metrics, setMetrics] = useState<SlaMetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -140,23 +93,13 @@ export default function SlaPage() {
         ? api.metrics.globalSla(effectiveTenantId, months, useFresh)
         : api.metrics.sla(effectiveTenantId, months, useFresh);
 
-      const response = await authenticatedFetch(url, getAccessToken);
-      if (!isCurrent()) return;
-      if (!response.ok) {
-        addNotification('error', 'Error', `Failed to load SLA metrics: ${response.statusText}`, 'sla-fetch-error');
-        return;
-      }
-      const data = await response.json();
+      const data = await fetchJson<SlaMetricsResponse>(url, getAccessToken);
       if (!isCurrent()) return;
       setMetrics(data);
     } catch (err) {
       if (!isCurrent()) return;
-      if (err instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', err.message, 'session-expired-error');
-      } else {
-        console.error('Error loading SLA metrics:', err);
-        addNotification('error', 'Error', 'Failed to load SLA metrics', 'sla-fetch-error');
-      }
+      console.error('Error loading SLA metrics:', err);
+      notifyApiError(addNotification, 'Error', err, 'sla-fetch-error', 'Failed to load SLA metrics');
       trackEvent('sla_load_failed', {
         months,
         error: err instanceof Error ? err.message : 'unknown',

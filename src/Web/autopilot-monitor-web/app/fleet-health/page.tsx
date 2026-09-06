@@ -11,7 +11,6 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { scopedApi } from "@/lib/scopedApi";
 import { fetchJson } from "@/lib/apiClient";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
 import FleetStatCard from "./components/FleetStatCard";
 import TimeAttributionSection, { TimeAttributionResponseDto } from "./components/TimeAttributionSection";
 import DeviceJourneySection, { DeviceJourneyResponseDto } from "./components/DeviceJourneySection";
@@ -26,6 +25,7 @@ import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { formatDuration } from "@/lib/formatting";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { notifyApiError } from "@/contexts/NotificationContext";
 
 interface AppMetric {
   appName: string;
@@ -59,7 +59,7 @@ export default function FleetHealthPage() {
   const { tenantId } = useTenant();
   const { getAccessToken } = useAuth();
   const { addNotification } = useNotifications();
-
+  
   // Global admin tenant scope (aggregated-capable): tenant list, selection ("" = all tenants),
   // scope flags, and effectiveTenantId (empty in aggregated mode → skips the SignalR group).
   const scope = useAggregatedAdminScope();
@@ -78,7 +78,6 @@ export default function FleetHealthPage() {
     scopeKey,
     days,
     getAccessToken,
-    addNotification,
     signalR: { on, off, isConnected },
   });
 
@@ -86,20 +85,10 @@ export default function FleetHealthPage() {
     try {
       const d = range === "7d" ? 7 : range === "30d" ? 30 : 90;
       const endpoint = scopedApi.appMetrics(scope, d);
-      const response = await authenticatedFetch(endpoint, getAccessToken);
-      if (response.ok) {
-        const json = await response.json();
-        setAppMetrics(json);
-      } else {
-        addNotification('error', 'Backend Error', `Failed to load app metrics: ${response.statusText}`, 'fleet-health-metrics-error');
-      }
+      setAppMetrics(await fetchJson<AppMetricsResponse>(endpoint, getAccessToken));
     } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        addNotification('error', 'Session Expired', error.message, 'session-expired-error');
-      } else {
-        console.error("Failed to fetch app metrics:", error);
-        addNotification('error', 'Backend Not Reachable', 'Unable to load app metrics. Please check your connection.', 'fleet-health-metrics-error');
-      }
+      console.error("Failed to fetch app metrics:", error);
+      notifyApiError(addNotification, 'Backend Error', error, 'fleet-health-metrics-error', 'Unable to load app metrics.');
     }
   };
 
