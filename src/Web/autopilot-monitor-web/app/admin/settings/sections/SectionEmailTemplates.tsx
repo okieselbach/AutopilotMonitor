@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { fetchJson, fetchOk } from "@/lib/apiClient";
+import { fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
-import type { EmailTemplateTestSendResponse } from "@/utils/wire-types.generated";
+import type { EmailTemplateRequest, EmailTemplateTestSendResponse } from "@/utils/wire-types.generated";
 
 type TemplateKind = "welcome" | "farewell";
 
@@ -122,7 +122,7 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
       setError(null);
       await fetchOk(api.emailTemplates.save(kind), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify({ html: draft }),
+        body: jsonBody<EmailTemplateRequest>({ html: draft }),
       });
       flash(`${title} saved — real sends use the customized HTML from now on.`);
       setEditing(false);
@@ -156,7 +156,7 @@ function TemplateCard({ kind, title, description, getAccessToken, setError, setS
       setError(null);
       const body = await fetchJson<EmailTemplateTestSendResponse>(api.emailTemplates.sendTest(kind), getAccessToken, {
         method: "POST",
-        body: JSON.stringify(useDraft ? { html: draft } : {}),
+        body: jsonBody<EmailTemplateRequest>(useDraft ? { html: draft } : {}),
       });
       flash(`Test ${title.toLowerCase()} sent to ${body?.sentTo ?? "your tenant contact address"}${useDraft ? " (unsaved draft)" : ""}.`);
     } catch (err) {

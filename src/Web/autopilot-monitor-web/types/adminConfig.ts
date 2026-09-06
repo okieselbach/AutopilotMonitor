@@ -26,6 +26,11 @@ export function fromWireAdminConfiguration(wire: WireAdminConfiguration): AdminC
   return { ...wire, excessiveEventAutoActionMode: mode };
 }
 
+/** The UI configuration back on the wire: an unknown/unset mode is sent as the server default ("Off"). */
+export function toWireAdminConfiguration(config: AdminConfiguration): WireAdminConfiguration {
+  return { ...config, excessiveEventAutoActionMode: config.excessiveEventAutoActionMode ?? "Off" };
+}
+
 /** One parsed entry of AdminConfiguration.opsAlertRulesJson (client-side view). */
 export interface OpsAlertRule {
   eventType: string;

@@ -2,14 +2,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { useTenantList } from "@/hooks/useTenantList";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { isApplicationKey, looksLikeGuid, principalLabel } from "@/utils/principalKeys";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { AdminConfiguration, GetMcpUsersResponse, McpUserEntry, PlanTierDefinition as PlanTierDefinitionWire, PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
+import type {
+  AddMcpUserRequest,
+  AdminConfiguration,
+  GetMcpUsersResponse,
+  McpUserEntry,
+  PlanTierDefinition as PlanTierDefinitionWire,
+  PlanTierDefinitionsResponse,
+  SetUsagePlanRequest,
+} from "@/utils/wire-types.generated";
 
 /** One MCP user row and one plan tier — the wire shapes. */
 type McpUser = McpUserEntry;
@@ -108,7 +116,7 @@ export default function McpUsersSection() {
 
       await fetchOk(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify({ ...config, mcpAccessPolicy: newPolicy }),
+        body: jsonBody<AdminConfiguration>({ ...config, mcpAccessPolicy: newPolicy }),
       });
 
       setPolicy(newPolicy);
@@ -132,7 +140,7 @@ export default function McpUsersSection() {
         ? { applicationId: newEmail.trim(), homeTenantId: homeTenantPick }
         : { upn: newEmail.trim(), homeTenantId: needHomeTenant ? homeTenantPick : undefined };
       try {
-        await fetchOk(api.mcpUsers.add(), getAccessToken, { method: "POST", body: JSON.stringify(body) });
+        await fetchOk(api.mcpUsers.add(), getAccessToken, { method: "POST", body: jsonBody<AddMcpUserRequest>(body) });
       } catch (err) {
         if (err instanceof ApiError && err.status === 422 && err.code === HOME_TENANT_UNRESOLVED) setNeedHomeTenant(true);
         throw err;
@@ -197,7 +205,7 @@ export default function McpUsersSection() {
 
       await fetchOk(api.mcpUsers.setUsagePlan(upn), getAccessToken, {
         method: "PATCH",
-        body: JSON.stringify({ usagePlan: usagePlan || null }),
+        body: jsonBody<SetUsagePlanRequest>({ usagePlan: usagePlan || null }),
       });
 
       setSuccessMessage(`Usage plan for ${upn} updated.`);

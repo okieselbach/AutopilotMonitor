@@ -7,10 +7,9 @@ import {
   api,
   type BackupManifest,
   type BackupTableEntry,
-  type RestoreRowRequestBody,
 } from "@/lib/api";
-import type { RestoreRowCommitResponse, RestoreRowPreviewResponse } from "@/utils/wire-types.generated";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { RestoreRowCommitResponse, RestoreRowPreviewResponse, RestoreRowRequest } from "@/utils/wire-types.generated";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { useAdminConfig } from "../../AdminConfigContext";
 import { AdminNotifications } from "../../AdminNotifications";
 import { RestoreRowDiffModal } from "../components/RestoreRowDiffModal";
@@ -66,7 +65,7 @@ function BackupDetailContent() {
     setError(null);
     setPreviewLoading(true);
     try {
-      const body: RestoreRowRequestBody = {
+      const body: RestoreRowRequest = {
         tableName,
         partitionKey: pk,
         rowKey: rk,
@@ -74,7 +73,7 @@ function BackupDetailContent() {
       };
       const preview = await fetchJson<RestoreRowPreviewResponse>(api.backups.restoreRow(backupId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: jsonBody<RestoreRowRequest>(body),
       });
       setActivePreview(preview);
     } catch (err) {

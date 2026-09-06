@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { trackEvent } from "@/lib/appInsights";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import type { AutoResolveResult, IgnoredSoftwareEntry } from "./SoftwareMappingTypes";
-import type { GetIgnoredSoftwareResponse } from "@/utils/wire-types.generated";
+import type { AutoResolveCpeMappingRequest, GetIgnoredSoftwareResponse, IgnoreSoftwareDeleteRequest } from "@/utils/wire-types.generated";
 
 interface IgnoredSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -73,7 +73,7 @@ export function IgnoredSoftwareTab({
       setError(null);
       await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "DELETE",
-        body: JSON.stringify({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
+        body: jsonBody<IgnoreSoftwareDeleteRequest>({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
       });
       setIgnoredEntries((prev) => {
         const next = prev.filter((e) => `${e.softwareName}::${e.publisher}` !== key);
@@ -97,7 +97,7 @@ export function IgnoredSoftwareTab({
       // First, call auto-resolve for this single item
       const data = await fetchJson<AutoResolveResult>(api.vulnerability.cpeAutoResolve(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
+        body: jsonBody<AutoResolveCpeMappingRequest>({
           items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", normalizedVendor: entry.publisher || "" }],
         }),
       });
@@ -106,7 +106,7 @@ export function IgnoredSoftwareTab({
         // Resolved! Remove from ignore list and refresh
         await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
           method: "DELETE",
-          body: JSON.stringify({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
+          body: jsonBody<IgnoreSoftwareDeleteRequest>({ softwareName: entry.softwareName, publisher: entry.publisher || "" }),
         });
         setIgnoredEntries((prev) => {
           const next = prev.filter((e) => `${e.softwareName}::${e.publisher}` !== key);

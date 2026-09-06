@@ -4,14 +4,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantConfig } from "../../TenantConfigContext";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { isProViaMsp } from "@/lib/edition";
 import { buildInviteLink, describeDelegationError, holdRemainingLabel, invitationStatusLabel } from "@/lib/delegations";
 import { principalLabel } from "@/utils/principalKeys";
-import type { CreateDelegationInvitationResponse, DelegationAssigneeListResponse, DelegationInvitationListResponse, ManagedTenantListResponse, TenantManagerListResponse } from "@/utils/wire-types.generated";
+import type {
+  CreateDelegationInvitationResponse,
+  DelegationAssigneeListResponse,
+  DelegationAssignRequest,
+  DelegationInvitationListResponse,
+  ManagedTenantListResponse,
+  RemoveManagedTenantRequest,
+  RevokeTenantManagerRequest,
+  TenantManagerListResponse,
+} from "@/utils/wire-types.generated";
 
 type Confirm =
   | { kind: "revoke"; homeTenantId: string; label: string }
@@ -91,17 +100,14 @@ export function SectionDelegatedAccess() {
     void run();
   }, [load, canEditConfig]);
 
-  /** Runs a mutation; a structured error body ({ error, code }) is explained via describeDelegationError. */
+  /** Runs a mutation (`body` is a jsonBody<T>() string; undefined ⇒ none); a structured error body ({ error, code }) is explained via describeDelegationError. */
   const mutate = useCallback(
-    async (key: string, url: string, method: string, body: unknown, ok: string): Promise<boolean | null> => {
+    async (key: string, url: string, method: string, body: string | undefined, ok: string): Promise<boolean | null> => {
       setBusy(key);
       setError(null);
       try {
         const init: RequestInit = { method };
-        if (body !== undefined) {
-          init.headers = { "Content-Type": "application/json" };
-          init.body = JSON.stringify(body);
-        }
+        if (body !== undefined) init.body = body;
         try {
           await fetchOk(url, getAccessToken, init);
         } catch (err) {
@@ -225,7 +231,7 @@ export function SectionDelegatedAccess() {
                           <button
                             type="button"
                             disabled={busy !== null}
-                            onClick={() => mutate("revoke", api.delegations.revokeManager(), "POST", { homeTenantId: m.ownerTenantId }, `Access of ${confirm.label} revoked.`)}
+                            onClick={() => mutate("revoke", api.delegations.revokeManager(), "POST", jsonBody<RevokeTenantManagerRequest>({ homeTenantId: m.ownerTenantId ?? "" }), `Access of ${confirm.label} revoked.`)}
                             className="text-xs font-medium text-white bg-red-600 rounded px-2 py-1 hover:bg-red-700 disabled:opacity-50"
                           >
                             {busy === "revoke" ? "Revoking…" : "Confirm"}
@@ -313,7 +319,7 @@ export function SectionDelegatedAccess() {
                                 <button
                                   type="button"
                                   disabled={busy !== null}
-                                  onClick={() => mutate("remove", api.delegations.removeManaged(), "POST", { tenantId: t.tenantId }, `${confirm.label} removed.`)}
+                                  onClick={() => mutate("remove", api.delegations.removeManaged(), "POST", jsonBody<RemoveManagedTenantRequest>({ tenantId: t.tenantId }), `${confirm.label} removed.`)}
                                   className="text-xs font-medium text-white bg-red-600 rounded px-2 py-1 hover:bg-red-700 disabled:opacity-50"
                                 >
                                   {busy === "remove" ? "Removing…" : "Confirm"}
@@ -452,7 +458,7 @@ export function SectionDelegatedAccess() {
                     type="button"
                     disabled={!assignUpn || busy !== null}
                     onClick={async () => {
-                      const ok = await mutate("assign", api.delegations.assignees(), "POST", { upn: assignUpn }, `${principalLabel(assignUpn)} can now read your managed tenants.`);
+                      const ok = await mutate("assign", api.delegations.assignees(), "POST", jsonBody<DelegationAssignRequest>({ upn: assignUpn }), `${principalLabel(assignUpn)} can now read your managed tenants.`);
                       if (ok) setAssignUpn("");
                     }}
                     className="shrink-0 px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"

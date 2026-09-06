@@ -7,7 +7,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNotifications } from "../../contexts/NotificationContext";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { classifyAccessCheck, type AccessCheckOutcome, type AccessCheckPayload } from "@/lib/accessCheck";
 import { primaryClientId } from "@/lib/authApp";
@@ -32,7 +32,20 @@ import { TenantConfiguration, TenantAdmin, DiagnosticsLogPath, NotificationChann
 import { SECTION_FIELD_MAP, type SectionFieldSpec, type SettingsSectionName } from "./sectionFieldMap";
 import { looksLikeGuid, type MemberKind } from "@/utils/principalKeys";
 import { type BootstrapSessionItem } from "./components/BootstrapSessionsSection";
-import type { AutopilotConsentStatusResponse, AutopilotConsentUrlResponse, OffboardResponse, TenantFeatureFlagsResponse, TestWebhookNotificationResponse } from "@/utils/wire-types.generated";
+import type {
+  AddTenantAdminRequest,
+  AutopilotConsentFailureRequest,
+  AutopilotConsentStatusResponse,
+  AutopilotConsentSuccessRequest,
+  AutopilotConsentUrlResponse,
+  CreateBootstrapSessionRequest,
+  OffboardResponse,
+  PatchTenantConfigurationFieldsRequest,
+  TenantFeatureFlagsResponse,
+  TestNotificationChannelRequest,
+  TestWebhookNotificationResponse,
+  UpdateMemberPermissionsRequest,
+} from "@/utils/wire-types.generated";
 
 /**
  * Channels for display/editing from a loaded config: prefers notificationChannelsJson; while
@@ -828,7 +841,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         // backend verified exactly these fields changed, so merge them locally.
         await fetchOk(api.config.fields(tenantId), getAccessToken, {
           method: "PATCH",
-          body: JSON.stringify({ fields: patchFields, reason: `settings:${sectionName}` }),
+          body: jsonBody<PatchTenantConfigurationFieldsRequest>({ fields: patchFields, reason: `settings:${sectionName}` }),
         });
         setConfig({ ...config, ...patchFields } as TenantConfiguration);
       }
@@ -1005,7 +1018,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         try {
           await fetchOk(api.config.autopilotConsentFailure(tenantId), getAccessToken, {
             method: "POST",
-            body: JSON.stringify({
+            body: jsonBody<AutopilotConsentFailureRequest>({
               error: consentError,
               errorDescription: consentErrorDescription ? decodeURIComponent(consentErrorDescription) : undefined,
             }),
@@ -1065,7 +1078,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         try {
           await fetchOk(api.config.autopilotConsentSuccess(tenantId), getAccessToken, {
             method: "POST",
-            body: JSON.stringify({ trigger }),
+            body: jsonBody<AutopilotConsentSuccessRequest>({ trigger }),
           });
         } catch {
           // swallow — observability only
@@ -1170,7 +1183,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     try {
       const data = await fetchJson<TestWebhookNotificationResponse>(api.config.testNotification(tenantId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ channelId }),
+        body: jsonBody<TestNotificationChannelRequest>({ channelId }),
       });
       setTestChannelResult({ channelId, success: data.success, message: data.message });
     } catch (err) {
@@ -1340,11 +1353,11 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
 
       // A service principal is stored under app:<client-id> and is always read-only (Viewer).
       const body = addingApplication
-        ? { applicationId: newAdminEmail.trim(), role: "Viewer" }
-        : { upn: newAdminEmail.trim(), role: newMemberRole };
+        ? { applicationId: newAdminEmail.trim(), role: "Viewer", canManageBootstrapTokens: false }
+        : { upn: newAdminEmail.trim(), role: newMemberRole, canManageBootstrapTokens: false };
       await fetchOk(api.tenants.admins(tenantId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: jsonBody<AddTenantAdminRequest>(body),
       });
 
       trackEvent("admin_member_added", { role: body.role, kind: newMemberKind });
@@ -1429,7 +1442,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
         getAccessToken,
         {
           method: "PATCH",
-          body: JSON.stringify({ role, canManageBootstrapTokens }),
+          body: jsonBody<UpdateMemberPermissionsRequest>({ role, canManageBootstrapTokens }),
         },
       );
 
@@ -1455,7 +1468,7 @@ export function TenantConfigProvider({ children }: { children: React.ReactNode }
     try {
       const data = await fetchJson<{ bootstrapUrl?: string }>(api.bootstrap.sessions(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ tenantId, validityHours, label }),
+        body: jsonBody<CreateBootstrapSessionRequest>({ tenantId, validityHours, label }),
       });
       trackEvent("bootstrap_session_created", { validityHours });
       await fetchBootstrapSessions();

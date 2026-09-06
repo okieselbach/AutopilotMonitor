@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { BlockedVersionListResponse } from "@/utils/wire-types.generated";
+import type { BlockedVersionListResponse, BlockVersionRequest } from "@/utils/wire-types.generated";
 
 interface BlockedVersion {
   versionPattern: string;
@@ -61,7 +61,7 @@ export function VersionBlockSection({
       setError(null);
       await fetchOk(api.versions.block(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
+        body: jsonBody<BlockVersionRequest>({
           versionPattern: versionPattern.trim(),
           action: versionAction,
           reason: versionReason.trim() || undefined,

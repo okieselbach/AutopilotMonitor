@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { apiErrorText, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import type { SubmitOffboardingFeedbackRequest } from "@/utils/wire-types.generated";
 
 interface OffboardingInProgressInfo {
   status: string;                     // "Queued" | "Initiated" | "InProgress" | "Completed" | "Failed"
@@ -272,7 +273,7 @@ function OffboardingInProgressBanner({
     try {
       await fetchOk(api.tenants.offboardFeedback(tenantId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ comment: trimmed.slice(0, FEEDBACK_MAX_CHARS) }),
+        body: jsonBody<SubmitOffboardingFeedbackRequest>({ comment: trimmed.slice(0, FEEDBACK_MAX_CHARS) }),
       });
       try {
         window.localStorage.setItem(localStorageKey, "1");

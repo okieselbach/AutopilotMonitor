@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import type { FeedbackEligibilityResponse } from "@/utils/wire-types.generated";
-import { fetchJson, fetchOk, nullOnApiError } from "@/lib/apiClient";
+import type { FeedbackEligibilityResponse, FeedbackRequest } from "@/utils/wire-types.generated";
+import { fetchJson, fetchOk, jsonBody, nullOnApiError } from "@/lib/apiClient";
 
 type Phase = "loading" | "bubble" | "form" | "thankyou" | "hidden";
 
@@ -57,7 +57,7 @@ export default function FeedbackBubble() {
     try {
       await fetchOk(api.feedback.submit(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ dismissed: true }),
+        body: jsonBody<FeedbackRequest>({ dismissed: true }),
       });
     } catch {
       // Best effort
@@ -71,7 +71,7 @@ export default function FeedbackBubble() {
     try {
       await fetchOk(api.feedback.submit(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ rating, comment: comment.trim() || null, dismissed: false }),
+        body: jsonBody<FeedbackRequest>({ rating, comment: comment.trim() || null, dismissed: false }),
       });
 
       setPhase("thankyou");

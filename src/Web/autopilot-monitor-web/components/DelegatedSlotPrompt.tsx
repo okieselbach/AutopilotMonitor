@@ -2,7 +2,8 @@
 
 import { api } from "@/lib/api";
 import { nextSlotLimit, slotTenantLabel, type SlotLimitError } from "@/lib/delegatedSlots";
-import { ApiError, fetchOk } from "@/lib/apiClient";
+import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
+import type { PatchTenantPlanRequest } from "@/utils/wire-types.generated";
 
 /**
  * Raises a managing tenant's delegated slot override via PATCH config/{tenantId}/plan (GlobalAdminOnly).
@@ -17,7 +18,7 @@ export async function raiseDelegatedSlotLimit(
   try {
     await fetchOk(api.config.plan(homeTenantId), getAccessToken, {
       method: "PATCH",
-      body: JSON.stringify({ maxDelegatedTenants: newLimit }),
+      body: jsonBody<PatchTenantPlanRequest>({ maxDelegatedTenants: newLimit }),
     });
     return null;
   } catch (err) {

@@ -1,10 +1,25 @@
 "use client";
 
 import { Suspense, useState, useEffect } from "react";
-import type { AppHomingDeniedResponse, DelegatedSlotUsageResponse, GetPreviewNotificationEmailResponse, OffboardResponse, PlanTierDefinitionsResponse, PreviewWhitelistActionResponse, SetTenantPlanTierResponse, UpdateTenantAppHomingResponse, UpdateTenantConfigurationResponse } from "@/utils/wire-types.generated";
+import type {
+  AppHomingDeniedResponse,
+  AppHomingRequest,
+  DelegatedSlotUsageResponse,
+  GetPreviewNotificationEmailResponse,
+  OffboardResponse,
+  PatchTenantPlanRequest,
+  PlanTierDefinitionsResponse,
+  PreviewWhitelistActionResponse,
+  ReleaseDelegatedSlotHoldRequest,
+  SaveNotificationEmailRequest,
+  SetTenantPlanTierResponse,
+  TenantConfiguration as WireTenantConfiguration,
+  UpdateTenantAppHomingResponse,
+  UpdateTenantConfigurationResponse,
+} from "@/utils/wire-types.generated";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { classifyClientId, legacyConfigured } from "@/lib/authApp";
 import { appHomingErrorMessage } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
@@ -23,62 +38,12 @@ function effectiveEditionLabel(edition: unknown, source: unknown): string {
   return "Pro";
 }
 
-export interface TenantConfiguration {
-  tenantId: string;
-  domainName: string;
-  lastUpdated: string;
-  updatedBy: string;
-  /** Tenant-maintained contact address for service matters. Read-only here. */
-  contactEmail?: string | null;
-  /** Tenant-maintained company name (contact profile). Read-only here. */
-  companyName?: string | null;
-  disabled: boolean;
-  disabledReason?: string;
-  disabledUntil?: string;
-  /** Per-tenant device API rate-limit override (null/undefined = inherit global). GA-only. */
-  customRateLimitRequestsPerMinute?: number | null;
-  /** Per-tenant user API rate-limit override for standard users (null/undefined = inherit global). GA-only. */
-  customUserRateLimitRequestsPerMinute?: number | null;
-  manufacturerWhitelist: string;
-  modelWhitelist: string;
-  validateAutopilotDevice: boolean;
-  allowInsecureAgentRequests?: boolean;
-  bootstrapTokenEnabled?: boolean;
-  unrestrictedModeEnabled?: boolean;
-  entraAppRolesEnabled?: boolean;
-  /** Operator-set (GA-only): Device-phase ESP failures on Continue-Anyway profiles get a 60-min observation instead of an immediate hard fail. */
-  enableEspContinueAnywayObservation?: boolean;
-  dataRetentionDays: number;
-  sessionTimeoutHours: number;
-  planTier?: string;
-  /** Pro-trial end (ISO, UTC). Null/undefined = no trial. Managed via PATCH plan. */
-  trialExpiresUtc?: string | null;
-  /** Whether the tenant has used its one self-service trial. */
-  trialConsumed?: boolean;
-  /** Delegated (MSP) tenant slot override; null/undefined = plan entitlement (Community 0, Pro 2). Managed via PATCH plan. */
-  maxDelegatedTenantsOverride?: number | null;
-  /**
-   * MCP usage-plan override — a SectionUsagePlans plan name applied to the WHOLE tenant (every member's
-   * default plan + the organization windows); null/undefined = edition default. Managed via PATCH plan.
-   */
-  mcpUsagePlanOverride?: string | null;
-  /** Sales bookkeeping: the tenant pays for its plan. No entitlement effect. Managed via PATCH plan. */
-  payingCustomer?: boolean;
-  /**
-   * Read-time projection (never stored): the permanent-Pro tenant whose delegation confers Pro on this
-   * one, or null. While set the effective edition is "Pro (MSP)".
-   */
-  managedByProTenantId?: string | null;
-  /**
-   * Dual app-reg homing: null/undefined = legacy app. Typed explicitly so a payload refactor
-   * cannot silently drop the field on the generic PUT round-trip (absent ⇒ backend resets to
-   * legacy). Mutated ONLY via POST app-homing — the PUT preserves it server-side.
-   */
-  homedAppClientId?: string | null;
-  /** System-written login provenance (AuthFunction) — read-only observability. */
-  lastAuthClientId?: string | null;
-  lastAuthClientIdSince?: string | null;
-}
+/**
+ * The tenant row as the backend serves and accepts it (PUT config/{tenantId} sends the whole
+ * object back, PATCH plan the presence-sensitive subset). The former local subset hid fields
+ * the PUT carries anyway; D-207 types the body against the wire.
+ */
+export type TenantConfiguration = WireTenantConfiguration;
 
 /** Small "New app" / "Legacy app" indicator for the dual app-reg parallel window. */
 function HomingBadge({ clientId }: { clientId?: string | null }) {
@@ -170,7 +135,7 @@ function TenantManagementSectionInner({
       setError(null);
       await fetchOk(api.delegatedSlots.releaseHold(tenantId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ invitationId }),
+        body: jsonBody<ReleaseDelegatedSlotHoldRequest>({ invitationId, all: false }),
       });
       setSlotUsage((prev) => prev
         ? { ...prev, holds: prev.holds.filter((h) => h.invitationId !== invitationId), used: Math.max(0, prev.used - 1) }
@@ -270,7 +235,7 @@ function TenantManagementSectionInner({
 
       const result = await fetchJson<UpdateTenantConfigurationResponse>(api.config.tenant(tenant.tenantId), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify(tenant),
+        body: jsonBody<TenantConfiguration>(tenant),
       });
 
       // Update tenant in list
@@ -299,7 +264,7 @@ function TenantManagementSectionInner({
 
       const result = await fetchJson<SetTenantPlanTierResponse>(api.config.plan(tenant.tenantId), getAccessToken, {
         method: "PATCH",
-        body: JSON.stringify({
+        body: jsonBody<PatchTenantPlanRequest>({
           // The select only offers the two canonical write values (community/pro); legacy stored
           // "enterprise" normalizes to "pro" on save, legacy "free" to "community".
           planTier: tenant.planTier === "pro" || tenant.planTier === "enterprise" ? "pro" : "community",
@@ -343,7 +308,7 @@ function TenantManagementSectionInner({
       try {
         data = await fetchJson<UpdateTenantAppHomingResponse>(api.config.appHoming(tenant.tenantId), getAccessToken, {
           method: "POST",
-          body: JSON.stringify({ target, force }),
+          body: jsonBody<AppHomingRequest>({ target, force }),
         });
       } catch (err) {
         if (err instanceof ApiError) {
@@ -435,7 +400,7 @@ function TenantManagementSectionInner({
         getAccessToken,
         {
           method: "POST",
-          body: JSON.stringify({ email: email || "" }),
+          body: jsonBody<SaveNotificationEmailRequest>({ email: email || "" }),
         }
       );
       // The send persisted the address too — keep the search map in step so the tenant is

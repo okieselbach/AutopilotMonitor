@@ -6,8 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { describeDelegationError, invitationStatusLabel } from "@/lib/delegations";
-import type { AcceptDelegationInvitationResponse, DelegationAcceptPreviewResponse } from "@/utils/wire-types.generated";
-import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
+import type { AcceptDelegationInvitationRequest, AcceptDelegationInvitationResponse, DelegationAcceptPreviewResponse } from "@/utils/wire-types.generated";
+import { ApiError, apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 
 export default function AcceptDelegationPage() {
   // useSearchParams needs a Suspense boundary for the static prerender (query-string route).
@@ -70,7 +70,7 @@ function AcceptDelegationInner() {
     try {
       setDone(await fetchJson<AcceptDelegationInvitationResponse>(api.delegations.accept(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ token }),
+        body: jsonBody<AcceptDelegationInvitationRequest>({ token }),
       }));
     } catch (err) {
       setError(explain(err, "Could not accept the invitation."));

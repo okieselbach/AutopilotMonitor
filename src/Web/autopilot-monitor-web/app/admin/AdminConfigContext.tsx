@@ -3,9 +3,16 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
-import { fromWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
-import type { AdminConfiguration as WireAdminConfiguration, GetAllPreviewNotificationEmailsResponse, GetPreviewWhitelistResponse, TestWebhookNotificationResponse, UpdateAdminConfigurationResponse } from "@/utils/wire-types.generated";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
+import { fromWireAdminConfiguration, toWireAdminConfiguration, type AdminConfiguration, type OpsAlertRule } from "@/types/adminConfig";
+import type {
+  AdminConfiguration as WireAdminConfiguration,
+  GetAllPreviewNotificationEmailsResponse,
+  GetPreviewWhitelistResponse,
+  TestNotificationChannelRequest,
+  TestWebhookNotificationResponse,
+  UpdateAdminConfigurationResponse,
+} from "@/utils/wire-types.generated";
 import type { NotificationChannel } from "@/app/settings/types";
 
 // Re-export so existing `import { AdminConfiguration } from "../AdminConfigContext"` consumers keep working
@@ -360,7 +367,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
       const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify(updatedConfig),
+        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
       });
       setAdminConfig(fromWireAdminConfiguration(result.config));
       setSuccessMessage("Admin configuration saved successfully!");
@@ -440,7 +447,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
       const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify(updatedConfig),
+        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
       });
       setAdminConfig(fromWireAdminConfiguration(result.config));
       setGlobalDiagPaths(paths);
@@ -484,7 +491,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
       const result = await fetchJson<UpdateAdminConfigurationResponse>(api.globalConfig.get(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify(updatedConfig),
+        body: jsonBody<WireAdminConfiguration>(toWireAdminConfiguration(updatedConfig)),
       });
       setAdminConfig(fromWireAdminConfiguration(result.config));
       setOpsAlertRules(rules);
@@ -515,7 +522,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
 
       const result = await fetchJson<TestWebhookNotificationResponse>(api.globalConfig.testOpsChannel(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({ channelId }),
+        body: jsonBody<TestNotificationChannelRequest>({ channelId }),
       });
       setTestOpsChannelResult({
         channelId,

@@ -3,17 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList } from "@/hooks/useTenantList";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { TenantGroup, TenantGroupListResponse } from "@/utils/wire-types.generated";
+import type {
+  AddGroupTenantRequest,
+  AssignGroupRequest,
+  CreateTenantGroupRequest,
+  TenantGroup,
+  TenantGroupListResponse,
+  UpdateTenantGroupRequest,
+} from "@/utils/wire-types.generated";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 
 /** A mutation held back by the slot limit, with everything needed to replay it after the limit is raised. */
 interface SlotPromptState extends SlotLimitError {
-  retry: { key: string; url: string; method: string; body: unknown; ok: string };
+  retry: { key: string; url: string; method: string; body: string | undefined; ok: string };
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -83,14 +90,14 @@ export function SectionTenantGroups() {
     void run();
   }, [fetchGroups]);
 
-  /** Runs a mutation with shared busy/error/refetch handling. `body` undefined ⇒ no JSON body. */
+  /** Runs a mutation with shared busy/error/refetch handling. `body` is a jsonBody<T>() string; undefined ⇒ no JSON body. */
   const mutate = useCallback(
-    async (key: string, url: string, method: string, body: unknown, ok: string) => {
+    async (key: string, url: string, method: string, body: string | undefined, ok: string) => {
       try {
         setBusyKey(key);
         setError(null);
         const init: RequestInit = { method };
-        if (body !== undefined) init.body = JSON.stringify(body);
+        if (body !== undefined) init.body = body;
         try {
           await fetchOk(url, getAccessToken, init);
         } catch (err) {
@@ -139,7 +146,7 @@ export function SectionTenantGroups() {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
-    const ok = await mutate("create", api.tenantGroups.create(), "POST", { name }, `Created group "${name}".`);
+    const ok = await mutate("create", api.tenantGroups.create(), "POST", jsonBody<CreateTenantGroupRequest>({ name }), `Created group "${name}".`);
     setCreating(false);
     if (ok) setNewName("");
   }, [newName, mutate]);
@@ -148,7 +155,7 @@ export function SectionTenantGroups() {
     async (t: TenantGroup) => {
       const name = prompt("Rename group:", t.name)?.trim();
       if (!name || name === t.name) return;
-      await mutate(`rename:${t.groupId}`, api.tenantGroups.update(t.groupId), "PATCH", { name }, `Renamed to "${name}".`);
+      await mutate(`rename:${t.groupId}`, api.tenantGroups.update(t.groupId), "PATCH", jsonBody<UpdateTenantGroupRequest>({ name }), `Renamed to "${name}".`);
     },
     [mutate],
   );
@@ -165,7 +172,7 @@ export function SectionTenantGroups() {
         `charge:${t.groupId}`,
         api.tenantGroups.update(t.groupId),
         "PATCH",
-        { chargeHomeTenantQuota: next },
+        jsonBody<UpdateTenantGroupRequest>({ chargeHomeTenantQuota: next }),
         next
           ? `"${t.name}": MCP reads are now charged to the assignee's home tenant.`
           : `"${t.name}": MCP reads are now charged to the managed tenant.`,
@@ -191,7 +198,7 @@ export function SectionTenantGroups() {
         `addtenant:${t.groupId}`,
         api.tenantGroups.addTenant(t.groupId),
         "POST",
-        { tenantId },
+        jsonBody<AddGroupTenantRequest>({ tenantId }),
         `Added ${domainOf(tenantId) || tenantId} to "${t.name}".`,
       );
       if (ok) setTenantToAdd((prev) => ({ ...prev, [t.groupId]: "" }));
@@ -230,11 +237,11 @@ export function SectionTenantGroups() {
         `assign:${t.groupId}`,
         api.tenantGroups.assign(t.groupId),
         "POST",
-        {
+        jsonBody<AssignGroupRequest>({
           upn,
           role,
           homeTenantId: needHomeTenant[t.groupId] ? homeTenantPick[t.groupId] : undefined,
-        },
+        }),
         `Assigned ${upn} to "${t.name}".`,
       );
       if (ok) {

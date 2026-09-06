@@ -16,6 +16,13 @@ export const PERMANENT: Record<string, string> = {
   "app/dashboard/hooks/useTenantSecurityConfig.ts": "fail-soft banner data; the expiry is the one failure the user must hear about",
   "app/sessions/hooks/useSessionDetail.ts": "a network failure keeps the retry flag, an expiry must not",
   "app/settings/components/OffboardingSection.tsx": "expiry message tells the user the offboarding continues in the background",
+  // Rule documents: the pages edit a LOCAL rule shape (app/*/types.ts) whose nested types diverge from the
+  // wire (RuleCondition.itemField optional vs required, suppressByEvent inline vs SuppressByEventConfig,
+  // GatherRule.triggerPhase nullable vs string) and the PUT accepts toggle partials the service merges.
+  // Typing the body against the generated document needs the forms moved onto the wire types first (backlog).
+  "app/analyze-rules/page.tsx": "rule document bodies until the local rule types are the generated ones",
+  "app/gather-rules/page.tsx": "rule document bodies until the local rule types are the generated ones",
+  "app/ime-log-patterns/page.tsx": "pattern document bodies until the local pattern type is the generated one",
 };
 
 export const AUTHENTICATEDFETCH_BASELINE: Record<string, number> = {
@@ -29,6 +36,17 @@ export const JSONPARSE_BASELINE: Record<string, number> = {
   "app/health-check/page.tsx": 1,
   "components/landing/StatsBand.tsx": 2,
   "contexts/AuthContext.tsx": 3,
+};
+
+/**
+ * `body: JSON.stringify(` sites (D-207): request bodies are `jsonBody<SomeRequest>(…)` so tsc
+ * checks them against the generated request DTO. Scanned over the app dirs AND lib/ (the layer
+ * itself is exempt). Frozen 2026-09-06; only shrinks.
+ */
+export const BODY_STRINGIFY_BASELINE: Record<string, number> = {
+  "app/analyze-rules/page.tsx": 5,
+  "app/gather-rules/page.tsx": 3,
+  "app/ime-log-patterns/page.tsx": 2,
 };
 
 export const TOKENEXPIRED_BASELINE: Record<string, number> = {

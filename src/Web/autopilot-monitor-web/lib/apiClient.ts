@@ -10,6 +10,7 @@ import type { ApiErrorResponse } from "@/utils/wire-types.generated";
  *   fetchJson<T>  — JSON body expected; throws ApiError on non-2xx, empty or malformed body
  *   fetchOk       — action calls whose body nobody reads; returns the ok Response (status only)
  *   fetchBlob     — downloads
+ *   jsonBody<T>   — request bodies, typed against the generated request DTO
  *
  * Every non-2xx body is the typed envelope `{ error, code, correlationId, hint?,
  * retryAfterSeconds? }` (D-192); TokenExpiredError from authenticatedFetch passes through
@@ -17,6 +18,16 @@ import type { ApiErrorResponse } from "@/utils/wire-types.generated";
  */
 
 export type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;
+
+/**
+ * The one way a request body is encoded (D-207): the generic names the generated request wire
+ * type (utils/wire-types.generated), so a renamed or retyped backend field fails tsc here instead
+ * of surfacing as a 400 at runtime. The guard refuses `body: JSON.stringify(` and a bare
+ * `jsonBody(` without a type argument.
+ */
+export function jsonBody<TReq>(value: TReq): string {
+  return JSON.stringify(value);
+}
 
 export class ApiError extends Error {
   constructor(

@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenantList } from "@/hooks/useTenantList";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { HOME_TENANT_UNRESOLVED } from "@/lib/identityBinding";
 import { parseSlotLimitError, type SlotLimitError } from "@/lib/delegatedSlots";
 import { DelegatedSlotPrompt, raiseDelegatedSlotLimit } from "@/components/DelegatedSlotPrompt";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { DelegatedAdminListResponse } from "@/utils/wire-types.generated";
+import type { DelegatedAdminListResponse, GrantDelegatedAdminRequest } from "@/utils/wire-types.generated";
 
 /** One delegated-admin assignment as returned by /api/global/delegated-admins (camelCase JSON). */
 interface DelegatedAssignment {
@@ -97,7 +97,7 @@ export function SectionDelegatedAdmins() {
       try {
         await fetchOk(api.delegatedAdmins.grant(), getAccessToken, {
           method: "POST",
-          body: JSON.stringify({
+          body: jsonBody<GrantDelegatedAdminRequest>({
             upn,
             tenantId: newTenantId,
             role: newRole,

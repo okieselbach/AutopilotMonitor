@@ -2,10 +2,10 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { isGuid, type IdentityBinding } from "@/lib/identityBinding";
-import type { IdentityBindingListResponse } from "@/utils/wire-types.generated";
+import type { IdentityBindingListResponse, IdentityBindingRequest } from "@/utils/wire-types.generated";
 
 interface IdentityBindingsSectionProps {
   tenantId: string;
@@ -80,7 +80,7 @@ export function IdentityBindingsSection({
       setError(null);
       await fetchOk(api.identityBindings.put(upn), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify({ homeTenantId: tid, objectId: oid || undefined }),
+        body: jsonBody<IdentityBindingRequest>({ homeTenantId: tid, objectId: oid || undefined }),
       });
       setSuccessMessage(`Identity binding for ${upn} updated.`);
       setEditing(null);

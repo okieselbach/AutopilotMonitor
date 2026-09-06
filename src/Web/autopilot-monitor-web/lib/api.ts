@@ -814,15 +814,4 @@ export interface BackupTriggerResponse {
   statusUrl: string;
 }
 
-// ── PR2: single-row restore ───────────────────────────────────────────────
-
-export type RestoreRowMode = "Preview" | "Commit";
-
-export interface RestoreRowRequestBody {
-  tableName: string;
-  partitionKey: string;
-  rowKey: string;
-  mode: RestoreRowMode;
-  ifSha256?: string;
-  ifCurrentETag?: string | null;
-}
+// ── PR2: single-row restore — request/response types are generated (RestoreRowRequest, RestoreRowMode) ──

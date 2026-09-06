@@ -6,7 +6,8 @@ import { api } from '@/lib/api';
 import { trackEvent } from '@/lib/appInsights';
 import type { SignalRMessageName } from '@/lib/signalrMessages';
 import { useAuth } from './AuthContext';
-import { ApiError, fetchOk } from "@/lib/apiClient";
+import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
+import type { SignalRJoinGroupRequest, SignalRLeaveGroupRequest } from "@/utils/wire-types.generated";
 
 // Hub payloads are untyped JSON; mirror @microsoft/signalr's own callback signature so
 // consumer handlers keep their narrower parameter types without laundering here.
@@ -144,7 +145,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
             method: 'POST',
             // Re-present the stored serial proof for session groups: a roleless
             // Progress-Portal user's rejoin is refused without it.
-            body: JSON.stringify({
+            body: jsonBody<SignalRJoinGroupRequest>({
               connectionId,
               groupName,
               serialNumber: joinSerialsRef.current.get(groupName),
@@ -283,7 +284,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       try {
         await fetchOk(api.realtime.joinGroup(), getAccessToken, {
           method: 'POST',
-          body: JSON.stringify({
+          body: jsonBody<SignalRJoinGroupRequest>({
             connectionId,
             groupName,
             serialNumber: options?.serialNumber,
@@ -331,7 +332,7 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
 
       await fetchOk(api.realtime.leaveGroup(), getAccessToken, {
         method: 'POST',
-        body: JSON.stringify({ connectionId, groupName }),
+        body: jsonBody<SignalRLeaveGroupRequest>({ connectionId, groupName }),
       });
       // Confirmed leave: drop the stored serial proof for this group (a refusal lands in the catch, which re-adds the group).
       joinSerialsRef.current.delete(groupName);

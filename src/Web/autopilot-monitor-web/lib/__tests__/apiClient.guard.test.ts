@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   AUTHENTICATEDFETCH_BASELINE,
+  BODY_STRINGIFY_BASELINE,
   DEDUPEDAUTHFETCH_BASELINE,
   JSONPARSE_BASELINE,
   PERMANENT,
@@ -23,6 +24,9 @@ import {
 
 const WEB_ROOT = join(__dirname, "..", "..");
 const SCAN_DIRS = ["app", "components", "hooks", "contexts"];
+/** Request bodies are also written from lib/ helpers; the call layer itself is exempt. */
+const BODY_SCAN_DIRS = [...SCAN_DIRS, "lib"];
+const BODY_EXEMPT_FILES = new Set(["lib/apiClient.ts"]);
 /** The lib-level hook is itself a fetchJson consumer and the one place allowed to spell TokenExpiredError. */
 const EXEMPT_FILES = new Set(["hooks/useAuthenticatedFetch.ts"]);
 
@@ -31,6 +35,8 @@ interface Pattern {
   regex: RegExp;
   baseline: Record<string, number>;
   remedy: string;
+  /** Which source map to scan; the default is the app dirs. */
+  scope?: "body";
 }
 
 const PATTERNS: Pattern[] = [
@@ -51,6 +57,13 @@ const PATTERNS: Pattern[] = [
     regex: /\.json\(\)/g,
     baseline: JSONPARSE_BASELINE,
     remedy: "fetchJson<T> parses the body; a hand parse hides the error envelope",
+  },
+  {
+    name: "body: JSON.stringify(",
+    regex: /\bbody\s*[:=]\s*JSON\.stringify\(/g,
+    baseline: BODY_STRINGIFY_BASELINE,
+    remedy: "encode request bodies as jsonBody<SomeRequest>(…) from @/lib/apiClient (D-207)",
+    scope: "body",
   },
   {
     name: "instanceof TokenExpiredError",
@@ -78,13 +91,13 @@ function isCommentLine(line: string): boolean {
 }
 
 /** file (repo-relative, forward slashes) → code lines. */
-function scannedSources(): Map<string, string[]> {
+function scannedSources(dirs: string[] = SCAN_DIRS, exempt: Set<string> = EXEMPT_FILES): Map<string, string[]> {
   const files: string[] = [];
-  for (const dir of SCAN_DIRS) collectFiles(join(WEB_ROOT, dir), files);
+  for (const dir of dirs) collectFiles(join(WEB_ROOT, dir), files);
   const out = new Map<string, string[]>();
   for (const file of files) {
     const rel = relative(WEB_ROOT, file).replace(/\\/g, "/");
-    if (EXEMPT_FILES.has(rel)) continue;
+    if (exempt.has(rel)) continue;
     out.set(
       rel,
       readFileSync(file, "utf-8")
@@ -106,6 +119,7 @@ function countPerFile(sources: Map<string, string[]>, regex: RegExp): Map<string
 }
 
 const sources = scannedSources();
+const bodySources = scannedSources(BODY_SCAN_DIRS, new Set([...EXEMPT_FILES, ...BODY_EXEMPT_FILES]));
 
 describe("apiClient ratchet", () => {
   it("scans the app (plausibility floor)", () => {
@@ -114,7 +128,7 @@ describe("apiClient ratchet", () => {
 
   for (const pattern of PATTERNS) {
     describe(pattern.name, () => {
-      const counts = countPerFile(sources, pattern.regex);
+      const counts = countPerFile(pattern.scope === "body" ? bodySources : sources, pattern.regex);
 
       it("has no raw site above its baseline", () => {
         const violations: string[] = [];
@@ -141,6 +155,16 @@ describe("apiClient ratchet", () => {
       });
     });
   }
+
+  it("never calls jsonBody without an explicit request type argument", () => {
+    const violations: string[] = [];
+    for (const [rel, lines] of bodySources) {
+      lines.forEach((line, i) => {
+        if (/\bjsonBody\(/.test(line)) violations.push(`${rel}:${i + 1}`);
+      });
+    }
+    expect(violations, "jsonBody<SomeRequest>(…) — name the generated request type (utils/wire-types.generated):\n  " + violations.join("\n  ")).toEqual([]);
+  });
 
   it("never calls fetchJson without an explicit type argument", () => {
     const violations: string[] = [];

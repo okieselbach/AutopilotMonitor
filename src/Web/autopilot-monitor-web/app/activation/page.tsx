@@ -4,9 +4,10 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../../components/BrandMark";
+import type { SaveNotificationEmailRequest } from "@/utils/wire-types.generated";
 
 // The URL query string is fixed for the lifetime of a page load — nothing to subscribe to.
 const subscribeNever = () => () => {};
@@ -120,7 +121,7 @@ export default function ActivationPage() {
 
       await fetchOk(api.preview.notificationEmail(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify({ email }),
+        body: jsonBody<SaveNotificationEmailRequest>({ email }),
       });
 
       setEmailStatus("saved");

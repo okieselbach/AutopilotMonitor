@@ -33,8 +33,8 @@ import TemplateConfigModal from "./components/TemplateConfigModal";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
-import type { RuleStatsResponse, TenantConfiguration } from "@/utils/wire-types.generated";
-import { fetchJson } from "@/lib/apiClient";
+import type { CreateAnalyzeRuleFromTemplateRequest, RuleStatsResponse, TenantConfiguration } from "@/utils/wire-types.generated";
+import { fetchJson, jsonBody } from "@/lib/apiClient";
 
 export default function AnalyzeRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -437,7 +437,7 @@ export default function AnalyzeRulesPage() {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(variables),
+        body: jsonBody<CreateAnalyzeRuleFromTemplateRequest>({ variables }),
       }
     );
     if (result !== null) {

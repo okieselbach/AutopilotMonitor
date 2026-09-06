@@ -17,6 +17,7 @@ import ImePatternCard from "./components/ImePatternCard";
 import { trackEvent } from "@/lib/appInsights";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import {  } from "@/lib/apiClient";
 
 export default function ImeLogPatternsPage() {
   const { tenantId } = useTenant();

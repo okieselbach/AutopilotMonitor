@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EnrollmentEvent } from "@/types";
 import { api } from "@/lib/api";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { NotificationType } from "@/contexts/NotificationContext";
-import type { TenantConfiguration } from "@/utils/wire-types.generated";
+import type { QueueSessionActionRequest, TenantConfiguration } from "@/utils/wire-types.generated";
 import {
   CollectPhase,
   COLLECT_TIMEOUT_MS,
@@ -78,7 +78,7 @@ export default function CollectLogsButton({
   const queueAction = useCallback(async (type: string, reason: string): Promise<boolean> => {
     return fetchOk(api.sessions.queueAction(sessionId, effectiveTenantId), getAccessToken, {
       method: "POST",
-      body: JSON.stringify({ type, reason }),
+      body: jsonBody<QueueSessionActionRequest>({ type, reason }),
     }).then(
       () => true,
       (err: unknown) => {
@@ -142,7 +142,7 @@ export default function CollectLogsButton({
 
       await fetchOk(api.config.tenantCollectLogsQuickConfig(effectiveTenantId), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify(updated),
+        body: jsonBody<TenantConfiguration>(updated),
       });
 
       onDiagnosticsConfigured();

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import {
   ANNOTATION_MAX_NOTE_LENGTH,
@@ -21,6 +21,7 @@ import {
   type AnnotationVerdict,
   type SessionAnnotationDto,
 } from "./sessionAnnotationLogic";
+import type { UpsertSessionAnnotationRequest } from "@/utils/wire-types.generated";
 
 /**
  * Session annotations: per-lane human verdict + note about this enrollment's analysis
@@ -131,7 +132,7 @@ export default function SessionAnnotationsCard({
         getAccessToken,
         {
           method: "PUT",
-          body: JSON.stringify(body),
+          body: jsonBody<UpsertSessionAnnotationRequest>(body),
         }
       );
       setAnnotations((prev) => {

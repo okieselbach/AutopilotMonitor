@@ -17,7 +17,7 @@ import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
 import { isGuid } from "@/utils/inputValidation";
-import { ApiError, fetchBlob, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, fetchBlob, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
 import { useAutoScroll } from "./hooks/useAutoScroll";
@@ -48,7 +48,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useAdminMode } from "@/hooks/useAdminMode";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetSessionTimeAttributionResponse } from "@/utils/wire-types.generated";
+import type { GetSessionTimeAttributionResponse, SubmitSessionReportRequest } from "@/utils/wire-types.generated";
 
 export default function SessionDetailPage() {
   // useSearchParams() in SessionDetailContent requires a Suspense boundary for static prerender.
@@ -279,7 +279,7 @@ function SessionDetailContent() {
         getAccessToken,
         {
           method: 'POST',
-          body: JSON.stringify({
+          body: jsonBody<SubmitSessionReportRequest>({
             tenantId: effectiveTenantId,
             sessionId,
             comment,

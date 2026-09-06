@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { CpeMappingEntry } from "./SoftwareMappingTypes";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { GetCpeMappingsResponse } from "@/utils/wire-types.generated";
+import type { DeleteCustomCpeMappingRequest, GetCpeMappingsResponse, SaveCustomCpeMappingRequest } from "@/utils/wire-types.generated";
 
 interface MappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -176,7 +176,7 @@ export function MappedSoftwareTab({
         getAccessToken,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: jsonBody<SaveCustomCpeMappingRequest>({
             normalizedProduct: entry.normalizedProduct,
             normalizedVendor: entry.normalizedVendor,
             cpeUri: cpeUri,
@@ -214,7 +214,7 @@ export function MappedSoftwareTab({
         getAccessToken,
         {
           method: "DELETE",
-          body: JSON.stringify({
+          body: jsonBody<DeleteCustomCpeMappingRequest>({
             normalizedProduct: entry.normalizedProduct,
             normalizedVendor: entry.normalizedVendor,
           }),

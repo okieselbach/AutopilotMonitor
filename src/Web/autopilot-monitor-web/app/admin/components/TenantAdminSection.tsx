@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
-import type { TenantAdminRow } from "@/utils/wire-types.generated";
+import type { AddTenantAdminRequest, TenantAdminRow, UpdateMemberPermissionsRequest } from "@/utils/wire-types.generated";
 import { isApplicationKey, looksLikeGuid, principalLabel, type MemberKind } from "@/utils/principalKeys";
 
 // Wire type is generated from the backend DTO ("role" is absent for legacy pre-role rows).
@@ -72,11 +72,11 @@ export function TenantAdminSection({
       setError(null);
 
       const body = addingApplication
-        ? { applicationId: newAdminEmail.trim(), role: "Viewer" }
-        : { upn: newAdminEmail.trim(), role: newMemberRole };
+        ? { applicationId: newAdminEmail.trim(), role: "Viewer", canManageBootstrapTokens: false }
+        : { upn: newAdminEmail.trim(), role: newMemberRole, canManageBootstrapTokens: false };
       await fetchOk(api.tenants.admins(tenantId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: jsonBody<AddTenantAdminRequest>(body),
       });
 
       setSuccessMessage(addingApplication
@@ -158,7 +158,7 @@ export function TenantAdminSection({
 
       await fetchOk(api.tenants.adminPermissions(tenantId, adminUpn), getAccessToken, {
         method: "PATCH",
-        body: JSON.stringify({ role, canManageBootstrapTokens }),
+        body: jsonBody<UpdateMemberPermissionsRequest>({ role, canManageBootstrapTokens }),
       });
 
       setSuccessMessage(`Permissions for ${adminUpn} updated successfully!`);

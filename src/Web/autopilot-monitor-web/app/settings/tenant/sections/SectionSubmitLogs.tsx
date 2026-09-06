@@ -2,9 +2,10 @@
 
 import { useRef, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
-import { apiErrorText, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchOk, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { trackEvent } from "@/lib/appInsights";
+import type { SubmitDiagFilesReportRequest } from "@/utils/wire-types.generated";
 
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
 const LOG_ACCEPT = ".log,.txt,.zip,.json,.jsonl,.ndjson";
@@ -108,7 +109,7 @@ export function SectionSubmitLogs() {
         getAccessToken,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: jsonBody<SubmitDiagFilesReportRequest>({
             tenantId: user.tenantId,
             comment,
             email,

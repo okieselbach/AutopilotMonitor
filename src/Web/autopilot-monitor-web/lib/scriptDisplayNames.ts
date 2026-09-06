@@ -15,7 +15,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { authenticatedFetch, TokenExpiredError } from "@/lib/authenticatedFetch";
+import { TokenExpiredError } from "@/lib/authenticatedFetch";
+import { fetchJson, jsonBody } from "@/lib/apiClient";
+import type { GetScriptDisplayNamesResponse, ScriptDisplayNamesRequest } from "@/utils/wire-types.generated";
 
 /** Matches the shape produced by `useAuth().getAccessToken` (may return null when expired). */
 export type GetAccessToken = (forceRefresh?: boolean) => Promise<string | null>;
@@ -80,11 +82,6 @@ function pickString(d: Record<string, unknown>, keys: string[]): string | undefi
   return undefined;
 }
 
-interface DisplayNamesResponse {
-  refs: Record<string, string | null>;
-  malformed?: string[];
-}
-
 /** Backend's per-request cap on ref count (mirrors `MaxRefsPerRequest` in the C# function). */
 export const SCRIPT_DISPLAY_NAMES_CHUNK_SIZE = 200;
 
@@ -113,16 +110,10 @@ export async function fetchScriptDisplayNames(
     const chunk = refs.slice(i, i + SCRIPT_DISPLAY_NAMES_CHUNK_SIZE);
 
     try {
-      const response = await authenticatedFetch(url, getAccessToken, {
+      const body = await fetchJson<GetScriptDisplayNamesResponse>(url, getAccessToken, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refs: chunk.map(formatRefKey) }),
+        body: jsonBody<ScriptDisplayNamesRequest>({ refs: chunk.map(formatRefKey) }),
       });
-      if (!response.ok) {
-        // Non-2xx: preserve earlier chunks, stop hammering. UI degrades to "show IDs".
-        break;
-      }
-      const body = (await response.json()) as DisplayNamesResponse;
       if (body.refs) {
         Object.assign(merged, body.refs);
       }
@@ -131,9 +122,10 @@ export async function fetchScriptDisplayNames(
       // can react (token refresh / sign-in redirect). Any partial map collected so far is
       // sacrificed -- the user is being signed out anyway.
       if (err instanceof TokenExpiredError) throw err;
-      // Transport-level failure (network timeout, abort, JSON parse, ...): keep whatever
-      // earlier chunks produced and stop. Without this break the exception would bubble to
-      // the hook's outer catch and discard partial results -- defeating the chunked design.
+      // A backend refusal (ApiError) or a transport-level failure (network timeout, abort, ...):
+      // keep whatever earlier chunks produced and stop hammering. UI degrades to "show IDs".
+      // Without this break the exception would bubble to the hook's outer catch and discard
+      // partial results -- defeating the chunked design.
       break;
     }
   }

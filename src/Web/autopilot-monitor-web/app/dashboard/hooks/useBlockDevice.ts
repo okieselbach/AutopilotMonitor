@@ -4,7 +4,8 @@ import { api } from "@/lib/api";
 import { TokenExpiredError } from "@/lib/authenticatedFetch";
 import { NotificationType } from "@/contexts/NotificationContext";
 import { BULK_CONCURRENCY, runWithConcurrency, summarizeBlockOutcomes, type BlockOutcome } from "./bulkActions";
-import { ApiError, fetchOk } from "@/lib/apiClient";
+import { ApiError, fetchOk, jsonBody } from "@/lib/apiClient";
+import type { BlockDeviceRequest } from "@/utils/wire-types.generated";
 
 export interface BlockTarget {
   serialNumber: string;
@@ -50,7 +51,7 @@ export function useBlockDevice(
     try {
       await fetchOk(api.devices.block(), getAccessToken, {
         method: 'POST',
-        body: JSON.stringify({
+        body: jsonBody<BlockDeviceRequest>({
           tenantId: target.tenantId,
           serialNumber: target.serialNumber,
           durationHours: 24,

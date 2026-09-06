@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
-import type { SessionRestoreResponse } from "@/utils/wire-types.generated";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
+import type { RestoreSessionRequest, SessionRestoreResponse } from "@/utils/wire-types.generated";
 
 interface RestoreConfirmDialogProps {
   tenantId: string;
@@ -52,7 +52,7 @@ export function RestoreConfirmDialog({
         getAccessToken,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: jsonBody<RestoreSessionRequest>({
             tenantId,
             manifestId,
             reason: reason.trim() || null,

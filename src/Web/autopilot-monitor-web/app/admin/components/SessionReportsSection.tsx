@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk, nullOn404 } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
@@ -11,7 +11,7 @@ import { trackEvent } from "@/lib/appInsights";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata } from "@/utils/wire-types.generated";
+import type { SessionReportDownloadUrlResponse, SessionReportListResponse, SessionReportMetadata, UpdateSessionReportNoteRequest } from "@/utils/wire-types.generated";
 
 const PAGE_SIZE = 20;
 
@@ -100,7 +100,7 @@ function AdminNoteEditor({
         getAccessToken,
         {
           method: "PATCH",
-          body: JSON.stringify({ adminNote: adminNoteValue }),
+          body: jsonBody<UpdateSessionReportNoteRequest>({ adminNote: adminNoteValue }),
         }
       );
 

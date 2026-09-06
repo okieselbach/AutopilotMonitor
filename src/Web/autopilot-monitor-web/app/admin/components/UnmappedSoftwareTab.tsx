@@ -3,12 +3,12 @@
 import { sessionUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
 import { trackEvent } from "@/lib/appInsights";
 import type { UnmatchedSoftwareEntry, AutoResolveResult } from "./SoftwareMappingTypes";
-import type { GetUnmatchedSoftwareResponse } from "@/utils/wire-types.generated";
+import type { AutoResolveCpeMappingRequest, GetUnmatchedSoftwareResponse, IgnoreSoftwareRequest, SaveCustomCpeMappingRequest } from "@/utils/wire-types.generated";
 
 interface UnmappedSoftwareTabProps {
   getAccessToken: () => Promise<string | null>;
@@ -166,7 +166,12 @@ export function UnmappedSoftwareTab({
     }
   };
 
+  /** The backend keys mappings and ignores by software name; a nameless entry has nothing to send. */
+  const hasSoftwareName = (e: UnmatchedSoftwareEntry): e is UnmatchedSoftwareEntry & { softwareName: string } =>
+    typeof e.softwareName === "string" && e.softwareName.length > 0;
+
   const handleSaveMapping = async (entry: UnmatchedSoftwareEntry) => {
+    if (!hasSoftwareName(entry)) return;
     const key = getRowKey(entry);
     const cpeUri = (cpeInputs[key] || "").trim();
     if (!cpeUri) return;
@@ -180,7 +185,7 @@ export function UnmappedSoftwareTab({
         getAccessToken,
         {
           method: "POST",
-          body: JSON.stringify({
+          body: jsonBody<SaveCustomCpeMappingRequest>({
             normalizedProduct: entry.softwareName,
             normalizedVendor: entry.publisher || "",
             cpeUri: cpeUri,
@@ -265,8 +270,8 @@ export function UnmappedSoftwareTab({
           getAccessToken,
           {
             method: "POST",
-            body: JSON.stringify({
-              items: batches[i].map((e) => ({
+            body: jsonBody<AutoResolveCpeMappingRequest>({
+              items: batches[i].filter(hasSoftwareName).map((e) => ({
                 softwareName: e.softwareName,
                 publisher: e.publisher,
                 normalizedVendor: e.normalizedVendor || e.publisher || "",
@@ -310,13 +315,14 @@ export function UnmappedSoftwareTab({
   // --- Ignore ---
 
   const handleIgnoreSoftware = async (entry: UnmatchedSoftwareEntry) => {
+    if (!hasSoftwareName(entry)) return;
     const key = getRowKey(entry);
     try {
       setIgnoringRow(key);
       setError(null);
       await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
+        body: jsonBody<IgnoreSoftwareRequest>({
           items: [{ softwareName: entry.softwareName, publisher: entry.publisher || "", reason: "manual" }],
         }),
       });
@@ -340,8 +346,8 @@ export function UnmappedSoftwareTab({
       setError(null);
       await fetchOk(api.vulnerability.ignoredSoftware(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
-          items: selectedList.map((e) => ({ softwareName: e.softwareName, publisher: e.publisher || "", reason: "manual" })),
+        body: jsonBody<IgnoreSoftwareRequest>({
+          items: selectedList.filter(hasSoftwareName).map((e) => ({ softwareName: e.softwareName, publisher: e.publisher || "", reason: "manual" })),
         }),
       });
       setSelectedEntries(new Map());

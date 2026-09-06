@@ -5,14 +5,14 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 import { trackEvent } from "@/lib/appInsights";
 import { TenantConfiguration } from "./TenantManagementSection";
 import { TenantSearchSelect } from "./TenantSearchSelect";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { firstBlockedSessionId, blockedSessionCount } from "./blockedDeviceHelpers";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
-import type { BlockedDeviceEntry, BlockedDeviceListResponse, GetSessionResponse } from "@/utils/wire-types.generated";
+import type { BlockDeviceRequest, BlockedDeviceEntry, BlockedDeviceListResponse, GetSessionResponse } from "@/utils/wire-types.generated";
 
 interface ResolvedDevice {
   sessionId: string;
@@ -176,7 +176,7 @@ function DeviceBlockSectionInner({
       setError(null);
       await fetchOk(api.devices.block(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
+        body: jsonBody<BlockDeviceRequest>({
           tenantId: blockTenantId,
           serialNumber: blockSerialNumber.trim(),
           durationHours: blockDurationHours,
@@ -239,7 +239,7 @@ function DeviceBlockSectionInner({
       const remainingHours = Math.max(1, Math.ceil((unblockAtMs - Date.now()) / 3600000));
       await fetchOk(api.devices.block(), getAccessToken, {
         method: "POST",
-        body: JSON.stringify({
+        body: jsonBody<BlockDeviceRequest>({
           tenantId: device.tenantId,
           serialNumber: device.serialNumber,
           durationHours: remainingHours,

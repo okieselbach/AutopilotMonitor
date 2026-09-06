@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { api, type RestoreRowRequestBody } from "@/lib/api";
+import { api } from "@/lib/api";
 import type {
   RestoreRowCommitResponse,
+  RestoreRowRequest,
   RestoreRowPreviewResponse,
   RestoreRowPropertyDiff,
   RestoreRowPropertySnapshot,
 } from "@/utils/wire-types.generated";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 
 interface RestoreRowDiffModalProps {
   backupId: string;
@@ -39,17 +40,17 @@ export function RestoreRowDiffModal({
     setError(null);
     setCommitting(true);
     try {
-      const body: RestoreRowRequestBody = {
+      const body: RestoreRowRequest = {
         tableName: preview.tableName,
         partitionKey: preview.partitionKey,
         rowKey: preview.rowKey,
         mode: "Commit",
         ifSha256: preview.rowSha256,
-        ifCurrentETag: preview.currentETag ?? null,
+        ifCurrentETag: preview.currentETag ?? undefined,
       };
       const response = await fetchJson<RestoreRowCommitResponse>(api.backups.restoreRow(backupId), getAccessToken, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: jsonBody<RestoreRowRequest>(body),
       });
       onCommitted(response);
     } catch (err) {

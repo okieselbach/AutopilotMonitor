@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useAdminConfig } from "../../AdminConfigContext";
-import { apiErrorText, fetchJson } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, jsonBody } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { TableSkeleton } from "@/components/skeletons/TableSkeleton";
-import type { PlanTierDefinitionsResponse } from "@/utils/wire-types.generated";
+import type { PlanTierDefinitionsResponse, SetPlanTierDefinitionsRequest } from "@/utils/wire-types.generated";
 
 interface PlanTierDefinition {
   name: string;
@@ -88,7 +88,7 @@ export function SectionUsagePlans() {
 
       const data = await fetchJson<PlanTierDefinitionsResponse>(api.mcpUsage.planTiers(), getAccessToken, {
         method: "PUT",
-        body: JSON.stringify({ tiers }),
+        body: jsonBody<SetPlanTierDefinitionsRequest>({ tiers }),
       });
       setTiers(data.tiers || tiers);
       setHasChanges(false);
