@@ -77,7 +77,7 @@ public class RevokeEnforcementTests
     }
 
     private static (TenantGroupManagementFunction Fn, Mock<IAdminRepository> Repo,
-        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildGroupFn()
+        Mock<IMaintenanceRepository> Audit, FakeSignalRNotificationService SignalR) BuildGroupFn(ProConferralService? proConferral = null)
     {
         var repo = new Mock<IAdminRepository>();
         // Loose-mock defaults return a null Task — every repo read the flows touch needs a concrete setup.
@@ -90,9 +90,16 @@ public class RevokeEnforcementTests
         var signalR = new FakeSignalRNotificationService();
         var fn = new TenantGroupManagementFunction(
             NullLogger<TenantGroupManagementFunction>.Instance, BuildService(repo), Resolver(), audit.Object, signalR, BuildSlots(repo),
-            TestProConferral.Inert());
+            proConferral ?? TestProConferral.Inert());
         return (fn, repo, audit, signalR);
     }
+
+    /// <summary>A recording conferral double (CallBase off, touches no storage): the group flows only need to prove WHAT they hand it.</summary>
+    private static Mock<ProConferralService> RecordingProConferral() =>
+        new(Mock.Of<IAdminRepository>(),
+            new TenantConfigurationService(Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions())),
+            ManagedTenantProIndex.None,
+            NullLogger<ProConferralService>.Instance) { CallBase = false };
 
     // --- ChargeHomeTenantQuota flip: audited under every tenant, no-op on an unchanged value ---
 
@@ -361,5 +368,54 @@ public class RevokeEnforcementTests
         audit.Verify(a => a.LogAuditEntryAsync(
             TenantA, "DELETE", "DelegatedGroupAccess", "*", "ga@vendor.example",
             It.IsAny<Dictionary<string, string>?>()), Times.Once);
+    }
+
+    // --- Group delete ends conferred Pro: every member of an OWNED group gets its grace anchor ---
+
+    private const string OwnerTenant = "33333333-3333-3333-3333-333333333333";
+
+    [Fact]
+    public async Task DeleteGroupCore_OwnedGroup_RecordsLossForEveryMember_EvenWithoutAssignees()
+    {
+        var proConferral = RecordingProConferral();
+        var (fn, repo, audit, _) = BuildGroupFn(proConferral.Object);
+        var ownedGroupId = Constants.TenantGroupIds.ForHomeTenant(OwnerTenant);
+        repo.Setup(r => r.GetTenantGroupAsync(ownedGroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = ownedGroupId,
+            Name = "Customers of owner",
+            OwnerTenantId = OwnerTenant,
+            TenantIds = new List<string> { TenantA, TenantB, OwnerTenant },
+            AssigneeCount = 0,
+        });
+        repo.Setup(r => r.DeleteTenantGroupAsync(ownedGroupId)).ReturnsAsync(true);
+
+        await fn.DeleteGroupCoreAsync(ownedGroupId, "ga@vendor.example");
+
+        // The anchor does not depend on assignees (no assignee ⇒ no access audit, but Pro still ends);
+        // the owner itself is never a managed tenant of its own group.
+        proConferral.Verify(p => p.RecordLossAsync(TenantA, OwnerTenant, "group-deleted"), Times.Once);
+        proConferral.Verify(p => p.RecordLossAsync(TenantB, OwnerTenant, "group-deleted"), Times.Once);
+        proConferral.Verify(p => p.RecordLossAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Exactly(2));
+        VerifyNoAudit(audit);
+    }
+
+    [Fact]
+    public async Task DeleteGroupCore_OperatorGroup_RecordsNoLoss()
+    {
+        var proConferral = RecordingProConferral();
+        var (fn, repo, _, _) = BuildGroupFn(proConferral.Object);
+        repo.Setup(r => r.GetTenantGroupAsync(GroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = GroupId,
+            Name = "MSP Customers",
+            TenantIds = new List<string> { TenantA },
+            AssigneeCount = 0,
+        });
+        repo.Setup(r => r.DeleteTenantGroupAsync(GroupId)).ReturnsAsync(true);
+
+        await fn.DeleteGroupCoreAsync(GroupId, "ga@vendor.example");
+
+        proConferral.Verify(p => p.RecordLossAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 }

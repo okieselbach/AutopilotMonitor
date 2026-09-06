@@ -180,16 +180,31 @@ public class TenantGroupManagementFunction
     /// BEFORE the delete removes them, so the bulk access removal is audited under each affected
     /// tenant and EVERY (former) assignee's live streams are cut — group authorization is join-time
     /// only, so without the kick they keep receiving the managed tenants' telemetry until their
-    /// connection drops.
+    /// connection drops. Deleting an OWNED group also ends conferred Pro for every member at once,
+    /// so each member's retention grace anchor is stamped (the projection leaves no trace by itself).
     /// </summary>
     internal async Task DeleteGroupCoreAsync(string groupId, string? currentUpn)
     {
         var group = await _delegatedAdminService.GetGroupAsync(groupId);
         var assignees = await _delegatedAdminService.GetGroupAssigneesAsync(groupId);
+        var owner = string.IsNullOrWhiteSpace(group?.OwnerTenantId) ? null : group!.OwnerTenantId;
         await _delegatedAdminService.DeleteGroupAsync(groupId);
 
         foreach (var assignee in assignees)
             await _signalRService.DisconnectUserAsync(assignee.Upn);
+
+        // The portal hides Delete for owned groups, but the route accepts any group id — without the
+        // anchor a member that raised its retention under Pro (MSP) would be clamped to the Community
+        // cap at the next sweep instead of getting the grace period.
+        if (owner != null)
+        {
+            foreach (var member in group!.TenantIds)
+            {
+                if (string.Equals(member, owner, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                await _proConferral.RecordLossAsync(member, owner, "group-deleted");
+            }
+        }
 
         if (group != null && group.AssigneeCount > 0)
         {
