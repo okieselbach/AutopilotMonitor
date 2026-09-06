@@ -354,8 +354,9 @@ public class McpQuotaEnforcementMiddleware : IFunctionsWorkerMiddleware
     private void TrackUsage(HttpContext httpContext, string oid, string? upn, string homeTenantId, IReadOnlyCollection<string> chargeTenantIds)
     {
         var normalizedEndpoint = EndpointNormalizer.Normalize(httpContext.Request.Path.Value ?? string.Empty);
-        var mcpToolName = httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(mcpToolName))
+        // Key-safe copy of the header: the value becomes part of the UserUsageLog row key.
+        var mcpToolName = EndpointNormalizer.ToolNameKey(httpContext.Request.Headers["X-MCP-Tool-Name"].FirstOrDefault());
+        if (mcpToolName.Length > 0)
             normalizedEndpoint = $"{mcpToolName}:{normalizedEndpoint}";
 
         var repo = _userUsageRepo;
