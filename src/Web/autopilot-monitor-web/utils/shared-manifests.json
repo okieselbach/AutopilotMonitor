@@ -21067,7 +21067,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "NTP server address for time check during enrollment. null = use agent default (\"time.windows.com\")."
+          "doc": "NTP server address for time check during enrollment. The initializer is the same value the table read maps a blank cell to and the agent falls back to, so a fresh configuration, a stored one and the manifest default agree (D-216)."
         },
         {
           "name": "enableTimezoneAutoSet",

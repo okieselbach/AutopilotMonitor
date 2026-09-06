@@ -4590,7 +4590,7 @@ export interface TenantConfiguration {
   rebootDelaySeconds?: number | null;
   /** Whether to enable geo-location detection (queries external IP service). null = use agent default (true). */
   enableGeoLocation?: boolean | null;
-  /** NTP server address for time check during enrollment. null = use agent default ("time.windows.com"). */
+  /** NTP server address for time check during enrollment. The initializer is the same value the table read maps a blank cell to and the agent falls back to, so a fresh configuration, a stored one and the manifest default agree (D-216). */
   ntpServer: string;
   /** Whether to automatically set the device timezone based on IP geolocation. Requires EnableGeoLocation to be true. Uses tzutil /s to apply. null = use agent default (false). */
   enableTimezoneAutoSet?: boolean | null;
