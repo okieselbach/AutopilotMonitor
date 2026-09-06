@@ -12,7 +12,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -61,19 +60,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 _logger.LogInformation("UpdateTenantConfiguration: {TenantId} by user {User}", requestCtx.TargetTenantId, userIdentifier);
 
                 // Parse request body
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 1_048_576) // 1 MB limit
-                {
-                    return await req.BadRequestAsync("Request body too large");
-                }
-                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                var config = JsonConvert.DeserializeObject<TenantConfiguration>(requestBody);
-
-                if (config == null)
-                {
-                    return await req.BadRequestAsync("Invalid configuration");
-                }
+                // Newtonsoft on purpose: the configuration stack (redaction restore, patch service) is
+                // Newtonsoft-bound — TypedRequestGuardTests baseline.
+                var read = await req.ReadNewtonsoftAsync<TenantConfiguration>(1_048_576);
+                if (read.Error != null) return read.Error;
+                var config = read.Value!;
 
                 // Normalize so the stored value never carries surrounding whitespace, and an
                 // all-whitespace submission clears the field instead of masquerading as a value.

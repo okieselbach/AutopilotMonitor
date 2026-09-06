@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Shared.Models
     /// PartitionKey = "GlobalConfig"
     /// RowKey = "config"
     /// </summary>
-    public class AdminConfiguration
+    public class AdminConfiguration : IApiRequest
     {
         /// <summary>
         /// Partition key (always "GlobalConfig")

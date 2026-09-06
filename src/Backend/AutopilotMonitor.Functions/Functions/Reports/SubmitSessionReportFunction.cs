@@ -48,19 +48,9 @@ namespace AutopilotMonitor.Functions.Functions.Reports
 
                 // Request body size limit (20 MB — must accommodate base64-encoded agent logs,
                 // screenshots, plus CSV/TXT exports; base64 adds ~33% overhead)
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 20_971_520)
-                {
-                    return await req.BadRequestAsync("Request body too large");
-                }
-
-                // Parse request body
-                var request = await req.ReadFromJsonAsync<SubmitSessionReportRequest>();
-                if (request == null)
-                {
-                    return await req.BadRequestAsync("Invalid request body.");
-                }
+                var read = await req.ReadAsync<SubmitSessionReportRequest>(20_971_520);
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
 
                 // Ensure sessionId consistency
                 request.SessionId = sessionId;

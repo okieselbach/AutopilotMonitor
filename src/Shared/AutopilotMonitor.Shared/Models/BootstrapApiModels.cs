@@ -6,7 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Request to create a new bootstrap session for OOBE agent deployment
     /// </summary>
-    public class CreateBootstrapSessionRequest
+    public class CreateBootstrapSessionRequest : IApiRequest
     {
         public string TenantId { get; set; } = default!;
 

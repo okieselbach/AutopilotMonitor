@@ -9,7 +9,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -44,19 +43,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var userIdentifier = TenantHelper.GetUserIdentifier(req);
                 _logger.LogInformation("Test ops channel requested by {User}", userIdentifier);
 
-                string? channelId = null;
-                var body = await req.ReadAsStringAsync();
-                if (!string.IsNullOrWhiteSpace(body))
-                {
-                    try
-                    {
-                        channelId = JsonConvert.DeserializeAnonymousType(body, new { channelId = (string?)null })?.channelId;
-                    }
-                    catch (JsonException)
-                    {
-                        // Malformed body → treat as no channel selection.
-                    }
-                }
+                var read = await req.ReadOptionalAsync<TestNotificationChannelRequest>();
+                if (read.Error != null) return read.Error;
+                var channelId = read.Value?.ChannelId;
 
                 var config = await _adminConfigService.GetConfigurationAsync();
 

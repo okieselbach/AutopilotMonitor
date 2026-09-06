@@ -9,7 +9,6 @@ using AutopilotMonitor.Shared.Models.Graph;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Graph;
 
@@ -52,25 +51,9 @@ public class GetScriptDisplayNamesFunction
         {
             var requestCtx = req.GetRequestContext();
 
-            string rawBody;
-            using (var sr = new System.IO.StreamReader(req.Body))
-            {
-                rawBody = await sr.ReadToEndAsync();
-            }
-            if (string.IsNullOrWhiteSpace(rawBody))
-            {
-                return await req.OkAsync(new GetScriptDisplayNamesResponse { Refs = new Dictionary<string, string?>() });
-            }
-
-            RequestBody? body;
-            try
-            {
-                body = JsonConvert.DeserializeObject<RequestBody>(rawBody);
-            }
-            catch (JsonException ex)
-            {
-                return await req.BadRequestAsync($"Request body is not valid JSON: {ex.Message}");
-            }
+            var read = await req.ReadOptionalAsync<ScriptDisplayNamesRequest>();
+            if (read.Error != null) return read.Error;
+            var body = read.Value;
 
             if (body?.Refs == null || body.Refs.Count == 0)
             {
@@ -113,12 +96,5 @@ public class GetScriptDisplayNamesFunction
             return await req.InternalServerErrorAsync(_logger, ex,
                 $"Resolve script display names for tenant '{tenantId}'");
         }
-    }
-
-    /// <summary>POST body shape.</summary>
-    private sealed class RequestBody
-    {
-        [JsonProperty("refs")]
-        public List<string>? Refs { get; set; }
     }
 }

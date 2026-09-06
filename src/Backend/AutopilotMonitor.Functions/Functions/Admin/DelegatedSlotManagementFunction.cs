@@ -57,8 +57,10 @@ public class DelegatedSlotManagementFunction
     {
         var ctx = req.GetRequestContext();
         var target = ctx.TargetTenantId;
-        var body = await req.ReadFromJsonAsync<ReleaseDelegatedSlotHoldRequest>();
-        if (body == null || (!body.All && string.IsNullOrWhiteSpace(body.InvitationId)))
+        var read = await req.ReadAsync<ReleaseDelegatedSlotHoldRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (!body.All && string.IsNullOrWhiteSpace(body.InvitationId))
         {
             return await req.BadRequestAsync("invitationId or all=true is required");
         }

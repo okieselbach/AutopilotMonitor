@@ -522,4 +522,124 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>"Block" or "Kill" (normalized casing).</summary>
         public string Action { get; set; } = default!;
     }
+
+    // ── Request bodies (D-207: every body the web/MCP sends is an IApiRequest here) ──
+
+    /// <summary>Body of POST global/delegated-admins.</summary>
+    public class GrantDelegatedAdminRequest : IApiRequest
+    {
+        public string Upn { get; set; } = string.Empty;
+        /// <summary>The MANAGED (target) tenant the UPN may read.</summary>
+        public string TenantId { get; set; } = string.Empty;
+        public string? Role { get; set; }
+        /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
+        public string? HomeTenantId { get; set; }
+        /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
+        public string? ObjectId { get; set; }
+    }
+
+    /// <summary>Body of PUT global/identity-bindings/{upn}: the home tenant (GUID, required) and object id (GUID, optional) a person is pinned to.</summary>
+    public class IdentityBindingRequest : IApiRequest
+    {
+        public string? HomeTenantId { get; set; }
+        public string? ObjectId { get; set; }
+    }
+
+    /// <summary>Body of POST tenants/{tenantId}/admins.</summary>
+    public class AddTenantAdminRequest : IApiRequest
+    {
+        /// <summary>The person's UPN. Omit when adding an application (<see cref="ApplicationId"/>).</summary>
+        public string? Upn { get; set; }
+        /// <summary>
+        /// The Entra application (client) id of a service principal in this tenant. Stored under the
+        /// <c>app:&lt;client-id&gt;</c> member key; the role is fixed to Viewer.
+        /// </summary>
+        public string? ApplicationId { get; set; }
+        public string? Role { get; set; }
+        public bool CanManageBootstrapTokens { get; set; }
+    }
+
+    /// <summary>Body of PATCH tenants/{tenantId}/admins/{adminUpn}/permissions.</summary>
+    public class UpdateMemberPermissionsRequest : IApiRequest
+    {
+        public string Role { get; set; } = string.Empty;
+        public bool CanManageBootstrapTokens { get; set; }
+    }
+
+    /// <summary>Body of POST global/tenant-groups.</summary>
+    public class CreateTenantGroupRequest : IApiRequest
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    /// <summary>Body of PATCH global/tenant-groups/{groupId} — at least one field.</summary>
+    public class UpdateTenantGroupRequest : IApiRequest
+    {
+        /// <summary>New display name; omitted/blank = unchanged.</summary>
+        public string? Name { get; set; }
+        /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>; omitted = unchanged.</summary>
+        public bool? ChargeHomeTenantQuota { get; set; }
+    }
+
+    /// <summary>Body of POST global/tenant-groups/{groupId}/tenants.</summary>
+    public class AddGroupTenantRequest : IApiRequest
+    {
+        public string TenantId { get; set; } = string.Empty;
+    }
+
+    /// <summary>Body of POST global/tenant-groups/{groupId}/assignees.</summary>
+    public class AssignGroupRequest : IApiRequest
+    {
+        public string Upn { get; set; } = string.Empty;
+        public string? Role { get; set; }
+        /// <summary>The assignee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
+        public string? HomeTenantId { get; set; }
+        /// <summary>The assignee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
+        public string? ObjectId { get; set; }
+    }
+
+    /// <summary>Body of POST auth/global-admins.</summary>
+    public class AddGlobalAdminRequest : IApiRequest
+    {
+        public string Upn { get; set; } = string.Empty;
+        /// <summary>The grantee's home Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
+        public string? HomeTenantId { get; set; }
+        /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
+        public string? ObjectId { get; set; }
+    }
+
+    /// <summary>Body of POST devices/block (Global Admin).</summary>
+    public class BlockDeviceRequest : IApiRequest
+    {
+        public string TenantId { get; set; } = string.Empty;
+        public string SerialNumber { get; set; } = string.Empty;
+        /// <summary>1..720 hours; defaults to 12 when omitted.</summary>
+        public int? DurationHours { get; set; }
+        public string? Reason { get; set; }
+        /// <summary><c>Block</c> (default) or <c>Kill</c>, case-insensitive.</summary>
+        public string? Action { get; set; }
+        /// <summary>The session the block was raised from, when known — normalised by the endpoint.</summary>
+        public string? BlockedSessionId { get; set; }
+    }
+
+    /// <summary>Body of POST versions/block (Global Admin).</summary>
+    public class BlockVersionRequest : IApiRequest
+    {
+        public string VersionPattern { get; set; } = string.Empty;
+        /// <summary><c>Block</c> (default) or <c>Kill</c>, case-insensitive.</summary>
+        public string? Action { get; set; }
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template).</summary>
+    public class EmailTemplateRequest : IApiRequest
+    {
+        public string? Html { get; set; }
+    }
+
+    /// <summary>Body of PUT preview/notification-email and POST preview/send-welcome-email/{tenantId}.</summary>
+    public class SaveNotificationEmailRequest : IApiRequest
+    {
+        public string Email { get; set; } = string.Empty;
+    }
 }

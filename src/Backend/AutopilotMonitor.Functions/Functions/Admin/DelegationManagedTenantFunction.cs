@@ -60,8 +60,10 @@ public class DelegationManagedTenantFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "delegations/managers/revoke")] HttpRequestData req)
     {
         var ctx = req.GetRequestContext();
-        var body = await req.ReadFromJsonAsync<RevokeTenantManagerRequest>();
-        if (body == null || !Guid.TryParse(body.HomeTenantId, out _))
+        var read = await req.ReadAsync<RevokeTenantManagerRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (!Guid.TryParse(body.HomeTenantId, out _))
         {
             return await req.BadRequestAsync("a valid homeTenantId (GUID) is required");
         }

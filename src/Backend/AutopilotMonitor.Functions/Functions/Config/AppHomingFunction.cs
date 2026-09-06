@@ -10,7 +10,6 @@ using AutopilotMonitor.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -50,13 +49,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _tenantConfigService = tenantConfigService;
             _appRegistry = appRegistry;
         }
-
-        private sealed class AppHomingRequest
-        {
-            public string? Target { get; set; }
-            public bool Force { get; set; }
-        }
-
         [Function("UpdateTenantAppHoming")]
         public async Task<HttpResponseData> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/app-homing")] HttpRequestData req,
@@ -67,18 +59,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
                 var requestCtx = req.GetRequestContext();
 
-                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                AppHomingRequest? request;
-                try
-                {
-                    request = JsonConvert.DeserializeObject<AppHomingRequest>(requestBody);
-                }
-                catch (JsonException)
-                {
-                    request = null;
-                }
+                var read = await req.ReadAsync<AppHomingRequest>();
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
 
-                var target = request?.Target?.Trim().ToLowerInvariant();
+                var target = request.Target?.Trim().ToLowerInvariant();
                 if (target != "primary" && target != "legacy")
                 {
                     return await req.ErrorAsync(HttpStatusCode.BadRequest, Constants.AppHomingReasonCodes.InvalidTarget,

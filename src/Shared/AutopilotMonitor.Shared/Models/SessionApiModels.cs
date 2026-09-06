@@ -6,8 +6,7 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Request to register a new session
     /// </summary>
-    [WireContract]
-    public class RegisterSessionRequest
+    public class RegisterSessionRequest : IApiRequest
     {
         public SessionRegistration Registration { get; set; } = default!;
     }
@@ -62,6 +61,20 @@ namespace AutopilotMonitor.Shared.Models
     /// <summary>
     /// Request to ingest events (batched)
     /// </summary>
+    /// <summary>
+    /// Body of POST sessions/{sessionId}/actions. The stored <see cref="ServerAction"/> is built
+    /// server-side: QueuedAt is stamped, RuleId stays null (reserved for the rule engine).
+    /// </summary>
+    public class QueueSessionActionRequest : IApiRequest
+    {
+        /// <summary>One of <see cref="ServerActionTypes"/>.</summary>
+        public string Type { get; set; } = string.Empty;
+        /// <summary>Optional operator note; defaults to "Manual action queued by {user}".</summary>
+        public string? Reason { get; set; }
+        /// <summary>Action-specific parameters, see <see cref="ServerAction.Params"/>.</summary>
+        public Dictionary<string, string>? Params { get; set; }
+    }
+
     public class IngestEventsRequest
     {
         public string SessionId { get; set; } = default!;
@@ -193,8 +206,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Request to get a short-lived SAS URL for diagnostics package upload.
     /// Called by the agent just before upload — the URL is never cached in config.
     /// </summary>
-    [WireContract]
-    public class GetDiagnosticsUploadUrlRequest
+    public class GetDiagnosticsUploadUrlRequest : IApiRequest
     {
         public string TenantId { get; set; } = default!;
         public string SessionId { get; set; } = default!;

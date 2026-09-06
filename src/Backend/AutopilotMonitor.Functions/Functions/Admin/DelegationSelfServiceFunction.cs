@@ -99,8 +99,10 @@ public class DelegationSelfServiceFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "delegations/managed/remove")] HttpRequestData req)
     {
         var ctx = req.GetRequestContext();
-        var body = await req.ReadFromJsonAsync<RemoveManagedTenantRequest>();
-        if (body == null || !Guid.TryParse(body.TenantId, out _))
+        var read = await req.ReadAsync<RemoveManagedTenantRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (!Guid.TryParse(body.TenantId, out _))
             return await BadAsync(req, "a valid tenantId (GUID) is required");
 
         var result = await _svc.RemoveManagedAsync(ctx.TenantId, body.TenantId, ctx.UserPrincipalName);
@@ -191,8 +193,10 @@ public class DelegationSelfServiceFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "delegations/assignees")] HttpRequestData req)
     {
         var ctx = req.GetRequestContext();
-        var body = await req.ReadFromJsonAsync<DelegationAssignRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn))
+        var read = await req.ReadAsync<DelegationAssignRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Upn))
             return await BadAsync(req, "upn is required");
 
         // The member key as listed under Access Management — a UPN or a service principal's app:<client-id>
@@ -249,8 +253,10 @@ public class DelegationSelfServiceFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "delegations/accept")] HttpRequestData req)
     {
         var ctx = req.GetRequestContext();
-        var body = await req.ReadFromJsonAsync<AcceptDelegationInvitationRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Token))
+        var read = await req.ReadAsync<AcceptDelegationInvitationRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Token))
             return await BadAsync(req, "token is required");
 
         var result = await _svc.AcceptAsync(body.Token, ctx.TenantId, ctx.UserPrincipalName);

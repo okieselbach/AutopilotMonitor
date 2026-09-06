@@ -53,14 +53,9 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 }
 
                 // blobName accepted from body (preferred) or ?blobName= query (fallback).
-                string? blobName = null;
-                try
-                {
-                    var body = await System.Text.Json.JsonSerializer.DeserializeAsync<TicketRequest>(
-                        req.Body, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    blobName = body?.BlobName;
-                }
-                catch { /* body optional; fall back to query */ }
+                var read = await req.ReadOptionalAsync<DownloadTicketRequest>();
+                if (read.Error != null) return read.Error;
+                var blobName = read.Value?.BlobName;
                 if (string.IsNullOrEmpty(blobName))
                     blobName = HttpUtility.ParseQueryString(req.Url.Query)["blobName"];
 
@@ -114,11 +109,6 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "DiagnosticsDownloadTicket");
             }
-        }
-
-        private sealed class TicketRequest
-        {
-            public string? BlobName { get; set; }
         }
     }
 }

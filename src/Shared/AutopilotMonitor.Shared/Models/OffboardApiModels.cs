@@ -22,4 +22,10 @@ namespace AutopilotMonitor.Shared.Models
         /// cache-drain-barrier countdown UI. Absent on the idempotent-Completed/Failed branches.</summary>
         public DateTime? EarliestProcessingAt { get; set; }
     }
+
+    /// <summary>Body of POST tenants/{tenantId}/offboard/feedback.</summary>
+    public class SubmitOffboardingFeedbackRequest : IApiRequest
+    {
+        public string? Comment { get; set; }
+    }
 }

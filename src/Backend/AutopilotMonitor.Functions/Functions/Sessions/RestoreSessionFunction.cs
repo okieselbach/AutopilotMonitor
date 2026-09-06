@@ -54,23 +54,12 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 return await WriteJsonAsync(req, HttpStatusCode.BadRequest, new { success = false, message = "sessionId is required" });
             }
 
-            // Parse body.
-            RestoreRequestBody? body;
-            try
+            var read = await req.ReadAsync<RestoreSessionRequest>();
+            if (read.Error != null) return read.Error;
+            var body = read.Value!;
+            if (string.IsNullOrWhiteSpace(body.ManifestId))
             {
-                body = await JsonSerializer.DeserializeAsync<RestoreRequestBody>(
-                    req.Body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "RestoreSession: malformed body for session {SessionId}", sessionId);
-                return await WriteJsonAsync(req, HttpStatusCode.BadRequest,
-                    new { success = false, message = "Request body is not valid JSON. Expected: { \"manifestId\": \"...\", \"dryRun\": false }" });
-            }
-            if (body == null || string.IsNullOrWhiteSpace(body.ManifestId))
-            {
-                return await WriteJsonAsync(req, HttpStatusCode.BadRequest,
-                    new { success = false, message = "manifestId is required in the request body." });
+                return await req.BadRequestAsync("manifestId is required in the request body.");
             }
 
             // Tenant resolution. Codex F1 review: an explicit body.TenantId from a GA caller is
@@ -194,26 +183,6 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             var response = req.CreateResponse(status);
             await response.WriteAsJsonAsync(body);
             return response;
-        }
-
-        private sealed class RestoreRequestBody
-        {
-            public string ManifestId { get; set; } = string.Empty;
-            public bool DryRun { get; set; }
-            /// <summary>
-            /// Optional: when the Sessions row is already gone (full-restore case after a completed
-            /// cascade), there's no SessionsIndex entry to look up the tenant from. Operators
-            /// should provide tenantId explicitly in this scenario.
-            /// </summary>
-            public string? TenantId { get; set; }
-            /// <summary>
-            /// Optional free-text justification. Persisted into the <c>deletion_restored</c> audit
-            /// row's <c>reason</c> detail so the operator's intent (customer ticket, compliance
-            /// request, …) is recoverable from the tenant audit trail. Codex follow-up to the
-            /// PR-B audit consolidation: previously the UI sent this but the backend dropped it.
-            /// Trimmed + capped at 1024 chars by the function before being passed to the service.
-            /// </summary>
-            public string? Reason { get; set; }
         }
     }
 }

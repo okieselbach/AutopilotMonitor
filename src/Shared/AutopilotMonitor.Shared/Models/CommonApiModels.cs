@@ -16,6 +16,19 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Marker for every typed HTTP request body (what the web, the MCP server or the agent
+    /// sends). <c>RequestBody.ReadAsync&lt;T&gt;</c> in the Functions project constrains on it,
+    /// so a handler cannot read a body into a type outside the wire contract. Implementers are
+    /// wire contracts like <see cref="IApiResponse"/>: they live in this assembly, stay flat (no
+    /// base classes), and are exported to TypeScript by SharedManifestParityTests — a nullable
+    /// property is an optional key, a non-nullable one is required (the same rule the response
+    /// side uses for absent-when-null). Deserialization is camelCase and case-insensitive.
+    /// </summary>
+    public interface IApiRequest
+    {
+    }
+
+    /// <summary>
     /// Canonical mutation acknowledgement: <c>{ "success": ..., "message": ... }</c>.
     /// No property defaults on purpose — every call site sets both, and a default would
     /// add a key the anonymous site never wrote.

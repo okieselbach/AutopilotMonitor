@@ -5,7 +5,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Rules
 {
@@ -52,19 +51,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return await req.ForbiddenAsync("IME log pattern edits require ?global=true");
             }
 
-            if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                && contentLength > 1_048_576)
-            {
-                return await req.BadRequestAsync("Request body too large");
-            }
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var pattern = JsonConvert.DeserializeObject<ImeLogPattern>(body);
-
-            if (pattern == null)
-            {
-                return await req.BadRequestAsync("Invalid pattern data");
-            }
+            // Newtonsoft on purpose: pattern documents stay on the Newtonsoft path (TypedRequestGuardTests baseline).
+            var read = await req.ReadNewtonsoftAsync<ImeLogPattern>(1_048_576);
+            if (read.Error != null) return read.Error;
+            var pattern = read.Value!;
 
             pattern.PatternId = patternId;
 

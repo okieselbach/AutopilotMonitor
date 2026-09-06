@@ -158,4 +158,16 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Absent on the last page.</summary>
         public string? NextLink { get; set; }
     }
+
+    /// <summary>Body of POST global/raw/logs (operator log query).</summary>
+    public class LogQueryRequest : IApiRequest
+    {
+        public string Query { get; set; } = string.Empty;
+        /// <summary>ISO-8601 duration; defaults to PT1H.</summary>
+        public string? Timespan { get; set; }
+        /// <summary>One of <see cref="LogQuerySources"/>; defaults to backend.</summary>
+        public string? Source { get; set; }
+        /// <summary>Wall-clock budget for the upstream call; clamped to 5..180, default 30.</summary>
+        public int? BudgetSeconds { get; set; }
+    }
 }

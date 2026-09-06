@@ -54,18 +54,9 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 // Body size limit (20 MB) — same as SubmitSessionReport. Diag-files payloads
                 // are typically smaller (no events.csv/timeline.txt synthesis), but log
                 // bundles + screenshots still benefit from the same upper bound.
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 20_971_520)
-                {
-                    return await req.BadRequestAsync("Request body too large");
-                }
-
-                var request = await req.ReadFromJsonAsync<SubmitDiagFilesReportRequest>();
-                if (request == null)
-                {
-                    return await req.BadRequestAsync("Invalid request body.");
-                }
+                var read = await req.ReadAsync<SubmitDiagFilesReportRequest>(20_971_520);
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
 
                 // Tenant identity: enforce JWT tenantId for non-GAs (prevents body
                 // tampering / horizontal escalation). Global Admins MAY submit reports

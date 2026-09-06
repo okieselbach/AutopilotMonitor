@@ -50,21 +50,9 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             var ct = req.FunctionContext.CancellationToken;
 
             // 1. Parse body
-            RestoreRowRequest? body;
-            try
-            {
-                body = await JsonSerializer.DeserializeAsync<RestoreRowRequest>(
-                    req.Body, BackupManifestJson.SerializerOptions, ct).ConfigureAwait(false);
-            }
-            catch (JsonException ex)
-            {
-                return await WriteErrorAsync(req, HttpStatusCode.BadRequest, "InvalidBody", $"request body is not valid JSON: {ex.Message}").ConfigureAwait(false);
-            }
-
-            if (body == null)
-            {
-                return await WriteErrorAsync(req, HttpStatusCode.BadRequest, "MissingBody", "request body is required").ConfigureAwait(false);
-            }
+            var read = await req.ReadAsync<RestoreRowRequest>();
+            if (read.Error != null) return read.Error;
+            var body = read.Value!;
 
             // 2. Lightweight preflight (no I/O)
             try

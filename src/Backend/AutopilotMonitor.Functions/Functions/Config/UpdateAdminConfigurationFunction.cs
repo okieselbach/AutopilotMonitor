@@ -11,7 +11,6 @@ using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -43,19 +42,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 _logger.LogInformation($"UpdateAdminConfiguration by Global Admin user {userIdentifier}");
 
                 // Parse request body
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 1_048_576) // 1 MB limit
-                {
-                    return await req.BadRequestAsync("Request body too large");
-                }
-                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                var config = JsonConvert.DeserializeObject<AdminConfiguration>(requestBody);
-
-                if (config == null)
-                {
-                    return await req.BadRequestAsync("Invalid configuration");
-                }
+                // Newtonsoft on purpose: same configuration stack as the tenant PUT — TypedRequestGuardTests baseline.
+                var read = await req.ReadNewtonsoftAsync<AdminConfiguration>(1_048_576);
+                if (read.Error != null) return read.Error;
+                var config = read.Value!;
 
                 // Rate limits must be positive: a zero/negative value would throttle every request
                 // (RateLimitService clamps as a last resort, but reject at the edge for a clear error).

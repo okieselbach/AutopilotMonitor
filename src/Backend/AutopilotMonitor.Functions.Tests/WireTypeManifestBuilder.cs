@@ -11,8 +11,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Builds the <c>types</c> section of shared-manifests.json (schemaVersion 2): a
 /// machine-readable description of every HTTP wire type in AutopilotMonitor.Shared —
-/// roots are all <see cref="IApiResponse"/> implementers plus every
-/// <see cref="WireContractAttribute"/>-marked type, closed transitively over
+/// roots are all <see cref="IApiResponse"/> and <see cref="IApiRequest"/> implementers plus
+/// every <see cref="WireContractAttribute"/>-marked type, closed transitively over
 /// references, collections, dictionaries, enums and <see cref="ProjectedItemsAttribute"/>
 /// item types. The web generator (scripts/generate-shared-manifest-types.js) turns it
 /// into utils/wire-types.generated.ts.
@@ -36,6 +36,7 @@ internal static class WireTypeManifestBuilder
         var roots = assembly.GetTypes()
             .Where(t => !t.IsInterface && !t.IsAbstract &&
                         (typeof(IApiResponse).IsAssignableFrom(t) ||
+                         typeof(IApiRequest).IsAssignableFrom(t) ||
                          t.GetCustomAttribute<WireContractAttribute>() != null))
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToList();
@@ -128,10 +129,11 @@ internal static class WireTypeManifestBuilder
             {
                 var info = nullability.Create(p);
                 var descriptor = Describe(info.Type, info, queue, $"{type.Name}.{p.Name}");
-                // Property-level null never reaches the wire (WhenWritingNull omits the KEY —
-                // that's what "optional" says). Explicit nulls only exist INSIDE collections
-                // and dictionary values, so the flag stays on nested descriptors only.
-                descriptor.Remove("nullable");
+                // Property-level null never reaches the wire on a RESPONSE (WhenWritingNull omits
+                // the KEY — that's what "optional" says), so the flag stays on nested descriptors
+                // only. A REQUEST body may carry an explicit null (a PATCH that clears an override:
+                // absent = unchanged, null = clear), so IApiRequest types keep it: `field?: T | null`.
+                if (!typeof(IApiRequest).IsAssignableFrom(type)) descriptor.Remove("nullable");
                 field["type"] = descriptor;
             }
 

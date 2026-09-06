@@ -5,7 +5,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Rules
 {
@@ -99,7 +98,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var (rule, bodyError) = await ReadRuleBodyAsync<GatherRule>(req);
             if (bodyError != null)
-                return await req.BadRequestAsync(bodyError);
+                return bodyError;
 
             rule!.RuleId = ruleId;
 
@@ -165,7 +164,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             var (rule, bodyError) = await ReadRuleBodyAsync<AnalyzeRule>(req);
             if (bodyError != null)
-                return await req.BadRequestAsync(bodyError);
+                return bodyError;
 
             rule!.RuleId = ruleId;
 
@@ -221,18 +220,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         /// Reads and deserializes a rule body with the same 1 MB guard the JWT-scoped functions apply.
         /// Returns (rule, null) on success or (null, errorMessage) for a 400.
         /// </summary>
-        private static async Task<(T? rule, string? error)> ReadRuleBodyAsync<T>(HttpRequestData req) where T : class
+        private static async Task<(T? rule, HttpResponseData? error)> ReadRuleBodyAsync<T>(HttpRequestData req) where T : class, IApiRequest
         {
-            if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                && contentLength > 1_048_576) // 1 MB limit
-            {
-                return (null, "Request body too large");
-            }
-
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var rule = JsonConvert.DeserializeObject<T>(body);
-            return rule == null ? (null, "Invalid rule data") : (rule, null);
+            // Newtonsoft on purpose: rule documents stay on the Newtonsoft path (TypedRequestGuardTests baseline).
+            var read = await req.ReadNewtonsoftAsync<T>(1_048_576);
+            return read.Error != null ? (null, read.Error) : (read.Value, null);
         }
 
     }

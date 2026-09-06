@@ -11,7 +11,6 @@ using Microsoft.ApplicationInsights;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Sessions
 {
@@ -85,22 +84,21 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 var userIdentifier = TenantHelper.GetUserIdentifier(req);
                 var requestCtx = req.GetRequestContext();
 
-                string body;
-                using (var reader = new StreamReader(req.Body))
-                    body = await reader.ReadToEndAsync();
-
-                ServerAction? action;
-                try
+                var read = await req.ReadAsync<QueueSessionActionRequest>();
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
+                // Server-side fields are stamped here — never trust client timestamps, and never let
+                // the caller forge a RuleId (that's reserved for the RuleEngine).
+                var action = new ServerAction
                 {
-                    action = JsonConvert.DeserializeObject<ServerAction>(body);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Invalid action payload for session {SessionId}", sessionId);
-                    return await req.BadRequestAsync("Invalid JSON body");
-                }
+                    Type = request.Type,
+                    Reason = request.Reason ?? string.Empty,
+                    Params = request.Params,
+                    RuleId = null,
+                    QueuedAt = DateTime.UtcNow,
+                };
 
-                if (action == null || string.IsNullOrWhiteSpace(action.Type))
+                if (string.IsNullOrWhiteSpace(action.Type))
                     return await req.BadRequestAsync("Action 'type' is required");
 
                 if (!AllowedTypes.Contains(action.Type))
@@ -114,10 +112,6 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     return await req.ForbiddenAsync($"Action type '{action.Type}' requires the Tenant Admin role");
                 }
 
-                // Stamp server-side fields — never trust client timestamps, and never let the caller
-                // forge a RuleId (that's reserved for the RuleEngine).
-                action.QueuedAt = DateTime.UtcNow;
-                action.RuleId = null;
                 if (string.IsNullOrWhiteSpace(action.Reason))
                     action.Reason = $"Manual action queued by {userIdentifier}";
 

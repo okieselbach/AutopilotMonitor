@@ -79,9 +79,11 @@ public class McpUserFunction
         var principal = context.GetUser();
         var currentUpn = principal?.GetUserPrincipalName();
 
-        var body = await req.ReadFromJsonAsync<AddMcpUserRequest>();
-        var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
-        if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
+        var read = await req.ReadAsync<AddMcpUserRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        var isApplication = !string.IsNullOrWhiteSpace(body.ApplicationId);
+        if (string.IsNullOrWhiteSpace(body.Upn) && !isApplication)
         {
             return await req.BadRequestAsync("UPN or applicationId is required");
         }
@@ -93,17 +95,17 @@ public class McpUserFunction
         // its service principal lives in must be named. The object id (that tenant's SP object id) is pinned
         // on the first call, exactly like a person's.
         var bindingError = isApplication
-            ? IdentityBindingRequest.Validate(body.HomeTenantId, body.ObjectId)
-            : IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+            ? IdentityBindingRules.Validate(body.HomeTenantId, body.ObjectId)
+            : IdentityBindingRules.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
             return await req.BadRequestAsync(bindingError);
         }
-        var principalKey = isApplication ? Constants.PrincipalKeys.ForApplication(body.ApplicationId!) : body.Upn;
-        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, principalKey, body.HomeTenantId, body.ObjectId);
+        var principalKey = isApplication ? Constants.PrincipalKeys.ForApplication(body.ApplicationId!) : body.Upn!;
+        var identity = await IdentityBindingRules.ResolveForGrantAsync(_identityResolver, principalKey, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRules.HomeTenantUnresolvedCode, IdentityBindingRules.HomeTenantUnresolvedMessage);
         }
 
         McpUserEntry user;
@@ -214,8 +216,9 @@ public class McpUserFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "global/mcp-users/{upn}/usage-plan")] HttpRequestData req,
         string upn)
     {
-        var body = await req.ReadFromJsonAsync<SetUsagePlanRequest>();
-        var usagePlan = string.IsNullOrWhiteSpace(body?.UsagePlan) ? null : body.UsagePlan.ToLowerInvariant();
+        var read = await req.ReadOptionalAsync<SetUsagePlanRequest>();
+        if (read.Error != null) return read.Error;
+        var usagePlan = string.IsNullOrWhiteSpace(read.Value?.UsagePlan) ? null : read.Value!.UsagePlan!.ToLowerInvariant();
 
         var success = await _mcpUserService.SetMcpUserUsagePlanAsync(upn, usagePlan);
         if (!success)
@@ -272,24 +275,4 @@ public class McpUserFunction
         });
         return response;
     }
-}
-
-public class AddMcpUserRequest
-{
-    /// <summary>The person's UPN. Leave empty when adding an application (<see cref="ApplicationId"/>).</summary>
-    public string Upn { get; set; } = string.Empty;
-    /// <summary>
-    /// The Entra application (client) id of a service principal; stored under the <c>app:&lt;client-id&gt;</c>
-    /// key. <see cref="HomeTenantId"/> is then required (no sign-in history to resolve it from).
-    /// </summary>
-    public string? ApplicationId { get; set; }
-    /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
-    public string? HomeTenantId { get; set; }
-    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
-    public string? ObjectId { get; set; }
-}
-
-public class SetUsagePlanRequest
-{
-    public string? UsagePlan { get; set; }
 }

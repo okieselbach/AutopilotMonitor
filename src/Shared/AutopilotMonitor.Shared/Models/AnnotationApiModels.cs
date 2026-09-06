@@ -109,4 +109,11 @@ namespace AutopilotMonitor.Shared.Models
         public bool Success { get; set; }
         public SessionAnnotationItem Annotation { get; set; } = default!;
     }
+
+    /// <summary>Body of PUT sessions/{sessionId}/annotations/{lane}; both fields empty = clear the lane.</summary>
+    public class UpsertSessionAnnotationRequest : IApiRequest
+    {
+        public string? Verdict { get; set; }
+        public string? Note { get; set; }
+    }
 }

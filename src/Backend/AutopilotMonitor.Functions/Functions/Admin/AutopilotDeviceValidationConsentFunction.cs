@@ -328,15 +328,9 @@ public class AutopilotDeviceValidationConsentFunction
         // Authentication enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
 
-        ConsentSuccessReport? report;
-        try
-        {
-            report = await req.ReadFromJsonAsync<ConsentSuccessReport>();
-        }
-        catch
-        {
-            report = null;
-        }
+        var read = await req.ReadOptionalAsync<AutopilotConsentSuccessRequest>();
+        if (read.Error != null) return read.Error;
+        var report = read.Value;
 
         var rawTrigger = report?.Trigger ?? string.Empty;
         var trigger = KnownConsentTriggers.Contains(rawTrigger) ? rawTrigger.ToLowerInvariant() : "unknown";
@@ -357,12 +351,6 @@ public class AutopilotDeviceValidationConsentFunction
 
         return req.CreateResponse(HttpStatusCode.OK);
     }
-
-    private sealed class ConsentSuccessReport
-    {
-        public string? Trigger { get; set; }
-    }
-
     /// <summary>
     /// Frontend reports consent flow failures (Azure AD errors) so we have visibility
     /// into broken consent flows that never reach our callback.
@@ -376,15 +364,9 @@ public class AutopilotDeviceValidationConsentFunction
         // Authentication enforced by PolicyEnforcementMiddleware
         var requestCtx = req.GetRequestContext();
 
-        ConsentFailureReport? report;
-        try
-        {
-            report = await req.ReadFromJsonAsync<ConsentFailureReport>();
-        }
-        catch
-        {
-            report = null;
-        }
+        var read = await req.ReadOptionalAsync<AutopilotConsentFailureRequest>();
+        if (read.Error != null) return read.Error;
+        var report = read.Value;
 
         var errorCode = report?.Error ?? "unknown";
         var errorDescription = report?.ErrorDescription ?? string.Empty;
@@ -405,11 +387,5 @@ public class AutopilotDeviceValidationConsentFunction
             requestCtx.TargetTenantId, requestCtx.UserPrincipalName, errorCode, errorDescription);
 
         return req.CreateResponse(HttpStatusCode.OK);
-    }
-
-    private sealed class ConsentFailureReport
-    {
-        public string? Error { get; set; }
-        public string? ErrorDescription { get; set; }
     }
 }

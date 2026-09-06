@@ -34,4 +34,13 @@ namespace AutopilotMonitor.Shared.Models
         public string? HistoryRowKey { get; set; }
         public string? DomainName { get; set; }
     }
+
+    /// <summary>Body of POST feedback.</summary>
+    public class FeedbackRequest : IApiRequest
+    {
+        /// <summary>1..5 for a submission; omitted on a dismissal.</summary>
+        public int? Rating { get; set; }
+        public string? Comment { get; set; }
+        public bool Dismissed { get; set; }
+    }
 }

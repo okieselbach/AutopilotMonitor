@@ -23,4 +23,10 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Best-effort blob size, or null when the size probe timed out/failed — the key is omitted when null.</summary>
         public long? SizeBytes { get; set; }
     }
+
+    /// <summary>Body of POST diagnostics/download-ticket and POST global/session-reports/download-ticket.</summary>
+    public class DownloadTicketRequest : IApiRequest
+    {
+        public string? BlobName { get; set; }
+    }
 }

@@ -283,4 +283,27 @@ namespace AutopilotMonitor.Shared.Models
         public int Count { get; set; }
         public Dictionary<string, string> Emails { get; set; } = default!;
     }
+
+    // ── Request bodies ──
+
+    /// <summary>Body of POST rules/analyze/dryrun: a draft rule evaluated against one session.</summary>
+    public class DryRunAnalyzeRuleRequest : IApiRequest
+    {
+        public string? SessionId { get; set; }
+        public AnalyzeRule? Rule { get; set; }
+    }
+
+    /// <summary>Body of POST rules/gather/test-pattern.</summary>
+    public class TestLogPatternRequest : IApiRequest
+    {
+        public string? Pattern { get; set; }
+        public string? Format { get; set; }
+        public List<string>? SampleLines { get; set; }
+    }
+
+    /// <summary>Body of POST rules/analyze/{ruleId}/create-from-template: template variable values by name.</summary>
+    public class CreateAnalyzeRuleFromTemplateRequest : IApiRequest
+    {
+        public Dictionary<string, string> Variables { get; set; } = new Dictionary<string, string>();
+    }
 }

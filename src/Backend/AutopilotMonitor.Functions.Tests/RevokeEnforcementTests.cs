@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
 

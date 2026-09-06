@@ -2,10 +2,15 @@
 // Source: src/Web/autopilot-monitor-web/utils/shared-manifests.json.
 // Regenerate: npm run generate:manifests in src/Web/autopilot-monitor-web.
 //
-// Wire response types reflected from AutopilotMonitor.Shared (every IApiResponse
+// Wire types reflected from AutopilotMonitor.Shared (every IApiResponse and IApiRequest
 // implementer + [WireContract] type, transitively closed). Key ORDER, presence
-// (optional = key absent under WhenWritingNull) and names mirror the C# wire exactly.
+// (optional = key absent under WhenWritingNull; for a request body: key may be omitted)
+// and names mirror the C# wire exactly.
 
+
+export interface AcceptDelegationInvitationRequest {
+  token: string;
+}
 
 /** Response of POST delegations/accept. */
 export interface AcceptDelegationInvitationResponse {
@@ -31,9 +36,23 @@ export interface ActiveUserItem {
   secondsAgo: number;
 }
 
+/** Body of POST auth/global-admins. */
+export interface AddGlobalAdminRequest {
+  upn: string;
+  /** The grantee's home Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted. */
+  homeTenantId?: string | null;
+  /** The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in. */
+  objectId?: string | null;
+}
+
 /** Response of POST auth/global-admins (201): the created row. */
 export interface AddGlobalAdminResponse {
   admin: GlobalAdminRow;
+}
+
+/** Body of POST global/tenant-groups/{groupId}/tenants. */
+export interface AddGroupTenantRequest {
+  tenantId: string;
 }
 
 /** Response of POST vulnerability/ignored-software: how many entries were added. */
@@ -42,9 +61,31 @@ export interface AddIgnoredSoftwareResponse {
   added: number;
 }
 
+/** Body of POST global/mcp-users. */
+export interface AddMcpUserRequest {
+  /** The person's UPN. Omit when adding an application (ApplicationId). */
+  upn?: string | null;
+  /** The Entra application (client) id of a service principal; stored under the app:<client-id> key. HomeTenantId is then required (no sign-in history to resolve it from). */
+  applicationId?: string | null;
+  /** The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted. */
+  homeTenantId?: string | null;
+  /** The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in. */
+  objectId?: string | null;
+}
+
 /** Response of POST global/mcp-users (201): the created whitelist row. */
 export interface AddMcpUserResponse {
   user: McpUserEntry;
+}
+
+/** Body of POST tenants/{tenantId}/admins. */
+export interface AddTenantAdminRequest {
+  /** The person's UPN. Omit when adding an application (ApplicationId). */
+  upn?: string | null;
+  /** The Entra application (client) id of a service principal in this tenant. Stored under the app:<client-id> member key; the role is fixed to Viewer. */
+  applicationId?: string | null;
+  role?: string | null;
+  canManageBootstrapTokens: boolean;
 }
 
 /** Global platform configuration managed by Global Admins Stored in Azure Table Storage with single instance PartitionKey = "GlobalConfig" RowKey = "config" */
@@ -66,7 +107,7 @@ export interface AdminConfiguration {
   /** Per-user rate limit for Global Admins. Higher budget but not exempt. Default: 600. */
   globalAdminRateLimitRequestsPerMinute: number;
   /** JSON-serialized plan tier definitions mapping tier name to rate limits and features. Example: {"free":{"apiRateLimit":60},"pro":{"apiRateLimit":300},"enterprise":{"apiRateLimit":1000}} */
-  planTierDefinitionsJson?: string;
+  planTierDefinitionsJson?: string | null;
   /** Container SAS URL used by maintenance to publish platform stats JSON files. Expected format: https://{account}.blob.core.windows.net/{container}?sv=...&sig=... */
   platformStatsBlobSasUrl: string;
   /** Idle timeout in minutes for periodic collectors (Performance, AgentSelfMetrics). When no real enrollment event (app install, ESP phase change, etc.) is detected within this window, collectors stop automatically to prevent session bloat. They restart automatically when new enrollment activity is detected. 0 = disabled (collectors run indefinitely). Default: 15 minutes. */
@@ -309,7 +350,7 @@ export interface AnalyzeRule {
   /** Whether this is a community-contributed rule Community rules behave like built-in rules (read-only, state stored separately) but are displayed with a distinct "Community" badge in the portal */
   isCommunity: boolean;
   /** Where this global rule row came from — see RuleProvenance. Drives the self-maintaining sunset: "embedded"/null = owned by the deployed binary's catalog (may be sunset when it leaves that catalog); "github" = reseeded from GitHub ahead of the binary (exempt from the embedded catalog sunset/filter). Null on pre-existing rows = embedded. */
-  provenance?: string;
+  provenance?: string | null;
   /** Rule trigger type: "single" (matches individual events) or "correlation" (combines multiple event types) Both types run at the same time during analysis - this field is organizational/descriptive */
   trigger: string;
   /** When this rule is evaluated. Null/empty = ["enrollment_end"] — the historical terminal-only behavior. Additional interim triggers let a rule fire before the session is terminal: "whiteglove_sealed" (first genuine whiteglove_complete seal) and "on_event:<eventType>" (an ingest batch contained that event type). Interim runs suppress the KO path and record no stats — see AnalyzeRuleTriggers and internal/docs/rules/analyze-rule-triggers.md. */
@@ -333,15 +374,15 @@ export interface AnalyzeRule {
   /** Template variables that must be customized per-tenant before the rule can be used. If non-empty, the rule is a template: enabling it creates a tenant custom copy with the user's values substituted into the conditions. */
   templateVariables: TemplateVariable[];
   /** If this custom rule was created from a template, stores the original template rule's ID. Used to track lineage and prevent duplicate copies. */
-  derivedFromTemplateRuleId?: string;
+  derivedFromTemplateRuleId?: string | null;
   /** Rule-definition default for whether firing this rule should mark the entire session as failed. Shipped in the rule JSON. A tenant can override this via MarkSessionAsFailed in their RuleState — a firing rule is considered a "KO criterion" for the enrollment when the effective value (override ?? default) is true. */
   markSessionAsFailedDefault: boolean;
   /** Tenant-scoped override for MarkSessionAsFailedDefault. Not persisted in the rule JSON — populated at load time from the RuleStates table. Null means the tenant has not expressed a preference (fall back to the default). */
-  markSessionAsFailed?: boolean;
+  markSessionAsFailed?: boolean | null;
   /** Rule-definition default for whether newly detected findings of this rule send an outbound notification. Off for all shipped rules — notification targets are tenant-specific channel ids, so notify only becomes actionable through the tenant override + channel selection. */
   notifyDefault: boolean;
   /** Tenant-scoped override for NotifyDefault. Not persisted in the rule JSON — populated at load time from the RuleStates table. Null = no preference (use the default). */
-  notify?: boolean;
+  notify?: boolean | null;
   /** Tenant-scoped notification targets: ids of the tenant's notification channels (TenantConfiguration.NotificationChannelsJson) that receive an alert when this rule fires. Populated at load time from the RuleStates table alongside Notify. Effective notify requires both the flag and at least one resolvable channel id. */
   notifyChannelIds?: string[];
   /** Tags for filtering and categorization */
@@ -484,6 +525,12 @@ export interface AppHomingProbeWire {
   isTransient: boolean;
   /** Legacy add-on Graph roles the primary app lacks (probe refused, not transient), or null — the key is omitted when null. The admin grants exactly these on the primary app. */
   missingRoles?: string[];
+}
+
+/** Body of POST config/{tenantId}/app-homing. */
+export interface AppHomingRequest {
+  target?: string | null;
+  force: boolean;
 }
 
 /** App install SLA snapshot. */
@@ -660,6 +707,16 @@ export interface AppsListResponse {
   nextLink?: string;
 }
 
+/** Body of POST global/tenant-groups/{groupId}/assignees. */
+export interface AssignGroupRequest {
+  upn: string;
+  role?: string | null;
+  /** The assignee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted. */
+  homeTenantId?: string | null;
+  /** The assignee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in. */
+  objectId?: string | null;
+}
+
 export interface AuditLogEntry {
   id: string;
   tenantId: string;
@@ -703,6 +760,17 @@ export interface AuthMeResponse {
   unrestrictedModeEnabled: boolean;
 }
 
+export interface AutoResolveCpeMappingItem {
+  softwareName: string;
+  publisher?: string;
+  normalizedVendor?: string;
+}
+
+/** Body of POST vulnerability/cpe-mapping/auto-resolve. */
+export interface AutoResolveCpeMappingRequest {
+  items: AutoResolveCpeMappingItem[];
+}
+
 /** Response of POST vulnerability/cpe-mapping/auto-resolve: per-item outcomes plus totals. */
 export interface AutoResolveCpeMappingResponse {
   resolved: AutoResolveResultItem[];
@@ -740,6 +808,12 @@ export interface AutopilotAccessCheckResponse {
   appHomingMissingRoles?: string[];
 }
 
+/** Body of POST config/{tenantId}/autopilot-device-validation/consent-failure. */
+export interface AutopilotConsentFailureRequest {
+  error?: string | null;
+  errorDescription?: string | null;
+}
+
 /** Response of GET config/{tenantId}/autopilot-device-validation/consent-status. */
 export interface AutopilotConsentStatusResponse {
   isConsented: boolean;
@@ -750,6 +824,11 @@ export interface AutopilotConsentStatusResponse {
   appHomingPending: boolean;
   /** Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null. */
   appHomingMissingRoles?: string[];
+}
+
+/** Body of POST config/{tenantId}/autopilot-device-validation/consent-success. */
+export interface AutopilotConsentSuccessRequest {
+  trigger?: string | null;
 }
 
 /** Response of GET config/{tenantId}/autopilot-device-validation/consent-url. */
@@ -823,6 +902,19 @@ export interface BackupJobStatus {
 /** Manifest-level outcome. Job-level state (Failed for fatal errors) is tracked separately on BackupJobStatus; a manifest only exists when the run reached the "all tables attempted, manifest write succeeded" milestone. */
 export type BackupOutcome = "Success" | "Partial";
 
+/** Body of POST devices/block (Global Admin). */
+export interface BlockDeviceRequest {
+  tenantId: string;
+  serialNumber: string;
+  /** 1..720 hours; defaults to 12 when omitted. */
+  durationHours?: number | null;
+  reason?: string | null;
+  /** Block (default) or Kill, case-insensitive. */
+  action?: string | null;
+  /** The session the block was raised from, when known — normalised by the endpoint. */
+  blockedSessionId?: string | null;
+}
+
 /** Response of POST devices/block: block/kill acknowledgement. */
 export interface BlockDeviceResponse {
   success: boolean;
@@ -830,6 +922,14 @@ export interface BlockDeviceResponse {
   unblockAt: string;
   /** "Block" or "Kill" (normalized casing). */
   action: string;
+}
+
+/** Body of POST versions/block (Global Admin). */
+export interface BlockVersionRequest {
+  versionPattern: string;
+  /** Block (default) or Kill, case-insensitive. */
+  action?: string | null;
+  reason?: string | null;
 }
 
 /** Response of POST versions/block: block/kill rule acknowledgement. */
@@ -1008,6 +1108,11 @@ export interface CrashRateMetrics {
   topExceptions: CrashExceptionSummary[];
 }
 
+/** Body of POST rules/analyze/{ruleId}/create-from-template: template variable values by name. */
+export interface CreateAnalyzeRuleFromTemplateRequest {
+  variables: Record<string, string>;
+}
+
 /** Response of POST rules/analyze/{ruleId}/create-from-template: the newly created custom rule instantiated from the template. */
 export interface CreateAnalyzeRuleFromTemplateResponse {
   success: boolean;
@@ -1015,11 +1120,25 @@ export interface CreateAnalyzeRuleFromTemplateResponse {
   message: string;
 }
 
+/** Request to create a new bootstrap session for OOBE agent deployment */
+export interface CreateBootstrapSessionRequest {
+  tenantId: string;
+  /** How long the bootstrap URL should be valid (1–168 hours, default 8) */
+  validityHours: number;
+  /** Optional human-readable label (e.g. "Lab A", "Floor 3") */
+  label: string;
+}
+
 /** Response of POST delegations/invitations: the token is shown ONCE (the link is copy-only). */
 export interface CreateDelegationInvitationResponse {
   invitationId: string;
   token: string;
   expiresUtc: string;
+}
+
+/** Body of POST global/tenant-groups. */
+export interface CreateTenantGroupRequest {
+  name: string;
 }
 
 /** Response of POST global/tenant-groups: the created group's id and (trimmed) name. */
@@ -1173,6 +1292,11 @@ export interface DelegationAcceptPreviewResponse {
   targetTenantDomain?: string;
 }
 
+export interface DelegationAssignRequest {
+  /** The member's principal key as listed under Access Management: a person's UPN, or the app:<client-id> key of a service principal member (read-only like every assignee). */
+  upn: string;
+}
+
 /** Response of POST delegations/assignees. */
 export interface DelegationAssignResponse {
   assignment: TenantGroupAssignment;
@@ -1206,6 +1330,13 @@ export interface DelegationInvitationItem {
 export interface DelegationInvitationListResponse {
   homeTenantId: string;
   invitations: DelegationInvitationItem[];
+}
+
+/** Body of DELETE vulnerability/cpe-mapping. */
+export interface DeleteCustomCpeMappingRequest {
+  /** Defaults to "unknown". */
+  normalizedVendor?: string | null;
+  normalizedProduct: string;
 }
 
 /** One sampled table row key (delete preview / stored manifest summary). */
@@ -1437,6 +1568,17 @@ export interface DistressReportListResponse {
   reports: DistressReportEntry[];
 }
 
+/** Body of POST diagnostics/download-ticket and POST global/session-reports/download-ticket. */
+export interface DownloadTicketRequest {
+  blobName?: string | null;
+}
+
+/** Body of POST rules/analyze/dryrun: a draft rule evaluated against one session. */
+export interface DryRunAnalyzeRuleRequest {
+  sessionId?: string | null;
+  rule?: AnalyzeRule | null;
+}
+
 /** Response of POST rules/analyze/dryrun: the full diagnostic trace of one draft-rule evaluation against a session. */
 export interface DryRunAnalyzeRuleResponse {
   success: boolean;
@@ -1451,6 +1593,11 @@ export interface EfficiencyOffender {
   deviceName?: string;
   dimension: string;
   value: number;
+}
+
+/** Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template). */
+export interface EmailTemplateRequest {
+  html?: string | null;
 }
 
 /** Response of DELETE global/email-templates/{kind}: reset to the built-in template. */
@@ -1578,6 +1725,14 @@ export interface FeedbackListResponse {
   feedback: FeedbackEntryWire[];
 }
 
+/** Body of POST feedback. */
+export interface FeedbackRequest {
+  /** 1..5 for a submission; omitted on a dismissal. */
+  rating?: number | null;
+  comment?: string | null;
+  dismissed: boolean;
+}
+
 export interface FleetDailyPoint {
   date: string;
   success: number;
@@ -1669,7 +1824,7 @@ export interface GatherRule {
   /** Whether this is a community-contributed rule Community rules behave like built-in rules (read-only, state stored separately) but are displayed with a distinct "Community" badge in the portal */
   isCommunity: boolean;
   /** Where this global rule row came from — see RuleProvenance. Drives the self-maintaining sunset: "embedded"/null = owned by the deployed binary's catalog (may be sunset when it leaves that catalog); "github" = reseeded from GitHub ahead of the binary (exempt from the embedded catalog sunset/filter). Null on pre-existing rows = embedded. */
-  provenance?: string;
+  provenance?: string | null;
   /** Type of data collection: - "registry": Read values from the Windows Registry - "eventlog": Read entries from a Windows Event Log - "wmi": Execute a WMI/CIM query - "file": Check file/directory existence and optionally read content - "command_allowlisted": Run a pre-approved command (PowerShell or CLI). Only commands on the agent's hardcoded allowlist in GatherRuleExecutor.cs are permitted. Unlisted commands are blocked and generate a security_warning event. See the allowlist in GatherRuleExecutor.cs for the full list of approved commands. - "logparser": Parse a CMTrace-format log file using a regex pattern with named capture groups */
   collectorType: string;
   /** Target for collection: - registry: Registry path (e.g., "HKLM\SOFTWARE\Microsoft\...") - eventlog: Event log name (e.g., "Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin") - wmi: WMI query (e.g., "SELECT * FROM Win32_TPM WHERE __NAMESPACE='root\\CIMV2\\Security\\MicrosoftTpm'") - file: File or directory path with env vars (e.g., "C:\Windows\INF\setupapi.dev.log") - command_allowlisted: Exact command string as it appears in the allowlist (e.g., "Get-Tpm", "dsregcmd /status") - logparser: Log file path with env vars (e.g., "%ProgramData%\Microsoft\IntuneManagementExtension\Logs\AppWorkload.log") */
@@ -1679,7 +1834,7 @@ export interface GatherRule {
   /** Trigger type: "startup", "phase_change", "phase_exit", "interval", "on_event". "phase_change" fires once when the phase in is ENTERED, "phase_exit" once when it is LEFT — the two one-shot bookends of a phase. */
   trigger: string;
   /** Interval in seconds (only used when Trigger = "interval") */
-  intervalSeconds?: number;
+  intervalSeconds?: number | null;
   /** Phase to trigger on (used when Trigger = "phase_change" or "phase_exit"). Canonical tokens are the EnrollmentPhase enum names, e.g. "DeviceSetup", "AccountSetup", "Complete". Empty = every phase transition. */
   triggerPhase: string;
   /** Event type to trigger on (only used when Trigger = "on_event") e.g., "app_install_failed" */
@@ -1687,9 +1842,9 @@ export interface GatherRule {
   /** Restricts the rule to run only while the current enrollment phase is one of these phases. Canonical tokens are the EnrollmentPhase enum names ("Start", "DevicePreparation", "DeviceSetup", "AppsDevice", "AccountSetup", "AppsUser", "FinalizingSetup", "Complete"); "Unknown" and "Failed" are rejected by backend validation. Null or empty = unrestricted (runs in every phase — legacy behavior). Mutually exclusive with ActiveFromPhase; if both are set the agent defensively prefers this list. Applies to ALL trigger types. Before the first phase signal of a session, scoped rules are inactive. */
   activePhases?: string[];
   /** Activates the rule once the enrollment phase first reaches this phase (ordinal comparison on EnrollmentPhase, ignoring Unknown/Failed), then keeps it active for the rest of the session (sticky latch — including through Failed). Canonical tokens as in ActivePhases. Null = unrestricted. Mutually exclusive with ActivePhases. */
-  activeFromPhase?: string;
+  activeFromPhase?: string | null;
   /** Emit behavior for collected results: null / "always" = emit on every collection (legacy behavior); "on_change" = poll on the trigger cadence but emit only when the collected result differs from the last emitted one. The first in-scope result always emits; the suppressed poll count is carried on the next emitted event (suppressedPolls / suppressedSinceUtc in the event data). */
-  emitMode?: string;
+  emitMode?: string | null;
   /** EventType for the emitted event (e.g., "gather_proxy_settings") */
   outputEventType: string;
   /** Severity for the emitted event Default: "Info" */
@@ -2115,6 +2270,18 @@ export interface GlobalNotificationDto {
   createdAt: string;
 }
 
+/** Body of POST global/delegated-admins. */
+export interface GrantDelegatedAdminRequest {
+  upn: string;
+  /** The MANAGED (target) tenant the UPN may read. */
+  tenantId: string;
+  role?: string | null;
+  /** The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted. */
+  homeTenantId?: string | null;
+  /** The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in. */
+  objectId?: string | null;
+}
+
 /** One feature row of the graph-permissions status matrix: the feature identifier, the granted verdict (null while the snapshot is transient) and the Graph application permissions the feature requires. */
 export interface GraphFeatureStatusItem {
   name: string;
@@ -2179,9 +2346,32 @@ export interface IdentityBindingListResponse {
   bindings: AdminIdentityBinding[];
 }
 
+/** Body of PUT global/identity-bindings/{upn}: the home tenant (GUID, required) and object id (GUID, optional) a person is pinned to. */
+export interface IdentityBindingRequest {
+  homeTenantId?: string | null;
+  objectId?: string | null;
+}
+
 /** Response of PUT global/identity-bindings/{upn}: the created/replaced binding. */
 export interface IdentityBindingResponse {
   binding: AdminIdentityBinding;
+}
+
+/** Body of DELETE vulnerability/ignored-software. */
+export interface IgnoreSoftwareDeleteRequest {
+  softwareName: string;
+  publisher?: string | null;
+}
+
+export interface IgnoreSoftwareItem {
+  softwareName: string;
+  publisher?: string;
+  reason?: string;
+}
+
+/** Body of POST vulnerability/ignored-software. */
+export interface IgnoreSoftwareRequest {
+  items: IgnoreSoftwareItem[];
 }
 
 /** One entry of the persistent software ignore list. */
@@ -2548,6 +2738,17 @@ export interface LogPatternTestResult {
   readonly notes: string[];
 }
 
+/** Body of POST global/raw/logs (operator log query). */
+export interface LogQueryRequest {
+  query: string;
+  /** ISO-8601 duration; defaults to PT1H. */
+  timespan?: string | null;
+  /** One of !:LogQuerySources; defaults to backend. */
+  source?: string | null;
+  /** Wall-clock budget for the upstream call; clamped to 5..180, default 30. */
+  budgetSeconds?: number | null;
+}
+
 /** Run report of a manual maintenance run (POST maintenance/trigger). */
 export interface MaintenanceResult {
   success: boolean;
@@ -2737,6 +2938,25 @@ export interface OpsEventListResponse {
   events: OpsEventEntry[];
   /** Absolute-path link to the next page, or null on the last page / non-paged variant — the key is omitted when null. */
   nextLink?: string;
+}
+
+/** Body of PATCH config/{tenantId}/fields: { "fields": { <fieldName>: <value>, ... }, "reason"?: "..." } with at least one field. Values take the field's own JSON type (TenantConfiguration). */
+export interface PatchTenantConfigurationFieldsRequest {
+  fields?: Record<string, unknown>;
+  reason?: string | null;
+}
+
+/** Body of PATCH config/{tenantId}/plan. Presence matters: an absent key leaves the value unchanged, an explicit null clears the override (trial end, delegated-slot cap, MCP plan). The endpoint reads the keys by name from this type. */
+export interface PatchTenantPlanRequest {
+  /** community or pro. */
+  planTier?: string | null;
+  /** ISO-8601 UTC; null ends the trial. */
+  trialExpiresUtc?: string | null;
+  /** Non-negative; null clears the per-tenant override. */
+  maxDelegatedTenants?: number | null;
+  /** Usage-plan name; null clears the override. */
+  mcpUsagePlan?: string | null;
+  payingCustomer?: boolean | null;
 }
 
 /** Distribution of a per-session statistic across a version bucket. */
@@ -2940,6 +3160,16 @@ export interface QueryRawTableResponse {
   nextLink?: string;
 }
 
+/** Request to ingest events (batched) */
+export interface QueueSessionActionRequest {
+  /** One of ServerActionTypes. */
+  type: string;
+  /** Optional operator note; defaults to "Manual action queued by {user}". */
+  reason?: string | null;
+  /** Action-specific parameters, see Params. */
+  params?: Record<string, string>;
+}
+
 /** Server-action queue acknowledgement (QueueSessionAction, 202 Accepted). */
 export interface QueueSessionActionResponse {
   success: boolean;
@@ -3048,6 +3278,11 @@ export interface RelatedDoc {
   url: string;
 }
 
+export interface ReleaseDelegatedSlotHoldRequest {
+  invitationId?: string | null;
+  all: boolean;
+}
+
 /** Response of POST global/delegated-slots/{tenantId}/release-hold: how many holds ended now. */
 export interface ReleaseDelegatedSlotHoldResponse {
   homeTenantId: string;
@@ -3060,6 +3295,10 @@ export interface RemediationStep {
   title: string;
   /** Ordered steps to execute */
   steps: string[];
+}
+
+export interface RemoveManagedTenantRequest {
+  tenantId: string;
 }
 
 /** Response of POST rules/reseed-from-github: per-catalog reseed counters. */
@@ -3111,6 +3350,9 @@ export interface RestoreRowCommitResponse {
 
 export type RestoreRowDiffKind = "Added" | "Removed" | "Changed" | "Unchanged";
 
+/** Operating mode for POST /api/global/backups/{backupId}/restore-row. Preview is a read-only diff; Commit is the conditional write under maintenance lease + ETag-CAS. */
+export type RestoreRowMode = "Preview" | "Commit";
+
 /** Response body of mode=preview. Contains the backup-row dump, the live row (or null), a per-property diff, the row-hash to echo on commit, and the live ETag (or null) to echo on commit. */
 export interface RestoreRowPreviewResponse {
   backupId: string;
@@ -3142,6 +3384,39 @@ export interface RestoreRowPropertyDiff {
 export interface RestoreRowPropertySnapshot {
   edmType: string;
   value: unknown;
+}
+
+/** Body of POST /api/global/backups/{backupId}/restore-row. PartitionKey + RowKey are carried in the body (never the URL) because Azure Tables permits /, +, % in PK/RK; URL-encoding them on the route would interact poorly with the Functions router. */
+export interface RestoreRowRequest {
+  tableName: string;
+  partitionKey: string;
+  rowKey: string;
+  mode: RestoreRowMode;
+  /** SHA-256 (hex, lowercase) of the raw NDJSON line bytes echoed from the matching Preview response. Required on Commit. The server re-computes the hash on the fresh NDJSON line and rejects with 409 on mismatch (tamper / blob churn after the preview). */
+  ifSha256?: string | null;
+  /** Live-row ETag echoed from the matching Preview response. null means "Preview saw no live row" → Commit uses AddEntity. A non-null value means "Preview saw a live row with this ETag" → Commit uses UpdateEntity(ifMatch=etag, Replace). Mismatch (412) or existence change → 409 CurrentRowChanged. */
+  ifCurrentETag?: string | null;
+}
+
+/** Body of POST global/sessions/{sessionId}/restore. */
+export interface RestoreSessionRequest {
+  manifestId: string;
+  dryRun: boolean;
+  /** Optional: when the Sessions row is already gone (full-restore case after a completed cascade), there is no SessionsIndex entry to look up the tenant from — provide it explicitly. */
+  tenantId?: string | null;
+  /** Optional free-text justification, persisted into the deletion_restored audit row's reason detail. Trimmed and capped at 1024 chars by the endpoint. */
+  reason?: string | null;
+}
+
+/** Body of POST config/{tenantId}/revert. */
+export interface RevertTenantConfigurationRequest {
+  backupId?: string | null;
+  includeProtectedFields: boolean;
+  reason?: string | null;
+}
+
+export interface RevokeTenantManagerRequest {
+  homeTenantId: string;
 }
 
 /** A condition that is evaluated against the event stream */
@@ -3376,12 +3651,37 @@ export interface RuleTrendPoint {
   evaluationCount: number;
 }
 
+/** Body of POST vulnerability/cpe-mapping; normalizedProduct and cpeUri are required, the rest default server-side. */
+export interface SaveCustomCpeMappingRequest {
+  /** Defaults to "unknown". */
+  normalizedVendor?: string | null;
+  normalizedProduct: string;
+  cpeVendor?: string | null;
+  cpeProduct?: string | null;
+  cpeUri: string;
+  /** Defaults to "custom". */
+  category?: string | null;
+  displayNamePatterns?: string[];
+  publisherPatterns?: string[];
+  excludePatterns?: string[];
+}
+
 /** Response of POST vulnerability/cpe-mapping on a successful save. */
 export interface SaveCustomCpeMappingResponse {
   success: boolean;
   message: string;
   /** Sanitized Table Storage row key the mapping was stored under. */
   rowKey: string;
+}
+
+/** Body of PUT preview/notification-email and POST preview/send-welcome-email/{tenantId}. */
+export interface SaveNotificationEmailRequest {
+  email: string;
+}
+
+/** Body of POST tenants/{tenantId}/scripts/display-names: Graph script references to resolve. */
+export interface ScriptDisplayNamesRequest {
+  refs?: string[];
 }
 
 /** SearchSessions envelope. Sessions carries full SessionSummary items, or dictionary projections of them when the caller passed a fields= subset. */
@@ -3615,8 +3915,8 @@ export interface SessionReportMetadata {
   reportId: string;
   tenantId: string;
   sessionId: string;
-  comment: string;
-  email: string;
+  comment?: string;
+  email?: string;
   blobName: string;
   submittedBy: string;
   submittedAt: string;
@@ -3816,6 +4116,11 @@ export interface SetMcpUserUsagePlanResponse {
   usagePlan: string;
 }
 
+/** Body of PUT global/config/plan-tiers. */
+export interface SetPlanTierDefinitionsRequest {
+  tiers: PlanTierDefinition[];
+}
+
 /** Response of PATCH config/{tenantId}/plan: the resulting plan/trial state. */
 export interface SetTenantPlanTierResponse {
   tenantId: string;
@@ -3840,12 +4145,31 @@ export interface SetTenantPlanTierResponse {
   payingCustomer: boolean;
 }
 
+/** Body of PATCH global/mcp-users/{upn}/usage-plan; null clears the override. */
+export interface SetUsagePlanRequest {
+  usagePlan?: string | null;
+}
+
 /** Distinct-CVE counts grouped by their highest CVSS severity band. */
 export interface SeverityBreakdown {
   critical: number;
   high: number;
   medium: number;
   low: number;
+}
+
+/** Body of POST realtime/groups/join. */
+export interface SignalRJoinGroupRequest {
+  connectionId?: string | null;
+  groupName?: string | null;
+  /** Serial-number knowledge proof for session-group joins. Required only for roleless same-tenant callers (Progress Portal end users); member, Global Admin and delegated callers never need to send it. */
+  serialNumber?: string | null;
+}
+
+/** Body of POST realtime/groups/leave. */
+export interface SignalRLeaveGroupRequest {
+  connectionId?: string | null;
+  groupName?: string | null;
 }
 
 /** Response of POST realtime/negotiate: exactly the shape the @microsoft/signalr client's negotiate protocol expects. */
@@ -3947,6 +4271,58 @@ export interface StartTenantTrialResponse {
   trialExpiresUtc?: string;
   /** Always the Pro tier name — starting a trial makes the tenant effectively Pro. */
   effectiveEdition: string;
+}
+
+/** Request to submit diagnostic files for analysis without a session context. Used from /settings/tenant/support when an admin needs to ship logs/state files to the Autopilot Monitor team without binding them to a specific enrollment session. */
+export interface SubmitDiagFilesReportRequest {
+  tenantId: string;
+  comment?: string | null;
+  email?: string | null;
+  /** Base64-encoded screenshot image (optional) */
+  screenshotBase64?: string | null;
+  /** Original screenshot file name for extension detection */
+  screenshotFileName?: string | null;
+  /** Base64-encoded log/state payload (single file or zip of many; max ~5 MB enforced client-side) */
+  agentLogBase64?: string | null;
+  /** Original file name (e.g. "agent.log", "state.json", "diag-files.zip") */
+  agentLogFileName?: string | null;
+}
+
+/** Body of POST tenants/{tenantId}/offboard/feedback. */
+export interface SubmitOffboardingFeedbackRequest {
+  comment?: string | null;
+}
+
+/** Request to submit a session report for analysis by the Autopilot Monitor team. Sent as JSON from the frontend; the backend creates the ZIP and uploads to central storage. */
+export interface SubmitSessionReportRequest {
+  tenantId: string;
+  sessionId: string;
+  comment?: string | null;
+  email?: string | null;
+  /** Session row as CSV (single data row with header) */
+  sessionCsv?: string | null;
+  /** Pre-generated UI timeline export (TXT) */
+  timelineExportTxt?: string | null;
+  /** Pre-generated raw events table export (CSV) */
+  eventsCsv?: string | null;
+  /** Pre-generated analysis rule results export (CSV) */
+  ruleResultsCsv?: string | null;
+  /** Base64-encoded screenshot image (optional) */
+  screenshotBase64?: string | null;
+  /** Original screenshot file name for extension detection */
+  screenshotFileName?: string | null;
+  /** Base64-encoded agent log file (optional, max 5 MB) */
+  agentLogBase64?: string | null;
+  /** Original agent log file name */
+  agentLogFileName?: string | null;
+  /** When true and the session has an uploaded diagnostics archive, the backend copies that archive server-side into the durable session-reports container so it survives session deletion and retention cleanup. */
+  includeDiagnostics: boolean;
+  /** Number of events the client had loaded when it generated the exports. */
+  exportedEventCount?: number | null;
+  /** The session's EventCount as the client saw it — compared against ExportedEventCount this flags a partial export. */
+  sessionEventCount?: number | null;
+  /** True when the client was still streaming event pages at submit time. */
+  eventStreamActive?: boolean | null;
 }
 
 /** Response from session report submission */
@@ -4110,49 +4486,49 @@ export interface TenantConfiguration {
   /** Updated by (user email or system) */
   updatedBy: string;
   /** UPN of the user whose first login created this tenant configuration. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten. Used by the preview-approval auto-promote path so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel string into the TenantAdmins table. Null on rows that pre-date the OnboardedBy field — auto-promote falls back to UpdatedBy with a UPN-shape guard. */
-  onboardedBy?: string;
+  onboardedBy?: string | null;
   /** Address used to reach this tenant about the service itself — a technical problem, a security matter, or a change that needs an administrator's attention. Editable by the tenant's own admins under Settings → Tenant → Contact. Seeded once at onboarding from the tenant's notification address if one was given, and never re-synced afterwards: from that point the value belongs to the tenant, and a later edit must not be overwritten by the onboarding source. Purpose-limited by design — service communication only. It is never used for marketing and never disclosed. Null means we have no way to reach this tenant, which is why enforcement actions cannot promise prior warning. */
-  contactEmail?: string;
+  contactEmail?: string | null;
   /** Organization name behind this tenant, as the tenant's admins want it read by a support engineer — the counterpart of ContactEmail in the tenant's contact profile. Editable under Settings → Tenant → Contact. Optional on Community. Together with it is required at the self-service Pro entry point (trial start) so a paying tenant is reachable and identifiable for support; it is never a runtime gate on Pro features, and a GA plan assignment does not require it (the admin UI warns instead). Never derived from : the domain is a technical label, the company name is what the tenant tells us. Null means not provided. */
-  companyName?: string;
+  companyName?: string | null;
   /** When this tenant was first onboarded (derived from earliest TenantAdmin AddedDate). Used for feedback eligibility checks (tenant must be old enough before prompting). Backfilled by the maintenance job for existing tenants; set to UtcNow for new tenants. */
-  onboardedAt?: string;
+  onboardedAt?: string | null;
   /** Client id of the Entra app registration this tenant is homed on. Drives which app mints Graph client-credential tokens and admin-consent URLs for the tenant, and which app the portal signs the tenant's users in with (via the auth/me "homedApp" field). Null = the legacy (pre-migration) app registration — the invariant for every tenant onboarded before the C4A8 move. Set to the primary client id at onboarding when the first login arrived via the primary app; flipped by a Global Admin after a tenant re-consents to the new app (GA-only field, see UpdateTenantConfigurationFunction). */
-  homedAppClientId?: string;
+  homedAppClientId?: string | null;
   /** Client id observed in the most recent portal login token's audience — pure observability for the app-reg migration (which app a tenant's users actually arrive through), never used for routing decisions. Written on change only. */
-  lastAuthClientId?: string;
+  lastAuthClientId?: string | null;
   /** When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field. */
-  lastAuthClientIdSince?: string;
+  lastAuthClientIdSince?: string | null;
   /** Whether this tenant is disabled/suspended If true, users from this tenant cannot log in Default: false */
   disabled: boolean;
   /** Optional reason why the tenant was disabled Displayed to users attempting to log in */
-  disabledReason?: string;
+  disabledReason?: string | null;
   /** Optional date/time until which the tenant is disabled If set and in the past, the tenant can be automatically re-enabled If null, the tenant remains disabled until manually re-enabled */
-  disabledUntil?: string;
+  disabledUntil?: string | null;
   /** Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate). */
-  customRateLimitRequestsPerMinute?: number;
+  customRateLimitRequestsPerMinute?: number | null;
   /** Optional per-tenant override for the user (portal/JWT) API rate limit applied to standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the global AdminConfiguration.UserRateLimitRequestsPerMinute. Global-Admin-only. Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute (cross-tenant), so this override does not apply to them. */
-  customUserRateLimitRequestsPerMinute?: number;
+  customUserRateLimitRequestsPerMinute?: number | null;
   /** Tenant plan tier. Determines default API rate limits and feature gates. Write-side values: "community", "pro". The legacy stored values "enterprise" (resolves to Pro) and "free" (resolves to Community) remain readable — see FeatureEntitlementCatalog. Managed by Global Admins. */
   planTier: string;
   /** End of the tenant's Pro trial (UTC). While this is in the future the tenant's effective edition is Pro regardless of PlanTier. Null = no trial. Expiry degrades the tenant to Community at read time — no timer involved. */
-  trialExpiresUtc?: string;
+  trialExpiresUtc?: string | null;
   /** When the tenant's Pro trial was started (UTC). Informational/audit only. */
-  trialStartedUtc?: string;
+  trialStartedUtc?: string | null;
   /** Whether the tenant has used its one self-service trial. Once true, further trials can only be granted by a Global Admin via the plan management endpoint (which does not reset this flag). */
   trialConsumed: boolean;
   /** Who granted/started the trial (UPN of the self-service caller or the Global Admin). */
-  trialGrantedBy?: string;
+  trialGrantedBy?: string | null;
   /** When the tenant's EFFECTIVE edition last dropped Pro → Community via the plan endpoint (UTC). Anchors the retention downgrade grace period: for RetentionDowngradeGraceDays after losing Pro the retention cap stays at the Pro value so a downgrade (e.g. non-payment) does not immediately hard-delete data older than the Community cap. Trial expiry needs no write — TrialExpiresUtc itself is the anchor there. Cleared whenever the tenant becomes effectively Pro again. Backend-only: not delivered to the agent (no ConfigVersion impact). */
-  proDowngradedUtc?: string;
+  proDowngradedUtc?: string | null;
   /** Global-Admin override of the delegated ("MSP") tenant slot limit — how many distinct customer tenants users homed in this tenant may manage. Null = the plan entitlement applies (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package), while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only: not delivered to the agent (no ConfigVersion impact). */
-  maxDelegatedTenantsOverride?: number;
+  maxDelegatedTenantsOverride?: number | null;
   /** Global-Admin override of the tenant's MCP usage plan — the NAME of a SectionUsagePlans plan (AdminConfiguration.PlanTierDefinitionsJson), e.g. "msp". Applies to the WHOLE tenant: every member's default user plan (a per-user McpUsers override still wins) AND the organization-wide windows. Null/blank = the edition default (community/pro). Does NOT change the edition — Pro feature gates stay on PlanTier. Mutable only via the plan endpoint (validated against the plan definitions there). Backend-only: not delivered to the agent (no ConfigVersion impact). */
-  mcpUsagePlanOverride?: string;
+  mcpUsagePlanOverride?: string | null;
   /** Sales/support bookkeeping: whether this tenant PAYS for its plan (as opposed to a Pro tier assigned by support, a trial, or Pro conferred by a managing tenant). Carries NO entitlement — the effective edition is resolved from PlanTier/TrialExpiresUtc/ManagedByProTenantId only. Mutable only via the plan endpoint (Global Admin); shown in the operator tenant list, never in feature flags or any customer-facing surface. Backend-only: not delivered to the agent (no ConfigVersion impact). */
   payingCustomer: boolean;
   /** READ-TIME PROJECTION, NEVER STORED: the permanent-Pro tenant that currently manages this tenant through a self-service delegation (member of that tenant's owned msp-{tid} Tenant Group), or null. Populated by the backend's configuration loader on every read path from the Tenant Groups index; the table repository has no column for it and the patch endpoint denies it. While set, the tenant's effective edition is Pro with source "msp" (no delegation right of its own) — the delegation ending, the managing tenant losing its permanent Pro tier, or its offboarding all revert this automatically because nothing is written here. Not delivered to the agent (no ConfigVersion impact). */
-  managedByProTenantId?: string;
+  managedByProTenantId?: string | null;
   /** Hardware whitelist: Allowed manufacturers (supports wildcards like "Dell*") Comma-separated list */
   manufacturerWhitelist: string;
   /** Hardware whitelist: Allowed models (supports wildcards like "Latitude*") Comma-separated list Default: "*" (all models allowed) */
@@ -4184,61 +4560,61 @@ export interface TenantConfiguration {
   /** Seconds to wait for the Windows Hello wizard after ESP exit Default: 30 seconds */
   helloWaitTimeoutSeconds: number;
   /** Maximum consecutive authentication failures (401/403) before the agent shuts down. null = use default (5). 0 = disabled (retry forever). */
-  maxAuthFailures?: number;
+  maxAuthFailures?: number | null;
   /** Maximum time in minutes the agent keeps retrying after the first auth failure. null = use default (0 = disabled, only MaxAuthFailures applies). */
-  authFailureTimeoutMinutes?: number;
+  authFailureTimeoutMinutes?: number | null;
   /** Maximum agent lifetime in minutes. Safety net to prevent zombie agents. null = use default (360 = 6 hours). 0 = disabled (no lifetime limit). */
-  agentMaxLifetimeMinutes?: number;
+  agentMaxLifetimeMinutes?: number | null;
   /** Absolute per-session age cap in hours enforced by the agent's emergency break (Program.Guards.CheckSessionAgeEmergencyBreak → AgentConfiguration.AbsoluteMaxSessionHours). null = agent default (48). Mirrored here so the backend can derive the session-grace floor from the same value: the timeout grace is never shorter than this cap + buffer. NOTE: the agent still reads its own AbsoluteMaxSessionHours today; wiring this override down to the agent config response is a follow-up so the two stay in lockstep. */
-  absoluteMaxSessionHours?: number;
+  absoluteMaxSessionHours?: number | null;
   /** Whether to self-destruct after enrollment completion (remove Scheduled Task and all files). null = use agent default (true). */
-  selfDestructOnComplete?: boolean;
+  selfDestructOnComplete?: boolean | null;
   /** Preserve logs during self-destruct. null = use agent default (false). */
-  keepLogFile?: boolean;
+  keepLogFile?: boolean | null;
   /** Whether to reboot the device after enrollment completes. null = use agent default (false). */
-  rebootOnComplete?: boolean;
+  rebootOnComplete?: boolean | null;
   /** Delay in seconds before the reboot is initiated (shutdown.exe /r /t X). null = use agent default (10 seconds). */
-  rebootDelaySeconds?: number;
+  rebootDelaySeconds?: number | null;
   /** Whether to enable geo-location detection (queries external IP service). null = use agent default (true). */
-  enableGeoLocation?: boolean;
+  enableGeoLocation?: boolean | null;
   /** NTP server address for time check during enrollment. null = use agent default ("time.windows.com"). */
   ntpServer: string;
   /** Whether to automatically set the device timezone based on IP geolocation. Requires EnableGeoLocation to be true. Uses tzutil /s to apply. null = use agent default (false). */
-  enableTimezoneAutoSet?: boolean;
+  enableTimezoneAutoSet?: boolean | null;
   /** Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a network fingerprint: a deterministic GUID derived from the default gateway's IP and MAC address, so devices on the same local network peer with each other (byte layout is RealmJoin-compatible). Only takes effect with DO Download Mode = Group (2); existing DOGroupId/DOGroupIdSource policies (Intune/GPO) are never overwritten. null = use agent default (false). */
-  enableDoGroupIdAutoSet?: boolean;
+  enableDoGroupIdAutoSet?: boolean | null;
   /** Whether to write a match log for every IME log line matched by a pattern. When true, the agent writes to the default path Constants.ImeMatchLogPath. null = use agent default (false). */
-  enableImeMatchLog?: boolean;
+  enableImeMatchLog?: boolean | null;
   /** Whether the agent writes a local gather-rule evaluation trace file so customers can diagnose rules that produce no timeline events (scope skips, on_change suppression, empty collector results, logparser details). When true, the agent writes to Constants.GatherRuleDebugLogPath. The trace never leaves the device. null = use agent default (false). */
-  enableGatherRuleDebugLog?: boolean;
+  enableGatherRuleDebugLog?: boolean | null;
   /** Continue-Anyway observation mode: when true AND the ESP profile allows "Continue anyway", a Device-phase ESP terminal failure (AccountSetup never entered) does not fail the session immediately — the agent keeps monitoring for up to 60 minutes and completes with an esp-soft-failure marker once the DAD-validated real-user desktop (plus the Hello gate) proves the user continued; an expired window fails with the original esp_terminal_failure. Operator-set only (not exposed in the tenant admin UI). null = use agent default (false). */
-  enableEspContinueAnywayObservation?: boolean;
+  enableEspContinueAnywayObservation?: boolean | null;
   /** Log verbosity level override for this tenant's agents. null = use agent default ("Info"). Values: "Info", "Debug", "Verbose", "Trace". */
   logLevel: string;
   /** Maximum events per upload batch. null = use agent default (100). */
-  maxBatchSize?: number;
+  maxBatchSize?: number | null;
   /** Whether to show a visual enrollment summary dialog to the end user after enrollment completes (success or failure). null = use agent default (false). */
-  showEnrollmentSummary?: boolean;
+  showEnrollmentSummary?: boolean | null;
   /** Auto-close timeout in seconds for the enrollment summary dialog. null = use agent default (60). 0 = no auto-close. */
-  enrollmentSummaryTimeoutSeconds?: number;
+  enrollmentSummaryTimeoutSeconds?: number | null;
   /** Optional URL to a branding image displayed as a banner at the top of the enrollment summary dialog. Expected size: 540 x 80 px. Larger images will be center-cropped. */
   enrollmentSummaryBrandingImageUrl: string;
   /** Maximum time in seconds the agent retries launching the enrollment summary dialog when the user's desktop is locked by a credential UI (e.g. Windows Hello). null = use agent default (120). 0 = no retry (single attempt). */
-  enrollmentSummaryLaunchRetrySeconds?: number;
+  enrollmentSummaryLaunchRetrySeconds?: number | null;
   /** Whether to show PowerShell script stdout in the web UI. When false, only stderr (error output) is visible for troubleshooting. stdout may contain sensitive data (credentials, tokens). Default true (show stdout). Data is always collected regardless of this setting. */
-  showScriptOutput?: boolean;
+  showScriptOutput?: boolean | null;
   /** Whether the LocalAdminAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
-  enableLocalAdminAnalyzer?: boolean;
+  enableLocalAdminAnalyzer?: boolean | null;
   /** Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
-  enableSoftwareInventoryAnalyzer?: boolean;
+  enableSoftwareInventoryAnalyzer?: boolean | null;
   /** Whether the IntegrityBypassAnalyzer is enabled for this tenant's devices. null = use agent default (true). */
-  enableIntegrityBypassAnalyzer?: boolean;
+  enableIntegrityBypassAnalyzer?: boolean | null;
   /** Whether the RealmJoin watcher is enabled for this tenant's devices. RealmJoin enrollment-package tracking is off by default; enable only for tenants that deploy via RealmJoin. null = use agent default (false). */
-  enableRealmJoinWatcher?: boolean;
+  enableRealmJoinWatcher?: boolean | null;
   /** Whether to keep the device awake during the User-ESP (AccountSetup) phase for this tenant's devices. Prevents idle standby/sleep from stalling app installs / account provisioning; reboots are unaffected. Off by default. null = use agent default (false). */
-  keepAwakeDuringUserEsp?: boolean;
+  keepAwakeDuringUserEsp?: boolean | null;
   /** Whether to detect a SYSTEM console opened during enrollment (Shift+F10 OOBE bypass) for this tenant's devices. Gates the live ConsoleBypass watcher + the startup prefetch scanner. On by default (opt-out); tenants that knowingly use Shift+F10 for support can disable it. null = use agent default (true). */
-  enableConsoleBypassDetection?: boolean;
+  enableConsoleBypassDetection?: boolean | null;
   /** JSON-serialized list of additional local account names that are considered expected on a newly enrolled device (merged with built-in defaults on the agent). Example: ["SupportAdmin", "TechDesk"] */
   localAdminAllowedAccountsJson: string;
   /** Per-tenant ADDITIVE enable for OOBE Bootstrap Sessions (Global Admin only). The Pro plan includes the feature regardless of this flag; for Community tenants this is the on-request escape hatch. Effective value = plan-included OR this flag — resolved via TenantEntitlementService.IsBootstrapEnabled (backend); when effectively false, the feature is hidden in the UI and all bootstrap API endpoints reject requests. */
@@ -4284,15 +4660,15 @@ export interface TenantConfiguration {
   /** Named notification channels as a JSON array (camelCase, see NotificationChannel). Supersedes the single WebhookUrl/WebhookProviderType pair: each channel carries its own provider, URL, custom headers and per-event opt-in toggles, and analyze rules can target specific channels by id. Null/empty = tenant not migrated yet — GetNotificationChannels then synthesizes one channel from the legacy fields so existing tenants keep their exact behavior without a data migration. */
   notificationChannelsJson: string;
   /** Target enrollment success rate as a percentage (e.g. 95.0 = 95%). null = SLA tracking disabled for this tenant. */
-  slaTargetSuccessRate?: number;
+  slaTargetSuccessRate?: number | null;
   /** Target maximum enrollment duration in minutes (P95 threshold). Sessions exceeding this are considered SLA violators. */
-  slaTargetMaxDurationMinutes?: number;
+  slaTargetMaxDurationMinutes?: number | null;
   /** Target app install success rate as a percentage (e.g. 98.0 = 98%). Only evaluated when enough installs exist (20+). */
-  slaTargetAppInstallSuccessRate?: number;
+  slaTargetAppInstallSuccessRate?: number | null;
   /** Send notification when enrollment success rate drops below threshold. */
   slaNotifyOnSuccessRateBreach: boolean;
   /** Warning threshold for success rate notifications. Defaults to SlaTargetSuccessRate when null. Allows a separate warning level (e.g. target 99%, notify at 95%). */
-  slaSuccessRateNotifyThreshold?: number;
+  slaSuccessRateNotifyThreshold?: number | null;
   /** Send notification when P95 enrollment duration exceeds SlaTargetMaxDurationMinutes. */
   slaNotifyOnDurationBreach: boolean;
   /** Send notification when app install success rate drops below SlaTargetAppInstallSuccessRate. */
@@ -4451,12 +4827,24 @@ export interface TenantOffboardingCustomsArchiveEntry {
   archivedBy: string;
 }
 
+/** Body of POST rules/gather/test-pattern. */
+export interface TestLogPatternRequest {
+  pattern?: string | null;
+  format?: string | null;
+  sampleLines?: string[];
+}
+
 /** Response of POST rules/gather/test-pattern: the per-line evaluation of a logparser regex with the agent's exact matching semantics. */
 export interface TestLogPatternResponse {
   success: boolean;
   /** "cmtrace" or "text" — the effective mode the lines were evaluated in. */
   format: string;
   result: LogPatternTestResult;
+}
+
+/** Body of POST config/{tenantId}/test-notification and POST global/config/test-ops-channel. */
+export interface TestNotificationChannelRequest {
+  channelId?: string | null;
 }
 
 /** Response of POST config/{tenantId}/test-notification AND POST global/config/test-ops-channel: the delivery verdict of a test send (HTTP 200 for both verdicts — Success carries the outcome). One shape for both because the semantics are identical; the platform endpoint only differs in which channel list it resolves the id against. */
@@ -4653,6 +5041,17 @@ export interface UpdateAdminConfigurationResponse {
   config: AdminConfiguration;
 }
 
+/** Body of PATCH tenants/{tenantId}/admins/{adminUpn}/permissions. */
+export interface UpdateMemberPermissionsRequest {
+  role: string;
+  canManageBootstrapTokens: boolean;
+}
+
+/** Body of PATCH global/session-reports/{reportId}/note; empty clears the note. */
+export interface UpdateSessionReportNoteRequest {
+  adminNote?: string | null;
+}
+
 /** Response of POST config/{tenantId}/app-homing on an allowed flip (or allowed no-op): the resulting homing state plus the consent-probe verdict. */
 export interface UpdateTenantAppHomingResponse {
   success: boolean;
@@ -4675,10 +5074,24 @@ export interface UpdateTenantConfigurationResponse {
   config: TenantConfiguration;
 }
 
+/** Body of PATCH global/tenant-groups/{groupId} — at least one field. */
+export interface UpdateTenantGroupRequest {
+  /** New display name; omitted/blank = unchanged. */
+  name?: string | null;
+  /** See ChargeHomeTenantQuota; omitted = unchanged. */
+  chargeHomeTenantQuota?: boolean | null;
+}
+
 /** Response of PUT sessions/{sessionId}/annotations/{lane} when both verdict and note were empty and the lane was cleared. */
 export interface UpsertSessionAnnotationDeletedResponse {
   success: boolean;
   deleted: boolean;
+}
+
+/** Body of PUT sessions/{sessionId}/annotations/{lane}; both fields empty = clear the lane. */
+export interface UpsertSessionAnnotationRequest {
+  verdict?: string | null;
+  note?: string | null;
 }
 
 /** Response of PUT sessions/{sessionId}/annotations/{lane} on a successful upsert: the stored annotation as the session-scoped endpoints would return it. */

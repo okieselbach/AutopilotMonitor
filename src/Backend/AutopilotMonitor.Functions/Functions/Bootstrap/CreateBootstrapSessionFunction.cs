@@ -10,7 +10,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Bootstrap
 {
@@ -49,16 +48,9 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                 var tenantId = requestCtx.TargetTenantId;
                 var userIdentifier = requestCtx.UserPrincipalName;
 
-                // Read request body
-                string body;
-                using (var reader = new StreamReader(req.Body))
-                    body = await reader.ReadToEndAsync();
-
-                var request = JsonConvert.DeserializeObject<CreateBootstrapSessionRequest>(body);
-                if (request == null)
-                {
-                    return await req.BadRequestAsync("Invalid request body");
-                }
+                var read = await req.ReadAsync<CreateBootstrapSessionRequest>();
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
 
                 // Check if the bootstrap feature is enabled for this tenant (Pro plan or GA flag)
                 var tenantConfig = await _configService.GetConfigurationAsync(tenantId);

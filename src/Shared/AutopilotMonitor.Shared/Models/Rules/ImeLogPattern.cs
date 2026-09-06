@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Delivered from backend via agent config endpoint.
     /// Allows updating patterns without agent rebuild when Microsoft changes IME log formats.
     /// </summary>
-    public class ImeLogPattern
+    public class ImeLogPattern : IApiRequest
     {
         /// <summary>
         /// Unique pattern identifier (e.g., "IME-ESP-PHASE")

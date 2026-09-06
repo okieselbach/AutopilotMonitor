@@ -98,7 +98,7 @@ public sealed class SharedManifestParityTests
             // Declaration order kept: the web derives a union type from this list, order is cosmetic
             // but a stable order keeps the generated file diff-minimal.
             ["signalRMessages"] = ConstStrings(typeof(Constants.SignalRMessages)),
-            // Every IApiResponse implementer + [WireContract] type, transitively closed —
+            // Every IApiResponse + IApiRequest implementer + [WireContract] type, transitively closed —
             // the source of utils/wire-types.generated.ts. See WireTypeManifestBuilder.
             ["types"] = WireTypeManifestBuilder.BuildTypesSection(),
         };

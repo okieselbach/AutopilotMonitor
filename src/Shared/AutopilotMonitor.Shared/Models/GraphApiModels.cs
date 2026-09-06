@@ -60,4 +60,10 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<string> GrantedRoles { get; set; } = default!;
         public IReadOnlyList<GraphFeatureStatusItem> Features { get; set; } = default!;
     }
+
+    /// <summary>Body of POST tenants/{tenantId}/scripts/display-names: Graph script references to resolve.</summary>
+    public class ScriptDisplayNamesRequest : IApiRequest
+    {
+        public List<string>? Refs { get; set; }
+    }
 }

@@ -29,6 +29,21 @@ public static class ApiJsonOptions
     }
 
     /// <summary>
+    /// The one set of options for READING a request body (<c>RequestBody.ReadAsync</c>): the wire
+    /// settings plus case-insensitive property matching, so a PascalCase body binds like a
+    /// camelCase one — the superset of what the worker serializer (case-sensitive) and the
+    /// Newtonsoft path (case-insensitive) accepted before the reader existed.
+    /// </summary>
+    public static JsonSerializerOptions Read { get; } = CreateRead();
+
+    private static JsonSerializerOptions CreateRead()
+    {
+        var options = Create();
+        options.PropertyNameCaseInsensitive = true;
+        return options;
+    }
+
+    /// <summary>
     /// Shared read-only instance for writers outside the worker serializer (middleware writing
     /// through the ASP.NET Core <c>HttpResponse</c>), so a middleware body and a function body
     /// serialize identically.

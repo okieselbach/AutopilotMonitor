@@ -89,16 +89,11 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var caller = requestCtx.UserPrincipalName ?? "Unknown";
                 _logger.LogInformation("SetTenantPlanTier: tenantId={TenantId} by {User}", requestCtx.TargetTenantId, caller);
 
-                var body = await req.ReadAsStringAsync() ?? string.Empty;
-                JsonDocument doc;
-                try
-                {
-                    doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
-                }
-                catch (JsonException)
-                {
-                    return await req.BadRequestAsync("Invalid JSON body");
-                }
+                // Presence-sensitive PATCH (absent = unchanged, null = clear): read as a document, keys
+                // from the wire DTO so a rename there breaks this walk at compile time.
+                var read = await req.ReadDocumentAsync();
+                if (read.Error != null) return read.Error;
+                var doc = read.Value!;
 
                 string? newPlanTier = null;
                 bool trialProvided = false;
@@ -112,10 +107,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 using (doc)
                 {
-                    if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                        return await req.BadRequestAsync("Body must be a JSON object");
-
-                    if (doc.RootElement.TryGetProperty("planTier", out var tierProp))
+                    if (doc.RootElement.TryGetProperty(PlanPatchKeys.PlanTier, out var tierProp))
                     {
                         if (tierProp.ValueKind != JsonValueKind.String)
                             return await req.BadRequestAsync("planTier must be a string");
@@ -128,7 +120,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                     }
 
-                    if (doc.RootElement.TryGetProperty("trialExpiresUtc", out var trialProp))
+                    if (doc.RootElement.TryGetProperty(PlanPatchKeys.TrialExpiresUtc, out var trialProp))
                     {
                         trialProvided = true;
                         if (trialProp.ValueKind == JsonValueKind.Null)
@@ -146,7 +138,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                     }
 
-                    if (doc.RootElement.TryGetProperty("maxDelegatedTenants", out var slotsProp))
+                    if (doc.RootElement.TryGetProperty(PlanPatchKeys.MaxDelegatedTenants, out var slotsProp))
                     {
                         slotsProvided = true;
                         if (slotsProp.ValueKind == JsonValueKind.Null)
@@ -163,7 +155,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                     }
 
-                    if (doc.RootElement.TryGetProperty("mcpUsagePlan", out var mcpPlanProp))
+                    if (doc.RootElement.TryGetProperty(PlanPatchKeys.McpUsagePlan, out var mcpPlanProp))
                     {
                         mcpPlanProvided = true;
                         if (mcpPlanProp.ValueKind == JsonValueKind.Null)
@@ -181,7 +173,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                         }
                     }
 
-                    if (doc.RootElement.TryGetProperty("payingCustomer", out var payingProp))
+                    if (doc.RootElement.TryGetProperty(PlanPatchKeys.PayingCustomer, out var payingProp))
                     {
                         if (payingProp.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                             return await req.BadRequestAsync("payingCustomer must be a boolean");
@@ -569,8 +561,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
         {
             try
             {
-                var body = await req.ReadFromJsonAsync<SetPlanTierDefinitionsRequest>();
-                if (body?.Tiers == null || body.Tiers.Count == 0)
+                var read = await req.ReadAsync<SetPlanTierDefinitionsRequest>();
+                if (read.Error != null) return read.Error;
+                var body = read.Value!;
+                if (body.Tiers == null || body.Tiers.Count == 0)
                 {
                     return await req.BadRequestAsync("At least one tier definition is required");
                 }
@@ -600,12 +594,25 @@ namespace AutopilotMonitor.Functions.Functions.Config
             }
         }
 
+        /// <summary>
+        /// Wire keys of the plan PATCH, derived from <see cref="PatchTenantPlanRequest"/> — the one body
+        /// read as a document because absent and null mean different things. PlanPatchKeyParityTests
+        /// pins this list against the DTO's properties.
+        /// </summary>
+        internal static class PlanPatchKeys
+        {
+            public static readonly string PlanTier = Key(nameof(PatchTenantPlanRequest.PlanTier));
+            public static readonly string TrialExpiresUtc = Key(nameof(PatchTenantPlanRequest.TrialExpiresUtc));
+            public static readonly string MaxDelegatedTenants = Key(nameof(PatchTenantPlanRequest.MaxDelegatedTenants));
+            public static readonly string McpUsagePlan = Key(nameof(PatchTenantPlanRequest.McpUsagePlan));
+            public static readonly string PayingCustomer = Key(nameof(PatchTenantPlanRequest.PayingCustomer));
+
+            public static readonly string[] All = { PlanTier, TrialExpiresUtc, MaxDelegatedTenants, McpUsagePlan, PayingCustomer };
+
+            private static string Key(string property) => JsonNamingPolicy.CamelCase.ConvertName(property);
+        }
+
         private static string FormatUtc(DateTime? value)
             => value?.ToString("yyyy-MM-ddTHH:mm:ssZ") ?? "(none)";
-
-        private class SetPlanTierDefinitionsRequest
-        {
-            public List<PlanTierDefinition> Tiers { get; set; } = new();
-        }
     }
 }

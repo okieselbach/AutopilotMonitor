@@ -9,7 +9,8 @@
  *    "types" section is stripped here — it lives in the second file.
  *  - wire-types.generated.ts: one interface per wire object, one string-union per
  *    wire enum, with the C# <summary> texts as JSDoc. These are the authoritative
- *    response types — hand-written mirrors re-export from here.
+ *    wire types — response envelopes, payloads AND request bodies (IApiRequest);
+ *    hand-written mirrors re-export from here.
  *  - a second copy of the wire types into the MCP server
  *    (src/McpServer/autopilot-monitor-mcp/src/generated/wire-types.generated.ts),
  *    whose tools read the same backend responses.
@@ -149,9 +150,10 @@ function buildWireTypesSourceWithHeader(manifestJsonText, header) {
   const parts = [
     header +
       "//\n" +
-      "// Wire response types reflected from AutopilotMonitor.Shared (every IApiResponse\n" +
+      "// Wire types reflected from AutopilotMonitor.Shared (every IApiResponse and IApiRequest\n" +
       "// implementer + [WireContract] type, transitively closed). Key ORDER, presence\n" +
-      "// (optional = key absent under WhenWritingNull) and names mirror the C# wire exactly.\n",
+      "// (optional = key absent under WhenWritingNull; for a request body: key may be omitted)\n" +
+      "// and names mirror the C# wire exactly.\n",
   ];
 
   for (const name of Object.keys(types)) {

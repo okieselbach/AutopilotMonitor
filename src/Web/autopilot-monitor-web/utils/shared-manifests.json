@@ -607,6 +607,18 @@
     "accessRevoked"
   ],
   "types": {
+    "AcceptDelegationInvitationRequest": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "token",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
     "AcceptDelegationInvitationResponse": {
       "kind": "object",
       "doc": "Response of POST delegations/accept.",
@@ -698,6 +710,39 @@
         }
       ]
     },
+    "AddGlobalAdminRequest": {
+      "kind": "object",
+      "doc": "Body of POST auth/global-admins.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's home Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted."
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in."
+        }
+      ]
+    },
     "AddGlobalAdminResponse": {
       "kind": "object",
       "doc": "Response of POST auth/global-admins (201): the created row.",
@@ -707,6 +752,19 @@
           "type": {
             "kind": "ref",
             "name": "GlobalAdminRow"
+          }
+        }
+      ]
+    },
+    "AddGroupTenantRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/tenant-groups/{groupId}/tenants.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]
@@ -731,6 +789,52 @@
         }
       ]
     },
+    "AddMcpUserRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/mcp-users.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The person's UPN. Omit when adding an application (ApplicationId)."
+        },
+        {
+          "name": "applicationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The Entra application (client) id of a service principal; stored under the app:<client-id> key. HomeTenantId is then required (no sign-in history to resolve it from)."
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted."
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in."
+        }
+      ]
+    },
     "AddMcpUserResponse": {
       "kind": "object",
       "doc": "Response of POST global/mcp-users (201): the created whitelist row.",
@@ -740,6 +844,48 @@
           "type": {
             "kind": "ref",
             "name": "McpUserEntry"
+          }
+        }
+      ]
+    },
+    "AddTenantAdminRequest": {
+      "kind": "object",
+      "doc": "Body of POST tenants/{tenantId}/admins.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The person's UPN. Omit when adding an application (ApplicationId)."
+        },
+        {
+          "name": "applicationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The Entra application (client) id of a service principal in this tenant. Stored under the app:<client-id> member key; the role is fixed to Viewer."
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "canManageBootstrapTokens",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
           }
         }
       ]
@@ -816,7 +962,8 @@
           "name": "planTierDefinitionsJson",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "JSON-serialized plan tier definitions mapping tier name to rate limits and features. Example: {\"free\":{\"apiRateLimit\":60},\"pro\":{\"apiRateLimit\":300},\"enterprise\":{\"apiRateLimit\":1000}}"
@@ -1863,7 +2010,8 @@
           "name": "provenance",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Where this global rule row came from — see RuleProvenance. Drives the self-maintaining sunset: \"embedded\"/null = owned by the deployed binary's catalog (may be sunset when it leaves that catalog); \"github\" = reseeded from GitHub ahead of the binary (exempt from the embedded catalog sunset/filter). Null on pre-existing rows = embedded."
@@ -1982,7 +2130,8 @@
           "name": "derivedFromTemplateRuleId",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "If this custom rule was created from a template, stores the original template rule's ID. Used to track lineage and prevent duplicate copies."
@@ -1999,7 +2148,8 @@
           "name": "markSessionAsFailed",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Tenant-scoped override for MarkSessionAsFailedDefault. Not persisted in the rule JSON — populated at load time from the RuleStates table. Null means the tenant has not expressed a preference (fall back to the default)."
@@ -2016,7 +2166,8 @@
           "name": "notify",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Tenant-scoped override for NotifyDefault. Not persisted in the rule JSON — populated at load time from the RuleStates table. Null = no preference (use the default)."
@@ -2651,6 +2802,28 @@
           },
           "optional": true,
           "doc": "Legacy add-on Graph roles the primary app lacks (probe refused, not transient), or null — the key is omitted when null. The admin grants exactly these on the primary app."
+        }
+      ]
+    },
+    "AppHomingRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/app-homing.",
+      "fields": [
+        {
+          "name": "target",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "force",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       ]
     },
@@ -3512,6 +3685,48 @@
         }
       ]
     },
+    "AssignGroupRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/tenant-groups/{groupId}/assignees.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The assignee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted."
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The assignee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in."
+        }
+      ]
+    },
     "AuditLogEntry": {
       "kind": "object",
       "fields": [
@@ -3731,6 +3946,50 @@
         }
       ]
     },
+    "AutoResolveCpeMappingItem": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "softwareName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "publisher",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "normalizedVendor",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "AutoResolveCpeMappingRequest": {
+      "kind": "object",
+      "doc": "Body of POST vulnerability/cpe-mapping/auto-resolve.",
+      "fields": [
+        {
+          "name": "items",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "AutoResolveCpeMappingItem"
+            }
+          }
+        }
+      ]
+    },
     "AutoResolveCpeMappingResponse": {
       "kind": "object",
       "doc": "Response of POST vulnerability/cpe-mapping/auto-resolve: per-item outcomes plus totals.",
@@ -3882,6 +4141,30 @@
         }
       ]
     },
+    "AutopilotConsentFailureRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/autopilot-device-validation/consent-failure.",
+      "fields": [
+        {
+          "name": "error",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "errorDescription",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "AutopilotConsentStatusResponse": {
       "kind": "object",
       "doc": "Response of GET config/{tenantId}/autopilot-device-validation/consent-status.",
@@ -3928,6 +4211,21 @@
           },
           "optional": true,
           "doc": "Legacy add-on Graph roles the primary app lacks, blocking the homing flip until granted on the primary app; null when nothing blocks — the key is omitted when null."
+        }
+      ]
+    },
+    "AutopilotConsentSuccessRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/autopilot-device-validation/consent-success.",
+      "fields": [
+        {
+          "name": "trigger",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },
@@ -4248,6 +4546,65 @@
         "Partial"
       ]
     },
+    "BlockDeviceRequest": {
+      "kind": "object",
+      "doc": "Body of POST devices/block (Global Admin).",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "serialNumber",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "durationHours",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "1..720 hours; defaults to 12 when omitted."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "action",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Block (default) or Kill, case-insensitive."
+        },
+        {
+          "name": "blockedSessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The session the block was raised from, when known — normalised by the endpoint."
+        }
+      ]
+    },
     "BlockDeviceResponse": {
       "kind": "object",
       "doc": "Response of POST devices/block: block/kill acknowledgement.",
@@ -4280,6 +4637,38 @@
             "name": "string"
           },
           "doc": "\"Block\" or \"Kill\" (normalized casing)."
+        }
+      ]
+    },
+    "BlockVersionRequest": {
+      "kind": "object",
+      "doc": "Body of POST versions/block (Global Admin).",
+      "fields": [
+        {
+          "name": "versionPattern",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "action",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Block (default) or Kill, case-insensitive."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },
@@ -5068,6 +5457,22 @@
         }
       ]
     },
+    "CreateAnalyzeRuleFromTemplateRequest": {
+      "kind": "object",
+      "doc": "Body of POST rules/analyze/{ruleId}/create-from-template: template variable values by name.",
+      "fields": [
+        {
+          "name": "variables",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      ]
+    },
     "CreateAnalyzeRuleFromTemplateResponse": {
       "kind": "object",
       "doc": "Response of POST rules/analyze/{ruleId}/create-from-template: the newly created custom rule instantiated from the template.",
@@ -5095,6 +5500,35 @@
         }
       ]
     },
+    "CreateBootstrapSessionRequest": {
+      "kind": "object",
+      "doc": "Request to create a new bootstrap session for OOBE agent deployment",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "validityHours",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "How long the bootstrap URL should be valid (1–168 hours, default 8)"
+        },
+        {
+          "name": "label",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Optional human-readable label (e.g. \"Lab A\", \"Floor 3\")"
+        }
+      ]
+    },
     "CreateDelegationInvitationResponse": {
       "kind": "object",
       "doc": "Response of POST delegations/invitations: the token is shown ONCE (the link is copy-only).",
@@ -5115,6 +5549,19 @@
         },
         {
           "name": "expiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "CreateTenantGroupRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/tenant-groups.",
+      "fields": [
+        {
+          "name": "name",
           "type": {
             "kind": "primitive",
             "name": "string"
@@ -5741,6 +6188,19 @@
         }
       ]
     },
+    "DelegationAssignRequest": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The member's principal key as listed under Access Management: a person's UPN, or the app:<client-id> key of a service principal member (read-only like every assignee)."
+        }
+      ]
+    },
     "DelegationAssignResponse": {
       "kind": "object",
       "doc": "Response of POST delegations/assignees.",
@@ -5887,6 +6347,29 @@
               "kind": "ref",
               "name": "DelegationInvitationItem"
             }
+          }
+        }
+      ]
+    },
+    "DeleteCustomCpeMappingRequest": {
+      "kind": "object",
+      "doc": "Body of DELETE vulnerability/cpe-mapping.",
+      "fields": [
+        {
+          "name": "normalizedVendor",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Defaults to \"unknown\"."
+        },
+        {
+          "name": "normalizedProduct",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]
@@ -6925,6 +7408,45 @@
         }
       ]
     },
+    "DownloadTicketRequest": {
+      "kind": "object",
+      "doc": "Body of POST diagnostics/download-ticket and POST global/session-reports/download-ticket.",
+      "fields": [
+        {
+          "name": "blobName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "DryRunAnalyzeRuleRequest": {
+      "kind": "object",
+      "doc": "Body of POST rules/analyze/dryrun: a draft rule evaluated against one session.",
+      "fields": [
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "rule",
+          "type": {
+            "kind": "ref",
+            "name": "AnalyzeRule",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "DryRunAnalyzeRuleResponse": {
       "kind": "object",
       "doc": "Response of POST rules/analyze/dryrun: the full diagnostic trace of one draft-rule evaluation against a session.",
@@ -6991,6 +7513,21 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "EmailTemplateRequest": {
+      "kind": "object",
+      "doc": "Body of PUT global/email-templates/{kind} and POST global/email-templates/{kind}/test (empty = the stored template).",
+      "fields": [
+        {
+          "name": "html",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },
@@ -7508,6 +8045,38 @@
         }
       ]
     },
+    "FeedbackRequest": {
+      "kind": "object",
+      "doc": "Body of POST feedback.",
+      "fields": [
+        {
+          "name": "rating",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "1..5 for a submission; omitted on a dismissal."
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "dismissed",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
     "FleetDailyPoint": {
       "kind": "object",
       "fields": [
@@ -7891,7 +8460,8 @@
           "name": "provenance",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Where this global rule row came from — see RuleProvenance. Drives the self-maintaining sunset: \"embedded\"/null = owned by the deployed binary's catalog (may be sunset when it leaves that catalog); \"github\" = reseeded from GitHub ahead of the binary (exempt from the embedded catalog sunset/filter). Null on pre-existing rows = embedded."
@@ -7935,7 +8505,8 @@
           "name": "intervalSeconds",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Interval in seconds (only used when Trigger = \"interval\")"
@@ -7972,7 +8543,8 @@
           "name": "activeFromPhase",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Activates the rule once the enrollment phase first reaches this phase (ordinal comparison on EnrollmentPhase, ignoring Unknown/Failed), then keeps it active for the rest of the session (sticky latch — including through Failed). Canonical tokens as in ActivePhases. Null = unrestricted. Mutually exclusive with ActivePhases."
@@ -7981,7 +8553,8 @@
           "name": "emitMode",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Emit behavior for collected results: null / \"always\" = emit on every collection (legacy behavior); \"on_change\" = poll on the trigger cadence but emit only when the collected result differs from the last emitted one. The first in-scope result always emits; the suppressed poll count is carried on the next emitted event (suppressedPolls / suppressedSinceUtc in the event data)."
@@ -9814,6 +10387,56 @@
         }
       ]
     },
+    "GrantDelegatedAdminRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/delegated-admins.",
+      "fields": [
+        {
+          "name": "upn",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "The MANAGED (target) tenant the UPN may read."
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted."
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in."
+        }
+      ]
+    },
     "GraphFeatureStatusItem": {
       "kind": "object",
       "doc": "One feature row of the graph-permissions status matrix: the feature identifier, the granted verdict (null while the snapshot is transient) and the Graph application permissions the feature requires.",
@@ -10103,6 +10726,30 @@
         }
       ]
     },
+    "IdentityBindingRequest": {
+      "kind": "object",
+      "doc": "Body of PUT global/identity-bindings/{upn}: the home tenant (GUID, required) and object id (GUID, optional) a person is pinned to.",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "objectId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "IdentityBindingResponse": {
       "kind": "object",
       "doc": "Response of PUT global/identity-bindings/{upn}: the created/replaced binding.",
@@ -10112,6 +10759,72 @@
           "type": {
             "kind": "ref",
             "name": "AdminIdentityBinding"
+          }
+        }
+      ]
+    },
+    "IgnoreSoftwareDeleteRequest": {
+      "kind": "object",
+      "doc": "Body of DELETE vulnerability/ignored-software.",
+      "fields": [
+        {
+          "name": "softwareName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "publisher",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "IgnoreSoftwareItem": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "softwareName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "publisher",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "IgnoreSoftwareRequest": {
+      "kind": "object",
+      "doc": "Body of POST vulnerability/ignored-software.",
+      "fields": [
+        {
+          "name": "items",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "IgnoreSoftwareItem"
+            }
           }
         }
       ]
@@ -11944,6 +12657,49 @@
         }
       ]
     },
+    "LogQueryRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/raw/logs (operator log query).",
+      "fields": [
+        {
+          "name": "query",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "timespan",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "ISO-8601 duration; defaults to PT1H."
+        },
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "One of !:LogQuerySources; defaults to backend."
+        },
+        {
+          "name": "budgetSeconds",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Wall-clock budget for the upstream call; clamped to 5..180, default 30."
+        }
+      ]
+    },
     "MaintenanceResult": {
       "kind": "object",
       "doc": "Run report of a manual maintenance run (POST maintenance/trigger).",
@@ -12835,6 +13591,87 @@
         }
       ]
     },
+    "PatchTenantConfigurationFieldsRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH config/{tenantId}/fields: { \"fields\": { <fieldName>: <value>, ... }, \"reason\"?: \"...\" } with at least one field. Values take the field's own JSON type (TenantConfiguration).",
+      "fields": [
+        {
+          "name": "fields",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "unknown"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "PatchTenantPlanRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH config/{tenantId}/plan. Presence matters: an absent key leaves the value unchanged, an explicit null clears the override (trial end, delegated-slot cap, MCP plan). The endpoint reads the keys by name from this type.",
+      "fields": [
+        {
+          "name": "planTier",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "community or pro."
+        },
+        {
+          "name": "trialExpiresUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "ISO-8601 UTC; null ends the trial."
+        },
+        {
+          "name": "maxDelegatedTenants",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Non-negative; null clears the per-tenant override."
+        },
+        {
+          "name": "mcpUsagePlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Usage-plan name; null clears the override."
+        },
+        {
+          "name": "payingCustomer",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "PercentileStats": {
       "kind": "object",
       "doc": "Distribution of a per-session statistic across a version bucket.",
@@ -13665,6 +14502,42 @@
         }
       ]
     },
+    "QueueSessionActionRequest": {
+      "kind": "object",
+      "doc": "Request to ingest events (batched)",
+      "fields": [
+        {
+          "name": "type",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of ServerActionTypes."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Optional operator note; defaults to \"Manual action queued by {user}\"."
+        },
+        {
+          "name": "params",
+          "type": {
+            "kind": "map",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true,
+          "doc": "Action-specific parameters, see Params."
+        }
+      ]
+    },
     "QueueSessionActionResponse": {
       "kind": "object",
       "doc": "Server-action queue acknowledgement (QueueSessionAction, 202 Accepted).",
@@ -14116,6 +14989,27 @@
         }
       ]
     },
+    "ReleaseDelegatedSlotHoldRequest": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "invitationId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "all",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
     "ReleaseDelegatedSlotHoldResponse": {
       "kind": "object",
       "doc": "Response of POST global/delegated-slots/{tenantId}/release-hold: how many holds ended now.",
@@ -14158,6 +15052,18 @@
             }
           },
           "doc": "Ordered steps to execute"
+        }
+      ]
+    },
+    "RemoveManagedTenantRequest": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
         }
       ]
     },
@@ -14364,6 +15270,14 @@
         "Unchanged"
       ]
     },
+    "RestoreRowMode": {
+      "kind": "enum",
+      "doc": "Operating mode for POST /api/global/backups/{backupId}/restore-row. Preview is a read-only diff; Commit is the conditional write under maintenance lease + ETag-CAS.",
+      "members": [
+        "Preview",
+        "Commit"
+      ]
+    },
     "RestoreRowPreviewResponse": {
       "kind": "object",
       "doc": "Response body of mode=preview. Contains the backup-row dump, the live row (or null), a per-property diff, the row-hash to echo on commit, and the live ETag (or null) to echo on commit.",
@@ -14508,6 +15422,143 @@
           "type": {
             "kind": "primitive",
             "name": "unknown"
+          }
+        }
+      ]
+    },
+    "RestoreRowRequest": {
+      "kind": "object",
+      "doc": "Body of POST /api/global/backups/{backupId}/restore-row. PartitionKey + RowKey are carried in the body (never the URL) because Azure Tables permits /, +, % in PK/RK; URL-encoding them on the route would interact poorly with the Functions router.",
+      "fields": [
+        {
+          "name": "tableName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "partitionKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "rowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "mode",
+          "type": {
+            "kind": "enum",
+            "name": "RestoreRowMode"
+          }
+        },
+        {
+          "name": "ifSha256",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "SHA-256 (hex, lowercase) of the raw NDJSON line bytes echoed from the matching Preview response. Required on Commit. The server re-computes the hash on the fresh NDJSON line and rejects with 409 on mismatch (tamper / blob churn after the preview)."
+        },
+        {
+          "name": "ifCurrentETag",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Live-row ETag echoed from the matching Preview response. null means \"Preview saw no live row\" → Commit uses AddEntity. A non-null value means \"Preview saw a live row with this ETag\" → Commit uses UpdateEntity(ifMatch=etag, Replace). Mismatch (412) or existence change → 409 CurrentRowChanged."
+        }
+      ]
+    },
+    "RestoreSessionRequest": {
+      "kind": "object",
+      "doc": "Body of POST global/sessions/{sessionId}/restore.",
+      "fields": [
+        {
+          "name": "manifestId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dryRun",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Optional: when the Sessions row is already gone (full-restore case after a completed cascade), there is no SessionsIndex entry to look up the tenant from — provide it explicitly."
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Optional free-text justification, persisted into the deletion_restored audit row's reason detail. Trimmed and capped at 1024 chars by the endpoint."
+        }
+      ]
+    },
+    "RevertTenantConfigurationRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/revert.",
+      "fields": [
+        {
+          "name": "backupId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "includeProtectedFields",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "reason",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "RevokeTenantManagerRequest": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "homeTenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]
@@ -15521,6 +16572,97 @@
         }
       ]
     },
+    "SaveCustomCpeMappingRequest": {
+      "kind": "object",
+      "doc": "Body of POST vulnerability/cpe-mapping; normalizedProduct and cpeUri are required, the rest default server-side.",
+      "fields": [
+        {
+          "name": "normalizedVendor",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Defaults to \"unknown\"."
+        },
+        {
+          "name": "normalizedProduct",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "cpeVendor",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "cpeProduct",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "cpeUri",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Defaults to \"custom\"."
+        },
+        {
+          "name": "displayNamePatterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "publisherPatterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true
+        },
+        {
+          "name": "excludePatterns",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true
+        }
+      ]
+    },
     "SaveCustomCpeMappingResponse": {
       "kind": "object",
       "doc": "Response of POST vulnerability/cpe-mapping on a successful save.",
@@ -15546,6 +16688,36 @@
             "name": "string"
           },
           "doc": "Sanitized Table Storage row key the mapping was stored under."
+        }
+      ]
+    },
+    "SaveNotificationEmailRequest": {
+      "kind": "object",
+      "doc": "Body of PUT preview/notification-email and POST preview/send-welcome-email/{tenantId}.",
+      "fields": [
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "ScriptDisplayNamesRequest": {
+      "kind": "object",
+      "doc": "Body of POST tenants/{tenantId}/scripts/display-names: Graph script references to resolve.",
+      "fields": [
+        {
+          "name": "refs",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true
         }
       ]
     },
@@ -16632,14 +17804,16 @@
           "type": {
             "kind": "primitive",
             "name": "string"
-          }
+          },
+          "optional": true
         },
         {
           "name": "email",
           "type": {
             "kind": "primitive",
             "name": "string"
-          }
+          },
+          "optional": true
         },
         {
           "name": "blobName",
@@ -17571,6 +18745,22 @@
         }
       ]
     },
+    "SetPlanTierDefinitionsRequest": {
+      "kind": "object",
+      "doc": "Body of PUT global/config/plan-tiers.",
+      "fields": [
+        {
+          "name": "tiers",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "PlanTierDefinition"
+            }
+          }
+        }
+      ]
+    },
     "SetTenantPlanTierResponse": {
       "kind": "object",
       "doc": "Response of PATCH config/{tenantId}/plan: the resulting plan/trial state.",
@@ -17673,6 +18863,21 @@
         }
       ]
     },
+    "SetUsagePlanRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH global/mcp-users/{upn}/usage-plan; null clears the override.",
+      "fields": [
+        {
+          "name": "usagePlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "SeverityBreakdown": {
       "kind": "object",
       "doc": "Distinct-CVE counts grouped by their highest CVSS severity band.",
@@ -17704,6 +18909,64 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "SignalRJoinGroupRequest": {
+      "kind": "object",
+      "doc": "Body of POST realtime/groups/join.",
+      "fields": [
+        {
+          "name": "connectionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "groupName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "serialNumber",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Serial-number knowledge proof for session-group joins. Required only for roleless same-tenant callers (Progress Portal end users); member, Global Admin and delegated callers never need to send it."
+        }
+      ]
+    },
+    "SignalRLeaveGroupRequest": {
+      "kind": "object",
+      "doc": "Body of POST realtime/groups/leave.",
+      "fields": [
+        {
+          "name": "connectionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "groupName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },
@@ -18172,6 +19435,248 @@
             "name": "string"
           },
           "doc": "Always the Pro tier name — starting a trial makes the tenant effectively Pro."
+        }
+      ]
+    },
+    "SubmitDiagFilesReportRequest": {
+      "kind": "object",
+      "doc": "Request to submit diagnostic files for analysis without a session context. Used from /settings/tenant/support when an admin needs to ship logs/state files to the Autopilot Monitor team without binding them to a specific enrollment session.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "screenshotBase64",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Base64-encoded screenshot image (optional)"
+        },
+        {
+          "name": "screenshotFileName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Original screenshot file name for extension detection"
+        },
+        {
+          "name": "agentLogBase64",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Base64-encoded log/state payload (single file or zip of many; max ~5 MB enforced client-side)"
+        },
+        {
+          "name": "agentLogFileName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Original file name (e.g. \"agent.log\", \"state.json\", \"diag-files.zip\")"
+        }
+      ]
+    },
+    "SubmitOffboardingFeedbackRequest": {
+      "kind": "object",
+      "doc": "Body of POST tenants/{tenantId}/offboard/feedback.",
+      "fields": [
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
+    "SubmitSessionReportRequest": {
+      "kind": "object",
+      "doc": "Request to submit a session report for analysis by the Autopilot Monitor team. Sent as JSON from the frontend; the backend creates the ZIP and uploads to central storage.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "sessionCsv",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Session row as CSV (single data row with header)"
+        },
+        {
+          "name": "timelineExportTxt",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Pre-generated UI timeline export (TXT)"
+        },
+        {
+          "name": "eventsCsv",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Pre-generated raw events table export (CSV)"
+        },
+        {
+          "name": "ruleResultsCsv",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Pre-generated analysis rule results export (CSV)"
+        },
+        {
+          "name": "screenshotBase64",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Base64-encoded screenshot image (optional)"
+        },
+        {
+          "name": "screenshotFileName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Original screenshot file name for extension detection"
+        },
+        {
+          "name": "agentLogBase64",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Base64-encoded agent log file (optional, max 5 MB)"
+        },
+        {
+          "name": "agentLogFileName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Original agent log file name"
+        },
+        {
+          "name": "includeDiagnostics",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "When true and the session has an uploaded diagnostics archive, the backend copies that archive server-side into the durable session-reports container so it survives session deletion and retention cleanup."
+        },
+        {
+          "name": "exportedEventCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Number of events the client had loaded when it generated the exports."
+        },
+        {
+          "name": "sessionEventCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "The session's EventCount as the client saw it — compared against ExportedEventCount this flags a partial export."
+        },
+        {
+          "name": "eventStreamActive",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "True when the client was still streaming event pages at submit time."
         }
       ]
     },
@@ -18808,7 +20313,8 @@
           "name": "onboardedBy",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "UPN of the user whose first login created this tenant configuration. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten. Used by the preview-approval auto-promote path so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel string into the TenantAdmins table. Null on rows that pre-date the OnboardedBy field — auto-promote falls back to UpdatedBy with a UPN-shape guard."
@@ -18817,7 +20323,8 @@
           "name": "contactEmail",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Address used to reach this tenant about the service itself — a technical problem, a security matter, or a change that needs an administrator's attention. Editable by the tenant's own admins under Settings → Tenant → Contact. Seeded once at onboarding from the tenant's notification address if one was given, and never re-synced afterwards: from that point the value belongs to the tenant, and a later edit must not be overwritten by the onboarding source. Purpose-limited by design — service communication only. It is never used for marketing and never disclosed. Null means we have no way to reach this tenant, which is why enforcement actions cannot promise prior warning."
@@ -18826,7 +20333,8 @@
           "name": "companyName",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Organization name behind this tenant, as the tenant's admins want it read by a support engineer — the counterpart of ContactEmail in the tenant's contact profile. Editable under Settings → Tenant → Contact. Optional on Community. Together with it is required at the self-service Pro entry point (trial start) so a paying tenant is reachable and identifiable for support; it is never a runtime gate on Pro features, and a GA plan assignment does not require it (the admin UI warns instead). Never derived from : the domain is a technical label, the company name is what the tenant tells us. Null means not provided."
@@ -18835,7 +20343,8 @@
           "name": "onboardedAt",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "When this tenant was first onboarded (derived from earliest TenantAdmin AddedDate). Used for feedback eligibility checks (tenant must be old enough before prompting). Backfilled by the maintenance job for existing tenants; set to UtcNow for new tenants."
@@ -18844,7 +20353,8 @@
           "name": "homedAppClientId",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Client id of the Entra app registration this tenant is homed on. Drives which app mints Graph client-credential tokens and admin-consent URLs for the tenant, and which app the portal signs the tenant's users in with (via the auth/me \"homedApp\" field). Null = the legacy (pre-migration) app registration — the invariant for every tenant onboarded before the C4A8 move. Set to the primary client id at onboarding when the first login arrived via the primary app; flipped by a Global Admin after a tenant re-consents to the new app (GA-only field, see UpdateTenantConfigurationFunction)."
@@ -18853,7 +20363,8 @@
           "name": "lastAuthClientId",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Client id observed in the most recent portal login token's audience — pure observability for the app-reg migration (which app a tenant's users actually arrive through), never used for routing decisions. Written on change only."
@@ -18862,7 +20373,8 @@
           "name": "lastAuthClientIdSince",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "When LastAuthClientId last changed (i.e. logins arrive via that app since this instant). Null on rows that pre-date the field."
@@ -18879,7 +20391,8 @@
           "name": "disabledReason",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Optional reason why the tenant was disabled Displayed to users attempting to log in"
@@ -18888,7 +20401,8 @@
           "name": "disabledUntil",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Optional date/time until which the tenant is disabled If set and in the past, the tenant can be automatically re-enabled If null, the tenant remains disabled until manually re-enabled"
@@ -18897,7 +20411,8 @@
           "name": "customRateLimitRequestsPerMinute",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Optional per-tenant override for the device (agent/cert) API rate limit. If null, the effective limit is the global AdminConfiguration.GlobalRateLimitRequestsPerMinute. If set, this value takes precedence. Global-Admin-only (see UpdateTenantConfigurationFunction GA-gate)."
@@ -18906,7 +20421,8 @@
           "name": "customUserRateLimitRequestsPerMinute",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Optional per-tenant override for the user (portal/JWT) API rate limit applied to standard users (Tenant Admins, Operators, Viewers). If null, the effective limit is the global AdminConfiguration.UserRateLimitRequestsPerMinute. Global-Admin-only. Note: Global Admins are rate-limited by the global GlobalAdminRateLimitRequestsPerMinute (cross-tenant), so this override does not apply to them."
@@ -18923,7 +20439,8 @@
           "name": "trialExpiresUtc",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "End of the tenant's Pro trial (UTC). While this is in the future the tenant's effective edition is Pro regardless of PlanTier. Null = no trial. Expiry degrades the tenant to Community at read time — no timer involved."
@@ -18932,7 +20449,8 @@
           "name": "trialStartedUtc",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "When the tenant's Pro trial was started (UTC). Informational/audit only."
@@ -18949,7 +20467,8 @@
           "name": "trialGrantedBy",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Who granted/started the trial (UPN of the self-service caller or the Global Admin)."
@@ -18958,7 +20477,8 @@
           "name": "proDowngradedUtc",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "When the tenant's EFFECTIVE edition last dropped Pro → Community via the plan endpoint (UTC). Anchors the retention downgrade grace period: for RetentionDowngradeGraceDays after losing Pro the retention cap stays at the Pro value so a downgrade (e.g. non-payment) does not immediately hard-delete data older than the Community cap. Trial expiry needs no write — TrialExpiresUtc itself is the anchor there. Cleared whenever the tenant becomes effectively Pro again. Backend-only: not delivered to the agent (no ConfigVersion impact)."
@@ -18967,7 +20487,8 @@
           "name": "maxDelegatedTenantsOverride",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Global-Admin override of the delegated (\"MSP\") tenant slot limit — how many distinct customer tenants users homed in this tenant may manage. Null = the plan entitlement applies (Community 0, Pro 2); a value applies regardless of edition (pre-provisioning a package), while USING delegation still requires Pro. Mutable only via the plan endpoint. Backend-only: not delivered to the agent (no ConfigVersion impact)."
@@ -18976,7 +20497,8 @@
           "name": "mcpUsagePlanOverride",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "Global-Admin override of the tenant's MCP usage plan — the NAME of a SectionUsagePlans plan (AdminConfiguration.PlanTierDefinitionsJson), e.g. \"msp\". Applies to the WHOLE tenant: every member's default user plan (a per-user McpUsers override still wins) AND the organization-wide windows. Null/blank = the edition default (community/pro). Does NOT change the edition — Pro feature gates stay on PlanTier. Mutable only via the plan endpoint (validated against the plan definitions there). Backend-only: not delivered to the agent (no ConfigVersion impact)."
@@ -18993,7 +20515,8 @@
           "name": "managedByProTenantId",
           "type": {
             "kind": "primitive",
-            "name": "string"
+            "name": "string",
+            "nullable": true
           },
           "optional": true,
           "doc": "READ-TIME PROJECTION, NEVER STORED: the permanent-Pro tenant that currently manages this tenant through a self-service delegation (member of that tenant's owned msp-{tid} Tenant Group), or null. Populated by the backend's configuration loader on every read path from the Tenant Groups index; the table repository has no column for it and the patch endpoint denies it. While set, the tenant's effective edition is Pro with source \"msp\" (no delegation right of its own) — the delegation ending, the managing tenant losing its permanent Pro tier, or its offboarding all revert this automatically because nothing is written here. Not delivered to the agent (no ConfigVersion impact)."
@@ -19122,7 +20645,8 @@
           "name": "maxAuthFailures",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Maximum consecutive authentication failures (401/403) before the agent shuts down. null = use default (5). 0 = disabled (retry forever)."
@@ -19131,7 +20655,8 @@
           "name": "authFailureTimeoutMinutes",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Maximum time in minutes the agent keeps retrying after the first auth failure. null = use default (0 = disabled, only MaxAuthFailures applies)."
@@ -19140,7 +20665,8 @@
           "name": "agentMaxLifetimeMinutes",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Maximum agent lifetime in minutes. Safety net to prevent zombie agents. null = use default (360 = 6 hours). 0 = disabled (no lifetime limit)."
@@ -19149,7 +20675,8 @@
           "name": "absoluteMaxSessionHours",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Absolute per-session age cap in hours enforced by the agent's emergency break (Program.Guards.CheckSessionAgeEmergencyBreak → AgentConfiguration.AbsoluteMaxSessionHours). null = agent default (48). Mirrored here so the backend can derive the session-grace floor from the same value: the timeout grace is never shorter than this cap + buffer. NOTE: the agent still reads its own AbsoluteMaxSessionHours today; wiring this override down to the agent config response is a follow-up so the two stay in lockstep."
@@ -19158,7 +20685,8 @@
           "name": "selfDestructOnComplete",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to self-destruct after enrollment completion (remove Scheduled Task and all files). null = use agent default (true)."
@@ -19167,7 +20695,8 @@
           "name": "keepLogFile",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Preserve logs during self-destruct. null = use agent default (false)."
@@ -19176,7 +20705,8 @@
           "name": "rebootOnComplete",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to reboot the device after enrollment completes. null = use agent default (false)."
@@ -19185,7 +20715,8 @@
           "name": "rebootDelaySeconds",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Delay in seconds before the reboot is initiated (shutdown.exe /r /t X). null = use agent default (10 seconds)."
@@ -19194,7 +20725,8 @@
           "name": "enableGeoLocation",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to enable geo-location detection (queries external IP service). null = use agent default (true)."
@@ -19211,7 +20743,8 @@
           "name": "enableTimezoneAutoSet",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to automatically set the device timezone based on IP geolocation. Requires EnableGeoLocation to be true. Uses tzutil /s to apply. null = use agent default (false)."
@@ -19220,7 +20753,8 @@
           "name": "enableDoGroupIdAutoSet",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to set the Delivery Optimization group ID (DOGroupId policy value) from a network fingerprint: a deterministic GUID derived from the default gateway's IP and MAC address, so devices on the same local network peer with each other (byte layout is RealmJoin-compatible). Only takes effect with DO Download Mode = Group (2); existing DOGroupId/DOGroupIdSource policies (Intune/GPO) are never overwritten. null = use agent default (false)."
@@ -19229,7 +20763,8 @@
           "name": "enableImeMatchLog",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to write a match log for every IME log line matched by a pattern. When true, the agent writes to the default path Constants.ImeMatchLogPath. null = use agent default (false)."
@@ -19238,7 +20773,8 @@
           "name": "enableGatherRuleDebugLog",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether the agent writes a local gather-rule evaluation trace file so customers can diagnose rules that produce no timeline events (scope skips, on_change suppression, empty collector results, logparser details). When true, the agent writes to Constants.GatherRuleDebugLogPath. The trace never leaves the device. null = use agent default (false)."
@@ -19247,7 +20783,8 @@
           "name": "enableEspContinueAnywayObservation",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Continue-Anyway observation mode: when true AND the ESP profile allows \"Continue anyway\", a Device-phase ESP terminal failure (AccountSetup never entered) does not fail the session immediately — the agent keeps monitoring for up to 60 minutes and completes with an esp-soft-failure marker once the DAD-validated real-user desktop (plus the Hello gate) proves the user continued; an expired window fails with the original esp_terminal_failure. Operator-set only (not exposed in the tenant admin UI). null = use agent default (false)."
@@ -19264,7 +20801,8 @@
           "name": "maxBatchSize",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Maximum events per upload batch. null = use agent default (100)."
@@ -19273,7 +20811,8 @@
           "name": "showEnrollmentSummary",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to show a visual enrollment summary dialog to the end user after enrollment completes (success or failure). null = use agent default (false)."
@@ -19282,7 +20821,8 @@
           "name": "enrollmentSummaryTimeoutSeconds",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Auto-close timeout in seconds for the enrollment summary dialog. null = use agent default (60). 0 = no auto-close."
@@ -19299,7 +20839,8 @@
           "name": "enrollmentSummaryLaunchRetrySeconds",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Maximum time in seconds the agent retries launching the enrollment summary dialog when the user's desktop is locked by a credential UI (e.g. Windows Hello). null = use agent default (120). 0 = no retry (single attempt)."
@@ -19308,7 +20849,8 @@
           "name": "showScriptOutput",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to show PowerShell script stdout in the web UI. When false, only stderr (error output) is visible for troubleshooting. stdout may contain sensitive data (credentials, tokens). Default true (show stdout). Data is always collected regardless of this setting."
@@ -19317,7 +20859,8 @@
           "name": "enableLocalAdminAnalyzer",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether the LocalAdminAnalyzer is enabled for this tenant's devices. null = use agent default (true)."
@@ -19326,7 +20869,8 @@
           "name": "enableSoftwareInventoryAnalyzer",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether the SoftwareInventoryAnalyzer is enabled for this tenant's devices. null = use agent default (true)."
@@ -19335,7 +20879,8 @@
           "name": "enableIntegrityBypassAnalyzer",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether the IntegrityBypassAnalyzer is enabled for this tenant's devices. null = use agent default (true)."
@@ -19344,7 +20889,8 @@
           "name": "enableRealmJoinWatcher",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether the RealmJoin watcher is enabled for this tenant's devices. RealmJoin enrollment-package tracking is off by default; enable only for tenants that deploy via RealmJoin. null = use agent default (false)."
@@ -19353,7 +20899,8 @@
           "name": "keepAwakeDuringUserEsp",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to keep the device awake during the User-ESP (AccountSetup) phase for this tenant's devices. Prevents idle standby/sleep from stalling app installs / account provisioning; reboots are unaffected. Off by default. null = use agent default (false)."
@@ -19362,7 +20909,8 @@
           "name": "enableConsoleBypassDetection",
           "type": {
             "kind": "primitive",
-            "name": "boolean"
+            "name": "boolean",
+            "nullable": true
           },
           "optional": true,
           "doc": "Whether to detect a SYSTEM console opened during enrollment (Shift+F10 OOBE bypass) for this tenant's devices. Gates the live ConsoleBypass watcher + the startup prefetch scanner. On by default (opt-out); tenants that knowingly use Shift+F10 for support can disable it. null = use agent default (true)."
@@ -19547,7 +21095,8 @@
           "name": "slaTargetSuccessRate",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Target enrollment success rate as a percentage (e.g. 95.0 = 95%). null = SLA tracking disabled for this tenant."
@@ -19556,7 +21105,8 @@
           "name": "slaTargetMaxDurationMinutes",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Target maximum enrollment duration in minutes (P95 threshold). Sessions exceeding this are considered SLA violators."
@@ -19565,7 +21115,8 @@
           "name": "slaTargetAppInstallSuccessRate",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Target app install success rate as a percentage (e.g. 98.0 = 98%). Only evaluated when enough installs exist (20+)."
@@ -19582,7 +21133,8 @@
           "name": "slaSuccessRateNotifyThreshold",
           "type": {
             "kind": "primitive",
-            "name": "number"
+            "name": "number",
+            "nullable": true
           },
           "optional": true,
           "doc": "Warning threshold for success rate notifications. Defaults to SlaTargetSuccessRate when null. Allows a separate warning level (e.g. target 99%, notify at 95%)."
@@ -20238,6 +21790,41 @@
         }
       ]
     },
+    "TestLogPatternRequest": {
+      "kind": "object",
+      "doc": "Body of POST rules/gather/test-pattern.",
+      "fields": [
+        {
+          "name": "pattern",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "format",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "sampleLines",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "optional": true
+        }
+      ]
+    },
     "TestLogPatternResponse": {
       "kind": "object",
       "doc": "Response of POST rules/gather/test-pattern: the per-line evaluation of a logparser regex with the agent's exact matching semantics.",
@@ -20263,6 +21850,21 @@
             "kind": "ref",
             "name": "LogPatternTestResult"
           }
+        }
+      ]
+    },
+    "TestNotificationChannelRequest": {
+      "kind": "object",
+      "doc": "Body of POST config/{tenantId}/test-notification and POST global/config/test-ops-channel.",
+      "fields": [
+        {
+          "name": "channelId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },
@@ -21122,6 +22724,41 @@
         }
       ]
     },
+    "UpdateMemberPermissionsRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH tenants/{tenantId}/admins/{adminUpn}/permissions.",
+      "fields": [
+        {
+          "name": "role",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "canManageBootstrapTokens",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      ]
+    },
+    "UpdateSessionReportNoteRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH global/session-reports/{reportId}/note; empty clears the note.",
+      "fields": [
+        {
+          "name": "adminNote",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        }
+      ]
+    },
     "UpdateTenantAppHomingResponse": {
       "kind": "object",
       "doc": "Response of POST config/{tenantId}/app-homing on an allowed flip (or allowed no-op): the resulting homing state plus the consent-probe verdict.",
@@ -21211,6 +22848,32 @@
         }
       ]
     },
+    "UpdateTenantGroupRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH global/tenant-groups/{groupId} — at least one field.",
+      "fields": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "New display name; omitted/blank = unchanged."
+        },
+        {
+          "name": "chargeHomeTenantQuota",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "See ChargeHomeTenantQuota; omitted = unchanged."
+        }
+      ]
+    },
     "UpsertSessionAnnotationDeletedResponse": {
       "kind": "object",
       "doc": "Response of PUT sessions/{sessionId}/annotations/{lane} when both verdict and note were empty and the lane was cleared.",
@@ -21228,6 +22891,30 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        }
+      ]
+    },
+    "UpsertSessionAnnotationRequest": {
+      "kind": "object",
+      "doc": "Body of PUT sessions/{sessionId}/annotations/{lane}; both fields empty = clear the lane.",
+      "fields": [
+        {
+          "name": "verdict",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "note",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
         }
       ]
     },

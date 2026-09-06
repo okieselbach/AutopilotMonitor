@@ -66,8 +66,10 @@ public class IdentityBindingManagementFunction
         var currentUpn = context.GetRequestContext().UserPrincipalName;
         upn = upn.ToLowerInvariant();
 
-        var body = await req.ReadFromJsonAsync<IdentityBindingRequest>();
-        var error = IdentityBindingRequest.Validate(body?.HomeTenantId, body?.ObjectId);
+        var read = await req.ReadAsync<IdentityBindingRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        var error = IdentityBindingRules.Validate(body.HomeTenantId, body.ObjectId);
         if (error != null)
             return await Bad(req, error);
 
@@ -136,8 +138,8 @@ public class IdentityBindingManagementFunction
     }
 }
 
-/// <summary>Body of PUT global/identity-bindings/{upn}; also the shared validator for the binding fields every grant carries.</summary>
-public class IdentityBindingRequest
+/// <summary>The shared validator/resolver for the binding fields every grant carries (<see cref="IdentityBindingRequest"/> is the Shared body DTO).</summary>
+public static class IdentityBindingRules
 {
     /// <summary>
     /// The identity a grant binds: the operator-supplied values when present, otherwise the resolver's answer.
@@ -154,9 +156,6 @@ public class IdentityBindingRequest
         var resolved = await resolver.ResolveAsync(upn);
         return resolved == null ? null : (resolved.TenantId, objectId ?? resolved.ObjectId);
     }
-
-    public string? HomeTenantId { get; set; }
-    public string? ObjectId { get; set; }
 
     /// <summary>Returns the 400 message, or null when the fields are valid (home tenant = GUID required; object id = GUID or absent).</summary>
     public static string? Validate(string? homeTenantId, string? objectId)

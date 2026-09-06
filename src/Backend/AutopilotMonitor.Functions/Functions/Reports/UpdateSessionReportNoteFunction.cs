@@ -5,8 +5,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Functions.Reports
 {
@@ -41,18 +39,10 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                     return await req.BadRequestAsync("reportId is required.");
                 }
 
-                string body = await req.ReadAsStringAsync() ?? string.Empty;
-                JObject json;
-                try
-                {
-                    json = JObject.Parse(body);
-                }
-                catch (JsonException)
-                {
-                    return await req.BadRequestAsync("Invalid JSON body.");
-                }
+                var read = await req.ReadAsync<UpdateSessionReportNoteRequest>();
+                if (read.Error != null) return read.Error;
 
-                var adminNote = json["adminNote"]?.ToString() ?? string.Empty;
+                var adminNote = read.Value!.AdminNote ?? string.Empty;
 
                 var updated = await _sessionReportService.UpdateAdminNoteAsync(reportId, adminNote);
                 if (!updated)

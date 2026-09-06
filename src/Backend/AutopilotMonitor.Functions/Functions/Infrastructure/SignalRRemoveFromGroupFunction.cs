@@ -7,7 +7,6 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Extensions.SignalRService;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Infrastructure
 {
@@ -33,16 +32,11 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
                 // Authentication + AuthenticatedUser authorization enforced by PolicyEnforcementMiddleware
 
                 // Parse request
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 1_048_576) // 1 MB limit
-                {
-                    return new RemoveFromGroupOutput { HttpResponse = await req.BadRequestAsync("Request body too large") };
-                }
-                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                var request = JsonConvert.DeserializeObject<RemoveFromGroupRequest>(requestBody);
+                var read = await req.ReadAsync<SignalRLeaveGroupRequest>(1_048_576);
+                if (read.Error != null) return new RemoveFromGroupOutput { HttpResponse = read.Error };
+                var request = read.Value!;
 
-                if (string.IsNullOrEmpty(request?.ConnectionId) || string.IsNullOrEmpty(request?.GroupName))
+                if (string.IsNullOrEmpty(request.ConnectionId) || string.IsNullOrEmpty(request.GroupName))
                 {
                     return new RemoveFromGroupOutput { HttpResponse = await req.BadRequestAsync("ConnectionId and GroupName are required") };
                 }
@@ -142,13 +136,6 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
         }
 
     }
-
-    public class RemoveFromGroupRequest
-    {
-        public string? ConnectionId { get; set; }
-        public string? GroupName { get; set; }
-    }
-
     public class RemoveFromGroupOutput
     {
         [HttpResult]

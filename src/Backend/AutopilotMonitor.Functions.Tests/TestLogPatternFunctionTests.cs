@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using AutopilotMonitor.Functions.Functions.Rules;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Tests;
 
@@ -107,22 +108,22 @@ public class TestLogPatternFunctionTests
     public void Validate_RejectsMissingPatternAndLines()
     {
         Assert.Contains("pattern", TestLogPatternFunction.ValidateRequest(
-            new TestLogPatternFunction.TestLogPatternRequest { SampleLines = new List<string> { "x" } })!);
+            new TestLogPatternRequest { SampleLines = new List<string> { "x" } })!);
         Assert.Contains("sampleLines", TestLogPatternFunction.ValidateRequest(
-            new TestLogPatternFunction.TestLogPatternRequest { Pattern = "a" })!);
+            new TestLogPatternRequest { Pattern = "a" })!);
     }
 
     [Fact]
     public void Validate_RejectsTooManyLines_AndBadFormat()
     {
-        var tooMany = new TestLogPatternFunction.TestLogPatternRequest
+        var tooMany = new TestLogPatternRequest
         {
             Pattern = "a",
             SampleLines = Enumerable.Repeat("line", TestLogPatternFunction.MaxSampleLines + 1).ToList(),
         };
         Assert.Contains("at most", TestLogPatternFunction.ValidateRequest(tooMany)!);
 
-        var badFormat = new TestLogPatternFunction.TestLogPatternRequest
+        var badFormat = new TestLogPatternRequest
         {
             Pattern = "a",
             Format = "json",
@@ -136,7 +137,7 @@ public class TestLogPatternFunctionTests
     {
         foreach (var format in new[] { null, "cmtrace", "text", "TEXT" })
         {
-            Assert.Null(TestLogPatternFunction.ValidateRequest(new TestLogPatternFunction.TestLogPatternRequest
+            Assert.Null(TestLogPatternFunction.ValidateRequest(new TestLogPatternRequest
             {
                 Pattern = "a",
                 Format = format,

@@ -70,7 +70,9 @@ public class DelegatedAdminManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<GrantDelegatedAdminRequest>();
+        var read = await req.ReadAsync<GrantDelegatedAdminRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
         var validationError = ValidateGrantRequest(body, out var role);
         if (validationError != null)
             return await Bad(req, validationError);
@@ -81,7 +83,7 @@ public class DelegatedAdminManagementFunction
         // may manage Community customers; the Pro requirement applies to the HOME tenant and is enforced at
         // resolve time (DelegatedAdminService.GetScopeAsync gates on the JWT tid), so grants to non-Pro-homed
         // admins are simply inert. A binding conflict (UPN already homed elsewhere) is a 409, never a silent rebind.
-        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body!.Upn, body.HomeTenantId, body.ObjectId);
+        var identity = await IdentityBindingRules.ResolveForGrantAsync(_identityResolver, body!.Upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
             return await Unresolved(req);
 
@@ -232,7 +234,7 @@ public class DelegatedAdminManagementFunction
         if (!Guid.TryParse(body.TenantId, out _))
             return "a valid tenantId (GUID) is required";
 
-        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+        var bindingError = IdentityBindingRules.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
             return bindingError;
 
@@ -255,18 +257,6 @@ public class DelegatedAdminManagementFunction
 
     private static async Task<HttpResponseData> Unresolved(HttpRequestData req)
     {
-        return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
+        return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRules.HomeTenantUnresolvedCode, IdentityBindingRules.HomeTenantUnresolvedMessage);
     }
-}
-
-public class GrantDelegatedAdminRequest
-{
-    public string Upn { get; set; } = string.Empty;
-    /// <summary>The MANAGED (target) tenant the UPN may read.</summary>
-    public string TenantId { get; set; } = string.Empty;
-    public string? Role { get; set; }
-    /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
-    public string? HomeTenantId { get; set; }
-    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
-    public string? ObjectId { get; set; }
 }

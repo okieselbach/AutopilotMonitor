@@ -75,8 +75,10 @@ public class EmailTemplatesFunction
         if (!EmailTemplateService.TryParseKind(kind, out var templateKind))
             return await BadRequest(req, "Unknown template kind. Use 'welcome' or 'farewell'.");
 
-        var body = await req.ReadFromJsonAsync<EmailTemplateRequest>();
-        var error = EmailTemplateService.Validate(body?.Html);
+        var read = await req.ReadAsync<EmailTemplateRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        var error = EmailTemplateService.Validate(body.Html);
         if (error is not null)
             return await BadRequest(req, error);
 
@@ -118,8 +120,9 @@ public class EmailTemplatesFunction
         if (!EmailTemplateService.TryParseKind(kind, out var templateKind))
             return await BadRequest(req, "Unknown template kind. Use 'welcome' or 'farewell'.");
 
-        var body = await req.ReadFromJsonAsync<EmailTemplateRequest>();
-        var draft = string.IsNullOrWhiteSpace(body?.Html) ? null : body!.Html;
+        var read = await req.ReadOptionalAsync<EmailTemplateRequest>();
+        if (read.Error != null) return read.Error;
+        var draft = string.IsNullOrWhiteSpace(read.Value?.Html) ? null : read.Value!.Html;
         if (draft is not null)
         {
             var error = EmailTemplateService.Validate(draft);
@@ -154,9 +157,4 @@ public class EmailTemplatesFunction
     {
         return await req.BadRequestAsync(error);
     }
-}
-
-public class EmailTemplateRequest
-{
-    public string? Html { get; set; }
 }

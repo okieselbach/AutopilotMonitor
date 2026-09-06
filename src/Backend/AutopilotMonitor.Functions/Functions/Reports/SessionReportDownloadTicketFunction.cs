@@ -49,14 +49,9 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware.
                 var requestCtx = req.GetRequestContext();
 
-                string? blobName = null;
-                try
-                {
-                    var body = await JsonSerializer.DeserializeAsync<TicketRequest>(
-                        req.Body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    blobName = body?.BlobName;
-                }
-                catch (JsonException) { /* fall through to the 400 below */ }
+                var read = await req.ReadOptionalAsync<DownloadTicketRequest>();
+                if (read.Error != null) return read.Error;
+                var blobName = read.Value?.BlobName;
 
                 if (string.IsNullOrEmpty(blobName))
                 {
@@ -107,11 +102,6 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "SessionReportDownloadTicket");
             }
-        }
-
-        private sealed class TicketRequest
-        {
-            public string? BlobName { get; set; }
         }
     }
 }

@@ -9,8 +9,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Functions.Annotations
 {
@@ -91,19 +89,11 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                     return await req.NotFoundAsync("Session not found.");
                 }
 
-                var body = await req.ReadAsStringAsync() ?? string.Empty;
-                JObject json;
-                try
-                {
-                    json = JObject.Parse(body);
-                }
-                catch (JsonException)
-                {
-                    return await req.BadRequestAsync("Invalid JSON body.");
-                }
+                var read = await req.ReadAsync<UpsertSessionAnnotationRequest>();
+                if (read.Error != null) return read.Error;
 
-                var verdict = ReadOptionalString(json, "verdict")?.ToLowerInvariant();
-                var note = ReadOptionalString(json, "note");
+                var verdict = NormalizeOptional(read.Value!.Verdict)?.ToLowerInvariant();
+                var note = NormalizeOptional(read.Value.Note);
 
                 if (verdict != null && !AnnotationVerdicts.All.Contains(verdict))
                 {
@@ -236,12 +226,11 @@ namespace AutopilotMonitor.Functions.Functions.Annotations
                 });
         }
 
-        private static string? ReadOptionalString(JObject json, string property)
+        /// <summary>Absent, null and whitespace-only all mean "clear".</summary>
+        private static string? NormalizeOptional(string? value)
         {
-            var token = json[property];
-            if (token == null || token.Type == JTokenType.Null) return null;
-            var value = token.ToString().Trim();
-            return value.Length == 0 ? null : value;
+            var trimmed = value?.Trim();
+            return string.IsNullOrEmpty(trimmed) ? null : trimmed;
         }
 
     }

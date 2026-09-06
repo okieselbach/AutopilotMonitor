@@ -8,8 +8,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Functions.Admin
 {
@@ -67,20 +65,16 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
                 var userIdentifier = TenantHelper.GetUserIdentifier(req);
 
-                string body;
-                using (var reader = new System.IO.StreamReader(req.Body))
-                    body = await reader.ReadToEndAsync();
+                var read = await req.ReadAsync<BlockDeviceRequest>();
+                if (read.Error != null) return read.Error;
+                var body = read.Value!;
 
-                JObject json;
-                try { json = JObject.Parse(body); }
-                catch { return await req.BadRequestAsync("Invalid JSON body"); }
-
-                var tenantId = json["tenantId"]?.ToString();
-                var serialNumber = json["serialNumber"]?.ToString();
-                var durationHours = json["durationHours"]?.Value<int>() ?? 12;
-                var reason = json["reason"]?.ToString();
-                var action = json["action"]?.ToString() ?? "Block";
-                var blockedSessionId = NormalizeOptionalSessionId(json["blockedSessionId"]?.ToString());
+                var tenantId = body.TenantId;
+                var serialNumber = body.SerialNumber;
+                var durationHours = body.DurationHours ?? 12;
+                var reason = body.Reason;
+                var action = body.Action ?? "Block";
+                var blockedSessionId = NormalizeOptionalSessionId(body.BlockedSessionId);
 
                 if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(serialNumber))
                     return await req.BadRequestAsync("tenantId and serialNumber are required");

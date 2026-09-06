@@ -6,7 +6,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Rules
 {
@@ -47,16 +46,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
             var tenantId = TenantHelper.GetTenantId(req);
 
-            if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                && contentLength > 1_048_576) // 1 MB limit
-            {
-                return await req.BadRequestAsync("Request body too large");
-            }
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var rule = JsonConvert.DeserializeObject<GatherRule>(body);
+            // Newtonsoft on purpose: rule documents stay on the Newtonsoft path (TypedRequestGuardTests baseline).
+            var read = await req.ReadNewtonsoftAsync<GatherRule>(1_048_576);
+            if (read.Error != null) return read.Error;
+            var rule = read.Value!;
 
-            if (rule == null || string.IsNullOrEmpty(rule.RuleId))
+            if (string.IsNullOrEmpty(rule.RuleId))
             {
                 return await req.BadRequestAsync("Invalid rule data");
             }
@@ -93,19 +88,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             // Authentication + TenantAdminOrGA authorization enforced by PolicyEnforcementMiddleware
             var tenantId = TenantHelper.GetTenantId(req);
 
-            if (req.Headers.TryGetValues("Content-Length", out var clValues2)
-                && long.TryParse(clValues2.FirstOrDefault(), out var contentLength2)
-                && contentLength2 > 1_048_576) // 1 MB limit
-            {
-                return await req.BadRequestAsync("Request body too large");
-            }
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            var rule = JsonConvert.DeserializeObject<GatherRule>(body);
-
-            if (rule == null)
-            {
-                return await req.BadRequestAsync("Invalid rule data");
-            }
+            // Newtonsoft on purpose: rule documents stay on the Newtonsoft path (TypedRequestGuardTests baseline).
+            var read = await req.ReadNewtonsoftAsync<GatherRule>(1_048_576);
+            if (read.Error != null) return read.Error;
+            var rule = read.Value!;
 
             rule.RuleId = ruleId;
 

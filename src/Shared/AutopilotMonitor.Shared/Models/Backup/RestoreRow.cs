@@ -19,7 +19,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// Tables permits <c>/</c>, <c>+</c>, <c>%</c> in PK/RK; URL-encoding them on the
     /// route would interact poorly with the Functions router.
     /// </summary>
-    public sealed class RestoreRowRequest
+    public sealed class RestoreRowRequest : IApiRequest
     {
         public string TableName { get; set; } = string.Empty;
         public string PartitionKey { get; set; } = string.Empty;

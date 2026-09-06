@@ -57,4 +57,21 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>The in-flight cascade's manifest on the 409 arms; absent otherwise.</summary>
         public string? ManifestId { get; set; }
     }
+
+    /// <summary>Body of POST global/sessions/{sessionId}/restore.</summary>
+    public class RestoreSessionRequest : IApiRequest
+    {
+        public string ManifestId { get; set; } = string.Empty;
+        public bool DryRun { get; set; }
+        /// <summary>
+        /// Optional: when the Sessions row is already gone (full-restore case after a completed
+        /// cascade), there is no SessionsIndex entry to look up the tenant from — provide it explicitly.
+        /// </summary>
+        public string? TenantId { get; set; }
+        /// <summary>
+        /// Optional free-text justification, persisted into the <c>deletion_restored</c> audit row's
+        /// <c>reason</c> detail. Trimmed and capped at 1024 chars by the endpoint.
+        /// </summary>
+        public string? Reason { get; set; }
+    }
 }

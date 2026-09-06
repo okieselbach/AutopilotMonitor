@@ -8,8 +8,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace AutopilotMonitor.Functions.Functions.Admin
 {
@@ -63,17 +61,13 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
                 var userIdentifier = TenantHelper.GetUserIdentifier(req);
 
-                string body;
-                using (var reader = new System.IO.StreamReader(req.Body))
-                    body = await reader.ReadToEndAsync();
+                var read = await req.ReadAsync<BlockVersionRequest>();
+                if (read.Error != null) return read.Error;
+                var body = read.Value!;
 
-                JObject json;
-                try { json = JObject.Parse(body); }
-                catch { return await req.BadRequestAsync("Invalid JSON body"); }
-
-                var versionPattern = json["versionPattern"]?.ToString();
-                var action = json["action"]?.ToString() ?? "Block";
-                var reason = json["reason"]?.ToString();
+                var versionPattern = body.VersionPattern;
+                var action = body.Action ?? "Block";
+                var reason = body.Reason;
 
                 if (string.IsNullOrEmpty(versionPattern))
                     return await req.BadRequestAsync("versionPattern is required");

@@ -88,15 +88,9 @@ public class SubmitOffboardingFeedbackFunction
             return await BadRequest(req, "Request body too large");
         }
 
-        SubmitOffboardingFeedbackRequest? body;
-        try
-        {
-            body = await req.ReadFromJsonAsync<SubmitOffboardingFeedbackRequest>();
-        }
-        catch (Exception)
-        {
-            return await BadRequest(req, "Invalid request body");
-        }
+        var read = await req.ReadOptionalAsync<SubmitOffboardingFeedbackRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value;
 
         var principal = req.FunctionContext.GetUser();
         var displayName = principal?.GetDisplayName() ?? upn;
@@ -238,12 +232,6 @@ public class SubmitOffboardingFeedbackFunction
         return await req.ErrorAsync(HttpStatusCode.InternalServerError, Constants.ApiErrorCodes.InternalError, message);
     }
 }
-
-public class SubmitOffboardingFeedbackRequest
-{
-    public string? Comment { get; set; }
-}
-
 internal enum SubmitOutcome
 {
     Ok,

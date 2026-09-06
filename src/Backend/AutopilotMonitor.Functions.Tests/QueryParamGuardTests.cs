@@ -26,22 +26,8 @@ public class QueryParamGuardTests
         // Content-Length header guard on body-taking routes (long.TryParse on the header value).
         ["Functions/Admin/SubmitOffboardingFeedbackFunction.cs"] = "Content-Length header",
         ["Functions/Bootstrap/BootstrapRegisterSessionFunction.cs"] = "Content-Length header",
-        ["Functions/Config/PatchTenantConfigurationFieldsFunction.cs"] = "Content-Length header",
-        ["Functions/Config/UpdateAdminConfigurationFunction.cs"] = "Content-Length header",
-        ["Functions/Config/UpdateTenantConfigurationFunction.cs"] = "Content-Length header",
-        ["Functions/Feedback/FeedbackFunction.cs"] = "Content-Length header",
-        ["Functions/Infrastructure/SignalRAddToGroupFunction.cs"] = "Content-Length header",
-        ["Functions/Infrastructure/SignalRRemoveFromGroupFunction.cs"] = "Content-Length header",
         ["Functions/Ingest/ReportAgentErrorFunction.cs"] = "Content-Length header",
         ["Functions/Ingest/ReportDistressFunction.cs"] = "Content-Length header",
-        ["Functions/Reports/SubmitDiagFilesReportFunction.cs"] = "Content-Length header",
-        ["Functions/Reports/SubmitSessionReportFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/AnalyzeRulesFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/DryRunAnalyzeRuleFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/GatherRulesFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/GlobalRulesFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/ImeLogPatternsFunction.cs"] = "Content-Length header",
-        ["Functions/Rules/TestLogPatternFunction.cs"] = "Content-Length header",
         ["Functions/Sessions/RegisterSessionFunction.cs"] = "Content-Length header",
     };
 

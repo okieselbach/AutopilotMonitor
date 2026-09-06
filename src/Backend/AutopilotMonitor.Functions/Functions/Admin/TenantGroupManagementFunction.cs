@@ -84,8 +84,10 @@ public class TenantGroupManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<CreateTenantGroupRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Name))
+        var read = await req.ReadAsync<CreateTenantGroupRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Name))
             return await Bad(req, "name is required");
 
         var groupId = await _delegatedAdminService.CreateGroupAsync(body.Name, currentUpn ?? "");
@@ -111,8 +113,10 @@ public class TenantGroupManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<UpdateTenantGroupRequest>();
-        if (body == null || (string.IsNullOrWhiteSpace(body.Name) && body.ChargeHomeTenantQuota == null))
+        var read = await req.ReadAsync<UpdateTenantGroupRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Name) && body.ChargeHomeTenantQuota == null)
             return await Bad(req, "name and/or chargeHomeTenantQuota is required");
 
         if (!string.IsNullOrWhiteSpace(body.Name))
@@ -211,8 +215,10 @@ public class TenantGroupManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<AddGroupTenantRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.TenantId) || !Guid.TryParse(body.TenantId, out _))
+        var read = await req.ReadAsync<AddGroupTenantRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.TenantId) || !Guid.TryParse(body.TenantId, out _))
             return await Bad(req, "a valid tenantId (GUID) is required");
 
         var tenantId = body.TenantId.ToLowerInvariant();
@@ -301,8 +307,10 @@ public class TenantGroupManagementFunction
     {
         var currentUpn = context.GetRequestContext().UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<AssignGroupRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn))
+        var read = await req.ReadAsync<AssignGroupRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Upn))
             return await Bad(req, "upn is required");
 
         // Fail-closed role handling — mirror the delegated grant: default to least privilege, reject unknowns.
@@ -310,7 +318,7 @@ public class TenantGroupManagementFunction
         if (role != Constants.DelegatedRoles.DelegatedReader && role != Constants.DelegatedRoles.DelegatedAdmin)
             return await Bad(req, $"role must be '{Constants.DelegatedRoles.DelegatedReader}' or '{Constants.DelegatedRoles.DelegatedAdmin}'");
 
-        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+        var bindingError = IdentityBindingRules.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
             return await Bad(req, bindingError);
 
@@ -320,10 +328,10 @@ public class TenantGroupManagementFunction
             return await NotFound(req);
 
         var upn = body.Upn.ToLowerInvariant();
-        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, upn, body.HomeTenantId, body.ObjectId);
+        var identity = await IdentityBindingRules.ResolveForGrantAsync(_identityResolver, upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRules.HomeTenantUnresolvedCode, IdentityBindingRules.HomeTenantUnresolvedMessage);
         }
 
         // Slot limit of the assignee's HOME tenant: the whole group's tenant set must fit (fresh read).
@@ -429,32 +437,4 @@ public class TenantGroupManagementFunction
     {
         return await req.NotFoundAsync("Group not found");
     }
-}
-
-public class CreateTenantGroupRequest
-{
-    public string Name { get; set; } = string.Empty;
-}
-
-public class UpdateTenantGroupRequest
-{
-    /// <summary>New display name; omitted/blank = unchanged.</summary>
-    public string? Name { get; set; }
-    /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>; omitted = unchanged.</summary>
-    public bool? ChargeHomeTenantQuota { get; set; }
-}
-
-public class AddGroupTenantRequest
-{
-    public string TenantId { get; set; } = string.Empty;
-}
-
-public class AssignGroupRequest
-{
-    public string Upn { get; set; } = string.Empty;
-    public string? Role { get; set; }
-    /// <summary>The assignee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
-    public string? HomeTenantId { get; set; }
-    /// <summary>The assignee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
-    public string? ObjectId { get; set; }
 }

@@ -36,13 +36,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _logger = logger;
             _patchService = patchService;
         }
-
-        public sealed class PatchFieldsRequest
-        {
-            public JObject? Fields { get; set; }
-            public string? Reason { get; set; }
-        }
-
         [Function("PatchTenantConfigurationFields")]
         public async Task<HttpResponseData> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "patch", Route = "config/{tenantId}/fields")] HttpRequestData req,
@@ -54,24 +47,13 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // (RouteParam scoping binds non-GA callers to their own tenant row).
                 var requestCtx = req.GetRequestContext();
 
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > MaxBodyBytes)
-                {
-                    return await WriteError(req, HttpStatusCode.BadRequest, "Request body too large");
-                }
-
-                var body = await new StreamReader(req.Body).ReadToEndAsync();
-                PatchFieldsRequest? request;
-                try
-                {
-                    request = JsonConvert.DeserializeObject<PatchFieldsRequest>(body);
-                }
-                catch (JsonException)
-                {
-                    return await WriteError(req, HttpStatusCode.BadRequest, "Invalid JSON body");
-                }
-                if (request?.Fields == null || !request.Fields.Properties().Any())
+                // Newtonsoft on purpose: the patch service merges the field map with JsonConvert.PopulateObject
+                // (TypedRequestGuardTests baseline). The Shared DTO carries the map as Dictionary<string, object>,
+                // which Newtonsoft fills with JTokens — JObject.FromObject hands the service the JObject it expects.
+                var read = await req.ReadNewtonsoftAsync<PatchTenantConfigurationFieldsRequest>(MaxBodyBytes);
+                if (read.Error != null) return read.Error;
+                var request = read.Value!;
+                if (request.Fields == null || request.Fields.Count == 0)
                 {
                     return await WriteError(req, HttpStatusCode.BadRequest,
                         "Body must be { \"fields\": { <fieldName>: <value>, ... }, \"reason\": \"...\" } with at least one field.");
@@ -80,6 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 _logger.LogInformation(
                     "PatchTenantConfigurationFields: {TenantId} by {User} ({FieldCount} fields)",
                     requestCtx.TargetTenantId, requestCtx.UserPrincipalName, request.Fields.Count);
+                var fields = JObject.FromObject(request.Fields);
 
                 // Caller tier selects the field deny-list: tenant admins additionally lose the
                 // GA-only toggles (explicit 400 instead of the PUT's silent restore).
@@ -89,7 +72,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var outcome = await _patchService.ApplyFieldPatchAsync(
                     requestCtx.TargetTenantId,
-                    request.Fields,
+                    fields,
                     requestCtx.UserPrincipalName,
                     ResolveSource(req, "patch"),
                     request.Reason,

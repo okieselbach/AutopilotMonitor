@@ -10,7 +10,6 @@ using AutopilotMonitor.Shared.Models.Notifications;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -49,19 +48,9 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Optional body { "channelId": "..." } tests one specific saved channel; without
                 // it the first channel is used (which for non-migrated tenants is the one
                 // synthesized from the legacy single-webhook fields — the pre-channels behavior).
-                string? channelId = null;
-                var body = await req.ReadAsStringAsync();
-                if (!string.IsNullOrWhiteSpace(body))
-                {
-                    try
-                    {
-                        channelId = JsonConvert.DeserializeAnonymousType(body, new { channelId = (string?)null })?.channelId;
-                    }
-                    catch (JsonException)
-                    {
-                        // Malformed body → treat as no channel selection.
-                    }
-                }
+                var read = await req.ReadOptionalAsync<TestNotificationChannelRequest>();
+                if (read.Error != null) return read.Error;
+                var channelId = read.Value?.ChannelId;
 
                 var channels = tenantConfig.GetNotificationChannels();
                 var channel = channelId != null

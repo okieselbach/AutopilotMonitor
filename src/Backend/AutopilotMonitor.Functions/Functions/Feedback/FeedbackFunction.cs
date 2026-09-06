@@ -143,21 +143,12 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 string displayName = principal?.GetDisplayName() ?? upn;
 
                 // Request body size limit (1 MB)
-                if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                    && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                    && contentLength > 1_048_576)
-                {
-                    return await req.BadRequestAsync("Request body too large");
-                }
-
-                var body = await req.ReadFromJsonAsync<FeedbackRequest>();
-                if (body == null)
-                {
-                    return await req.BadRequestAsync("Invalid request body");
-                }
+                var read = await req.ReadAsync<FeedbackRequest>(1_048_576);
+                if (read.Error != null) return read.Error;
+                var body = read.Value!;
 
                 // Validate rating
-                if (!body.Dismissed && (body.Rating < 1 || body.Rating > 5))
+                if (!body.Dismissed && body.Rating is not (>= 1 and <= 5))
                 {
                     return await req.BadRequestAsync("Rating must be between 1 and 5");
                 }
@@ -175,7 +166,7 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                     Upn = upn,
                     TenantId = tenantId,
                     DisplayName = displayName,
-                    Rating = body.Dismissed ? null : (int?)body.Rating,
+                    Rating = body.Dismissed ? null : body.Rating,
                     Comment = body.Dismissed ? null : comment,
                     Dismissed = body.Dismissed,
                     Submitted = !body.Dismissed,
@@ -183,9 +174,9 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
                 });
 
                 // Telegram notification — only for actual submissions, fire-and-forget
-                if (!body.Dismissed && body.Rating > 0)
+                if (!body.Dismissed && body.Rating is int rating && rating > 0)
                 {
-                    _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, body.Rating, comment);
+                    _ = _telegramNotificationService.SendFeedbackAsync(tenantId, upn, displayName, rating, comment);
                 }
 
                 _logger.LogInformation("Feedback {Action} by {Upn} (tenant {TenantId})",
@@ -246,12 +237,5 @@ namespace AutopilotMonitor.Functions.Functions.Feedback
             await response.WriteAsJsonAsync(data);
             return response;
         }
-    }
-
-    public class FeedbackRequest
-    {
-        public int Rating { get; set; }
-        public string? Comment { get; set; }
-        public bool Dismissed { get; set; }
     }
 }

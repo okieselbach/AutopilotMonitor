@@ -201,22 +201,22 @@ namespace AutopilotMonitor.Shared.Models
 
     // ---- Requests -----------------------------------------------------------------------
 
-    public class AcceptDelegationInvitationRequest
+    public class AcceptDelegationInvitationRequest : IApiRequest
     {
         public string Token { get; set; } = string.Empty;
     }
 
-    public class RemoveManagedTenantRequest
+    public class RemoveManagedTenantRequest : IApiRequest
     {
         public string TenantId { get; set; } = string.Empty;
     }
 
-    public class RevokeTenantManagerRequest
+    public class RevokeTenantManagerRequest : IApiRequest
     {
         public string HomeTenantId { get; set; } = string.Empty;
     }
 
-    public class DelegationAssignRequest
+    public class DelegationAssignRequest : IApiRequest
     {
         /// <summary>
         /// The member's principal key as listed under Access Management: a person's UPN, or the
@@ -225,7 +225,7 @@ namespace AutopilotMonitor.Shared.Models
         public string Upn { get; set; } = string.Empty;
     }
 
-    public class ReleaseDelegatedSlotHoldRequest
+    public class ReleaseDelegatedSlotHoldRequest : IApiRequest
     {
         public string? InvitationId { get; set; }
         public bool All { get; set; }

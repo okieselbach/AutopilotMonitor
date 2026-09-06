@@ -8,7 +8,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Gather rules are delivered to the agent via the config API
     /// and can be managed (enabled/disabled, created) through the portal
     /// </summary>
-    public class GatherRule
+    public class GatherRule : IApiRequest
     {
         /// <summary>
         /// Unique rule identifier (e.g., "GATHER-NET-001")

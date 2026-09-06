@@ -251,22 +251,24 @@ public class AuthFunction
         var currentUpn = principal?.GetUserPrincipalName();
 
         // Parse request body
-        var body = await req.ReadFromJsonAsync<AddGlobalAdminRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Upn))
+        var read = await req.ReadAsync<AddGlobalAdminRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Upn))
         {
             return await req.BadRequestAsync("UPN is required");
         }
         // The row is inert until the UPN is bound to the identity that may use it. The home tenant is resolved
         // automatically (sign-in history, then UPN domain → onboarded tenant); the body may override it.
-        var bindingError = IdentityBindingRequest.ValidateOptional(body.HomeTenantId, body.ObjectId);
+        var bindingError = IdentityBindingRules.ValidateOptional(body.HomeTenantId, body.ObjectId);
         if (bindingError != null)
         {
             return await req.BadRequestAsync(bindingError);
         }
-        var identity = await IdentityBindingRequest.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
+        var identity = await IdentityBindingRules.ResolveForGrantAsync(_identityResolver, body.Upn, body.HomeTenantId, body.ObjectId);
         if (identity == null)
         {
-            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRequest.HomeTenantUnresolvedCode, IdentityBindingRequest.HomeTenantUnresolvedMessage);
+            return await req.ErrorAsync(HttpStatusCode.UnprocessableEntity, IdentityBindingRules.HomeTenantUnresolvedCode, IdentityBindingRules.HomeTenantUnresolvedMessage);
         }
 
         GlobalAdminRow newAdmin;
@@ -647,13 +649,4 @@ internal class AuthDecisionResult
         StatusCode = statusCode,
         Body = body
     };
-}
-
-public class AddGlobalAdminRequest
-{
-    public string Upn { get; set; } = string.Empty;
-    /// <summary>The grantee's home Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
-    public string? HomeTenantId { get; set; }
-    /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
-    public string? ObjectId { get; set; }
 }

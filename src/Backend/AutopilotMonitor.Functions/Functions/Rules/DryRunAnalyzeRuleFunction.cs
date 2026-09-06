@@ -7,7 +7,6 @@ using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Rules
 {
@@ -39,13 +38,6 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             _sessionRepo = sessionRepo;
             _analyzeRuleService = analyzeRuleService;
         }
-
-        public sealed class DryRunRequest
-        {
-            public string? SessionId { get; set; }
-            public AnalyzeRule? Rule { get; set; }
-        }
-
         [Function("DryRunAnalyzeRule")]
         public async Task<HttpResponseData> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "rules/analyze/dryrun")] HttpRequestData req)
@@ -55,25 +47,12 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var requestCtx = req.GetRequestContext();
             var effectiveTenantId = requestCtx.TargetTenantId;
 
-            if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                && contentLength > 1_048_576) // 1 MB limit
-            {
-                return await BadRequestAsync(req, new[] { "Request body too large" });
-            }
+            // Newtonsoft on purpose: the embedded AnalyzeRule is a rule document (TypedRequestGuardTests baseline).
+            var read = await req.ReadNewtonsoftAsync<DryRunAnalyzeRuleRequest>(1_048_576);
+            if (read.Error != null) return read.Error;
+            var request = read.Value!;
 
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            DryRunRequest? request;
-            try
-            {
-                request = JsonConvert.DeserializeObject<DryRunRequest>(body);
-            }
-            catch (JsonException ex)
-            {
-                return await BadRequestAsync(req, new[] { $"Request body is not valid JSON: {ex.Message}" });
-            }
-
-            if (request == null || string.IsNullOrWhiteSpace(request.SessionId))
+            if (string.IsNullOrWhiteSpace(request.SessionId))
             {
                 return await BadRequestAsync(req, new[] { "sessionId is required" });
             }

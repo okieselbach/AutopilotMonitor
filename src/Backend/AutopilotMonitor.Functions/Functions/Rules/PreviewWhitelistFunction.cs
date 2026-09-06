@@ -182,8 +182,9 @@ public class PreviewWhitelistFunction
             return await req.ForbiddenAsync("A tenant member role is required to change the notification email");
         }
 
-        var body = await req.ReadFromJsonAsync<SaveNotificationEmailRequest>();
-        var email = body?.Email?.Trim();
+        var read = await req.ReadOptionalAsync<SaveNotificationEmailRequest>();
+        if (read.Error != null) return read.Error;
+        var email = read.Value?.Email?.Trim();
 
         if (!string.IsNullOrEmpty(email) && !email.Contains('@'))
         {
@@ -246,8 +247,9 @@ public class PreviewWhitelistFunction
         // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
         // If the caller provides an email in the body, save it first
-        var body = await req.ReadFromJsonAsync<SaveNotificationEmailRequest>();
-        var bodyEmail = body?.Email?.Trim();
+        var read = await req.ReadOptionalAsync<SaveNotificationEmailRequest>();
+        if (read.Error != null) return read.Error;
+        var bodyEmail = read.Value?.Email?.Trim();
         if (!string.IsNullOrWhiteSpace(bodyEmail))
         {
             await _previewWhitelistService.SaveNotificationEmailAsync(tenantId, bodyEmail);
@@ -293,9 +295,4 @@ public class PreviewWhitelistFunction
         return await req.OkAsync(new PreviewWhitelistActionResponse { Message = "Welcome email sent", Email = email });
     }
 
-}
-
-public class SaveNotificationEmailRequest
-{
-    public string Email { get; set; } = string.Empty;
 }

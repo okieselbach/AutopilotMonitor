@@ -87,9 +87,11 @@ public class TenantAdminManagementFunction
 
         // Parse request body. A member is either a person (upn) or an application (applicationId — the
         // Entra client id of a service principal in THIS tenant, stored under the app:<client-id> key).
-        var body = await req.ReadFromJsonAsync<AddTenantAdminRequest>();
-        var isApplication = !string.IsNullOrWhiteSpace(body?.ApplicationId);
-        if (body == null || (string.IsNullOrWhiteSpace(body.Upn) && !isApplication))
+        var read = await req.ReadAsync<AddTenantAdminRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        var isApplication = !string.IsNullOrWhiteSpace(body.ApplicationId);
+        if (string.IsNullOrWhiteSpace(body.Upn) && !isApplication)
         {
             return await req.BadRequestAsync("UPN or applicationId is required");
         }
@@ -99,7 +101,7 @@ public class TenantAdminManagementFunction
         }
         var memberKey = isApplication
             ? AutopilotMonitor.Shared.Constants.PrincipalKeys.ForApplication(body.ApplicationId!)
-            : body.Upn;
+            : body.Upn!;
 
         // Determine role (default to Admin for backward compat, Viewer for an application), then validate
         // against the allow-list so arbitrary strings never reach storage. An application is read-only:
@@ -278,8 +280,10 @@ public class TenantAdminManagementFunction
         var requestCtx = context.GetRequestContext();
         var upn = requestCtx.UserPrincipalName;
 
-        var body = await req.ReadFromJsonAsync<UpdateMemberPermissionsRequest>();
-        if (body == null || string.IsNullOrWhiteSpace(body.Role))
+        var read = await req.ReadAsync<UpdateMemberPermissionsRequest>();
+        if (read.Error != null) return read.Error;
+        var body = read.Value!;
+        if (string.IsNullOrWhiteSpace(body.Role))
         {
             return await req.BadRequestAsync("Role is required");
         }
@@ -356,23 +360,4 @@ public class TenantAdminManagementFunction
         };
         return validRoles.FirstOrDefault(v => string.Equals(v, role, StringComparison.OrdinalIgnoreCase));
     }
-}
-
-public class AddTenantAdminRequest
-{
-    /// <summary>The person's UPN. Leave empty when adding an application (<see cref="ApplicationId"/>).</summary>
-    public string Upn { get; set; } = string.Empty;
-    /// <summary>
-    /// The Entra application (client) id of a service principal in this tenant. Stored under the
-    /// <c>app:&lt;client-id&gt;</c> member key; the role is fixed to Viewer.
-    /// </summary>
-    public string? ApplicationId { get; set; }
-    public string? Role { get; set; }
-    public bool CanManageBootstrapTokens { get; set; }
-}
-
-public class UpdateMemberPermissionsRequest
-{
-    public string Role { get; set; } = string.Empty;
-    public bool CanManageBootstrapTokens { get; set; }
 }

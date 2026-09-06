@@ -7,7 +7,7 @@ using AutopilotMonitor.Functions.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using AutopilotMonitor.Shared.Models;
 
 namespace AutopilotMonitor.Functions.Functions.Config
 {
@@ -31,14 +31,6 @@ namespace AutopilotMonitor.Functions.Functions.Config
             _logger = logger;
             _patchService = patchService;
         }
-
-        public sealed class RevertRequest
-        {
-            public string? BackupId { get; set; }
-            public bool IncludeProtectedFields { get; set; }
-            public string? Reason { get; set; }
-        }
-
         [Function("RevertTenantConfiguration")]
         public async Task<HttpResponseData> Run(
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "config/{tenantId}/revert")] HttpRequestData req,
@@ -49,19 +41,10 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
                 var requestCtx = req.GetRequestContext();
 
-                RevertRequest? request;
-                try
-                {
-                    var body = await new StreamReader(req.Body).ReadToEndAsync();
-                    request = string.IsNullOrWhiteSpace(body)
-                        ? new RevertRequest()
-                        : JsonConvert.DeserializeObject<RevertRequest>(body);
-                }
-                catch (JsonException)
-                {
-                    return await req.BadRequestAsync("Invalid JSON body");
-                }
-                request ??= new RevertRequest();
+                // Empty body = revert to the latest backup with the defaults.
+                var read = await req.ReadOptionalAsync<RevertTenantConfigurationRequest>();
+                if (read.Error != null) return read.Error;
+                var request = read.Value ?? new RevertTenantConfigurationRequest();
 
                 _logger.LogWarning(
                     "RevertTenantConfiguration: {TenantId} by {User} (backupId={BackupId}, includeProtectedFields={IncludeProtected})",

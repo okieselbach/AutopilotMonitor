@@ -7,7 +7,7 @@ namespace AutopilotMonitor.Shared.Models
     /// Defines how to analyze collected events to detect issues
     /// Analyze rules run server-side during event ingestion
     /// </summary>
-    public class AnalyzeRule
+    public class AnalyzeRule : IApiRequest
     {
         /// <summary>
         /// Unique rule identifier (e.g., "ANALYZE-NET-001")

@@ -316,4 +316,74 @@ namespace AutopilotMonitor.Shared.Models
         public string Message { get; set; } = default!;
         public TenantConfiguration Config { get; set; } = default!;
     }
+
+    // ── Request bodies ──
+
+    /// <summary>Body of POST config/{tenantId}/app-homing.</summary>
+    public class AppHomingRequest : IApiRequest
+    {
+        public string? Target { get; set; }
+        public bool Force { get; set; }
+    }
+
+    /// <summary>
+    /// Body of PATCH config/{tenantId}/fields: <c>{ "fields": { &lt;fieldName&gt;: &lt;value&gt;, ... }, "reason"?: "..." }</c>
+    /// with at least one field. Values take the field's own JSON type (TenantConfiguration).
+    /// </summary>
+    public class PatchTenantConfigurationFieldsRequest : IApiRequest
+    {
+        public Dictionary<string, object>? Fields { get; set; }
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>Body of POST config/{tenantId}/revert.</summary>
+    public class RevertTenantConfigurationRequest : IApiRequest
+    {
+        public string? BackupId { get; set; }
+        public bool IncludeProtectedFields { get; set; }
+        public string? Reason { get; set; }
+    }
+
+    /// <summary>Body of PUT global/config/plan-tiers.</summary>
+    public class SetPlanTierDefinitionsRequest : IApiRequest
+    {
+        public List<PlanTierDefinition> Tiers { get; set; } = new List<PlanTierDefinition>();
+    }
+
+    /// <summary>
+    /// Body of PATCH config/{tenantId}/plan. Presence matters: an absent key leaves the value
+    /// unchanged, an explicit <c>null</c> clears the override (trial end, delegated-slot cap,
+    /// MCP plan). The endpoint reads the keys by name from this type.
+    /// </summary>
+    public class PatchTenantPlanRequest : IApiRequest
+    {
+        /// <summary><c>community</c> or <c>pro</c>.</summary>
+        public string? PlanTier { get; set; }
+        /// <summary>ISO-8601 UTC; null ends the trial.</summary>
+        public DateTime? TrialExpiresUtc { get; set; }
+        /// <summary>Non-negative; null clears the per-tenant override.</summary>
+        public int? MaxDelegatedTenants { get; set; }
+        /// <summary>Usage-plan name; null clears the override.</summary>
+        public string? McpUsagePlan { get; set; }
+        public bool? PayingCustomer { get; set; }
+    }
+
+    /// <summary>Body of POST config/{tenantId}/test-notification and POST global/config/test-ops-channel.</summary>
+    public class TestNotificationChannelRequest : IApiRequest
+    {
+        public string? ChannelId { get; set; }
+    }
+
+    /// <summary>Body of POST config/{tenantId}/autopilot-device-validation/consent-success.</summary>
+    public class AutopilotConsentSuccessRequest : IApiRequest
+    {
+        public string? Trigger { get; set; }
+    }
+
+    /// <summary>Body of POST config/{tenantId}/autopilot-device-validation/consent-failure.</summary>
+    public class AutopilotConsentFailureRequest : IApiRequest
+    {
+        public string? Error { get; set; }
+        public string? ErrorDescription { get; set; }
+    }
 }

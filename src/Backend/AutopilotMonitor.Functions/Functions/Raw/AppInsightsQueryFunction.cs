@@ -71,16 +71,10 @@ namespace AutopilotMonitor.Functions.Functions.Raw
             if (await RawGlobalAdminGate.DenyUnlessGlobalAdminAsync(req, context) is { } denied)
                 return denied;
 
-            LogQueryRequest? body;
-            try
-            {
-                body = await req.ReadFromJsonAsync<LogQueryRequest>();
-            }
-            catch (JsonException)
-            {
-                body = null;
-            }
-            if (body == null || string.IsNullOrWhiteSpace(body.Query))
+            var read = await req.ReadAsync<LogQueryRequest>();
+            if (read.Error != null) return read.Error;
+            var body = read.Value!;
+            if (string.IsNullOrWhiteSpace(body.Query))
             {
                 return await req.BadRequestAsync("query is required");
             }
@@ -303,17 +297,6 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         }
 
         private static string Cap(string s, int max) => s.Length <= max ? s : s[..max] + "…";
-
-        private sealed class LogQueryRequest
-        {
-            public string Query { get; set; } = string.Empty;
-            public string? Timespan { get; set; }
-            /// <summary>One of <see cref="LogQuerySources"/>; defaults to backend.</summary>
-            public string? Source { get; set; }
-            /// <summary>Wall-clock budget for the upstream call; clamped to 5..180, default 30.</summary>
-            public int? BudgetSeconds { get; set; }
-        }
-
         /// <summary>Kusto REST request body — both App Insights and Log Analytics accept exactly this.</summary>
         private sealed record KustoQuery(
             [property: JsonPropertyName("query")] string Query,

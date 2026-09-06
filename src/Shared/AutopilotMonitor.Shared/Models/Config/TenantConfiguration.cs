@@ -10,7 +10,7 @@ namespace AutopilotMonitor.Shared.Models
     /// PartitionKey = TenantId
     /// RowKey = "config"
     /// </summary>
-    public class TenantConfiguration
+    public class TenantConfiguration : IApiRequest
     {
         /// <summary>
         /// Tenant ID (PartitionKey in Table Storage)

@@ -248,4 +248,48 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? TargetTenantId { get; set; }
     }
+
+    // ── Request bodies ──
+
+    /// <summary>Body of POST global/mcp-users.</summary>
+    public class AddMcpUserRequest : IApiRequest
+    {
+        /// <summary>The person's UPN. Omit when adding an application (<see cref="ApplicationId"/>).</summary>
+        public string? Upn { get; set; }
+        /// <summary>
+        /// The Entra application (client) id of a service principal; stored under the <c>app:&lt;client-id&gt;</c>
+        /// key. <see cref="HomeTenantId"/> is then required (no sign-in history to resolve it from).
+        /// </summary>
+        public string? ApplicationId { get; set; }
+        /// <summary>The grantee's HOME Entra tenant id (optional override) — resolved from sign-in history / UPN domain when omitted.</summary>
+        public string? HomeTenantId { get; set; }
+        /// <summary>The grantee's Entra object id (optional) — taken from sign-in history, else pinned on their first sign-in.</summary>
+        public string? ObjectId { get; set; }
+    }
+
+    /// <summary>Body of PATCH global/mcp-users/{upn}/usage-plan; null clears the override.</summary>
+    public class SetUsagePlanRequest : IApiRequest
+    {
+        public string? UsagePlan { get; set; }
+    }
+
+    /// <summary>Body of POST realtime/groups/join.</summary>
+    public class SignalRJoinGroupRequest : IApiRequest
+    {
+        public string? ConnectionId { get; set; }
+        public string? GroupName { get; set; }
+        /// <summary>
+        /// Serial-number knowledge proof for session-group joins. Required only for roleless
+        /// same-tenant callers (Progress Portal end users); member, Global Admin and delegated
+        /// callers never need to send it.
+        /// </summary>
+        public string? SerialNumber { get; set; }
+    }
+
+    /// <summary>Body of POST realtime/groups/leave.</summary>
+    public class SignalRLeaveGroupRequest : IApiRequest
+    {
+        public string? ConnectionId { get; set; }
+        public string? GroupName { get; set; }
+    }
 }

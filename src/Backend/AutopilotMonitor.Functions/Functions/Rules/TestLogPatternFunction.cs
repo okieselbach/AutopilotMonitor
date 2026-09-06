@@ -6,7 +6,6 @@ using AutopilotMonitor.Functions.Helpers;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 
 namespace AutopilotMonitor.Functions.Functions.Rules
 {
@@ -37,14 +36,6 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         {
             _logger = logger;
         }
-
-        public sealed class TestLogPatternRequest
-        {
-            public string? Pattern { get; set; }
-            public string? Format { get; set; }
-            public List<string>? SampleLines { get; set; }
-        }
-
         internal const int MaxSampleLines = 200;
         internal const int MaxLineLength = 8192;
 
@@ -54,23 +45,9 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         {
             // Authentication + TenantAdminOrGlobalReader authorization enforced by PolicyEnforcementMiddleware.
 
-            if (req.Headers.TryGetValues("Content-Length", out var clValues)
-                && long.TryParse(clValues.FirstOrDefault(), out var contentLength)
-                && contentLength > 1_048_576) // 1 MB limit
-            {
-                return await req.BadRequestAsync("Request body too large");
-            }
-
-            var body = await new StreamReader(req.Body).ReadToEndAsync();
-            TestLogPatternRequest? request;
-            try
-            {
-                request = JsonConvert.DeserializeObject<TestLogPatternRequest>(body);
-            }
-            catch (JsonException ex)
-            {
-                return await req.BadRequestAsync($"Request body is not valid JSON: {ex.Message}");
-            }
+            var read = await req.ReadAsync<TestLogPatternRequest>(1_048_576);
+            if (read.Error != null) return read.Error;
+            var request = read.Value!;
 
             var validationError = ValidateRequest(request);
             if (validationError != null)
