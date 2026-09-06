@@ -282,5 +282,25 @@
     "log_entry",
     "agent_trace",
     "stall_probe_check"
+  ],
+  "imeLogDerivedEventTypes": [
+    "app_install_started",
+    "app_install_completed",
+    "app_install_failed",
+    "app_install_skipped",
+    "app_download_started",
+    "app_tracking_summary",
+    "download_progress",
+    "do_telemetry",
+    "script_started",
+    "script_completed",
+    "script_failed",
+    "script_timeout_suspected",
+    "esp_phase_changed",
+    "ime_agent_version",
+    "ime_token_failure",
+    "ime_user_session_completed",
+    "ime_process_exited",
+    "ime_user_token_acquired"
   ]
 }

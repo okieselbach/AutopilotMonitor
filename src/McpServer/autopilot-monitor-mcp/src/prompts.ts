@@ -34,7 +34,9 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
               `Investigate enrollment session ${sessionId} and explain why it ended the way it did.\n\n` +
               'Follow this order:\n' +
               `1. Call get_session_summary(sessionId="${sessionId}") first — it gives status, the ` +
-              'noise-filtered key-event timeline, aggregate stats, and any rule analysis in one shot.\n' +
+              'observation coverage (coverage.gaps: what the agent could not see), the noise-filtered ' +
+              'key-event timeline, aggregate stats, and any rule analysis in one shot. Never treat a ' +
+              'missing event as proof while coverage.gaps names a relevant blind spot.\n' +
               '2. If the summary shows errors or a failure, escalate: use search_events ' +
               '(hybrid; depth="deep" if the fast pass is thin) for the failing area, then get_session_events for the full ' +
               'chronological stream around the first error. Follow nextLink until the relevant window is covered.\n' +
@@ -78,7 +80,7 @@ export function registerPrompts(server: McpServer, ga: boolean, strictGa: boolea
               '.\n\n' +
               'Do a correlated client↔backend analysis:\n' +
               `1. Call get_session_summary(sessionId="${sessionId}"${tenantId ? `, tenantId="${tenantId}"` : ''}) ` +
-              'first — status, noise-filtered timeline, stats, rule analysis in one shot.\n' +
+              'first — status, observation coverage (coverage.gaps), noise-filtered timeline, stats, rule analysis in one shot.\n' +
               `2. Call get_session_diagnostics(sessionId="${sessionId}"${tenantId ? `, tenantId="${tenantId}"` : ''}). ` +
               'If available=true, DOWNLOAD the ZIP from downloadUrl using your local tools (no auth header — ' +
               'it is a short-lived signed ticket), unzip it locally, and read files in the priority order of the diag_zip_layout resource (get_resource(name="diag_zip_layout")): ' +

@@ -205,6 +205,18 @@ export const RULE_AUTHORING_GUIDE = {
       'Optional gate BEFORE conditions: source must be "event_data"; all preconditions are ' +
       'AND-combined and a failing one silently skips the rule (no finding, no UI card). Use for ' +
       'applicability ("skip on virtual machines", "only when marker event absent via not_exists").',
+    absence:
+      'ABSENCE PROVES NOTHING. The agent observes an enrollment only from its own start (IME bootstrap) ' +
+      'and only as well as its collectors work: a missing event can mean "never happened" or "not seen". ' +
+      'Prefer positive agent signals (app_install_starved, entra_user_affinity_pending) over asserting that ' +
+      'something did not occur. Use not_exists as a SUPPRESSION (precondition: "skip when enrollment_complete ' +
+      'exists"), rarely as a required condition. A required not_exists on an IME-log-derived event ' +
+      '(guardrails imeLogDerivedEventTypes: app_install_*, script_*, ime_*, …) is only as good as the log ' +
+      'tracker: add a precondition { eventType: "ime_tracker_degraded", operator: "not_exists" } so the rule ' +
+      'stays silent when the tracker skipped work, or accept the risk knowingly — validate_rule warns. ' +
+      'collector_degraded is the same gate for kernel/event-log watchers (precondition on ' +
+      'collector_degraded not_exists, or dataField collector not_equals <name>). When reading a session, ' +
+      'get_session_summary → coverage.gaps lists the blind spots before the findings.',
     suppressByEvent:
       'On a condition, suppressByEvent {eventType, joinField} drops matches that a resolving event ' +
       'shares the joinField value with — e.g. app_install_failed suppressed by a later ' +

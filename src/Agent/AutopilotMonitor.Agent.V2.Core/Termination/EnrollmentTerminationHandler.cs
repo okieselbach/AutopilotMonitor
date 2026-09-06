@@ -1007,6 +1007,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             if (result != null && result.Success)
             {
                 _logger.Info($"EnrollmentTerminationHandler: diagnostics uploaded (blob={result.BlobName}).");
+                var data = new Dictionary<string, object>
+                {
+                    { "blobName", result.BlobName ?? string.Empty },
+                    // Tells the backend which storage the blob landed in so it can
+                    // stamp Session.DiagnosticsBlobDestination and route downloads
+                    // even after a future tenant destination switch. Empty when the
+                    // backend predates the field (agent falls through harmlessly).
+                    { "destination", result.Destination ?? string.Empty },
+                    { "sasUrlPrefix", result.SasUrlPrefix ?? string.Empty },
+                };
+                AppendPackagingStats(data, result.Packaging);
                 EmitEventSafe(new EnrollmentEvent
                 {
                     SessionId = _configuration.SessionId,
@@ -1015,17 +1026,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     Severity = EventSeverity.Info,
                     Source = "EnrollmentTerminationHandler",
                     Phase = EnrollmentPhase.Unknown,
-                    Message = $"Diagnostics package uploaded ({result.BlobName}).",
-                    Data = new Dictionary<string, object>
-                    {
-                        { "blobName", result.BlobName ?? string.Empty },
-                        // Tells the backend which storage the blob landed in so it can
-                        // stamp Session.DiagnosticsBlobDestination and route downloads
-                        // even after a future tenant destination switch. Empty when the
-                        // backend predates the field (agent falls through harmlessly).
-                        { "destination", result.Destination ?? string.Empty },
-                        { "sasUrlPrefix", result.SasUrlPrefix ?? string.Empty },
-                    },
+                    Message = $"Diagnostics package uploaded ({result.BlobName})."
+                              + (result.Packaging != null && result.Packaging.Truncated
+                                  ? $" Truncated: {result.Packaging.SkippedFiles} file(s) skipped by the packaging caps."
+                                  : string.Empty),
+                    Data = data,
                     ImmediateUpload = true,
                 });
             }
@@ -1033,6 +1038,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
             {
                 var errorCode = result?.ErrorCode ?? "null-result";
                 _logger.Warning($"EnrollmentTerminationHandler: diagnostics upload failed: {errorCode}.");
+                var data = new Dictionary<string, object>
+                {
+                    { "errorCode", errorCode },
+                    { "blobName", result?.BlobName ?? string.Empty },
+                    { "destination", result?.Destination ?? string.Empty },
+                };
+                AppendPackagingStats(data, result?.Packaging);
                 EmitEventSafe(new EnrollmentEvent
                 {
                     SessionId = _configuration.SessionId,
@@ -1042,15 +1054,28 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     Source = "EnrollmentTerminationHandler",
                     Phase = EnrollmentPhase.Unknown,
                     Message = $"Diagnostics upload failed: {errorCode}.",
-                    Data = new Dictionary<string, object>
-                    {
-                        { "errorCode", errorCode },
-                        { "blobName", result?.BlobName ?? string.Empty },
-                        { "destination", result?.Destination ?? string.Empty },
-                    },
+                    Data = data,
                     ImmediateUpload = true,
                 });
             }
+        }
+
+        /// <summary>
+        /// Adds the packager's counters to a diagnostics event payload — counts only, never a
+        /// file path (paths live in the ZIP's manifest and may carry user names). Absent when no
+        /// package was built, so consumers treat the keys as optional.
+        /// </summary>
+        private static void AppendPackagingStats(Dictionary<string, object> data, DiagnosticsPackagingStats packaging)
+        {
+            if (packaging == null) return;
+            data["truncated"] = packaging.Truncated;
+            data["includedFiles"] = packaging.IncludedFiles;
+            data["includedBytes"] = packaging.IncludedBytes;
+            data["skippedFiles"] = packaging.SkippedFiles;
+            data["skippedByReason"] = new Dictionary<string, int>(
+                (IDictionary<string, int>)packaging.SkippedByReason ?? new Dictionary<string, int>(), StringComparer.Ordinal);
+            data["problemsByKind"] = new Dictionary<string, int>(
+                (IDictionary<string, int>)packaging.ProblemsByKind ?? new Dictionary<string, int>(), StringComparer.Ordinal);
         }
 
         private void WriteEnrollmentCompleteMarker(EnrollmentTerminatedEventArgs args)

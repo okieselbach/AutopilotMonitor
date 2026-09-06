@@ -166,6 +166,31 @@ describe('first-page defaults', () => {
     expect(SUMMARY_EVENT_FIELDS).toContain('data.rejectedSourceTimestamp');
     // The error-code keys and their enriched siblings travel as slices too (errorCode/errorText).
     expect(SUMMARY_EVENT_FIELDS.split(',')).toEqual(expect.arrayContaining(['data.errorCode', 'data.errorCodeInfo', 'data.hresultSymbol', 'data.exitCodeInfo']));
+    // The coverage block's payload keys travel as slices too (session-coverage.ts).
+    expect(SUMMARY_EVENT_FIELDS.split(',')).toEqual(expect.arrayContaining(['data.firstSkippedPattern', 'data.bootToAgentStartSeconds', 'data.collector', 'data.skippedByReason']));
+  });
+
+  it('get_session_summary places coverage right after overview and reports gaps', async () => {
+    const handler = handlerFor('get_session_summary');
+    stubFetchCapture({
+      success: true,
+      session: { sessionId: SESSION, tenantId: 't', status: 'Succeeded', startedAt: '2026-09-01T00:00:00Z' },
+      events: [
+        { eventType: 'agent_started', severity: 'Info', timestamp: '2026-09-01T00:00:05Z', data: {} },
+        { eventType: 'ime_tracker_degraded', severity: 'Warning', timestamp: '2026-09-01T00:10:00Z', data: { file: 'AppWorkload.log', lineBudgetBreaks: 1, firstSkippedPattern: 'IME-NO-ACTION' } },
+      ],
+      results: [],
+      annotations: [],
+      count: 0,
+    });
+
+    const result = await runWithCaller(GA, () => handler({ sessionId: SESSION }, extra));
+    const body = resultJson(result);
+    expect(Object.keys(body).slice(0, 3)).toEqual(['overview', 'coverage', 'keyEvents']);
+    const coverage = body.coverage as { imeTracker: { degraded: boolean }; gaps: string[]; window: { observedFrom: string } };
+    expect(coverage.window.observedFrom).toBe('2026-09-01T00:00:05Z');
+    expect(coverage.imeTracker.degraded).toBe(true);
+    expect(coverage.gaps).toEqual([expect.stringContaining('IME-NO-ACTION')]);
   });
 });
 

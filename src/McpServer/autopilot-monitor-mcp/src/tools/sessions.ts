@@ -7,6 +7,7 @@ import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
 import { interpolateAnalysisResults } from '../interpolate-rule-template.js';
+import { buildSessionCoverage } from '../session-coverage.js';
 import { API_BASE_URL } from '../config.js';
 import type {
   AppMetricsResponse,
@@ -483,6 +484,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       description:
         'Get a concise, structured summary of an enrollment session optimized for analysis. ' +
         'Returns: session overview (status, duration, device, enrollment config), ' +
+        'observation coverage (coverage: from when the agent actually watched, IME log tracker / collector / ' +
+        'upload / diagnostics-package health, and coverage.gaps — one line per known blind spot; read it before ' +
+        'treating a missing event as proof that something did not happen), ' +
         'key events timeline (errors, warnings, phase transitions, app installs — noise filtered out, ' +
         'capped at 50 most-relevant entries; stats.keyEventsTruncated indicates if more were dropped), ' +
         'rule analysis results (probable cause, remediation), and aggregate stats. A key event that carries an ' +
@@ -563,6 +567,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         // stats; replayed events would pollute the keyEvents triage timeline. One filter
         // cleans all three. stats.totalEvents therefore counts non-replayed events.
         const allEvents = (eventsData.events ?? []).filter((e) => !isHistoricImeReplay(e));
+
+        // Observation coverage: what the agent could and could not see, folded from the
+        // health/lifecycle events that the triage timeline below ranks low or drops.
+        const coverage = buildSessionCoverage(s, allEvents);
 
         let errorCount = 0;
         let warningCount = 0;
@@ -664,6 +672,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
 
         const result = {
           overview,
+          coverage,
           keyEvents: mappedEvents,
           analysis,
           annotations,

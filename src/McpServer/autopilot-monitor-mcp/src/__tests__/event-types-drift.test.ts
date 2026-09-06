@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { EVENT_TYPES_CATALOG, INTERNAL_EVENT_TYPES, ALL_EVENT_TYPES } from '../resource-catalog.js';
 import { EXCLUDED_EVENT_TYPES, KEY_EVENT_TYPES, PHASE_EVENT_TYPES } from '../tools/sessions.js';
+import { COVERAGE_EVENT_TYPES } from '../session-coverage.js';
 
 /** Walk up from this test file to the repo root (marked by AutopilotMonitor.sln). */
 function findConstantsCs(): string | null {
@@ -95,10 +96,11 @@ describe('get_session_summary event-type sets ⊆ canonical catalog', () => {
   // key-ranks. They bypass the C#-drift test above (which only checks the
   // public catalog), so guard them directly against ALL_EVENT_TYPES.
   const known = new Set(ALL_EVENT_TYPES);
-  const cases: Array<[string, Set<string>]> = [
+  const cases: Array<[string, ReadonlySet<string>]> = [
     ['EXCLUDED_EVENT_TYPES', EXCLUDED_EVENT_TYPES],
     ['KEY_EVENT_TYPES', KEY_EVENT_TYPES],
     ['PHASE_EVENT_TYPES', PHASE_EVENT_TYPES],
+    ['COVERAGE_EVENT_TYPES', COVERAGE_EVENT_TYPES],
   ];
   for (const [name, set] of cases) {
     it(`${name} contains only real event types`, () => {

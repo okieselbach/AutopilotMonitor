@@ -4,7 +4,7 @@
  * schema-valid-but-silently-dead rules.
  */
 import { describe, it, expect } from 'vitest';
-import { validateRuleDraft, type ValidationFinding } from '../rule-validation.js';
+import { validateRuleDraft, IME_LOG_DERIVED_EVENT_TYPES, type ValidationFinding } from '../rule-validation.js';
 
 const errors = (findings: ValidationFinding[]) => findings.filter((f) => f.level === 'error').map((f) => f.message);
 const warnings = (findings: ValidationFinding[]) => findings.filter((f) => f.level === 'warning').map((f) => f.message);
@@ -521,5 +521,54 @@ describe('reserved built-in namespace', () => {
 
     const g = validateRuleDraft({ ...validGather(), ruleId: 'GATHER-CUSTOM-101' });
     expect(warnings(g.findings).some((m) => m.includes('reserved built-in namespace'))).toBe(false);
+  });
+});
+
+describe('absence lint (IME-log-derived not_exists)', () => {
+  const absenceRule = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...validAnalyze(),
+    ruleId: 'ANALYZE-CUSTOM-004',
+    conditions: [
+      { signal: 'desktop', source: 'event_type', eventType: 'desktop_arrived', operator: 'exists', value: '', required: true },
+      { signal: 'no_token', source: 'event_type', eventType: 'ime_user_token_acquired', operator: 'not_exists', value: '', required: true },
+    ],
+    ...extra,
+  });
+
+  it('warns on a required not_exists of an IME-log-derived event without the tracker precondition', () => {
+    const r = validateRuleDraft(absenceRule());
+    expect(r.valid).toBe(true);
+    const w = warnings(r.findings);
+    expect(w.some((m) => m.includes('conditions[1]') && m.includes('ime_user_token_acquired') && m.includes('ime_tracker_degraded'))).toBe(true);
+  });
+
+  it('is silent once the ime_tracker_degraded not_exists precondition is present', () => {
+    const r = validateRuleDraft(absenceRule({
+      preconditions: [{ source: 'event_data', eventType: 'ime_tracker_degraded', operator: 'not_exists' }],
+    }));
+    expect(warnings(r.findings).some((m) => m.includes('ime_tracker_degraded'))).toBe(false);
+  });
+
+  it('does not fire for optional conditions, field-level absence, or non-IME event types', () => {
+    const optional = absenceRule();
+    (optional.conditions as Array<Record<string, unknown>>)[1].required = false;
+    expect(warnings(validateRuleDraft(optional).findings).some((m) => m.includes('IME-log-derived'))).toBe(false);
+
+    const fieldLevel = absenceRule();
+    (fieldLevel.conditions as Array<Record<string, unknown>>)[1] = {
+      signal: 'no_field', source: 'event_data', eventType: 'app_install_failed', dataField: 'appId', operator: 'not_exists', value: '', required: true,
+    };
+    expect(warnings(validateRuleDraft(fieldLevel).findings).some((m) => m.includes('IME-log-derived'))).toBe(false);
+
+    const terminal = absenceRule();
+    (terminal.conditions as Array<Record<string, unknown>>)[1].eventType = 'enrollment_complete';
+    expect(warnings(validateRuleDraft(terminal).findings).some((m) => m.includes('IME-log-derived'))).toBe(false);
+  });
+
+  it('reads the IME-derived list from the baked guardrails mirror', () => {
+    expect(IME_LOG_DERIVED_EVENT_TYPES.has('ime_user_token_acquired')).toBe(true);
+    expect(IME_LOG_DERIVED_EVENT_TYPES.has('app_install_failed')).toBe(true);
+    expect(IME_LOG_DERIVED_EVENT_TYPES.has('enrollment_complete')).toBe(false);
+    expect(IME_LOG_DERIVED_EVENT_TYPES.size).toBeGreaterThan(10);
   });
 });

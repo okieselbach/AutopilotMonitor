@@ -142,6 +142,7 @@ if (fs.existsSync(guardrailsPath)) {
     assertStringList(guardrails[key], key);
   }
   assertStringList(guardrails.blockedInterimTriggerEventTypes ?? [], 'blockedInterimTriggerEventTypes');
+  assertStringList(guardrails.imeLogDerivedEventTypes ?? [], 'imeLogDerivedEventTypes');
   if (!Number.isInteger(guardrails.maxCommandLength) || guardrails.maxCommandLength < 1) {
     fail(`maxCommandLength: expected a positive integer, got ${JSON.stringify(guardrails.maxCommandLength)}`);
   }

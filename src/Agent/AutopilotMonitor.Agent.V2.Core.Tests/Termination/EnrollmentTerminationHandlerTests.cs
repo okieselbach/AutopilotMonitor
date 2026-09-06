@@ -1701,5 +1701,86 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Termination
                 rig.PromotionCalls[0].failureType);
             Assert.Null(rig.PromotionCalls[0].errorCode);
         }
+
+        // ============================================================= packaging counters on the diag events
+
+        [Fact]
+        public void Handle_diagnostics_uploaded_carries_packaging_counters_when_the_packager_reported_them()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Completed }.Build();
+            rig.DiagnosticsResult = new DiagnosticsUploadResult
+            {
+                BlobName = "diag-blob.zip",
+                Packaging = new DiagnosticsPackagingStats
+                {
+                    IncludedFiles = 412,
+                    IncludedBytes = 123456,
+                    SkippedFiles = 3,
+                    SkippedByReason = new Dictionary<string, int> { ["size"] = 2, ["total"] = 1 },
+                    ProblemsByKind = new Dictionary<string, int> { ["copy"] = 1 },
+                },
+            };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: false);
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            var uploaded = rig.DataOf("diagnostics_uploaded");
+            Assert.NotNull(uploaded);
+            Assert.Equal(true, uploaded!["truncated"]);
+            Assert.Equal(412, uploaded["includedFiles"]);
+            Assert.Equal(123456L, uploaded["includedBytes"]);
+            Assert.Equal(3, uploaded["skippedFiles"]);
+            var byReason = Assert.IsType<Dictionary<string, int>>(uploaded["skippedByReason"]);
+            Assert.Equal(2, byReason["size"]);
+            Assert.Equal(1, byReason["total"]);
+            var problems = Assert.IsType<Dictionary<string, int>>(uploaded["problemsByKind"]);
+            Assert.Equal(1, problems["copy"]);
+            // Counters only — no key or value carries a file path.
+            foreach (var kv in uploaded)
+                Assert.False(kv.Value is string s && (s.Contains("\\") || s.Contains("/")) && kv.Key != "sasUrlPrefix",
+                    $"payload key {kv.Key} looks like a path: {kv.Value}");
+        }
+
+        [Fact]
+        public void Handle_diagnostics_upload_failed_after_a_build_carries_the_counters_too()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Failed }.Build();
+            rig.DiagnosticsResult = new DiagnosticsUploadResult
+            {
+                ErrorCode = "upload_5xx",
+                Packaging = new DiagnosticsPackagingStats { IncludedFiles = 40, IncludedBytes = 1000 },
+            };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: false);
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Failed, SessionStage.Failed));
+
+            var failed = rig.DataOf("diagnostics_upload_failed");
+            Assert.NotNull(failed);
+            Assert.Equal("upload_5xx", (string)failed!["errorCode"]);
+            Assert.Equal(false, failed["truncated"]);
+            Assert.Equal(40, failed["includedFiles"]);
+            Assert.Empty(Assert.IsType<Dictionary<string, int>>(failed["skippedByReason"]));
+        }
+
+        [Fact]
+        public void Handle_diagnostics_events_omit_the_counters_when_no_package_was_built()
+        {
+            using var rig = new Rig();
+            rig.State = new DecisionStateBuilder(DecisionState.CreateInitial("S1", "T1")) { Stage = SessionStage.Completed }.Build();
+            rig.DiagnosticsResult = new DiagnosticsUploadResult { BlobName = "diag-blob.zip" };
+            var cfg = rig.BuildConfig(diagEnabled: true, diagMode: "Always", selfDestruct: false);
+
+            rig.Build(cfg).Handle(sender: null!,
+                Args(EnrollmentTerminationReason.DecisionTerminalStage, EnrollmentTerminationOutcome.Succeeded, SessionStage.Completed));
+
+            var uploaded = rig.DataOf("diagnostics_uploaded");
+            Assert.NotNull(uploaded);
+            Assert.False(uploaded!.ContainsKey("truncated"));
+            Assert.False(uploaded.ContainsKey("skippedByReason"));
+        }
     }
 }

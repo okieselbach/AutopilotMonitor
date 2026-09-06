@@ -60,7 +60,7 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
   return [
     headline,
     '',
-    'Investigating one session: call get_session_summary FIRST (status, filtered timeline, stats, rule analysis in one call), then drill in.',
+    'Investigating one session: call get_session_summary FIRST (status, observation coverage, filtered timeline, stats, rule analysis in one call), then drill in. Read coverage.gaps before treating a missing event as evidence — the agent watches only from its own start, and a degraded tracker or collector makes an absence unprovable.',
     ...(deps.docs
       ? ['Product questions ("how do I…", "what does X mean", "where is my data stored"): use search_docs — the ' +
          'published customer documentation. search_knowledge is a DIFFERENT corpus (analysis rules and IME log ' +

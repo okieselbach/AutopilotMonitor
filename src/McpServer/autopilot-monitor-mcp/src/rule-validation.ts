@@ -339,6 +339,32 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
     findings.push(...checkEventTypeKnown(preconditions[i].eventType, `preconditions[${i}]`));
   }
 
+  // Absence proves nothing: a required not_exists on an event the agent derives from the IME
+  // logs is only as good as the tracker that would have matched it. When the tracker reports
+  // ime_tracker_degraded (a line whose remaining patterns were skipped, a regex timeout, an
+  // oversized line) the engine still evaluates the absence as true. The precondition below
+  // suppresses the rule on those sessions; without it the author has to accept that risk
+  // knowingly — hence a warning, never an error (production does not reject the rule).
+  const hasTrackerCoverageGate = preconditions.some(
+    (p) => p.eventType === IME_TRACKER_DEGRADED_EVENT_TYPE && p.operator === 'not_exists' && !p.dataField,
+  );
+  if (!hasTrackerCoverageGate) {
+    for (let i = 0; i < conditions.length; i++) {
+      const c = conditions[i];
+      if (c.operator !== 'not_exists' || c.required !== true || !c.eventType || c.dataField) continue;
+      if (!IME_LOG_DERIVED_EVENT_TYPES.has(c.eventType)) continue;
+      findings.push({
+        level: 'warning',
+        message:
+          `conditions[${i}]: required not_exists on "${c.eventType}" asserts an ABSENCE of an IME-log-derived event — ` +
+          'it is only as good as the log tracker that would have matched it. Either add a precondition ' +
+          `{ eventType: "${IME_TRACKER_DEGRADED_EVENT_TYPE}", operator: "not_exists" } so the rule stays silent when the tracker ` +
+          'skipped work, or build the rule on a positive agent signal instead (pattern: app_install_starved). ' +
+          'get_session_summary → coverage.gaps shows the tracker state per session.',
+      });
+    }
+  }
+
   // Confidence factors: exact DSL shapes; "count >= N" counts EVENTS of type factor.signal.
   const factors = (Array.isArray(rule.confidenceFactors) ? rule.confidenceFactors : []) as Array<{ signal?: string; condition?: string; weight?: number }>;
   let positiveWeights = 0;
@@ -464,6 +490,20 @@ function lintAnalyzeRule(rule: Record<string, unknown>): ValidationFinding[] {
 const BLOCKED_INTERIM_TRIGGER_EVENT_TYPES = new Set<string>(
   ((RULE_GUARDRAILS as Record<string, unknown>).blockedInterimTriggerEventTypes as readonly string[] | undefined) ?? [],
 );
+
+/**
+ * Event types the agent derives from the IME log files (ImeLogTracker + its adapter). Their
+ * absence in a session can mean "never happened" OR "the tracker skipped the line" — the
+ * absence lint above tells the two apart via the ime_tracker_degraded precondition. Mirrored
+ * from rules/guardrails.json (imeLogDerivedEventTypes); the backend catalog-policy test reads
+ * the same file, so the built-in catalog and this lint judge by one list.
+ */
+export const IME_LOG_DERIVED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
+  ((RULE_GUARDRAILS as Record<string, unknown>).imeLogDerivedEventTypes as readonly string[] | undefined) ?? [],
+);
+
+/** The tracker's one-shot self-report of skipped work (Constants.EventTypes.ImeTrackerDegraded). */
+export const IME_TRACKER_DEGRADED_EVENT_TYPE = 'ime_tracker_degraded';
 
 // ── Gather-rule semantic lint ───────────────────────────────────────────────
 

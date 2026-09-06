@@ -65,6 +65,44 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         public static DiagnosticsUploadResult SkippedBy(string gate) =>
             new DiagnosticsUploadResult { Skipped = true, ErrorCode = gate };
+
+        /// <summary>
+        /// Counters of the archive build that produced (or preceded) this result; null when no
+        /// package was built (configuration gate, build exception). Surfaced into the
+        /// <c>diagnostics_uploaded</c> / <c>diagnostics_upload_failed</c> events so a truncated or
+        /// partially failed package is visible without opening the ZIP.
+        /// </summary>
+        public DiagnosticsPackagingStats Packaging { get; set; }
+    }
+
+    /// <summary>
+    /// What the packager included, skipped and failed on — as bounded counters only. File paths
+    /// stay inside the ZIP (<c>package-manifest.txt</c>, <c>_TRUNCATED.txt</c>): they can carry
+    /// user names, and a skip list has no upper bound while this payload must stay small no
+    /// matter how many files a cap rejected.
+    /// </summary>
+    public sealed class DiagnosticsPackagingStats
+    {
+        private static readonly IReadOnlyDictionary<string, int> Empty = new Dictionary<string, int>();
+
+        public int IncludedFiles { get; set; }
+        public long IncludedBytes { get; set; }
+
+        /// <summary>Files rejected by a cap or a reparse-point check (the <c>_TRUNCATED.txt</c> list).</summary>
+        public int SkippedFiles { get; set; }
+
+        /// <summary>True when at least one file was skipped — the same condition that writes <c>_TRUNCATED.txt</c>.</summary>
+        public bool Truncated => SkippedFiles > 0;
+
+        /// <summary>Skip count per reason: <c>size</c>, <c>count</c>, <c>total</c>, <c>reparse</c>, <c>resolved-outside-folder</c>.</summary>
+        public IReadOnlyDictionary<string, int> SkippedByReason { get; set; } = Empty;
+
+        /// <summary>
+        /// Packaging problems that are not cap skips, per kind: <c>path-guard</c> (configured path
+        /// refused), <c>no-user-session</c> (user-profile token without a signed-in user),
+        /// <c>folder-rejected</c>, <c>enumerate</c>, <c>open</c>, <c>copy</c>.
+        /// </summary>
+        public IReadOnlyDictionary<string, int> ProblemsByKind { get; set; } = Empty;
     }
 
     /// <summary>
@@ -134,6 +172,41 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 Skipped.Add(new SkipRecord(path, reason, size));
 
             public bool HasSkips => Skipped.Count > 0;
+
+            // Non-cap problems (guard refusals, enumeration/open/copy failures) by kind — the
+            // manifest names the files, the event carries only these counts.
+            public Dictionary<string, int> Problems { get; } = new Dictionary<string, int>(StringComparer.Ordinal);
+            private readonly HashSet<string> _problemKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            /// <summary>
+            /// Counts one problem of <paramref name="kind"/>. A section is walked once per search
+            /// pattern, so a folder-level failure would otherwise be counted once per pattern —
+            /// pass the folder as <paramref name="dedupeKey"/> to count it once.
+            /// </summary>
+            public void RecordProblem(string kind, string dedupeKey = null)
+            {
+                if (dedupeKey != null && !_problemKeys.Add(kind + "|" + dedupeKey)) return;
+                Problems.TryGetValue(kind, out var n);
+                Problems[kind] = n + 1;
+            }
+
+            public DiagnosticsPackagingStats ToStats()
+            {
+                var byReason = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var s in Skipped)
+                {
+                    byReason.TryGetValue(s.Reason, out var n);
+                    byReason[s.Reason] = n + 1;
+                }
+                return new DiagnosticsPackagingStats
+                {
+                    IncludedFiles = FileCount,
+                    IncludedBytes = TotalBytes,
+                    SkippedFiles = Skipped.Count,
+                    SkippedByReason = byReason,
+                    ProblemsByKind = new Dictionary<string, int>(Problems, StringComparer.Ordinal),
+                };
+            }
         }
 
         private readonly struct SkipRecord
@@ -262,6 +335,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 var zipFileName = $"AgentDiagnostics-{_configuration.SessionId}-{timestamp}{suffix}.zip";
 
                 var zipBytes = BuildArchiveBytes(enrollmentSucceeded);
+                var packaging = LastPackaging;
 
                 _logger.Info($"Diagnostics package created: {zipFileName} ({zipBytes.Length / 1024} KB)");
 
@@ -276,7 +350,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 {
                     var errorCode = uploadUrlResponse?.Message ?? "Failed to get diagnostics upload URL from backend";
                     _logger.Warning($"Failed to get diagnostics upload URL from backend — skipping upload: {errorCode}");
-                    return new DiagnosticsUploadResult { ErrorCode = errorCode };
+                    return new DiagnosticsUploadResult { ErrorCode = errorCode, Packaging = packaging };
                 }
 
                 var sasUrlPrefix = BuildSasUrlPrefix(uploadUrlResponse.UploadUrl);
@@ -305,6 +379,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         BlobName = persistedBlobName,
                         Destination = uploadUrlResponse.Destination,
                         SasUrlPrefix = sasUrlPrefix,
+                        Packaging = packaging,
                     };
                 }
 
@@ -313,6 +388,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     Destination = uploadUrlResponse.Destination,
                     SasUrlPrefix = sasUrlPrefix,
                     ErrorCode = uploadErrorCode,
+                    Packaging = packaging,
                 };
             }
             catch (Exception ex)
@@ -350,6 +426,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         // uploaded archive's own log. This manifest records every packaging decision and travels
         // INSIDE the ZIP (field case: sessions a11102f4 / 3ae7528b, missing evtx undiagnosable).
         private StringBuilder _manifest;
+
+        /// <summary>Counters of the most recent <see cref="BuildArchiveBytes"/>; null before the first build.</summary>
+        internal DiagnosticsPackagingStats LastPackaging { get; private set; }
 
         private void ManifestLine(string text)
         {
@@ -391,6 +470,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         {
                             _logger.Warning($"Diagnostics path blocked by guard: {entry.Path}");
                             ManifestLine($"BLOCKED (path guard): {entry.Path}");
+                            tracker.RecordProblem("path-guard");
                             continue;
                         }
                         var expandedPath = UserProfileResolver.ExpandCustomTokens(entry.Path);
@@ -398,6 +478,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         {
                             _logger.Warning($"Diagnostics path skipped (no user session for token): {entry.Path}");
                             ManifestLine($"SKIPPED (no user session for token): {entry.Path}");
+                            tracker.RecordProblem("no-user-session");
                             continue;
                         }
                         var folder = Path.GetDirectoryName(expandedPath);
@@ -427,6 +508,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                         WriteTruncatedMarker(archive, tracker);
                 }
 
+                LastPackaging = tracker.ToStats();
                 return ms.ToArray();
             }
         }
@@ -498,6 +580,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 _logger.Warning($"Built-in diagnostics section skipped (no user session for token): {section.Id}");
                 ManifestLine($"BUILT-IN SKIPPED (no user session for token): {section.Id} '{section.SourceFolder}'");
+                tracker.RecordProblem("no-user-session");
                 return;
             }
 
@@ -584,6 +667,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     {
                         _logger.Warning($"Diagnostics source folder rejected ({folderRejection}): {sourceFolder}");
                         ManifestLine($"FOLDER REJECTED ({folderRejection}): {sourceFolder} (pattern '{searchPattern}')");
+                        tracker.RecordProblem("folder-rejected", sourceFolder);
                     }
                     return;
                 }
@@ -597,6 +681,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 {
                     _logger.Warning($"Failed to enumerate log files in {sourceFolder}: {ex.Message}");
                     ManifestLine($"ENUMERATION FAILED: {sourceFolder} (pattern '{searchPattern}'): {ex.Message}");
+                    tracker.RecordProblem("enumerate", sourceFolder);
                     return;
                 }
 
@@ -681,6 +766,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
             {
                 _logger.Warning($"Failed to add log file to diagnostics package: {file} - {ex.Message}");
                 ManifestLine($"FAILED (copy): {file}: {ex.Message}");
+                tracker.RecordProblem("copy");
             }
             finally
             {
@@ -720,6 +806,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 default:
                     _logger.Warning($"Failed to open {file}: {rejection}");
                     ManifestLine($"FAILED (open): {file}: {rejection}");
+                    tracker.RecordProblem("open");
                     break;
             }
             return null;

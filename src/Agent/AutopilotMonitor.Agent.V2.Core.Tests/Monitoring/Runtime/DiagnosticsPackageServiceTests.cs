@@ -903,5 +903,87 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
                 NtfsLinks.RemoveLink(link);
             }
         }
+
+        // ============================================================= packaging counters
+
+        [Fact]
+        public void BuildArchiveBytes_records_packaging_counters_by_reason_and_kind_without_paths()
+        {
+            using var rig = new Rig();
+            File.WriteAllText(Path.Combine(rig.StateFolder, "small.json"), "{}");
+            File.WriteAllText(Path.Combine(rig.StateFolder, "big-1.json"), new string('x', 64));
+            File.WriteAllText(Path.Combine(rig.StateFolder, "big-2.json"), new string('y', 64));
+            var blockedPath = @"C:\Windows\System32\config\SYSTEM";
+
+            var service = rig.Build(cfg => cfg.DiagnosticsLogPaths.Add(
+                new AutopilotMonitor.Shared.Models.DiagnosticsLogPath { Path = blockedPath }));
+            service.Budget = new DiagnosticsBudget { MaxSingleFileBytes = 16, MaxTotalUncompressedBytes = 1L << 30, MaxFileCount = 5000 };
+
+            Assert.Null(service.LastPackaging);
+            var bytes = service.BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var stats = service.LastPackaging;
+            Assert.NotNull(stats);
+            Assert.True(stats!.Truncated);
+            Assert.Equal(2, stats.SkippedFiles);
+            Assert.Equal(2, stats.SkippedByReason["size"]);
+            Assert.Single(stats.SkippedByReason);
+            Assert.Equal(1, stats.ProblemsByKind["path-guard"]);
+            Assert.Single(stats.ProblemsByKind);
+            Assert.True(stats.IncludedFiles >= 1, "the small file must have been included");
+            Assert.True(stats.IncludedBytes >= 2);
+
+            // The ZIP still carries the per-file list; the counters never do.
+            Assert.NotNull(ReadZipEntryText(bytes, "_TRUNCATED.txt"));
+            foreach (var key in stats.SkippedByReason.Keys.Concat(stats.ProblemsByKind.Keys))
+            {
+                Assert.DoesNotContain("\\", key);
+                Assert.DoesNotContain(":", key);
+                Assert.DoesNotContain("/", key);
+            }
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_reports_a_clean_build_as_not_truncated_with_empty_maps()
+        {
+            using var rig = new Rig();
+            File.WriteAllText(Path.Combine(rig.StateFolder, "snapshot.json"), "{}");
+
+            var service = rig.Build();
+            service.BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var stats = service.LastPackaging;
+            Assert.NotNull(stats);
+            Assert.False(stats!.Truncated);
+            Assert.Equal(0, stats.SkippedFiles);
+            Assert.Empty(stats.SkippedByReason);
+            Assert.Empty(stats.ProblemsByKind);
+            Assert.True(stats.IncludedFiles >= 1);
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_counts_a_rejected_source_folder_as_a_problem()
+        {
+            using var rig = new Rig();
+            using var outside = new TempDirectory();
+            File.WriteAllText(Path.Combine(outside.Path, "snapshot.json"), "{}");
+            var link = Path.Combine(rig.Tmp.Path, "StateLink");
+            NtfsLinks.CreateJunction(link, outside.Path);
+
+            try
+            {
+                var service = rig.Build(sectionFolderOverrides: new Dictionary<string, string> { ["AgentState"] = link });
+                service.BuildArchiveBytes(enrollmentSucceeded: true);
+
+                // The section is walked once per search pattern (11 patterns) but the folder
+                // failed once — the counter says so.
+                Assert.Equal(1, service.LastPackaging!.ProblemsByKind["folder-rejected"]);
+                Assert.False(service.LastPackaging.Truncated);
+            }
+            finally
+            {
+                NtfsLinks.RemoveLink(link);
+            }
+        }
     }
 }

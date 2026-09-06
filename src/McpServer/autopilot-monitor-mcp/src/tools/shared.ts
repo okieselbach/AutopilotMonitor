@@ -2,6 +2,7 @@ import type { ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { PRETTY_JSON } from '../config.js';
 import { isPrettyJsonRequested } from '../client.js';
+import { COVERAGE_EVENT_FIELDS } from '../session-coverage.js';
 
 /**
  * Projection sent by get_session_events when the caller omits `fields`: everything an event
@@ -76,7 +77,10 @@ export const SUMMARY_EVENT_FIELDS =
   'data.scriptType,data.script_type,data.scriptPart,data.script_part,data.result,' +
   'data.rejectedSourceTimestamp,data.rejected_source_timestamp,' +
   'data.errorCode,data.exitCode,data.hresult,data.hresultFromWin32,data.hresultSymbol,' +
-  'data.errorCodeInfo,data.exitCodeInfo,data.hresultInfo,data.hresultFromWin32Info';
+  'data.errorCodeInfo,data.exitCodeInfo,data.hresultInfo,data.hresultFromWin32Info,' +
+  // Observation-coverage slices (session-coverage.ts): the health/lifecycle payload keys the
+  // `coverage` block folds — still per-key, never the whole payload.
+  COVERAGE_EVENT_FIELDS;
 
 /**
  * Zod validator for session IDs. Sessions are UUIDs and the value is
