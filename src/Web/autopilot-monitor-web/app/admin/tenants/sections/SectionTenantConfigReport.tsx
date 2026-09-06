@@ -545,7 +545,7 @@ export function SectionTenantConfigReport() {
                 <ConfigRow label="Validate Corporate Identifier" value={config.validateCorporateIdentifier} configKey="validateCorporateIdentifier" defaults={DEFAULTS} />
                 <ConfigRow label="Allow Insecure Agent Requests" value={config.allowInsecureAgentRequests} configKey="allowInsecureAgentRequests" defaults={DEFAULTS} />
                 <ConfigRow label="Device API Rate Limit Override" value={config.customRateLimitRequestsPerMinute} configKey="customRateLimitRequestsPerMinute" defaults={DEFAULTS} />
-                <ConfigRow label="User API Rate Limit Override" value={config.customUserRateLimitRequestsPerMinute} configKey="customUserRateLimitRequestsPerMinute" defaults={DEFAULTS} />
+                <ConfigRow label="MCP & Integrations API Rate Limit Override" value={config.customUserRateLimitRequestsPerMinute} configKey="customUserRateLimitRequestsPerMinute" defaults={DEFAULTS} />
               </Section>
 
               <Section title="Hardware Whitelist">

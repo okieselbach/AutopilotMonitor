@@ -164,8 +164,9 @@ export function SectionUsagePlans() {
       {tenants.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
           <p>
-            Users without a per-user plan override inherit their tenant&apos;s effective user rate limit
-            ({tenants[0]?.customUserRateLimitRequestsPerMinute ?? userRateLimit} req/min).
+            Users without a per-user plan override inherit their tenant&apos;s effective MCP &amp; integrations rate limit
+            ({tenants[0]?.customUserRateLimitRequestsPerMinute ?? userRateLimit} req/min); interactive portal sessions
+            use the separate global portal budget.
           </p>
           <p>
             The per-user limits cap each account; the tenant limits cap the whole organization (all members

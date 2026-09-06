@@ -11,6 +11,7 @@ export function SectionGlobalSettings() {
     loadingConfig, savingConfig, adminConfig,
     globalRateLimit, setGlobalRateLimit,
     userRateLimit, setUserRateLimit,
+    portalUserRateLimit, setPortalUserRateLimit,
     globalAdminRateLimit, setGlobalAdminRateLimit,
     platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl,
     agentMigrateApiBaseUrl, setAgentMigrateApiBaseUrl,
@@ -41,6 +42,8 @@ export function SectionGlobalSettings() {
         setGlobalRateLimit={setGlobalRateLimit}
         userRateLimit={userRateLimit}
         setUserRateLimit={setUserRateLimit}
+        portalUserRateLimit={portalUserRateLimit}
+        setPortalUserRateLimit={setPortalUserRateLimit}
         globalAdminRateLimit={globalAdminRateLimit}
         setGlobalAdminRateLimit={setGlobalAdminRateLimit}
         platformStatsBlobSasUrl={platformStatsBlobSasUrl}

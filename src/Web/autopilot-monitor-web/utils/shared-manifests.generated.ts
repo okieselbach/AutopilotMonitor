@@ -13,6 +13,7 @@ export const SHARED_MANIFEST = {
       "updatedBy",
       "globalRateLimitRequestsPerMinute",
       "userRateLimitRequestsPerMinute",
+      "portalUserRateLimitRequestsPerMinute",
       "globalAdminRateLimitRequestsPerMinute",
       "planTierDefinitionsJson",
       "platformStatsBlobSasUrl",

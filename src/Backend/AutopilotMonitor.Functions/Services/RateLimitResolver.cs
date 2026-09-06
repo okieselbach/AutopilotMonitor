@@ -26,10 +26,16 @@ namespace AutopilotMonitor.Functions.Services
         /// no per-tenant override and no entitlement floor applies). Standard users get the per-tenant
         /// override if set, otherwise the global user default raised to the edition's entitlement floor.
         /// </summary>
-        public static int ResolveUserLimit(bool isGlobalAdmin, int? tenantUserOverride, int globalUserDefault, int globalAdminDefault, int? entitlementFloor = null)
+        public static int ResolveUserLimit(
+            Security.ThrottleSurface surface, bool isGlobalAdmin, int? tenantUserOverride,
+            int globalUserDefault, int portalUserDefault, int globalAdminDefault, int? entitlementFloor = null)
             => isGlobalAdmin
                 ? globalAdminDefault
-                : (tenantUserOverride ?? ApplyFloor(globalUserDefault, entitlementFloor));
+                : surface == Security.ThrottleSurface.Portal
+                    // Portal: one global knob, deliberately without tenant override or edition floor —
+                    // a per-account cost cap on cheap point reads, not a plan feature.
+                    ? portalUserDefault
+                    : (tenantUserOverride ?? ApplyFloor(globalUserDefault, entitlementFloor));
 
         private static int ApplyFloor(int globalDefault, int? entitlementFloor)
             => entitlementFloor is int floor && floor > globalDefault ? floor : globalDefault;

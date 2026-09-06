@@ -9,6 +9,7 @@
       "updatedBy",
       "globalRateLimitRequestsPerMinute",
       "userRateLimitRequestsPerMinute",
+      "portalUserRateLimitRequestsPerMinute",
       "globalAdminRateLimitRequestsPerMinute",
       "planTierDefinitionsJson",
       "platformStatsBlobSasUrl",
@@ -793,7 +794,15 @@
             "kind": "primitive",
             "name": "number"
           },
-          "doc": "Per-user rate limit for standard users (Tenant Admins, Operators, Viewers). Requests per minute keyed by UPN. Default: 120."
+          "doc": "Per-user rate limit for requests the MCP server or a server-side integration makes on a user's behalf (confidential-client tokens) and for app-only principals. Requests per minute keyed by caller; the per-tenant override and the edition floor apply to this budget. Default: 120."
+        },
+        {
+          "name": "portalUserRateLimitRequestsPerMinute",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Per-user rate limit for interactive portal sessions (public-client tokens, appidacr 0). Requests per minute keyed by caller; all of one account's tabs share it. No per-tenant override, no edition floor. Default: 600."
         },
         {
           "name": "globalAdminRateLimitRequestsPerMinute",

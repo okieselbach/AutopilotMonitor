@@ -75,6 +75,24 @@ public static class ClaimsPrincipalExtensions
         => string.Equals(principal.FindFirst("idtyp")?.Value, "app", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The caller's rate-limit budget class (<see cref="Security.ThrottleSurface"/>), from signed claims
+    /// only: <c>appidacr</c> (v1.0) / <c>azpacr</c> (v2.0) say how the CLIENT authenticated — <c>0</c> is a
+    /// public client (the portal SPA, PKCE), <c>1</c> a client secret, <c>2</c> a certificate (the MCP
+    /// server and server-side integrations). An app-only token, any other value and a missing claim
+    /// fail closed to <see cref="Security.ThrottleSurface.Integration"/>, the stricter budget.
+    /// </summary>
+    public static Security.ThrottleSurface GetThrottleSurface(this ClaimsPrincipal principal)
+    {
+        if (principal.IsApplicationPrincipal())
+            return Security.ThrottleSurface.Integration;
+
+        var acr = principal.FindFirst("appidacr")?.Value ?? principal.FindFirst("azpacr")?.Value;
+        return string.Equals(acr?.Trim(), "0", StringComparison.Ordinal)
+            ? Security.ThrottleSurface.Portal
+            : Security.ThrottleSurface.Integration;
+    }
+
+    /// <summary>
     /// The calling application's Entra application (client) id: <c>appid</c> on v1.0 tokens, <c>azp</c> on
     /// v2.0 tokens. Null when the token names no client (never the case for a token Entra issued).
     /// </summary>

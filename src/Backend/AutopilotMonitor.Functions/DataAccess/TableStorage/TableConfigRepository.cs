@@ -935,6 +935,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // Rate limiting per-role settings
                 { "UserRateLimitRequestsPerMinute", config.UserRateLimitRequestsPerMinute },
                 { "GlobalAdminRateLimitRequestsPerMinute", config.GlobalAdminRateLimitRequestsPerMinute },
+                { "PortalUserRateLimitRequestsPerMinute", config.PortalUserRateLimitRequestsPerMinute },
                 // Plan tier definitions
                 { "PlanTierDefinitionsJson", config.PlanTierDefinitionsJson ?? string.Empty },
                 // Feedback settings
@@ -1003,6 +1004,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // Rate limiting per-role settings
                 UserRateLimitRequestsPerMinute = entity.GetInt32("UserRateLimitRequestsPerMinute") ?? 120,
                 GlobalAdminRateLimitRequestsPerMinute = entity.GetInt32("GlobalAdminRateLimitRequestsPerMinute") ?? 600,
+                PortalUserRateLimitRequestsPerMinute = entity.GetInt32("PortalUserRateLimitRequestsPerMinute") ?? 600,
                 // Plan tier definitions
                 PlanTierDefinitionsJson = entity.GetString("PlanTierDefinitionsJson"),
                 // Feedback settings

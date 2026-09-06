@@ -1142,9 +1142,9 @@ function TenantManagementSectionInner({
                 <p className="mt-1 text-xs text-gray-500">Per-device (agent/cert) limit. Leave blank to inherit the global default.</p>
               </div>
 
-              {/* User API Rate Limit override */}
+              {/* MCP & integrations API Rate Limit override */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">User API Rate Limit (Requests/Min)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">MCP &amp; Integrations API Rate Limit (Requests/Min)</label>
                 <input
                   type="number"
                   min="1"
@@ -1157,7 +1157,7 @@ function TenantManagementSectionInner({
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                 />
-                <p className="mt-1 text-xs text-gray-500">Per-user (portal) limit for standard users. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
+                <p className="mt-1 text-xs text-gray-500">Per-user limit for MCP and integration requests made on behalf of this tenant&apos;s standard users. Portal sessions use the global portal budget and are not affected. Leave blank to inherit the global default. Does not apply to Global Admins.</p>
               </div>
 
               <label className="flex items-center space-x-2 cursor-pointer">

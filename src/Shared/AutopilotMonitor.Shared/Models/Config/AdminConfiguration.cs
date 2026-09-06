@@ -42,10 +42,19 @@ namespace AutopilotMonitor.Shared.Models
         public int GlobalRateLimitRequestsPerMinute { get; set; } = 100;
 
         /// <summary>
-        /// Per-user rate limit for standard users (Tenant Admins, Operators, Viewers).
-        /// Requests per minute keyed by UPN. Default: 120.
+        /// Per-user rate limit for requests the MCP server or a server-side integration makes on a
+        /// user's behalf (confidential-client tokens) and for app-only principals. Requests per minute
+        /// keyed by caller; the per-tenant override and the edition floor apply to this budget.
+        /// Default: 120.
         /// </summary>
         public int UserRateLimitRequestsPerMinute { get; set; } = 120;
+
+        /// <summary>
+        /// Per-user rate limit for interactive portal sessions (public-client tokens, appidacr 0).
+        /// Requests per minute keyed by caller; all of one account's tabs share it. No per-tenant
+        /// override, no edition floor. Default: 600.
+        /// </summary>
+        public int PortalUserRateLimitRequestsPerMinute { get; set; } = 600;
 
         /// <summary>
         /// Per-user rate limit for Global Admins.
@@ -656,6 +665,7 @@ namespace AutopilotMonitor.Shared.Models
                 UpdatedBy = "System",
                 GlobalRateLimitRequestsPerMinute = 100,
                 UserRateLimitRequestsPerMinute = 120,
+                PortalUserRateLimitRequestsPerMinute = 600,
                 GlobalAdminRateLimitRequestsPerMinute = 600,
                 PlatformStatsBlobSasUrl = string.Empty,
                 CollectorIdleTimeoutMinutes = 15,

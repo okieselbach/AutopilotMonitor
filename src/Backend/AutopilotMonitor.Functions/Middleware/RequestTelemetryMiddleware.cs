@@ -130,6 +130,13 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue("CorrelationId", out var corrId) && corrId is string correlationId)
                 requestTelemetry.Properties["CorrelationId"] = correlationId;
 
+            // THROTTLE SURFACE — set by UserRateLimitMiddleware from the signed client-auth claim
+            // (portal = public client, integration = confidential client / app-only). Next to the
+            // self-declared ClientSource header it makes the classification auditable in KQL:
+            // ClientSource == 'mcp' must always land on 'integration'.
+            if (context.Items.TryGetValue(UserRateLimitMiddleware.ThrottleSurfaceItemKey, out var surface) && surface is string throttleSurface)
+                requestTelemetry.Properties["ThrottleSurface"] = throttleSurface;
+
             // CERT-TENANT-BINDING-SHADOW — set by SecurityValidator.ObserveCertTenantBinding.
             // Carried on the request row rather than a trace line: worker-side LogInformation never
             // reaches App Insights (provider default rule is Warning+), so the bulk "Match" outcome

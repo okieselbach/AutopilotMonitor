@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using Xunit;
 
@@ -21,7 +22,8 @@ public class RateLimitResolverTests
         Assert.Equal(expected, RateLimitResolver.ResolveDeviceLimit(tenantOverride, globalDefault, entitlementFloor));
     }
 
-    // ── User path: GA → globalAdminDefault (override + floor never apply); else override ?? max(default, floor) ──
+    // ── User path, integration surface (MCP server / integrations / app-only):
+    //    GA → globalAdminDefault (override + floor never apply); else override ?? max(default, floor) ──
     [Theory]
     [InlineData(false, null, 120, 600, null, 120)]   // standard user, no override → global user default
     [InlineData(false, 300, 120, 600, null, 300)]    // per-tenant user override wins over the global user default
@@ -30,10 +32,26 @@ public class RateLimitResolverTests
     [InlineData(false, null, 200, 600, 150, 200)]    // admin-raised default (200) must never be LOWERED by the floor
     [InlineData(false, 50, 120, 600, 150, 50)]       // explicit override beats the floor
     [InlineData(true, null, 120, 600, 9999, 600)]    // Global Admin: entitlement floor never applies
-    public void ResolveUserLimit_respects_global_admin_override_and_floor(
+    public void ResolveUserLimit_integration_respects_global_admin_override_and_floor(
         bool isGlobalAdmin, int? tenantUserOverride, int globalUserDefault, int globalAdminDefault, int? entitlementFloor, int expected)
     {
+        const int portalDefault = 600;
         Assert.Equal(expected, RateLimitResolver.ResolveUserLimit(
-            isGlobalAdmin, tenantUserOverride, globalUserDefault, globalAdminDefault, entitlementFloor));
+            ThrottleSurface.Integration, isGlobalAdmin, tenantUserOverride, globalUserDefault, portalDefault, globalAdminDefault, entitlementFloor));
+    }
+
+    // ── User path, portal surface (public-client token): one global knob — no override, no floor;
+    //    Global Admins keep their own budget on every surface ──
+    [Theory]
+    [InlineData(false, null, 120, 600, 900, null, 600)]   // standard user → portal default, not the integration default
+    [InlineData(false, 300, 120, 600, 900, null, 600)]    // per-tenant override is an integration-budget concept
+    [InlineData(false, null, 120, 600, 900, 150, 600)]    // edition floor is an integration-budget concept
+    [InlineData(false, null, 120, 50, 900, 150, 50)]      // an admin-lowered portal default is honoured as set (no floor lifts it)
+    [InlineData(true, 300, 120, 600, 900, 9999, 900)]     // Global Admin: GA budget, whatever the surface
+    public void ResolveUserLimit_portal_is_one_global_knob(
+        bool isGlobalAdmin, int? tenantUserOverride, int globalUserDefault, int portalUserDefault, int globalAdminDefault, int? entitlementFloor, int expected)
+    {
+        Assert.Equal(expected, RateLimitResolver.ResolveUserLimit(
+            ThrottleSurface.Portal, isGlobalAdmin, tenantUserOverride, globalUserDefault, portalUserDefault, globalAdminDefault, entitlementFloor));
     }
 }

@@ -61,7 +61,8 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // (RateLimitService clamps as a last resort, but reject at the edge for a clear error).
                 var rateLimitError =
                     config.GlobalRateLimitRequestsPerMinute < 1 ? "Global Device API Rate Limit" :
-                    config.UserRateLimitRequestsPerMinute < 1 ? "Global User API Rate Limit" :
+                    config.UserRateLimitRequestsPerMinute < 1 ? "MCP & Integrations API Rate Limit" :
+                    config.PortalUserRateLimitRequestsPerMinute < 1 ? "Portal User API Rate Limit" :
                     config.GlobalAdminRateLimitRequestsPerMinute < 1 ? "Global Admin API Rate Limit" :
                     null;
                 if (rateLimitError != null)

@@ -38,6 +38,8 @@ interface AdminConfigContextValue {
   setGlobalRateLimit: (value: number) => void;
   userRateLimit: number;
   setUserRateLimit: (value: number) => void;
+  portalUserRateLimit: number;
+  setPortalUserRateLimit: (value: number) => void;
   globalAdminRateLimit: number;
   setGlobalAdminRateLimit: (value: number) => void;
   platformStatsBlobSasUrl: string;
@@ -155,6 +157,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
   const [savingConfig, setSavingConfig] = useState(false);
   const [globalRateLimit, setGlobalRateLimit] = useState(100);
   const [userRateLimit, setUserRateLimit] = useState(120);
+  const [portalUserRateLimit, setPortalUserRateLimit] = useState(600);
   const [globalAdminRateLimit, setGlobalAdminRateLimit] = useState(600);
   const [platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl] = useState("");
   const [agentMigrateApiBaseUrl, setAgentMigrateApiBaseUrl] = useState("");
@@ -221,6 +224,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         setAdminConfig(data);
         setGlobalRateLimit(data.globalRateLimitRequestsPerMinute);
         setUserRateLimit(data.userRateLimitRequestsPerMinute ?? 120);
+        setPortalUserRateLimit(data.portalUserRateLimitRequestsPerMinute ?? 600);
         setGlobalAdminRateLimit(data.globalAdminRateLimitRequestsPerMinute ?? 600);
         setPlatformStatsBlobSasUrl(data.platformStatsBlobSasUrl ?? "");
         setAgentMigrateApiBaseUrl(data.agentMigrateApiBaseUrl ?? "");
@@ -336,6 +340,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
         ...adminConfig,
         globalRateLimitRequestsPerMinute: globalRateLimit,
         userRateLimitRequestsPerMinute: userRateLimit,
+        portalUserRateLimitRequestsPerMinute: portalUserRateLimit,
         globalAdminRateLimitRequestsPerMinute: globalAdminRateLimit,
         platformStatsBlobSasUrl: platformStatsBlobSasUrl.trim(),
         agentMigrateApiBaseUrl: agentMigrateApiBaseUrl.trim(),
@@ -366,13 +371,14 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
     } finally {
       setSavingConfig(false);
     }
-  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
+  }, [isGlobalAdmin, adminConfig, globalRateLimit, userRateLimit, portalUserRateLimit, globalAdminRateLimit, platformStatsBlobSasUrl, agentMigrateApiBaseUrl, agentMigrateTenantOverridesJson, collectorIdleTimeoutMinutes, desktopDetectorNoCandidateTimeoutMinutes, opsEventRetentionDays, slaNotificationCooldownHours, allowAgentDowngrade, modernDeploymentHarmlessEventIds, sessionDeletionKillSwitch, autoApproveNewTenants, selfServiceAppHomingEnabled, imeMsiArchivingEnabled, maxImeMsiDownloadSizeMB, getAccessToken]);
 
   // Reset admin config
   const handleResetAdminConfig = useCallback(() => {
     if (!adminConfig) return;
     setGlobalRateLimit(adminConfig.globalRateLimitRequestsPerMinute);
     setUserRateLimit(adminConfig.userRateLimitRequestsPerMinute ?? 120);
+    setPortalUserRateLimit(adminConfig.portalUserRateLimitRequestsPerMinute ?? 600);
     setGlobalAdminRateLimit(adminConfig.globalAdminRateLimitRequestsPerMinute ?? 600);
     setPlatformStatsBlobSasUrl(adminConfig.platformStatsBlobSasUrl ?? "");
     setAgentMigrateApiBaseUrl(adminConfig.agentMigrateApiBaseUrl ?? "");
@@ -532,6 +538,7 @@ export function AdminConfigProvider({ children }: { children: React.ReactNode })
       adminConfig, setAdminConfig, loadingConfig, savingConfig, setSavingConfig,
       globalRateLimit, setGlobalRateLimit,
       userRateLimit, setUserRateLimit,
+      portalUserRateLimit, setPortalUserRateLimit,
       globalAdminRateLimit, setGlobalAdminRateLimit,
       platformStatsBlobSasUrl, setPlatformStatsBlobSasUrl,
       agentMigrateApiBaseUrl, setAgentMigrateApiBaseUrl,

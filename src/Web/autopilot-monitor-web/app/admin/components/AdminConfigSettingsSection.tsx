@@ -11,6 +11,8 @@ interface AdminConfigSettingsSectionProps {
   setGlobalRateLimit: (value: number) => void;
   userRateLimit: number;
   setUserRateLimit: (value: number) => void;
+  portalUserRateLimit: number;
+  setPortalUserRateLimit: (value: number) => void;
   globalAdminRateLimit: number;
   setGlobalAdminRateLimit: (value: number) => void;
   platformStatsBlobSasUrl: string;
@@ -51,6 +53,8 @@ export function AdminConfigSettingsSection({
   setGlobalRateLimit,
   userRateLimit,
   setUserRateLimit,
+  portalUserRateLimit,
+  setPortalUserRateLimit,
   globalAdminRateLimit,
   setGlobalAdminRateLimit,
   platformStatsBlobSasUrl,
@@ -119,9 +123,31 @@ export function AdminConfigSettingsSection({
 
             <div>
               <label className="block">
-                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global User API Rate Limit (Requests per Minute per User)</span>
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">Portal User API Rate Limit (Requests per Minute per User)</span>
                 <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
-                  Default rate limit for authenticated portal/API traffic from standard users (Tenant Admins, Operators, Viewers), keyed per user (UPN). Global Admins can override it per tenant (blank = inherit this global default).
+                  Budget for interactive portal sessions, keyed per account (all of a user&apos;s tabs share it). The surface is derived from how the
+                  client authenticated (a signed token claim: public client = portal), never from a request header. A cost cap per account, not a
+                  security boundary. Applies platform-wide (no per-tenant override, no plan floor). Global Admins use their own budget below.
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={portalUserRateLimit}
+                  onChange={(e) => setPortalUserRateLimit(parseInt(e.target.value) || 600)}
+                  className="mt-1 block w-full px-4 py-2 border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block">
+                <span className="text-indigo-900 dark:text-indigo-100 font-medium">MCP &amp; Integrations API Rate Limit (Requests per Minute per User)</span>
+                <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
+                  Budget for requests the MCP server or a server-side integration makes on a user&apos;s behalf (confidential client) and for app-only
+                  principals, keyed per account and counted separately from the portal. The per-tenant override and the Pro plan floor apply to this
+                  budget; the MCP server additionally enforces its own per-minute tool-call limit and the plan quotas. Global Admins can override it per
+                  tenant (blank = inherit this global default).
                 </p>
                 <input
                   type="number"
@@ -138,7 +164,7 @@ export function AdminConfigSettingsSection({
               <label className="block">
                 <span className="text-indigo-900 dark:text-indigo-100 font-medium">Global Admin API Rate Limit (Requests per Minute per Global Admin)</span>
                 <p className="text-sm text-indigo-800 dark:text-gray-300 mb-2">
-                  Rate limit for authenticated portal/API traffic from Global Admins, keyed per user (UPN). Higher budget for cross-tenant work; not exempt. Applies platform-wide (no per-tenant override).
+                  Rate limit for Global Admins on every surface (portal and MCP, counted separately), keyed per account. Higher budget for cross-tenant work; not exempt. Applies platform-wide (no per-tenant override).
                 </p>
                 <input
                   type="number"

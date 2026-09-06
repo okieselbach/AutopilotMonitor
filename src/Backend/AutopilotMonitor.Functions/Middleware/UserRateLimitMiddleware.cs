@@ -1,5 +1,7 @@
 using System.Net;
+using AutopilotMonitor.Functions.Extensions;
 using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
 using Microsoft.AspNetCore.Http;
@@ -22,6 +24,12 @@ namespace AutopilotMonitor.Functions.Middleware;
 /// </summary>
 public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
 {
+    /// <summary>
+    /// <c>FunctionContext.Items</c> key under which the resolved <see cref="ThrottleSurface"/> name
+    /// ("portal" / "integration") is left for RequestTelemetryMiddleware's request dimension.
+    /// </summary>
+    public const string ThrottleSurfaceItemKey = "ThrottleSurface";
+
     private readonly RateLimitService _rateLimitService;
     private readonly AdminConfigurationService _adminConfigService;
     private readonly TenantConfigurationService _tenantConfigService;
@@ -62,6 +70,14 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
             return;
         }
 
+        // Which budget class the caller belongs to, from the SIGNED client-authentication claim
+        // (appidacr/azpacr), never from a header: a public-client token (the portal SPA) is the
+        // portal surface, a confidential client (the MCP server, an integration) or an app-only
+        // principal is the integration surface; a missing claim fails closed to integration. Left
+        // in Items so the request row carries it next to the self-declared ClientSource header.
+        var surface = context.GetUser()?.GetThrottleSurface() ?? ThrottleSurface.Integration;
+        context.Items[ThrottleSurfaceItemKey] = surface.ToDimension();
+
         // Fail-open: if rate limiting logic throws, let the request through.
         // A broken rate limiter must never take down the application.
         RateLimitResult result;
@@ -69,44 +85,54 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
         {
             var config = await _adminConfigService.GetConfigurationAsync();
 
-            // Per-tenant overrides apply ONLY to genuinely tenant-scoped callers. Platform roles with
-            // cross-tenant scope (Global Admin AND Global Reader — HasGlobalScope) must not be limited by
-            // any single tenant's override, since they aren't bound to one tenant. Delegated admins remain
-            // scoped to their target tenant, so they still observe that tenant's override.
-            // The tenant-config read is served from a 5-minute in-memory cache. Use the strict point-read
-            // (GetConfigurationIfExistsAsync) — NOT GetConfigurationAsync, which auto-creates+persists a
-            // default row. A valid JWT from an unregistered tenant hitting a read/self-service endpoint must
-            // never materialize a tenant config row. No row → inherit global.
+            // Tenant override and edition floor belong to the integration budget only; the portal
+            // budget is one global knob (RateLimitResolver), so those two reads are skipped there.
             int? tenantOverride = null;
             int? entitlementFloor = null;
-            if (!requestContext.HasGlobalScope && !string.IsNullOrEmpty(requestContext.TargetTenantId))
+            if (surface == ThrottleSurface.Integration)
             {
-                var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestContext.TargetTenantId);
-                tenantOverride = tenantConfig?.CustomUserRateLimitRequestsPerMinute;
+                // Per-tenant overrides apply ONLY to genuinely tenant-scoped callers. Platform roles with
+                // cross-tenant scope (Global Admin AND Global Reader — HasGlobalScope) must not be limited by
+                // any single tenant's override, since they aren't bound to one tenant. Delegated admins remain
+                // scoped to their target tenant, so they still observe that tenant's override.
+                // The tenant-config read is served from a 5-minute in-memory cache. Use the strict point-read
+                // (GetConfigurationIfExistsAsync) — NOT GetConfigurationAsync, which auto-creates+persists a
+                // default row. A valid JWT from an unregistered tenant hitting a read/self-service endpoint must
+                // never materialize a tenant config row. No row → inherit global.
+                if (!requestContext.HasGlobalScope && !string.IsNullOrEmpty(requestContext.TargetTenantId))
+                {
+                    var tenantConfig = await _tenantConfigService.GetConfigurationIfExistsAsync(requestContext.TargetTenantId);
+                    tenantOverride = tenantConfig?.CustomUserRateLimitRequestsPerMinute;
+                }
+
+                // Edition entitlement floor (Pro: 150/min): follows the caller's HOME tenant
+                // (JWT tid) — an MSP/delegated user rides on the edition of the tenant that pays for
+                // their seat, not the tenant they happen to be viewing. Resolution is fail-closed
+                // (any error → Community → null floor → admin default applies) and served from the
+                // same 5-minute config cache. Global-scope callers have their own budgets — no floor.
+                if (!requestContext.HasGlobalScope && !string.IsNullOrEmpty(requestContext.TenantId))
+                {
+                    var entitlements = await _entitlementService.GetEntitlementsAsync(requestContext.TenantId);
+                    entitlementFloor = entitlements.UserRateLimitPerMinute;
+                }
             }
 
-            // Edition entitlement floor (Pro: 150/min): follows the caller's HOME tenant
-            // (JWT tid) — an MSP/delegated user rides on the edition of the tenant that pays for
-            // their seat, not the tenant they happen to be viewing. Resolution is fail-closed
-            // (any error → Community → null floor → admin default applies) and served from the
-            // same 5-minute config cache. Global-scope callers have their own budgets — no floor.
-            if (!requestContext.HasGlobalScope && !string.IsNullOrEmpty(requestContext.TenantId))
-            {
-                var entitlements = await _entitlementService.GetEntitlementsAsync(requestContext.TenantId);
-                entitlementFloor = entitlements.UserRateLimitPerMinute;
-            }
-
-            // Base limit: Global Admins get the GA budget; everyone else (standard users AND read-only
-            // Global Readers) gets the standard user default (with the tenant override applied above only
-            // for tenant-scoped callers, raised to the edition floor when no override is set).
+            // Base limit: Global Admins get the GA budget on every surface; a portal session gets the
+            // portal default; everyone else (standard users AND read-only Global Readers) gets the
+            // integration default (tenant override for tenant-scoped callers, raised to the edition
+            // floor when no override is set).
             var limit = RateLimitResolver.ResolveUserLimit(
+                surface,
                 requestContext.IsGlobalAdmin,
                 tenantOverride,
                 config.UserRateLimitRequestsPerMinute,
+                config.PortalUserRateLimitRequestsPerMinute,
                 config.GlobalAdminRateLimitRequestsPerMinute,
                 entitlementFloor);
 
-            var key = $"user_ratelimit_{requestContext.CallerId.ToLowerInvariant()}";
+            // One bucket per surface: a user's portal tabs and their MCP session never count against
+            // each other.
+            var key = $"user_ratelimit_{surface.ToDimension()}_{requestContext.CallerId.ToLowerInvariant()}";
             result = _rateLimitService.CheckRateLimit(key, limit);
         }
         catch (Exception ex)
@@ -137,8 +163,8 @@ public class UserRateLimitMiddleware : IFunctionsWorkerMiddleware
             : 60;
 
         _logger.LogWarning(
-            "[UserRateLimit] THROTTLED caller={Caller} requests={Count}/{Max} retryAfter={RetryAfter}s",
-            requestContext.CallerId, result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
+            "[UserRateLimit] THROTTLED caller={Caller} surface={Surface} requests={Count}/{Max} retryAfter={RetryAfter}s",
+            requestContext.CallerId, surface.ToDimension(), result.RequestsInWindow, result.MaxRequests, retryAfterSeconds);
 
         // Envelope with the retry window; the counters ride in the X-RateLimit-* headers above.
         await ApiErrorWriter.WriteAsync(

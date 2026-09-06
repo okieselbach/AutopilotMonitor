@@ -59,8 +59,10 @@ export interface AdminConfiguration {
   updatedBy: string;
   /** Global default rate limit: Maximum requests per minute per device This applies to all tenants unless they have a custom override Default: 100 */
   globalRateLimitRequestsPerMinute: number;
-  /** Per-user rate limit for standard users (Tenant Admins, Operators, Viewers). Requests per minute keyed by UPN. Default: 120. */
+  /** Per-user rate limit for requests the MCP server or a server-side integration makes on a user's behalf (confidential-client tokens) and for app-only principals. Requests per minute keyed by caller; the per-tenant override and the edition floor apply to this budget. Default: 120. */
   userRateLimitRequestsPerMinute: number;
+  /** Per-user rate limit for interactive portal sessions (public-client tokens, appidacr 0). Requests per minute keyed by caller; all of one account's tabs share it. No per-tenant override, no edition floor. Default: 600. */
+  portalUserRateLimitRequestsPerMinute: number;
   /** Per-user rate limit for Global Admins. Higher budget but not exempt. Default: 600. */
   globalAdminRateLimitRequestsPerMinute: number;
   /** JSON-serialized plan tier definitions mapping tier name to rate limits and features. Example: {"free":{"apiRateLimit":60},"pro":{"apiRateLimit":300},"enterprise":{"apiRateLimit":1000}} */
