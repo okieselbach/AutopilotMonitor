@@ -726,86 +726,6 @@ function TenantManagementSectionInner({
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Tenant Suspension */}
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-red-900 mb-1">Tenant Suspension</h3>
-                  <p className="text-xs text-gray-600 mb-3">
-                    Blocks sign-in and tenant auto-activation while the tenant&apos;s data stays in
-                    place — this is the durable lock-out lever for abuse cases (offboarding below is
-                    not: it deletes the suspension along with everything else).
-                  </p>
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingTenant.disabled}
-                        onChange={(e) => setEditingTenant({ ...editingTenant, disabled: e.target.checked })}
-                        className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Suspend Tenant</span>
-                    </label>
-
-                    {editingTenant.disabled && (
-                      <>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                          <input
-                            type="text"
-                            value={editingTenant.disabledReason || ''}
-                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledReason: e.target.value })}
-                            placeholder="Optional: Why is this tenant suspended?"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Disabled Until</label>
-                          <input
-                            type="datetime-local"
-                            value={editingTenant.disabledUntil ? new Date(editingTenant.disabledUntil).toISOString().slice(0, 16) : ''}
-                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledUntil: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">Optional: Auto-enable after this date/time</p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* MCP switch (operator control, GA-only field — saved by the modal's generic Save) */}
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-amber-900 mb-1">MCP Access</h3>
-                  <p className="text-xs text-gray-600 mb-3">
-                    Closes the MCP (AI assistant) surface for this tenant: its members cannot connect,
-                    and no MCP call can read it as a target, delegated (MSP) reads included. Portal and
-                    API access with a personal token stay unchanged. Platform roles bypass the switch.
-                  </p>
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingTenant.mcpDisabled}
-                        onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabled: e.target.checked })}
-                        className="w-4 h-4 text-amber-600 border-gray-300 rounded focus:ring-amber-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Disable MCP access</span>
-                    </label>
-
-                    {editingTenant.mcpDisabled && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                        <input
-                          type="text"
-                          value={editingTenant.mcpDisabledReason || ''}
-                          onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabledReason: e.target.value })}
-                          placeholder="Optional: shown to every caller that is refused"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
                 {/* Plan & Trial (own save path — PATCH plan endpoint; the modal's generic Save
                     does not touch these fields, the backend preserves them on PUT) */}
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -1242,6 +1162,86 @@ function TenantManagementSectionInner({
                   ) : (
                     <p className="text-xs text-gray-400 mt-1">Tenant range: 7–90 (Community) / 7–365 (Pro). Values above the plan cap are enforced at the cap. Set 0 for infinite retention (Global only).</p>
                   )}
+                </div>
+
+                {/* MCP switch (operator control, GA-only field — saved by the modal's generic Save) */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-amber-900 mb-1">MCP Access</h3>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Closes the MCP (AI assistant) surface for this tenant: its members cannot connect,
+                    and no MCP call can read it as a target, delegated (MSP) reads included. Portal and
+                    API access with a personal token stay unchanged. Platform roles bypass the switch.
+                  </p>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingTenant.mcpDisabled}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabled: e.target.checked })}
+                        className="w-4 h-4 text-amber-600 border-gray-300 rounded focus:ring-amber-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Disable MCP access</span>
+                    </label>
+
+                    {editingTenant.mcpDisabled && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                        <input
+                          type="text"
+                          value={editingTenant.mcpDisabledReason || ''}
+                          onChange={(e) => setEditingTenant({ ...editingTenant, mcpDisabledReason: e.target.value })}
+                          placeholder="Optional: shown to every caller that is refused"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tenant Suspension */}
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-red-900 mb-1">Tenant Suspension</h3>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Blocks sign-in and tenant auto-activation while the tenant&apos;s data stays in
+                    place — this is the durable lock-out lever for abuse cases (offboarding below is
+                    not: it deletes the suspension along with everything else).
+                  </p>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingTenant.disabled}
+                        onChange={(e) => setEditingTenant({ ...editingTenant, disabled: e.target.checked })}
+                        className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Suspend Tenant</span>
+                    </label>
+
+                    {editingTenant.disabled && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                          <input
+                            type="text"
+                            value={editingTenant.disabledReason || ''}
+                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledReason: e.target.value })}
+                            placeholder="Optional: Why is this tenant suspended?"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Disabled Until</label>
+                          <input
+                            type="datetime-local"
+                            value={editingTenant.disabledUntil ? new Date(editingTenant.disabledUntil).toISOString().slice(0, 16) : ''}
+                            onChange={(e) => setEditingTenant({ ...editingTenant, disabledUntil: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Optional: Auto-enable after this date/time</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
