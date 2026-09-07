@@ -137,6 +137,13 @@ namespace AutopilotMonitor.Shared.Models
     {
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
+        /// <summary>
+        /// One of: "healthy" (working), "warning" (degraded but reachable), "unhealthy"
+        /// (failing), "unknown" (not determined), "warming" (health/mcp only — the
+        /// scale-to-zero MCP container did not answer inside the probe budget and is still
+        /// starting; the caller should re-check, and it must NOT be rated as a fault in any
+        /// aggregate or overall banner).
+        /// </summary>
         public string Status { get; set; } = "unknown";
         public string Message { get; set; } = string.Empty;
         public Dictionary<string, object>? Details { get; set; }

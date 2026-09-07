@@ -8,7 +8,15 @@ import { useGlobalAdminUi } from '@/hooks/useGlobalAdminUi';
 import { useState, useEffect, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { api } from '@/lib/api';
-import { isUrlDetail, visibleHealthChecks, visibleHealthDetails } from '@/lib/healthCheckView';
+import {
+  isUrlDetail,
+  visibleHealthChecks,
+  visibleHealthDetails,
+  resolveMcpCardState,
+  MCP_WARMING_POLL_MS,
+  MCP_PROBE_TIMEOUT_MS,
+} from '@/lib/healthCheckView';
+import { useLatest } from '@/hooks/useLatest';
 import type { DetailedHealthCheckResponse, HealthCheck, McpHealthCheckResponse } from '@/utils/wire-types.generated';
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
@@ -81,6 +89,9 @@ export default function HealthCheckPage() {
   // dashboard on it. The card renders a "checking" state immediately and updates in place.
   const [mcpCheck, setMcpCheck] = useState<HealthCheck | null>(null);
   const [mcpLoading, setMcpLoading] = useState(false);
+  // Counts only the automatic warming re-probes; reset solely by the Re-check button, so
+  // a reset inside performMcpCheck can never make the poll loop immortal.
+  const [mcpAttempts, setMcpAttempts] = useState(0);
   // Portal build stamp: /version.json is a static file from this same origin (generated at
   // build time, Cache-Control: no-store) — plain fetch, no auth. Card stays hidden when the
   // file is absent (e.g. a dev server without the prebuild step).
@@ -113,14 +124,16 @@ export default function HealthCheckPage() {
 
   // Separate, non-blocking probe for the MCP server. Runs concurrently with — and
   // independently of — performHealthCheck so a cold-starting MCP container never holds
-  // up the other cards. Resolves to healthy / warning / unhealthy; the card shows a
-  // "checking" state until then.
+  // up the other cards. The server answers "warming" for a scaled-to-zero container
+  // instead of holding the request; the effect below then re-probes until it is up.
   const performMcpCheck = useCallback(async () => {
     setMcpLoading(true);
     try {
       let data: McpHealthCheckResponse;
       try {
-        data = await fetchJson<McpHealthCheckResponse>(api.health.mcp(), getAccessToken);
+        data = await fetchJson<McpHealthCheckResponse>(api.health.mcp(), getAccessToken, {
+          signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS),
+        });
       } catch (err) {
         if (!(err instanceof ApiError)) throw err;
         setMcpCheck({
@@ -135,17 +148,39 @@ export default function HealthCheckPage() {
       }
       if (data?.check) setMcpCheck(data.check);
     } catch (error) {
-      // Network/token errors: surface on the card itself, never as a blocking page error.
+      // Our own client-side budget expiring means the same thing the server's does: the
+      // container is still starting. Keep it on the warming track so the re-poll continues.
+      const clientTimedOut = error instanceof DOMException && error.name === 'TimeoutError';
       setMcpCheck({
         name: 'MCP Server',
         description: 'AI query interface availability',
-        status: 'warning',
-        message: error instanceof Error ? error.message : 'MCP status check could not complete',
+        status: clientTimedOut ? 'warming' : 'warning',
+        message: clientTimedOut
+          ? 'MCP status check timed out — the server is likely still starting.'
+          : error instanceof Error ? error.message : 'MCP status check could not complete',
       });
     } finally {
       setMcpLoading(false);
     }
   }, [getAccessToken]);
+
+  const mcpCardState = resolveMcpCardState({ check: mcpCheck, loading: mcpLoading, attempts: mcpAttempts });
+  const { display: mcpDisplay, ratedStatus: mcpRated, shouldPoll: mcpShouldPoll } = mcpCardState;
+
+  // Re-probe while the MCP container is warming, so the card turns green on its own.
+  // useLatest keeps the interval from being torn down and rebuilt whenever the callback
+  // identity changes — that would reset the cadence and desync the attempt counter.
+  const mcpProbeRef = useLatest(performMcpCheck);
+  const mcpLoadingRef = useLatest(mcpLoading);
+  useEffect(() => {
+    if (!mcpShouldPoll) return;
+    const id = window.setInterval(() => {
+      if (mcpLoadingRef.current) return; // never stack probes
+      setMcpAttempts(a => a + 1);
+      void mcpProbeRef.current();
+    }, MCP_WARMING_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [mcpShouldPoll, mcpProbeRef, mcpLoadingRef]);
 
   useEffect(() => {
     if (!showBuildDetails) return;
@@ -203,16 +238,17 @@ export default function HealthCheckPage() {
       case 'healthy': return { bg: 'bg-green-50 dark:bg-green-900/20', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-400', accent: 'border-green-500', badge: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-400' };
       case 'unhealthy': return { bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-200 dark:border-red-800', text: 'text-red-700 dark:text-red-400', accent: 'border-red-500', badge: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-400' };
       case 'warning': return { bg: 'bg-yellow-50 dark:bg-yellow-900/20', border: 'border-yellow-200 dark:border-yellow-800', text: 'text-yellow-700 dark:text-yellow-400', accent: 'border-yellow-500', badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400' };
-      case 'checking': return { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-400', accent: 'border-blue-500', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-400' };
+      // "warming" shares the blue in-progress look: a scale-from-zero cold start is
+      // expected behaviour, and yellow would read as a fault.
+      case 'checking':
+      case 'warming': return { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-400', accent: 'border-blue-500', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-400' };
       default: return { bg: 'bg-gray-50 dark:bg-gray-800', border: 'border-gray-200 dark:border-gray-700', text: 'text-gray-700 dark:text-gray-300', accent: 'border-gray-500', badge: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' };
     }
   };
 
   const connStatus = getConnectionStatus();
-  // The MCP card only contributes to the banner/counts once it has resolved to a rated
-  // status. While it is still probing (null/loading) or not viewable (unknown), it stays
-  // neutral so a slow cold start never flips the overall banner to "warning".
-  const mcpRated = mcpCheck && mcpCheck.status !== 'unknown' ? mcpCheck.status : null;
+  // mcpRated comes from resolveMcpCardState: null while probing, warming or not viewable,
+  // so a cold start never flips the overall banner. See lib/healthCheckView.ts.
   const totalChecks = healthResult ? healthResult.checks.length + 1 + (mcpRated ? 1 : 0) : 0;
   const healthyChecks = healthResult
     ? healthResult.checks.filter(c => c.status === 'healthy').length
@@ -236,7 +272,7 @@ export default function HealthCheckPage() {
           <h1 className="text-2xl font-normal text-gray-900 dark:text-white">System Health</h1>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => { performHealthCheck(); performMcpCheck(); }}
+              onClick={() => { setMcpAttempts(0); performHealthCheck(); performMcpCheck(); }}
               disabled={loading}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2"
             >
@@ -446,12 +482,13 @@ export default function HealthCheckPage() {
           })()}
         </div>
 
-        {/* Individual Check Cards */}
-        {healthResult && (
-          <div>
+        {/* Individual Check Cards. The section is NOT gated on healthResult: the MCP card
+            runs on its own track (and re-polls itself through a cold start), so a failing
+            detailed check must not hide it — that would leave the poll running invisibly. */}
+        <div>
           <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Backend Services</h2>
           <div className="grid gap-5 sm:grid-cols-2">
-            {visibleHealthChecks(healthResult.checks, operatorView).map((check, index) => {
+            {(healthResult ? visibleHealthChecks(healthResult.checks, operatorView) : []).map((check, index) => {
               const colors = getStatusColor(check.status);
               return (
                 <div key={index} className={`bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 ${colors.accent}`}>
@@ -493,13 +530,11 @@ export default function HealthCheckPage() {
               );
             })}
 
-            {/* MCP Server — fetched on its own track; renders a "checking" state while the
-                probe (possibly waking the scaled-to-zero container) is in flight, then
-                updates in place without blocking any of the cards above. */}
+            {/* MCP Server — fetched on its own track; a scaled-to-zero container reports
+                "warming" and the card re-probes itself until it is up, without blocking
+                any of the cards above. State machine: lib/healthCheckView.ts. */}
             {(() => {
-              const display = mcpLoading
-                ? { name: 'MCP Server', description: 'AI query interface availability', status: 'checking', message: 'Probing MCP server — waking it from idle if needed…', details: undefined as Record<string, unknown> | undefined }
-                : (mcpCheck ?? { name: 'MCP Server', description: 'AI query interface availability', status: 'unknown', message: 'Not checked yet', details: undefined as Record<string, unknown> | undefined });
+              const display = mcpDisplay;
               const colors = getStatusColor(display.status);
               return (
                 <div className={`bg-white dark:bg-gray-800 rounded-lg shadow border-l-4 ${colors.accent}`}>
@@ -507,7 +542,7 @@ export default function HealthCheckPage() {
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center space-x-3">
                         <div className={`w-8 h-8 rounded-full ${colors.bg} flex items-center justify-center`}>
-                          {display.status === 'checking' ? (
+                          {display.status === 'checking' || display.status === 'warming' ? (
                             <svg className="w-5 h-5 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
@@ -531,7 +566,7 @@ export default function HealthCheckPage() {
                         </div>
                       </div>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors.badge}`}>
-                        {display.status === 'checking' ? 'checking…' : display.status}
+                        {display.status === 'checking' ? 'checking…' : display.status === 'warming' ? 'warming…' : display.status}
                       </span>
                     </div>
 
@@ -546,9 +581,9 @@ export default function HealthCheckPage() {
               );
             })()}
           </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
 }
+

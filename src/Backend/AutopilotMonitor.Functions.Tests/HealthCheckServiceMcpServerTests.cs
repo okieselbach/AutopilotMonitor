@@ -77,17 +77,62 @@ public class HealthCheckServiceMcpServerTests
     }
 
     [Fact]
-    public async Task Check_TimeoutOrConnectionFailure_ReportsWarningForColdStart()
+    public async Task Check_Timeout_ReportsWarmingSoTheCallerCanRePoll()
     {
         var svc = BuildServiceWithFactory(
             new ThrowingHttpClientFactory(new TaskCanceledException("timeout")));
 
         var check = await svc.CheckMcpServerAsync();
 
-        // Failure to wake the scaled-to-zero container within the budget is a warning,
-        // not a hard outage (a re-check may still succeed once it finishes warming).
+        // A scaled-to-zero container that did not answer inside the budget is "warming",
+        // NOT a fault: the caller re-checks and the activation we triggered keeps running.
+        Assert.Equal("warming", check.Status);
+        // The default budget is pinned here because it is set nowhere else in the repo —
+        // the code default IS the live production value.
+        Assert.Contains("3s", check.Message);
+    }
+
+    [Fact]
+    public async Task Check_Timeout_HonoursConfiguredBudget()
+    {
+        var svc = BuildServiceWithFactory(
+            new ThrowingHttpClientFactory(new TaskCanceledException("timeout")),
+            extraConfig: new Dictionary<string, string?> { ["McpServerHealthTimeoutSeconds"] = "7" });
+
+        var check = await svc.CheckMcpServerAsync();
+
+        Assert.Equal("warming", check.Status);
+        Assert.Contains("7s", check.Message);
+    }
+
+    [Fact]
+    public async Task Check_ConnectionFailure_ReportsWarningNotWarmingAndKeepsTheHostOut()
+    {
+        var svc = BuildServiceWithFactory(
+            new ThrowingHttpClientFactory(new System.Net.Http.HttpRequestException("no such host mcp.example.test")));
+
+        var check = await svc.CheckMcpServerAsync();
+
+        // Reaching the network and failing to connect is a real warning — distinct from
+        // the expected cold-start path, so it must not be softened to "warming".
         Assert.Equal("warning", check.Status);
-        Assert.Contains("could not be reached", check.Message);
+        Assert.DoesNotContain("http", check.Message, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mcp.example.test", check.Message);
+    }
+
+    [Theory]
+    [InlineData(12, false)]
+    [InlineData(750, false)]
+    [InlineData(751, true)]
+    [InlineData(2400, true)]
+    public void McpReachableMessage_marksOnlyAnswersAboveTheWarmThresholdAsColdStart(long elapsedMs, bool expectColdStart)
+    {
+        var message = HealthCheckService.McpReachableMessage(elapsedMs);
+
+        // Both arms keep the word "reachable" — the healthy-path assertions rely on it.
+        Assert.Contains("reachable", message);
+        Assert.Contains($"{elapsedMs}ms", message);
+        Assert.Equal(expectColdStart, message.Contains("cold start"));
     }
 
     /// <summary>
@@ -101,13 +146,21 @@ public class HealthCheckServiceMcpServerTests
         return BuildServiceWithFactory(new StubHttpClientFactory(handler));
     }
 
-    private static HealthCheckService BuildServiceWithFactory(System.Net.Http.IHttpClientFactory factory)
+    private static HealthCheckService BuildServiceWithFactory(
+        System.Net.Http.IHttpClientFactory factory,
+        Dictionary<string, string?>? extraConfig = null)
     {
+        var settings = new Dictionary<string, string?>
+        {
+            ["McpServerUrl"] = "https://mcp.example.test",
+        };
+        if (extraConfig != null)
+        {
+            foreach (var kv in extraConfig) settings[kv.Key] = kv.Value;
+        }
+
         var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["McpServerUrl"] = "https://mcp.example.test",
-            })
+            .AddInMemoryCollection(settings)
             .Build();
 
         return new HealthCheckService(

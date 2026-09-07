@@ -49,10 +49,12 @@ public class HealthCheckService
         };
 
         // NOTE: CheckMcpServerAsync is deliberately NOT part of this batch. The MCP
-        // Container App scales to zero on idle, so a probe may need to wake it and can
-        // take many seconds. Bundling it here would block the entire dashboard on that
-        // one slow check. It is exposed via its own endpoint (GET health/mcp) that the
-        // frontend fetches independently and folds into the card grid incrementally.
+        // Container App scales to zero on idle; a cold probe answers "warming" after a
+        // short budget and the caller re-polls until the replica is up. That re-poll loop
+        // must stay off the blocking batch, and "warming" must never reach this aggregate
+        // — a scale-from-zero is expected behaviour, not a degraded platform. It is
+        // exposed via its own endpoint (GET health/mcp) that the frontend fetches
+        // independently and folds into the card grid incrementally.
         var checks = await Task.WhenAll(
             CheckStorageBackendAsync(includeEndpointUrls),
             CheckProcessingBackendAsync(includeEndpointUrls),
@@ -244,13 +246,32 @@ public class HealthCheckService
     /// only included in the details when <paramref name="includeEndpointUrl"/> is set —
     /// callers must only enable it for Global Admins.
     /// <para>
-    /// The Container App runs with minReplicas=0 and scales to zero on idle. Azure Container
-    /// Apps holds an inbound request while it activates a cold replica, so this probe doubles
-    /// as the wake signal — a generous timeout (<c>McpServerHealthTimeoutSeconds</c>, default
-    /// 30s) gives the cold start time to complete and report healthy. Only when the server
-    /// cannot be woken within that budget is it a warning; a reachable-but-erroring server
-    /// (non-2xx) is unhealthy. This is exposed via its own <c>health/mcp</c> endpoint, never
-    /// the blocking all-checks batch, so the dashboard never waits on the wake.
+    /// The Container App runs with minReplicas=0 and scales to zero on idle, and a cold start
+    /// is dominated by Container Apps activation, not by us: measured at 24.5s and 31.5s to
+    /// first byte, of which ~98% is KEDA scheduling plus the image mount and ~500ms is the
+    /// application (see <c>internal/docs/mcp/docs-corpus.md</c>, "Cold start"). No UI wait
+    /// covers that, so this probe deliberately does not try to sit it out — an earlier design
+    /// waited 30s as a "wake signal" and still timed out in 50 of 83 observed calls, i.e. it
+    /// bought a long wall in front of the same answer.
+    /// </para>
+    /// <para>
+    /// The probe therefore has two jobs: answer fast and honestly within
+    /// <c>McpServerHealthTimeoutSeconds</c> (default 3s — chosen to sit in the widest observed
+    /// latency gap, 2347ms..3930ms, so jitter cannot flip the verdict), and leave the wake
+    /// running. The inbound request has already reached the Container Apps activator by the
+    /// time we give up, so aborting our side does not undo the scale-from-zero it triggered;
+    /// the caller re-checks and a later probe finds the replica warm.
+    /// </para>
+    /// <para>
+    /// Status vocabulary: <c>healthy</c> = answered 2xx; <c>warming</c> = did not answer inside
+    /// the budget, a cold start is in progress and the caller should re-check (must NOT be
+    /// rated into any aggregate — it is expected, not a fault); <c>warning</c> = reachable but
+    /// the connection failed; <c>unhealthy</c> = answered non-2xx. Exposed via its own
+    /// <c>health/mcp</c> endpoint, never the blocking all-checks batch.
+    /// </para>
+    /// <para>
+    /// <c>McpServerHealthTimeoutSeconds</c> is set nowhere in the repo, infra or workflows, so
+    /// the default below IS the live production value — changing it changes production.
     /// </para>
     /// </summary>
     internal async Task<HealthCheck> CheckMcpServerAsync(bool includeEndpointUrl = false)
@@ -268,11 +289,9 @@ public class HealthCheckService
         {
             check.Details = new Dictionary<string, object> { ["Server URL"] = baseUrl };
         }
-        var timeoutSeconds = ParsePositiveInt("McpServerHealthTimeoutSeconds", 30);
-
-        // A cold start that takes longer than this is treated as a successful wake rather
-        // than an instant-warm hit, so the message can say so.
-        const long WarmHitThresholdMs = 2500;
+        // 3s: warm answers were measured at 4..148ms over 14 days, so this is ~20x the warm
+        // maximum, while a cold start needs 20-30s and is unreachable for any UI wait.
+        var timeoutSeconds = ParsePositiveInt("McpServerHealthTimeoutSeconds", 3);
 
         try
         {
@@ -293,24 +312,32 @@ public class HealthCheckService
             var version = await TryReadMcpVersionAsync(response);
 
             check.Status = "healthy";
-            check.Message = sw.ElapsedMilliseconds > WarmHitThresholdMs
-                ? $"MCP server woke from idle and is reachable ({sw.ElapsedMilliseconds}ms)"
-                : $"MCP server reachable ({sw.ElapsedMilliseconds}ms)";
+            check.Message = McpReachableMessage(sw.ElapsedMilliseconds);
             if (!string.IsNullOrWhiteSpace(version))
             {
                 check.Details ??= new Dictionary<string, object>();
                 check.Details["Version"] = version;
             }
         }
-        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException or HttpRequestException)
+        catch (Exception ex) when (ex is TaskCanceledException or OperationCanceledException)
         {
-            // Timeout or connection failure after the full wake budget. The probe held the
-            // request long enough for a cold replica to activate, so a failure here means the
-            // server could not be woken — surface as a warning (not a hard outage: the next
-            // re-check may still succeed once it finishes warming).
+            // Our own timeout: no external cancellation token reaches this path, so a
+            // cancellation here is always the budget above expiring. The scale-from-zero we
+            // triggered keeps running after we give up, so this is a re-check prompt, not a
+            // fault — and with minReplicas=0 it is the expected path for an idle server,
+            // which is why it logs at Information and must not colour any aggregate.
+            check.Status = "warming";
+            check.Message = $"MCP server did not answer within {timeoutSeconds}s — it scales to zero when idle and is likely still starting (a cold start takes ~20-30s).";
+            _logger.LogInformation(ex, "MCP server health probe found a cold server (no answer within {TimeoutSeconds}s); activation continues in the background", timeoutSeconds);
+        }
+        catch (HttpRequestException ex)
+        {
+            // Reached the network but could not connect — distinct from the cold-start path
+            // above and genuinely worth a warning. ex.Message can carry the host name, so it
+            // stays out of the user-visible text (same rule as the non-2xx branch).
             check.Status = "warning";
-            check.Message = $"MCP server could not be reached within {timeoutSeconds}s — it may still be warming up. Re-check in a moment.";
-            _logger.LogWarning(ex, "MCP server health probe did not respond within {TimeoutSeconds}s (wake attempt failed)", timeoutSeconds);
+            check.Message = "MCP server unreachable (connection failed)";
+            _logger.LogWarning(ex, "MCP server health probe could not connect");
         }
         catch (Exception ex)
         {
@@ -321,6 +348,24 @@ public class HealthCheckService
 
         return check;
     }
+
+    /// <summary>
+    /// An answer slower than this came from a replica that had just started, not from a warm
+    /// one, so the message can say so. 750ms is ~5x the warm maximum measured over 14 days
+    /// (4..148ms) and deliberately generous: those measurements come from a near-idle,
+    /// single-user system, and warm latency will rise under concurrency. It stays well below
+    /// the next observed cluster (2289ms), so the distinction remains sharp.
+    /// </summary>
+    private const long WarmHitThresholdMs = 750;
+
+    /// <summary>
+    /// Wording for a reachable MCP server. Extracted so the threshold can be pinned by a test
+    /// without a real delay. Both arms keep the word "reachable".
+    /// </summary>
+    internal static string McpReachableMessage(long elapsedMs) =>
+        elapsedMs > WarmHitThresholdMs
+            ? $"MCP server reachable after a cold start ({elapsedMs}ms)"
+            : $"MCP server reachable ({elapsedMs}ms)";
 
     /// <summary>
     /// Best-effort parse of the MCP <c>/health</c> JSON body for its <c>version</c> field.

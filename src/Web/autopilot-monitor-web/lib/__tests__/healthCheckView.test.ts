@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { HealthCheck } from "@/utils/wire-types.generated";
-import { isUrlDetail, visibleHealthChecks, visibleHealthDetails } from "../healthCheckView";
+import {
+  isUrlDetail,
+  visibleHealthChecks,
+  visibleHealthDetails,
+  resolveMcpCardState,
+  MCP_WARMING_MAX_ATTEMPTS,
+} from "../healthCheckView";
 
 const checks: HealthCheck[] = [
   {
@@ -88,5 +94,72 @@ describe("visibleHealthDetails", () => {
 
   it("returns undefined rather than an empty object when every row was a URL", () => {
     expect(visibleHealthDetails({ "Server URL": "https://mcp.example.com" }, false)).toBeUndefined();
+  });
+});
+
+describe("resolveMcpCardState", () => {
+  const warming = (message = "MCP server did not answer within 3s — it scales to zero when idle."): HealthCheck => ({
+    name: "MCP Server",
+    description: "AI query interface availability",
+    status: "warming",
+    message,
+  });
+
+  it("shows a checking card and rates nothing while the first probe is in flight", () => {
+    const s = resolveMcpCardState({ check: null, loading: true, attempts: 0 });
+    expect(s.display.status).toBe("checking");
+    expect(s.ratedStatus).toBeNull();
+    expect(s.shouldPoll).toBe(false);
+  });
+
+  it("stays neutral and not-yet-checked before anything ran", () => {
+    const s = resolveMcpCardState({ check: null, loading: false, attempts: 0 });
+    expect(s.display.status).toBe("unknown");
+    expect(s.ratedStatus).toBeNull();
+    expect(s.shouldPoll).toBe(false);
+  });
+
+  it("polls on a warming server and keeps it out of the banner", () => {
+    const s = resolveMcpCardState({ check: warming(), loading: false, attempts: 0 });
+    expect(s.display.status).toBe("warming");
+    expect(s.ratedStatus).toBeNull();
+    expect(s.shouldPoll).toBe(true);
+    expect(s.display.message).toContain("attempt 1 of 8");
+  });
+
+  it("keeps showing warming while the next probe runs, so the card cannot flicker", () => {
+    const s = resolveMcpCardState({ check: warming(), loading: true, attempts: 3 });
+    expect(s.display.status).toBe("warming");
+    expect(s.display.message).toContain("attempt 4 of 8");
+    expect(s.shouldPoll).toBe(true);
+  });
+
+  it("turns a never-arriving container into a real warning once the re-polls are spent", () => {
+    const s = resolveMcpCardState({ check: warming(), loading: false, attempts: MCP_WARMING_MAX_ATTEMPTS });
+    expect(s.display.status).toBe("warning");
+    expect(s.ratedStatus).toBe("warning");
+    expect(s.shouldPoll).toBe(false);
+  });
+
+  it("rates a healthy server and stops polling", () => {
+    const check: HealthCheck = { name: "MCP Server", description: "d", status: "healthy", message: "MCP server reachable (41ms)" };
+    const s = resolveMcpCardState({ check, loading: false, attempts: 2 });
+    expect(s.display).toBe(check);
+    expect(s.ratedStatus).toBe("healthy");
+    expect(s.shouldPoll).toBe(false);
+  });
+
+  it("keeps a not-permitted (unknown) card out of the banner", () => {
+    const check: HealthCheck = { name: "MCP Server", description: "d", status: "unknown", message: "Not permitted" };
+    const s = resolveMcpCardState({ check, loading: false, attempts: 0 });
+    expect(s.ratedStatus).toBeNull();
+    expect(s.shouldPoll).toBe(false);
+  });
+
+  it("rates an unhealthy server into the banner", () => {
+    const check: HealthCheck = { name: "MCP Server", description: "d", status: "unhealthy", message: "MCP server returned 503" };
+    const s = resolveMcpCardState({ check, loading: false, attempts: 0 });
+    expect(s.ratedStatus).toBe("unhealthy");
+    expect(s.shouldPoll).toBe(false);
   });
 });

@@ -2336,6 +2336,7 @@ export interface HardwareRejectedResponse {
 export interface HealthCheck {
   name: string;
   description: string;
+  /** One of: "healthy" (working), "warning" (degraded but reachable), "unhealthy" (failing), "unknown" (not determined), "warming" (health/mcp only — the scale-to-zero MCP container did not answer inside the probe budget and is still starting; the caller should re-check, and it must NOT be rated as a fault in any aggregate or overall banner). */
   status: string;
   message: string;
   details?: Record<string, unknown>;
