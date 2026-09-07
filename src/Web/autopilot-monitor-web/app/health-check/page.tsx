@@ -156,7 +156,9 @@ export default function HealthCheckPage() {
         description: 'AI query interface availability',
         status: clientTimedOut ? 'warming' : 'warning',
         message: clientTimedOut
-          ? 'MCP status check timed out — the server is likely still starting.'
+          // Never rendered — resolveMcpCardState writes the warming line itself — but it
+          // keeps this object honest for anything that reads the raw check.
+          ? 'MCP server is starting (probe timed out)'
           : error instanceof Error ? error.message : 'MCP status check could not complete',
       });
     } finally {

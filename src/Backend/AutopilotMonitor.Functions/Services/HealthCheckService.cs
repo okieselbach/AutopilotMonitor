@@ -327,7 +327,9 @@ public class HealthCheckService
             // fault — and with minReplicas=0 it is the expected path for an idle server,
             // which is why it logs at Information and must not colour any aggregate.
             check.Status = "warming";
-            check.Message = $"MCP server did not answer within {timeoutSeconds}s — it scales to zero when idle and is likely still starting (a cold start takes ~20-30s).";
+            // Short on purpose: the portal card renders its own one-line warming text and
+            // ignores this message, so it only has to be honest for a direct API caller.
+            check.Message = $"MCP server is starting (no answer within {timeoutSeconds}s; it scales to zero when idle)";
             _logger.LogInformation(ex, "MCP server health probe found a cold server (no answer within {TimeoutSeconds}s); activation continues in the background", timeoutSeconds);
         }
         catch (HttpRequestException ex)

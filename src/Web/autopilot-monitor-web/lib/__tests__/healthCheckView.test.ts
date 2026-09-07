@@ -6,6 +6,7 @@ import {
   visibleHealthDetails,
   resolveMcpCardState,
   MCP_WARMING_MAX_ATTEMPTS,
+  MCP_WARMING_POLL_MS,
 } from "../healthCheckView";
 
 const checks: HealthCheck[] = [
@@ -98,7 +99,7 @@ describe("visibleHealthDetails", () => {
 });
 
 describe("resolveMcpCardState", () => {
-  const warming = (message = "MCP server did not answer within 3s — it scales to zero when idle."): HealthCheck => ({
+  const warming = (message = "MCP server is starting (no answer within 3s; it scales to zero when idle)"): HealthCheck => ({
     name: "MCP Server",
     description: "AI query interface availability",
     status: "warming",
@@ -124,13 +125,18 @@ describe("resolveMcpCardState", () => {
     expect(s.display.status).toBe("warming");
     expect(s.ratedStatus).toBeNull();
     expect(s.shouldPoll).toBe(true);
-    expect(s.display.message).toContain("attempt 1 of 8");
+    expect(s.display.message).toBe(`Starting instance… (attempt 1 of ${MCP_WARMING_MAX_ATTEMPTS})`);
+  });
+
+  it("does not carry the server's explanation into the card", () => {
+    const s = resolveMcpCardState({ check: warming(), loading: false, attempts: 0 });
+    expect(s.display.message).not.toContain("scales to zero");
   });
 
   it("keeps showing warming while the next probe runs, so the card cannot flicker", () => {
     const s = resolveMcpCardState({ check: warming(), loading: true, attempts: 3 });
     expect(s.display.status).toBe("warming");
-    expect(s.display.message).toContain("attempt 4 of 8");
+    expect(s.display.message).toContain(`attempt 4 of ${MCP_WARMING_MAX_ATTEMPTS}`);
     expect(s.shouldPoll).toBe(true);
   });
 
@@ -139,6 +145,10 @@ describe("resolveMcpCardState", () => {
     expect(s.display.status).toBe("warning");
     expect(s.ratedStatus).toBe("warning");
     expect(s.shouldPoll).toBe(false);
+    // The stated budget must be the one actually spent, not a number that drifted.
+    expect(s.display.message).toContain(
+      `~${Math.round((MCP_WARMING_MAX_ATTEMPTS * MCP_WARMING_POLL_MS) / 1000)}s`,
+    );
   });
 
   it("rates a healthy server and stops polling", () => {

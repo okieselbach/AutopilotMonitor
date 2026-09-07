@@ -36,13 +36,15 @@ export function visibleHealthChecks(checks: readonly HealthCheck[], operatorView
  * (see HealthCheckService.CheckMcpServerAsync) rather than holding the request. The card
  * then re-polls on its own until the replica is up.
  *
- * 5s x 8 attempts ≈ 46s of coverage against a measured 13-25s activation (worst observed
- * first byte 31.5s). Shorter intervals buy nothing — every attempt costs the backend a 3s
- * held request — and more attempts would turn a genuinely broken container into a silent
- * forever-spinner instead of an honest warning.
+ * 5s x 12 attempts ≈ 60s of coverage. The measured activation is 13-25s (worst observed
+ * first byte 31.5s), but a 40s budget was seen to expire on a real cold start — Container
+ * Apps activation has no upper bound we control — so the budget is 60s. Shorter intervals
+ * buy nothing (every attempt costs the backend a 3s held request), and stretching it much
+ * further would turn a genuinely broken container into a silent forever-spinner instead of
+ * an honest warning.
  */
 export const MCP_WARMING_POLL_MS = 5_000;
-export const MCP_WARMING_MAX_ATTEMPTS = 8;
+export const MCP_WARMING_MAX_ATTEMPTS = 12;
 
 /**
  * Client-side budget for one probe. Comfortably above the backend's ~3s answer, and
@@ -88,7 +90,7 @@ export function resolveMcpCardState(args: {
         display: {
           ...MCP_CARD_BASE,
           status: "warning",
-          message: `MCP server did not come up within ~${Math.round((MCP_WARMING_MAX_ATTEMPTS * MCP_WARMING_POLL_MS) / 1000)}s. Use Re-check, or the container may be failing to start.`,
+          message: `Instance did not start within ~${Math.round((MCP_WARMING_MAX_ATTEMPTS * MCP_WARMING_POLL_MS) / 1000)}s — use Re-check.`,
         },
         ratedStatus: "warning",
         shouldPoll: false,
@@ -96,11 +98,16 @@ export function resolveMcpCardState(args: {
     }
     // Deliberately keeps showing "warming" while the next probe is in flight: switching to
     // "checking" every 5s would make the card flicker for the whole cold start.
+    //
+    // The card owns this wording and ignores check.message on purpose: a scale-from-zero is
+    // routine, nobody watching the page needs the probe budget or the mechanics of it (they
+    // stay in the backend log and in the API message), and the two warming sources — the
+    // server's own "warming" and a client-side probe timeout — must read identically.
     return {
       display: {
         ...MCP_CARD_BASE,
         status: "warming",
-        message: `${check.message} Re-checking automatically (attempt ${attempts + 1} of ${MCP_WARMING_MAX_ATTEMPTS})…`,
+        message: `Starting instance… (attempt ${attempts + 1} of ${MCP_WARMING_MAX_ATTEMPTS})`,
         details: check.details,
       },
       ratedStatus: null,
