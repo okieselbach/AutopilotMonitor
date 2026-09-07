@@ -146,8 +146,9 @@ export default function AnalyzeRuleCard({
     >
       {/* Collapsed Header */}
       <div className="p-4 cursor-pointer select-none" onClick={() => { if (isEditing) return; onToggle(); }}>
-        {/* Mobile: badges wrap and the title drops onto its own full-width row (order-last);
-            ≥sm: single line with the title in the middle, exactly as before. */}
+        {/* Two rows on every breakpoint: the badge row on top, the title on its own full-width
+            row below. The leading columns (toggle, severity, rule id) have fixed minimum widths
+            so every card lines up vertically; the stats group is pushed to the right edge. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {isTemplateVariant ? (
             <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-amber-100 text-amber-600" title="Template — enabling creates a custom rule copy">
@@ -170,6 +171,14 @@ export default function AnalyzeRuleCard({
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.enabled ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           )}
+          {/* Severity and rule id are fixed-width columns (widest catalog values: "Critical",
+              18-character ids) from sm up — mobile keeps its natural widths; a longer custom id overflows
+              its column instead of being cut. */}
+          <span className={`inline-flex items-center justify-center sm:min-w-[5.5rem] px-2.5 py-0.5 rounded-full text-xs font-semibold ${sevColor.bg} ${sevColor.text} flex-shrink-0`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${sevColor.dot} mr-1.5`}></span>
+            {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)}
+          </span>
+          <span className="text-xs font-mono text-gray-400 flex-shrink-0 min-w-[8.5rem] hidden sm:inline">{rule.ruleId}</span>
           {/* Read-only KO indicator. Visible only when the effective value is ON so the header
               stays quiet for the common case. The actual toggle lives inside the expanded details
               (bottom-left) to prevent accidental clicks. */}
@@ -190,14 +199,6 @@ export default function AnalyzeRuleCard({
               🔔
             </span>
           )}
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${sevColor.bg} ${sevColor.text} flex-shrink-0`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${sevColor.dot} mr-1.5`}></span>
-            {rule.severity.charAt(0).toUpperCase() + rule.severity.slice(1)}
-          </span>
-          <span className="text-xs font-mono text-gray-400 flex-shrink-0 hidden sm:inline">{rule.ruleId}</span>
-          <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
-            <h3 className="text-sm font-semibold text-gray-900 sm:truncate">{rule.title}</h3>
-          </div>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${catColor.bg} ${catColor.text} flex-shrink-0`}>
             {rule.category.charAt(0).toUpperCase() + rule.category.slice(1)}
           </span>
@@ -222,40 +223,45 @@ export default function AnalyzeRuleCard({
               Based on {rule.derivedFromTemplateRuleId}
             </span>
           )}
-          <span className="text-xs text-gray-500 flex-shrink-0 hidden md:inline" title="Confidence Threshold">Threshold: {rule.confidenceThreshold}%</span>
-          {trend && trend.length > 0 && <RuleSparkline trend={trend} />}
-          {hitRate != null && hitRate > 0 && (
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
-                hitRate >= 20 ? "bg-red-50 text-red-700 border border-red-200" :
-                hitRate >= 5 ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                "bg-gray-50 text-gray-600 border border-gray-200"
-              }`}
-              title={`Fires on ${hitRate}% of evaluated sessions (${fireCount ?? 0} total fires in last 30 days)`}
-            >
-              {hitRate}% hit rate
-            </span>
-          )}
-          {/* F3 regression badge — visible only while an alert episode is active (tracker row).
-              Numbers in the tooltip mirror the bell notification; correlation wording only. */}
-          {regression && (
-            <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-800 border border-red-300 flex-shrink-0"
-              title={
-                `Firing more often than usual: ${regression.windowRatePct}% of evaluated sessions in the last 7 days ` +
-                `(${regression.windowFireCount}/${regression.windowSessionCount}) vs ${regression.baselineRatePct}% baseline ` +
-                `(${regression.baselineFireCount}/${regression.baselineSessionCount} over 28 days)` +
-                (regression.lift != null ? ` — lift ${regression.lift}x.` : " — new signal.") +
-                (regression.dimension
-                  ? ` ${regression.dimension.hitSharePct}% of affected sessions are on ${regression.dimension.dimension} ` +
-                    `${regression.dimension.value} vs ${regression.dimension.allSharePct}% of all sessions — correlated, not necessarily causal.`
-                  : "")
-              }
-            >
-              ↑ Regression
-            </span>
-          )}
-          <svg className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-auto sm:ml-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          <svg className={`ml-auto w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          {/* Title row: the title on the left, the stats group (threshold, sparkline, hit rate,
+              regression) on the right — same right edge on every card */}
+          <div className="w-full min-w-0 flex items-center gap-x-4">
+            <h3 className="flex-1 min-w-0 text-sm font-semibold text-gray-900">{rule.title}</h3>
+            <span className="text-xs text-gray-500 flex-shrink-0 hidden md:inline" title="Confidence Threshold">Threshold: {rule.confidenceThreshold}%</span>
+            {trend && trend.length > 0 && <RuleSparkline trend={trend} />}
+            {hitRate != null && hitRate > 0 && (
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
+                  hitRate >= 20 ? "bg-red-50 text-red-700 border border-red-200" :
+                  hitRate >= 5 ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                  "bg-gray-50 text-gray-600 border border-gray-200"
+                }`}
+                title={`Fires on ${hitRate}% of evaluated sessions (${fireCount ?? 0} total fires in last 30 days)`}
+              >
+                {hitRate}% hit rate
+              </span>
+            )}
+            {/* F3 regression badge — visible only while an alert episode is active (tracker row).
+                Numbers in the tooltip mirror the bell notification; correlation wording only. */}
+            {regression && (
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-800 border border-red-300 flex-shrink-0"
+                title={
+                  `Firing more often than usual: ${regression.windowRatePct}% of evaluated sessions in the last 7 days ` +
+                  `(${regression.windowFireCount}/${regression.windowSessionCount}) vs ${regression.baselineRatePct}% baseline ` +
+                  `(${regression.baselineFireCount}/${regression.baselineSessionCount} over 28 days)` +
+                  (regression.lift != null ? ` — lift ${regression.lift}x.` : " — new signal.") +
+                  (regression.dimension
+                    ? ` ${regression.dimension.hitSharePct}% of affected sessions are on ${regression.dimension.dimension} ` +
+                      `${regression.dimension.value} vs ${regression.dimension.allSharePct}% of all sessions — correlated, not necessarily causal.`
+                    : "")
+                }
+              >
+                ↑ Regression
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

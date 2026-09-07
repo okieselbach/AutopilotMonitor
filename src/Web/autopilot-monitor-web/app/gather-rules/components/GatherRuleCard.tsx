@@ -87,8 +87,8 @@ export function GatherRuleCard({
           onExpand();
         }}
       >
-        {/* Mobile: badges wrap and the title drops onto its own full-width row (order-last);
-            ≥sm: single line with the title in the middle, exactly as before. */}
+        {/* Two rows on every breakpoint: the badge row on top, the title on its own full-width
+            row below. Toggle and rule id have fixed minimum widths so every card lines up. */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {/* Enable/Disable Toggle */}
           {readOnly ? (
@@ -122,26 +122,15 @@ export function GatherRuleCard({
             </button>
           )}
 
-          {/* Rule ID */}
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-gray-100 text-gray-600 border border-gray-200 flex-shrink-0 hidden sm:inline-flex">
+          {/* Rule ID — fixed-width column (widest catalog id has 17 characters); a longer
+              custom id overflows its column instead of being cut */}
+          <span className="inline-flex items-center min-w-[9rem] px-2 py-0.5 rounded text-xs font-mono font-medium bg-gray-100 text-gray-600 border border-gray-200 flex-shrink-0 hidden sm:inline-flex">
             {rule.ruleId}
           </span>
-
-          {/* Title */}
-          <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
-            <h3 className="text-sm font-semibold text-gray-900 sm:truncate">
-              {rule.title}
-            </h3>
-          </div>
 
           {/* Category Badge */}
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${catColor.bg} ${catColor.text} flex-shrink-0`}>
             {rule.category.charAt(0).toUpperCase() + rule.category.slice(1)}
-          </span>
-
-          {/* Collector Type */}
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-600 flex-shrink-0 hidden md:inline-flex">
-            {COLLECTOR_TYPE_LABELS[rule.collectorType] || rule.collectorType}
           </span>
 
           {/* Type Badge */}
@@ -157,6 +146,11 @@ export function GatherRuleCard({
             {rule.isBuiltIn ? "Built-in" : rule.isCommunity ? "Community" : "Custom"}
           </span>
 
+          {/* Collector Type */}
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-600 flex-shrink-0 hidden md:inline-flex">
+            {COLLECTOR_TYPE_LABELS[rule.collectorType] || rule.collectorType}
+          </span>
+
           {/* Enabled rule the agent blocks on every device — visible without expanding */}
           {rule.enabled && isBlockedTarget && (
             <span
@@ -167,9 +161,9 @@ export function GatherRuleCard({
             </span>
           )}
 
-          {/* Expand/Collapse Arrow */}
+          {/* Expand/Collapse Arrow — right edge on every card */}
           <svg
-            className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-auto sm:ml-0 ${
+            className={`w-5 h-5 text-gray-400 transition-transform flex-shrink-0 ml-auto ${
               isExpanded ? "rotate-180" : ""
             }`}
             fill="none"
@@ -178,6 +172,13 @@ export function GatherRuleCard({
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
+
+          {/* Title row */}
+          <div className="w-full min-w-0">
+            <h3 className="text-sm font-semibold text-gray-900">
+              {rule.title}
+            </h3>
+          </div>
         </div>
       </div>
 
