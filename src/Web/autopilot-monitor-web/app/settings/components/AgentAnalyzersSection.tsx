@@ -196,14 +196,14 @@ export default function AgentAnalyzersSection({
           </p>
 
           {/* Enable toggle */}
-          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-emerald-200 transition-colors">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-rose-200 transition-colors">
             <div>
               <p className="font-medium text-gray-900">Enable Software Inventory & Vulnerability Analyzer</p>
               <p className="text-sm text-gray-500">Collect installed software inventory and correlate against known vulnerabilities</p>
             </div>
             <button
               onClick={() => setEnableSoftwareInventoryAnalyzer(!enableSoftwareInventoryAnalyzer)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableSoftwareInventoryAnalyzer ? 'bg-emerald-500' : 'bg-gray-300'}`}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${enableSoftwareInventoryAnalyzer ? 'bg-rose-500' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableSoftwareInventoryAnalyzer ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
