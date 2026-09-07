@@ -167,7 +167,9 @@ export function SectionCardHeader({ tone, iconPath, title, subtitle, docsPath, t
   const hasRight = trailing !== undefined || docsPath !== undefined;
   return (
     <div className={t.wrapper}>
-      <div className="flex items-center justify-between gap-4">
+      {/* Below sm the trailing controls move onto their own row: side by side they would squeeze
+          the title into a two-word column and push the buttons off a phone-width viewport. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex items-center space-x-2 min-w-0">
           <svg className={`${t.icon} flex-shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={iconPath} />
@@ -178,7 +180,7 @@ export function SectionCardHeader({ tone, iconPath, title, subtitle, docsPath, t
           </div>
         </div>
         {hasRight && (
-          <div className="flex flex-shrink-0 items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap sm:flex-shrink-0">
             {trailing}
             {docsPath !== undefined && <DocsLink path={docsPath} />}
           </div>

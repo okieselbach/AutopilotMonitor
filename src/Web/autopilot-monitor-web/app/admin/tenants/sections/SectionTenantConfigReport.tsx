@@ -290,12 +290,12 @@ export function SectionTenantConfigReport() {
             Read-only overview of all tenant configuration and runtime parameters
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm text-gray-500 whitespace-nowrap">Tenant:</label>
           <select
             value={selectedTenantId}
             onChange={(e) => setSelectedTenantId(e.target.value)}
-            className="text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 max-w-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            className="text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 min-w-0 flex-1 max-w-xs sm:flex-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
             disabled={loadingTenants}
           >
             {loadingTenants && <option>Loading...</option>}

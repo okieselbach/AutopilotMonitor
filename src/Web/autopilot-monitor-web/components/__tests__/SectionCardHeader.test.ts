@@ -22,8 +22,10 @@ describe("SectionCardHeader", () => {
     expect(html).toContain(`d="${ICON}"`);
     expect(html).toContain("<h2 class=\"text-xl font-semibold text-gray-900\">Diagnostics Package</h2>");
     expect(html).toContain("Upload diagnostic files after enrollment.");
-    // No right-hand group when neither docsPath nor trailing is given.
-    expect(html).not.toContain("gap-3");
+    // Title and trailing controls stack below `sm` so a phone-width card keeps both readable.
+    expect(html).toContain("flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between");
+    // No right-hand group when neither docsPath nor trailing is given — it is the only wrapping row.
+    expect(html).not.toContain("flex-wrap");
   });
 
   it("renders the docs link as a new-tab link below DOCS_URL", () => {

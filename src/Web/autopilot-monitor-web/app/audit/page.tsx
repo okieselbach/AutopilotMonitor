@@ -273,7 +273,7 @@ export default function AuditPage() {
           {/* Date window + filters */}
           <div className="mb-4 flex flex-wrap items-center gap-3">
             {/* Date pickers */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-sm text-gray-600 dark:text-gray-400">From:</label>
               <input
                 type="date"

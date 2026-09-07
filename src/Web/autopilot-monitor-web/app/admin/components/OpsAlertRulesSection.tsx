@@ -394,7 +394,7 @@ export function OpsAlertRulesSection({
                       return (
                         <div key={et}>
                           <div className="flex items-center gap-3 py-1.5 px-3 rounded hover:bg-amber-100/50 dark:hover:bg-gray-700/50 transition-colors">
-                            <label className="relative inline-flex items-center cursor-pointer">
+                            <label className="relative inline-flex flex-shrink-0 items-center cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={rule.enabled}
@@ -403,14 +403,16 @@ export function OpsAlertRulesSection({
                               />
                               <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 rounded-full peer peer-checked:bg-amber-500 dark:peer-checked:bg-amber-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
                             </label>
-                            <span className={`flex-1 text-sm font-mono ${rule.enabled ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
+                            {/* min-w-0 + break-words: the event type is one long unbreakable token and
+                                would otherwise push the severity select off a phone-width viewport. */}
+                            <span className={`flex-1 min-w-0 break-words text-sm font-mono ${rule.enabled ? "text-gray-900 dark:text-gray-100" : "text-gray-400 dark:text-gray-500"}`}>
                               {et}
                             </span>
                             <select
                               value={rule.minSeverity}
                               onChange={(e) => setSeverity(et, e.target.value)}
                               disabled={!rule.enabled}
-                              className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              className="flex-shrink-0 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-amber-500"
                             >
                               {SEVERITIES.map(s => (
                                 <option key={s} value={s}>{s}+</option>

@@ -103,14 +103,14 @@ function WebhookHeaderEditor({ value, onChange }: { value: string; onChange: (v:
               value={row.key}
               onChange={(e) => commit(rows.map((r, j) => (j === i ? { ...r, key: e.target.value } : r)))}
               placeholder="Header name"
-              className="block w-1/3 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
+              className="block w-1/3 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
             />
             <input
               type="text"
               value={row.value}
               onChange={(e) => commit(rows.map((r, j) => (j === i ? { ...r, value: e.target.value } : r)))}
               placeholder="Value"
-              className="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
+              className="block flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors font-mono text-sm"
             />
             <button
               type="button"
@@ -174,13 +174,13 @@ export function ChannelEditor({
   return (
     <div className={`rounded-lg border ${channel.enabled ? "border-gray-200" : "border-gray-100 bg-gray-50"} p-4 space-y-4`}>
       {/* Header row: name + enable + delete */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <input
           type="text"
           value={channel.name}
           onChange={(e) => onChange({ ...channel, name: e.target.value })}
           placeholder="Channel name (e.g. Service Desk)"
-          className="block flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 font-medium placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
+          className="block flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 font-medium placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
         />
         <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
           Enabled
