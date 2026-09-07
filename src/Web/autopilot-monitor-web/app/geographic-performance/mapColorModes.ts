@@ -56,7 +56,7 @@ const DURATION_BUCKETS = [
   { label: "≤ 120%", hex: HEX.yellow, className: "bg-yellow-50 text-yellow-700" },
   { label: "≤ 150%", hex: HEX.orange, className: "bg-orange-50 text-orange-700" },
   { label: "> 150%", hex: HEX.red, className: "bg-red-100 text-red-800" },
-  noData("No global average yet"),
+  noData("No duration to measure"),
 ] as const satisfies readonly ColorBucket[];
 
 const duration: MapColorMode = {
@@ -64,7 +64,9 @@ const duration: MapColorMode = {
   label: "Enrollment duration",
   buckets: DURATION_BUCKETS,
   resolve: (loc, global) => {
-    if (global.avgDurationMinutes <= 0) return DURATION_BUCKETS[5];
+    // Durations come from succeeded sessions only: a location where nothing succeeded yet has
+    // avg 0, and 0 / global would land it in the fastest bucket instead of "nothing to measure".
+    if (global.avgDurationMinutes <= 0 || loc.avgDurationMinutes <= 0) return DURATION_BUCKETS[5];
     const ratio = loc.avgDurationMinutes / global.avgDurationMinutes;
     if (ratio <= 0.8) return DURATION_BUCKETS[0];
     if (ratio <= 1.0) return DURATION_BUCKETS[1];

@@ -38,6 +38,8 @@ export const DOCS_PATHS = {
   annotations: "/portal-guide/session-details-and-diagnosis#annotations",
   fleetHealth: "/portal-guide/fleet-health",
   geographicPerformance: "/portal-guide/geographic-performance",
+  geographicPerformanceNumbers: "/portal-guide/geographic-performance#how-the-numbers-are-calculated",
+  statistics: "/concepts/averages-medians-and-percentiles",
   slaCompliance: "/portal-guide/sla-compliance",
   softwareInventory: "/portal-guide/software-inventory-and-vulnerabilities",
   usageMetrics: "/portal-guide/usage-metrics",

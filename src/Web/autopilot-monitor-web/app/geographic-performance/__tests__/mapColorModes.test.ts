@@ -143,6 +143,9 @@ describe("duration mode (ratio to global average)", () => {
   it("is no-data without a global average", () => {
     expect(duration.resolve(makeLoc(), makeGlobal({ avgDurationMinutes: 0 }))).toBe(duration.buckets[5]);
   });
+  it("is no-data for a location without a succeeded session, never the fastest bucket", () => {
+    expect(at(0)).toBe(duration.buckets[5]);
+  });
 });
 
 describe("success mode (finished enrollments only)", () => {
@@ -221,7 +224,7 @@ describe("badge class parity", () => {
           "≤ 120% | bg-yellow-50 text-yellow-700",
           "≤ 150% | bg-orange-50 text-orange-700",
           "> 150% | bg-red-100 text-red-800",
-          "No global average yet | bg-gray-100 text-gray-500",
+          "No duration to measure | bg-gray-100 text-gray-500",
         ],
         "latency": [
           "< 250 ms | bg-green-100 text-green-800",

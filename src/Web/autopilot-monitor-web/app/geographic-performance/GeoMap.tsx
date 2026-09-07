@@ -134,7 +134,10 @@ export default function GeoMap({
                   <strong>Sessions:</strong> {loc.sessionCount}
                   {loc.succeeded + loc.failed > 0 ? ` (${loc.successRate}% success)` : " (none finished yet)"}
                 </div>
-                <div><strong>Avg Duration:</strong> {Math.round(loc.avgDurationMinutes)} min</div>
+                <div>
+                  <strong>Avg Duration:</strong>{" "}
+                  {loc.avgDurationMinutes > 0 ? `${Math.round(loc.avgDurationMinutes)} min` : "no succeeded enrollment yet"}
+                </div>
                 {loc.medianApiLatencyMs > 0 && (
                   <div><strong>API Latency:</strong> {Math.round(loc.medianApiLatencyMs)} ms</div>
                 )}

@@ -27,6 +27,7 @@ import {
   type MapColorModeId,
 } from "./mapColorModes";
 import { MapLegend } from "./MapLegend";
+import { LocationTableNote } from "./LocationTableNote";
 import { fetchJson } from "@/lib/apiClient";
 
 // A cross-tenant geo aggregation can take tens of seconds server-side; the default 30s fetch
@@ -315,13 +316,16 @@ export default function GeographicPerformancePage() {
           {/* Global Averages Banner */}
           {geoMetrics && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <div className="text-sm font-medium text-blue-800 mb-2">Global Averages (Benchmark)</div>
+              <div className="text-sm font-medium text-blue-800">Global Averages (Benchmark)</div>
+              <div className="text-xs text-blue-700 mb-2">
+                Computed over the sessions on this page, not over other customers — every vs Global figure compares against this line.
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
-                <div>
+                <div title="Average of the per-location Avg Duration values (locations with 3+ sessions) — every location counts once, so one large site does not set the benchmark">
                   <span className="text-blue-600 font-medium">Avg Duration:</span>{" "}
                   <span className="text-blue-900">{geoMetrics.globalAverages.avgDurationMinutes} min</span>
                 </div>
-                <div>
+                <div title="Median of the per-location Avg Duration values — half of your locations are faster, half slower">
                   <span className="text-blue-600 font-medium">Median:</span>{" "}
                   <span className="text-blue-900">{geoMetrics.globalAverages.medianDurationMinutes} min</span>
                 </div>
@@ -383,10 +387,14 @@ export default function GeographicPerformancePage() {
                         <th
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
                           onClick={() => handleSort("avgDurationMinutes")}
+                          title="Average enrollment duration of the succeeded sessions at this location in the selected range"
                         >
                           Avg Duration <SortIcon col="avgDurationMinutes" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                          title="95th percentile: 95 out of 100 succeeded enrollments at this location finished within this time"
+                        >
                           P95
                         </th>
                         <th
@@ -414,7 +422,10 @@ export default function GeographicPerformancePage() {
                         >
                           P2P % <SortIcon col="avgDoPercentPeerCaching" sortBy={sortBy} sortDesc={sortDesc} />
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                          title="Avg Duration of this location against the benchmark's Avg Duration (your own fleet, same range) — positive = slower, negative = faster"
+                        >
                           vs Global
                         </th>
                       </tr>
@@ -479,8 +490,9 @@ export default function GeographicPerformancePage() {
                           <td className="px-4 py-3 text-sm">
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${MAP_COLOR_MODE_BY_ID.duration.resolve(loc, geoMetrics.globalAverages).className}`}
+                              title={loc.avgDurationMinutes > 0 ? undefined : "No succeeded enrollments yet"}
                             >
-                              {Math.round(loc.avgDurationMinutes)} min
+                              {loc.avgDurationMinutes > 0 ? `${Math.round(loc.avgDurationMinutes)} min` : "—"}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-500">
@@ -531,7 +543,7 @@ export default function GeographicPerformancePage() {
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <div className="flex items-center justify-between">
-                              {loc.durationVsGlobalPct !== 0 ? (
+                              {loc.avgDurationMinutes > 0 && loc.durationVsGlobalPct !== 0 ? (
                                 <span
                                   className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                                     loc.durationVsGlobalPct > 0
@@ -556,6 +568,7 @@ export default function GeographicPerformancePage() {
                   </table>
                 </div>
               )}
+              {sortedLocations.length > 0 && <LocationTableNote />}
             </div>
           )}
 
