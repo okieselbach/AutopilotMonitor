@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ModalPortal } from "./ModalPortal";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { closeWhatsNew } from "@/lib/whatsNewStore";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
+import { isPublicPath } from "@/lib/hostRouting";
+import { route } from "@/lib/routes";
 import { trackEvent } from "@/lib/appInsights";
 import {
   formatBadgeCount,
@@ -16,6 +21,9 @@ import {
 } from "@/lib/whatsNew";
 
 const CHANNEL_LABEL: Record<WhatsNewChannel, string> = { platform: "Platform", agent: "Agent" };
+
+/** Tenant settings section where a channel's "What's new" toggle lives. */
+const NOTIFICATION_SETTINGS_HREF = route("/settings/tenant/notifications");
 
 /**
  * The red unread counter used on the navbar icons, the menu rows and the panel tabs —
@@ -124,11 +132,18 @@ function SkeletonRows() {
  */
 export function WhatsNewPanel({ rootClassName }: { rootClassName?: string }) {
   const wn = useWhatsNew();
+  const { user } = useAuth();
+  const pathname = usePathname();
   const closeRef = useRef<HTMLButtonElement>(null);
   // Marks as they were when the panel opened: the "New" labels must not vanish under the
   // reader's eyes when the channel is marked seen a moment later.
   const [seenAtOpen] = useState<WhatsNewSeen>(() => wn.seen);
   const [openedAt] = useState(() => new Date());
+
+  // Only whoever can actually flip the channel toggle gets the "subscribe" link, and only on
+  // the portal — /settings/tenant/… does not exist on the public host.
+  const canConfigureNotifications =
+    wn.tracksUnseen && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true) && !isPublicPath(pathname);
 
   const channel = wn.panelChannel;
   const entries = wn.entries(channel);
@@ -262,6 +277,22 @@ export function WhatsNewPanel({ rootClassName }: { rootClassName?: string }) {
                 View all {CHANNEL_LABEL[channel].toLowerCase()} updates
                 <ExternalIcon className="w-4 h-4" />
               </a>
+            )}
+            {canConfigureNotifications && (
+              <p className="mt-3 text-center text-xs text-[var(--lp-ink-faint)]">
+                <Link
+                  href={NOTIFICATION_SETTINGS_HREF}
+                  prefetch={false}
+                  onClick={() => {
+                    trackEvent("whats_new_notification_settings_clicked", { channel });
+                    closeWhatsNew();
+                  }}
+                  className="inline-flex items-center gap-1 font-medium text-[var(--lp-ink-soft)] hover:text-[var(--lp-accent-ink)] hover:underline"
+                >
+                  <BellIcon className="w-3.5 h-3.5" />
+                  Get these updates in Teams, Slack or Discord
+                </Link>
+              </p>
             )}
           </footer>
         </div>

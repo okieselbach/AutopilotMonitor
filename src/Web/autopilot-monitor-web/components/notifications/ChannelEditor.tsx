@@ -40,6 +40,7 @@ const EVENT_TOGGLES: { key: keyof NotificationChannel; label: string; hint: stri
   { key: "notifyOnFailure", label: "Failure", hint: "Enrollment failed" },
   { key: "notifyOnHardwareRejection", label: "Hardware rejection", hint: "Device rejected by the hardware whitelist" },
   { key: "notifyOnSlaEvents", label: "SLA", hint: "SLA breach / resolved / consecutive failures (which breaches are evaluated is configured under SLA Targets)" },
+  { key: "notifyOnWhatsNew", label: "What's new", hint: "Product updates: one digest whenever new platform or agent changelog entries go live in the portal's What's new panel" },
 ];
 
 type HeaderRow = { key: string; value: string };

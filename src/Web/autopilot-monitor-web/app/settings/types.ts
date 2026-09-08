@@ -23,6 +23,8 @@ export interface NotificationChannel {
   notifyOnHardwareRejection?: boolean;
   /** Receive SLA breach/resolved/consecutive-failure alerts (evaluation gated by tenant-level SLA flags). */
   notifyOnSlaEvents?: boolean;
+  /** Receive "What's new" product updates (one digest per batch of new changelog entries). */
+  notifyOnWhatsNew?: boolean;
 }
 
 /** Backend cap (NotificationChannel.MaxChannelsPerTenant) — excess entries are ignored at parse time. */

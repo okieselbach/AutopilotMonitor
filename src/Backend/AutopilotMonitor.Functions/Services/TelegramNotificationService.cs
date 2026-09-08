@@ -281,7 +281,8 @@ namespace AutopilotMonitor.Functions.Services
         /// <summary>
         /// Flattens an alert into the plain-text form Telegram accepts. Telegram has no card
         /// format, so facts become "Name: Value" lines — that is also what carries an ops event's
-        /// structured payload into the message.
+        /// structured payload into the message. Sections (rule explanations, What's new entries)
+        /// follow as title + text blocks, and openUrl actions as trailing "Title: url" lines.
         /// </summary>
         internal static string RenderAlertText(NotificationAlert alert)
         {
@@ -299,6 +300,25 @@ namespace AutopilotMonitor.Functions.Services
 
             foreach (var fact in alert.Facts)
                 sb.AppendLine($"{fact.Name}: {fact.Value}");
+
+            foreach (var section in alert.Sections)
+            {
+                if (string.IsNullOrEmpty(section.Title) && string.IsNullOrEmpty(section.Text))
+                    continue;
+                sb.AppendLine();
+                if (!string.IsNullOrEmpty(section.Title))
+                    sb.AppendLine(section.Title);
+                if (!string.IsNullOrEmpty(section.Text))
+                    sb.AppendLine(section.Text);
+            }
+
+            var links = alert.Actions.Where(a => a.Type == "openUrl" && !string.IsNullOrEmpty(a.Url)).ToList();
+            if (links.Count > 0)
+            {
+                sb.AppendLine();
+                foreach (var action in links)
+                    sb.AppendLine($"{action.Title}: {action.Url}");
+            }
 
             return sb.ToString().TrimEnd();
         }
