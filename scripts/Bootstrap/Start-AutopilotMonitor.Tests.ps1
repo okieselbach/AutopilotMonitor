@@ -32,6 +32,15 @@ Describe 'Test-BootstrapSignature' {
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeTrue
     }
 
+    # An EV subject is a line of street address and registration numbers; the log gets the CN.
+    It 'logs the signer CN, not the whole subject' {
+        Mock Get-AuthenticodeSignature {
+            New-FakeSignature -Status 'Valid' -Subject 'CN=glueckkanja AG, O=glueckkanja AG, L=Offenbach am Main, C=DE, SERIALNUMBER=HRB 12381'
+        }
+        Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeTrue
+        Should -Invoke Write-Log -ParameterFilter { $Message -eq 'Signature status: Valid. Signer: glueckkanja AG' }
+    }
+
     It 'refuses an unsigned script' {
         Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'NotSigned' -Subject $null }
         Test-BootstrapSignature -Path 'TestDrive:\x.ps1' | Should -BeFalse

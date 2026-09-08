@@ -54,6 +54,8 @@
     Runtime : Windows PowerShell 5.1, SYSTEM context, during Autopilot enrollment
 
 .CHANGELOG
+    2026-09-08  v1.2  Log the signer CN instead of the full EV subject; the full subject is
+                      logged only when the publisher is why a script was rejected.
     2026-09-08  v1.1  Also used by the bootstrap MSI, which replaced its own copy of this
                       logic; -LogFileName keeps the channel visible in diagnostics.
     2026-09-08  v1.0  Initial version: two-stage bootstrap, publisher-pinned verification.
@@ -73,7 +75,7 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "1.1"
+$ScriptVersion = "1.2"
 
 # The publisher every downloaded stage-2 script must carry. A -like pattern on the subject,
 # NOT a thumbprint: certificates are renewed, deployed loaders are not.
@@ -116,15 +118,19 @@ function Test-BootstrapSignature {
         return $false
     }
 
+    # The full subject of an EV certificate is a line of street address and registration
+    # numbers. The CN answers the only question the log has to answer; the full subject is
+    # logged when it is the reason for a rejection.
     $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "<unsigned>" }
-    Write-Log "Signature status: $($sig.Status). Signer: $subject"
+    $signer = if ($subject -match 'CN=([^,]+)') { $Matches[1] } else { $subject }
+    Write-Log "Signature status: $($sig.Status). Signer: $signer"
 
     if ($sig.Status -ne 'Valid') {
         Write-Log "REJECTED: expected signature status 'Valid'."
         return $false
     }
     if ($subject -notlike $ExpectedPublisher) {
-        Write-Log "REJECTED: signer does not match the expected publisher."
+        Write-Log "REJECTED: signer does not match the expected publisher. Full subject: $subject"
         return $false
     }
 
