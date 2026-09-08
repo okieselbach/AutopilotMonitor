@@ -232,8 +232,18 @@ function Set-PublishSetSignature {
         if ($ExpectedPublisher -and $sig.SignerCertificate.Subject -notlike $ExpectedPublisher) {
             throw "$($item.BlobName) was signed by '$($sig.SignerCertificate.Subject)', expected '$ExpectedPublisher'."
         }
-        $item.Bytes = ,([System.IO.File]::ReadAllBytes($path))
-        Write-Host "  signed $($item.BlobName) ($($item.Bytes.Length) bytes, signer $($sig.SignerCertificate.Subject.Split(',')[0]))"
+        # Plain assignment, NO comma operator: the ',' elsewhere in this file exists because
+        # PowerShell unrolls an array RETURNED from a function, which is not what a property
+        # assignment does -- here it would wrap the byte[] in an Object[] of length 1 and the
+        # upload would fail converting it back.
+        $signedBytes = [System.IO.File]::ReadAllBytes($path)
+        if ($signedBytes.Length -le $item.Bytes.Length) {
+            throw ("Signed $($item.BlobName) is $($signedBytes.Length) bytes but the unsigned form " +
+                   "was $($item.Bytes.Length) -- a signature only ever adds bytes, so this is a " +
+                   'read-back bug, not a signing result.')
+        }
+        $item.Bytes = $signedBytes
+        Write-Host "  signed $($item.BlobName) ($($signedBytes.Length) bytes, signer $($sig.SignerCertificate.Subject.Split(',')[0]))"
     }
 }
 
