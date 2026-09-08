@@ -7,7 +7,7 @@ hand: a wrong or missing entry is fixed in the generator (a source, a pin, a fam
 regenerated, so the next regeneration cannot lose the fix.
 
 ```
-IME_ENUMS_JSON=<path> node scripts/error-codes/generate.mjs [--cache-dir DIR] [--check]
+IME_ENUMS_JSON=<path> node tools/error-codes/generate.mjs [--cache-dir DIR] [--check]
 ```
 
 - `IME_ENUMS_JSON` — enum extract of one Intune Management Extension build (`imeVersion`,
