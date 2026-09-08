@@ -1,0 +1,70 @@
+name: Action Pin Gate
+
+# Every third-party action must be referenced by a full commit SHA, never by a tag.
+# Tags are mutable: whoever controls an action repository can repoint v4 at new code,
+# and that code runs inside jobs that hold the code-signing identity, the storage
+# credentials and a token that can push to main. A SHA is the only reference an
+# upstream owner cannot change under us.
+#
+# Lives in its own workflow rather than in ci.yml: CI deliberately ignores changes to
+# the other workflow files, so a guard placed there would stay silent for exactly the
+# commits it needs to inspect.
+#
+# Like CI, this reports rather than blocks: main is deliberately unprotected, so a red
+# run is a signal to act on, not a merge barrier. Making it binding means adding
+# 'Verify action pins' as a required status check -- a branch-protection decision, not
+# something this file can assert.
+#
+# The pins are not maintained by hand — .github/dependabot.yml opens a monthly grouped
+# PR that rewrites both the SHA and the trailing version comment. The comment is
+# therefore required too: it is what makes a pinned line reviewable.
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pins:
+    name: Verify action pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Every third-party action is pinned to a SHA
+        run: |
+          set -uo pipefail
+          failed=0
+          while IFS=: read -r file line ref; do
+            # Reusable workflows from this repository move with the commit that calls
+            # them, so there is nothing to pin.
+            case "$ref" in ./*) continue ;; esac
+
+            if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*[^[:space:]] ]]; then
+              printf 'ok  %s:%s  %s\n' "$file" "$line" "$ref"
+              continue
+            fi
+
+            if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]*$ ]]; then
+              echo "::error file=$file,line=$line::Pinned but the version comment is missing: '$ref'. Write 'owner/action@<sha> # vN' so the line stays reviewable."
+            else
+              echo "::error file=$file,line=$line::Action '$ref' is not pinned to a commit SHA. Tags are mutable -- resolve it with: gh api repos/<owner>/<action>/git/ref/tags/<tag>"
+            fi
+            failed=1
+          # -H is load-bearing: with a single matching file grep omits the name, the
+          # fields shift by one and every diagnostic points at nothing.
+          done < <(grep -nHE '^[[:space:]]*(-[[:space:]]+)?uses:' .github/workflows/*.yml \
+                   | sed -E 's/^([^:]+):([0-9]+):[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*/\1:\2:/')
+
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Unpinned action references found -- fix them before this reaches main."
+            exit 1
+          fi
+          echo "All action references are pinned to commit SHAs."

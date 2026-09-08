@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The loader executes as SYSTEM on every enrolling device — a parse error or
       # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
@@ -111,8 +111,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Exact version, not a "5.*" range: wix writes the bytes of the MSI that customers
+      # install, so a compromised or simply broken point release must not flow into a build
+      # unnoticed. Bumping is a reviewed commit.
       - name: Install WiX toolset
-        run: dotnet tool install --global wix --version "5.*"
+        run: dotnet tool install --global wix --version 5.0.2
 
       # Version pinned; roll-forward because the tool targets an older runtime than the SDK.
       - name: Install AzureSignTool
@@ -235,12 +238,12 @@ jobs:
       # gh attestation verify AutopilotMonitor-Bootstrap.msi --repo okieselbach/AutopilotMonitor
       - name: Attest build provenance (MSI)
         if: inputs.upload_blob
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: ${{ env.STABLE_MSI }}
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: AutopilotMonitor-Bootstrap-v${{ steps.version.outputs.version }}
           path: ${{ env.STABLE_MSI }}

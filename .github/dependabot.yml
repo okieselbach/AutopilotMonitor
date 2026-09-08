@@ -55,6 +55,10 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
+  # Every action is referenced by commit SHA with the version in a trailing comment;
+  # action-pins.yml fails any workflow change that reintroduces a mutable tag. Dependabot
+  # is what keeps those pins current: it rewrites the SHA and the comment together, so the
+  # pins are reviewed in a PR instead of drifting silently or being bumped by hand.
   - package-ecosystem: github-actions
     directory: /
     schedule:
