@@ -56,6 +56,76 @@ public class AuthFunctionTests
     }
 
     [Fact]
+    public void HappyPath_SurfacesWhatsNewSeenMarks()
+    {
+        var platformSeen = new DateTime(2026, 9, 8, 10, 0, 0, DateTimeKind.Utc);
+        var agentSeen = new DateTime(2026, 9, 8, 10, 5, 0, DateTimeKind.Utc);
+
+        var result = AuthFunction.BuildAuthResult(
+            DefaultConfig(), isGlobalAdmin: false, isGlobalReader: false, isPreviewApproved: true,
+            memberRole: AdminRole(), mcpCheck: McpAllowed(),
+            hasTenantAdmins: true,
+            TenantId, Upn, DisplayName, ObjectId,
+            whatsNewSeenPlatformUtc: platformSeen,
+            whatsNewSeenAgentUtc: agentSeen);
+
+        Assert.True(result.IsSuccess);
+        var body = ToDynamic(result.Body);
+        Assert.Equal(platformSeen, (DateTime)body.whatsNewSeenPlatformUtc);
+        Assert.Equal(agentSeen, (DateTime)body.whatsNewSeenAgentUtc);
+    }
+
+    [Theory]
+    [InlineData("platform", "platform")]
+    [InlineData("Platform", "platform")]
+    [InlineData("agent", "agent")]
+    public void TryNormalizeWhatsNewSeen_AcceptsKnownChannels(string input, string expected)
+    {
+        var seen = new DateTime(2026, 9, 8, 10, 0, 0, DateTimeKind.Utc);
+
+        var ok = AuthFunction.TryNormalizeWhatsNewSeen(
+            new WhatsNewSeenRequest { Channel = input, SeenUtc = seen },
+            seen.AddMinutes(1),
+            out var channel,
+            out var seenUtc,
+            out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal(expected, channel);
+        Assert.Equal(seen, seenUtc);
+    }
+
+    [Fact]
+    public void TryNormalizeWhatsNewSeen_RejectsUnknownChannel()
+    {
+        var ok = AuthFunction.TryNormalizeWhatsNewSeen(
+            new WhatsNewSeenRequest { Channel = "other", SeenUtc = DateTime.UtcNow },
+            DateTime.UtcNow,
+            out _,
+            out _,
+            out var error);
+
+        Assert.False(ok);
+        Assert.Equal("channel must be 'platform' or 'agent'", error);
+    }
+
+    [Fact]
+    public void TryNormalizeWhatsNewSeen_ClampsFarFutureTimestamp()
+    {
+        var now = new DateTime(2026, 9, 8, 10, 0, 0, DateTimeKind.Utc);
+
+        var ok = AuthFunction.TryNormalizeWhatsNewSeen(
+            new WhatsNewSeenRequest { Channel = "agent", SeenUtc = now.AddMinutes(6) },
+            now,
+            out _,
+            out var seenUtc,
+            out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal(now, seenUtc);
+    }
+
+    [Fact]
     public void HappyPath_OperatorUser_ReturnsCorrectRole()
     {
         var result = AuthFunction.BuildAuthResult(

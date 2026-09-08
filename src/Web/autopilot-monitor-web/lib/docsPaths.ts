@@ -45,8 +45,9 @@ export const DOCS_PATHS = {
   usageMetrics: "/portal-guide/usage-metrics",
   auditLog: "/portal-guide/audit-log-and-system-health#audit-log",
   systemHealth: "/portal-guide/audit-log-and-system-health#system-health",
-  // Navbar help menu
+  // Navbar help menu / What's new panel
   platformChangelog: "/changelog/platform-changelog",
+  agentChangelog: "/changelog/agent-changelog",
   serviceAnnouncements: "/troubleshooting-and-support/service-announcements",
   // Dual app-registration window (sign-in banners, failed-sign-in screen)
   appRegistrationMigration: "/troubleshooting-and-support/app-registration-migration",

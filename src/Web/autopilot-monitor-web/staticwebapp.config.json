@@ -23,6 +23,7 @@
     { "route": "/roadmap", "redirect": "/", "statusCode": 302 },
 
     { "route": "/version.json", "headers": { "Cache-Control": "no-store" } },
+    { "route": "/whats-new.json", "headers": { "Cache-Control": "public, max-age=300" } },
 
     { "route": "/sessions/index.txt", "rewrite": "/sessions/index.txt" },
     { "route": "/sessions/network-timeline/index.txt", "rewrite": "/sessions/network-timeline/index.txt" },

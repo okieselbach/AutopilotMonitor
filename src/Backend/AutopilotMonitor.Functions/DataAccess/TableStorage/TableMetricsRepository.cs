@@ -92,6 +92,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task RecordUserPresenceAsync(string tenantId, string upn, string userRole)
             => _storage.RecordUserPresenceAsync(tenantId, upn, userRole);
 
+        public Task<UserWhatsNewSeen> GetUserWhatsNewSeenAsync(string tenantId, string upn)
+            => _storage.GetUserWhatsNewSeenAsync(tenantId, upn);
+
+        public Task MarkUserWhatsNewSeenAsync(string tenantId, string upn, string channel, DateTime seenUtc)
+            => _storage.MarkUserWhatsNewSeenAsync(tenantId, upn, channel, seenUtc);
+
         public Task<List<UserPresenceEntry>> GetActivePresenceAsync(TimeSpan window)
             => _storage.GetActivePresenceAsync(window);
 

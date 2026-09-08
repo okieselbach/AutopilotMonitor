@@ -6,6 +6,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { getPortalLoginUrl, shouldCrossOriginToPortal } from "../../lib/hostRouting";
 import { DOCS_URL } from "@/utils/config";
 import { BrandMark } from "../BrandMark";
+import { useWhatsNew } from "@/hooks/useWhatsNew";
 
 // Root-anchored (/#…) so the links also work from subpages
 // like /get-started, /about, /terms, /privacy.
@@ -25,6 +26,19 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
+function BellIcon({ className }: { className?: string }) {
+  // Ringing bell: the public site announces "there is news" without claiming a count —
+  // anonymous visitors have no seen mark, so a counter would read 9+ for everyone.
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      <path d="M2.5 8a10 10 0 0 1 2-4.5" />
+      <path d="M21.5 8a10 10 0 0 0-2-4.5" />
+    </svg>
+  );
+}
+
 /**
  * Full-width landing navigation. Same auth handoff behavior as
  * PublicSiteNavbar: on www/apex, sign-in is delegated to the portal
@@ -33,6 +47,7 @@ function GitHubIcon({ className }: { className?: string }) {
 export function LandingNavbar() {
   const { login, isAuthenticated } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const whatsNew = useWhatsNew();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -103,6 +118,15 @@ export function LandingNavbar() {
             <GitHubIcon className="w-4 h-4" />
           </a>
           <button
+            type="button"
+            onClick={() => whatsNew.open("landing")}
+            className="hidden md:block p-2 rounded-lg text-[var(--lp-ink-faint)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
+            title="What's new"
+            aria-label="What's new"
+          >
+            <BellIcon className="w-4 h-4" />
+          </button>
+          <button
             onClick={handleSignIn}
             className="hidden md:block px-3 py-2 text-sm font-semibold text-[var(--lp-ink)] hover:text-[var(--lp-accent-ink)] transition-colors"
           >
@@ -169,6 +193,14 @@ export function LandingNavbar() {
                 <GitHubIcon className="w-4 h-4" />
                 GitHub
               </a>
+              <button
+                type="button"
+                onClick={() => { setMenuOpen(false); whatsNew.open("landing-menu"); }}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-[15px] font-medium rounded-lg text-[var(--lp-ink-soft)] hover:text-[var(--lp-ink)] hover:bg-[var(--lp-surface-2)] transition-colors"
+              >
+                <BellIcon className="w-4 h-4" />
+                What&apos;s new
+              </button>
               <div className="h-px bg-[var(--lp-line-soft)] my-2" />
               <button
                 onClick={handleSignIn}

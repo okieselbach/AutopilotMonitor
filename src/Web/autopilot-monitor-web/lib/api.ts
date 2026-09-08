@@ -18,6 +18,7 @@ export const api = {
   // ── Auth ──────────────────────────────────────────────────────────────────
   auth: {
     me: () => `${API_BASE_URL}/api/auth/me`,
+    whatsNewSeen: () => `${API_BASE_URL}/api/auth/me/whats-new-seen`,
   },
 
   // ── Sessions ──────────────────────────────────────────────────────────────

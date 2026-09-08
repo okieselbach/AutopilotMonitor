@@ -86,6 +86,10 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Live Presence (one row per user, upserted) ---
         /// <summary>Upserts the caller's presence row (PK=tenantId, RK=SHA-256(lowercase UPN) hex) with LastSeen=now.</summary>
         Task RecordUserPresenceAsync(string tenantId, string upn, string userRole);
+        /// <summary>Gets the caller's per-channel What's-new seen marks from the presence row; nulls mean never or unavailable.</summary>
+        Task<UserWhatsNewSeen> GetUserWhatsNewSeenAsync(string tenantId, string upn);
+        /// <summary>Monotonically merge-upserts the caller's What's-new seen mark for one channel without touching presence fields.</summary>
+        Task MarkUserWhatsNewSeenAsync(string tenantId, string upn, string channel, DateTime seenUtc);
         /// <summary>Returns all users whose LastSeen falls within the given window, newest first (cross-tenant).</summary>
         Task<List<UserPresenceEntry>> GetActivePresenceAsync(TimeSpan window);
         /// <summary>Retention cleanup: deletes presence rows whose LastSeen is older than the cutoff (drops one-off testers). Returns the number deleted.</summary>

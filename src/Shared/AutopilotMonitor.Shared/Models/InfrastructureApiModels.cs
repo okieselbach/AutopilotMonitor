@@ -37,6 +37,20 @@ namespace AutopilotMonitor.Shared.Models
 
         public bool BootstrapTokenEnabled { get; set; }
         public bool UnrestrictedModeEnabled { get; set; }
+
+        /// <summary>When this user last viewed the Platform tab of What's new; null = never and the key is omitted (client treats as first visit).</summary>
+        public DateTime? WhatsNewSeenPlatformUtc { get; set; }
+        /// <summary>Same for the Agent tab; null = never and the key is omitted.</summary>
+        public DateTime? WhatsNewSeenAgentUtc { get; set; }
+    }
+
+    /// <summary>Body of PUT auth/me/whats-new-seen.</summary>
+    public class WhatsNewSeenRequest : IApiRequest
+    {
+        /// <summary>What's-new channel: "platform" or "agent".</summary>
+        public string Channel { get; set; } = default!;
+        /// <summary>UTC timestamp when the caller viewed the channel.</summary>
+        public DateTime SeenUtc { get; set; }
     }
 
     /// <summary>
