@@ -111,7 +111,7 @@ export default function AboutPage() {
             data — into a central dashboard with intelligent analysis built in.
           </p>
           <p className="text-gray-700 leading-relaxed">
-            Deployed by assigning a bootstrapper script in Intune, the platform requires no infrastructure
+            Deployed by assigning a signed loader script in Intune, the platform requires no infrastructure
             changes and no additional certificates on end user devices. It runs entirely on
             <strong> Azure</strong>, authenticates via <strong>Microsoft Entra ID</strong>, and provides
             multi-tenant support with strict per-tenant data isolation.
@@ -239,7 +239,7 @@ export default function AboutPage() {
                 items: [
                   ".NET binary — lightweight, low-overhead monitoring",
                   "Runs via scheduled task (no Windows service — easy, residue-free removal)",
-                  "Deployed via an Intune platform script (PowerShell bootstrapper); for Autopilot Device Preparation additionally as a thin MSI line-of-business app",
+                  "Deployed via a signed Intune platform script (PowerShell loader); for Autopilot Device Preparation additionally as a thin MSI line-of-business app",
                   "Mutual TLS using the existing Intune MDM device certificate",
                   "Self-destruct on enrollment completion (on by default — removes task and files)",
                 ],

@@ -12,8 +12,9 @@
       2. Downloads the monitoring agent ZIP from Azure Blob Storage
       3. Verifies integrity via SHA-256 hash from the version manifest (mandatory)
       4. Extracts the agent into %ProgramData%\AutopilotMonitor\Agent
-      5. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
-      6. Verifies the runtime process actually launched
+      5. Verifies the Authenticode signature and publisher of every binary we author
+      6. Runs the agent in --install mode (registers Scheduled Task, spawns the runtime)
+      7. Verifies the runtime process actually launched
     Agent self-destructs when enrollment completes.
 
     Relax flow (guards 2+3): a real user profile (or a real LastLoggedOnUser)
@@ -76,6 +77,11 @@
       PowerShell 5.1 (IME) reads scripts without BOM as ANSI, corrupting multi-byte chars.
 
 .CHANGELOG
+    2026-09-08  v2.5  Publisher gate: every AutopilotMonitor binary in the extracted
+                      payload must carry a valid Authenticode signature from the
+                      expected publisher before --install runs. The SHA-256 manifest
+                      check stays and is unchanged; it proves the bytes, the signature
+                      proves the author.
     2026-08-08  v2.3  Windows 365 Cloud PC support: a positively identified Cloud PC
                       (Windows365 registry key AND CloudManagedDesktopExtension
                       service) now triggers the guard 2+3 relax alongside OOBE
@@ -128,7 +134,12 @@ param(
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "2.4"
+$ScriptVersion = "2.5"
+
+# The publisher every binary we author must carry. A -like pattern on the subject, NOT a
+# thumbprint: certificates are renewed, deployed copies of this script are not. Same value
+# the loader pins for this script.
+$ExpectedPublisher = "*O=glueckkanja AG*"
 
 # Configuration - Everything in ProgramData for easy cleanup
 $AgentBasePath = "$env:ProgramData\AutopilotMonitor"
@@ -329,6 +340,56 @@ function Get-BootstrapDecision {
     return [pscustomobject]@{ Install = $true; ReasonCode = $null; RelaxActive = $relax.Active }
 }
 
+# Returns the list of reasons why the extracted payload is not ours; an empty result means
+# every binary we author carries a valid Authenticode signature from the expected publisher.
+# Third-party assemblies keep their own publisher's signature and are not checked here.
+# Any error is a rejection: an unreadable signature is an unverified binary.
+function Get-UnverifiedAgentBinaries {
+    param([string]$Path)
+
+    $rejected = @()
+    $ourBinaries = @(
+        Get-ChildItem -Path $Path -Filter 'AutopilotMonitor.*' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @('.exe', '.dll') }
+    )
+
+    # An empty set is a rejection, not a pass: it means the extraction produced nothing we
+    # recognise, and the alternative would be a gate that silently approves an empty folder.
+    # The comma keeps a single rejection an ARRAY: PowerShell unrolls a one-element result to
+    # a bare string, and the caller reads .Count and indexes into it.
+    if ($ourBinaries.Count -eq 0) {
+        return , @("no AutopilotMonitor binaries found in $Path")
+    }
+
+    foreach ($binary in $ourBinaries) {
+        try {
+            $sig = Get-AuthenticodeSignature -FilePath $binary.FullName -ErrorAction Stop
+        }
+        catch {
+            $rejected += "$($binary.Name): signature check failed to run ($($_.Exception.Message))"
+            continue
+        }
+
+        if ($null -eq $sig) {
+            $rejected += "$($binary.Name): signature check returned nothing"
+            continue
+        }
+
+        $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<unsigned>' }
+
+        if ($sig.Status -ne 'Valid') {
+            $rejected += "$($binary.Name): signature status $($sig.Status)"
+            continue
+        }
+        if ($subject -notlike $ExpectedPublisher) {
+            $rejected += "$($binary.Name): unexpected publisher $subject"
+            continue
+        }
+    }
+
+    return , $rejected
+}
+
 # Main bootstrap flow. Only invoked when the script is run directly (see entry guard
 # at the bottom); never on dot-source.
 function Invoke-Bootstrap {
@@ -444,6 +505,20 @@ function Invoke-Bootstrap {
                 throw
             }
         }
+
+        # Publisher gate. The SHA-256 above proves the ZIP is the one the manifest names, but
+        # that manifest lives in the same container as the ZIP and cannot outlive a compromise
+        # of the download host. The expected publisher travels inside THIS script, which the
+        # loader verified before running it, so the chain from the file an administrator
+        # assigns to the process that starts here stays publisher-anchored end to end.
+        # Fail-closed, exactly like the hash check: running unverified code as SYSTEM is the
+        # risk being removed.
+        Write-Log "Verifying Authenticode signatures of the agent binaries..."
+        $unverified = Get-UnverifiedAgentBinaries -Path $AgentBinPath
+        if ($unverified.Count -gt 0) {
+            throw "Authenticode verification FAILED ($($unverified -join '; ')). Refusing to run an agent that is not signed by the expected publisher."
+        }
+        Write-Log "Authenticode verification passed (publisher pin: $ExpectedPublisher)"
 
         Write-Log "Calling agent install mode (--install)..."
         & $agentExePath --install

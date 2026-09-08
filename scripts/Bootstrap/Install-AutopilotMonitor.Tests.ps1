@@ -14,6 +14,22 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot 'Install-AutopilotMonitor.ps1')
 
+    function New-FakeSignature {
+        param([string]$Status, [string]$Subject)
+        $cert = if ($Subject) {
+            [pscustomobject]@{ Subject = $Subject; Thumbprint = '0123456789ABCDEF' }
+        } else { $null }
+        return [pscustomobject]@{ Status = $Status; SignerCertificate = $cert }
+    }
+
+    function New-FakePayload {
+        param([string[]]$Files)
+        $dir = Join-Path $TestDrive ([guid]::NewGuid().ToString())
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        foreach ($f in $Files) { Set-Content -Path (Join-Path $dir $f) -Value 'x' }
+        return $dir
+    }
+
     function New-FakeProfile {
         param([string]$Name, [double]$AgeMinutes)
         $p = Join-Path $TestDrive $Name
@@ -303,5 +319,95 @@ Describe 'logging purity' {
         $d.Count | Should -Be 1
         $d[0].ReasonCode | Should -Be 'AlreadyDeployed'
         Get-Content $LogFile -Raw | Should -Match 'SKIP: Agent was previously deployed'
+    }
+}
+
+Describe 'Get-UnverifiedAgentBinaries' {
+    # The publisher gate on the extracted payload. What matters is the DECISION: which
+    # payload is accepted, which is refused, and which files are looked at at all.
+    BeforeEach {
+        Mock Write-Log { }
+        $script:ours = 'CN=glueckkanja AG, O=glueckkanja AG, C=DE'
+    }
+
+    It 'accepts a payload where every binary of ours is validly signed by us' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject $script:ours }
+        Get-UnverifiedAgentBinaries -Path $dir | Should -BeNullOrEmpty
+    }
+
+    It 'checks the binaries we author and leaves third-party assemblies alone' {
+        $dir = New-FakePayload -Files @(
+            'AutopilotMonitor.Agent.exe',
+            'AutopilotMonitor.Agent.exe.config',
+            'AutopilotMonitor.Shared.dll',
+            'Newtonsoft.Json.dll',
+            'System.Management.Automation.dll'
+        )
+        $script:checked = @()
+        Mock Get-AuthenticodeSignature {
+            $script:checked += (Split-Path $FilePath -Leaf)
+            New-FakeSignature -Status 'Valid' -Subject $script:ours
+        }
+
+        Get-UnverifiedAgentBinaries -Path $dir | Should -BeNullOrEmpty
+        $script:checked | Should -Be @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
+    }
+
+    It 'refuses an unsigned agent executable' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'NotSigned' -Subject $null }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+
+    It 'refuses a tampered binary (hash mismatch)' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'HashMismatch' -Subject $script:ours }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+
+    It 'refuses a signature whose chain does not validate' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'UnknownError' -Subject $script:ours }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+
+    It 'refuses a validly signed binary from a different publisher' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject 'CN=Somebody Else, O=Somebody Else Ltd, C=US' }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+
+    It 'refuses the whole payload when a single DLL of ours is swapped' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe', 'AutopilotMonitor.Shared.dll')
+        Mock Get-AuthenticodeSignature {
+            if ((Split-Path $FilePath -Leaf) -eq 'AutopilotMonitor.Shared.dll') {
+                New-FakeSignature -Status 'Valid' -Subject 'CN=Somebody Else, O=Somebody Else Ltd, C=US'
+            } else {
+                New-FakeSignature -Status 'Valid' -Subject $script:ours
+            }
+        }
+        $rejected = Get-UnverifiedAgentBinaries -Path $dir
+        $rejected.Count | Should -Be 1
+        $rejected[0] | Should -BeLike 'AutopilotMonitor.Shared.dll*'
+    }
+
+    It 'refuses when the signature check itself throws' {
+        $dir = New-FakePayload -Files @('AutopilotMonitor.Agent.exe')
+        Mock Get-AuthenticodeSignature { throw 'access denied' }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+
+    It 'refuses an empty payload instead of passing it' {
+        $dir = New-FakePayload -Files @('Newtonsoft.Json.dll')
+        Mock Get-AuthenticodeSignature { New-FakeSignature -Status 'Valid' -Subject $script:ours }
+        (Get-UnverifiedAgentBinaries -Path $dir).Count | Should -Be 1
+    }
+}
+
+Describe 'publisher pin' {
+    It 'pins the expected publisher by subject, not by thumbprint' {
+        $ExpectedPublisher | Should -Be '*O=glueckkanja AG*'
+        $ExpectedPublisher | Should -Not -Match '^[0-9A-Fa-f]{40}$'
     }
 }
