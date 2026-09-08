@@ -471,7 +471,10 @@ jobs:
       # EXEs are subjects of their own so an extracted binary can be verified without the ZIP.
       # Runs after signing -- the digests must be those of the signed files.
       # Verify: gh attestation verify <file> --repo okieselbach/AutopilotMonitor
+      # Skipped when a run neither uploads nor releases: a test dispatch would otherwise write
+      # a permanent entry to the public transparency log for bytes nobody ever receives.
       - name: Attest build provenance
+        if: inputs.upload_blob || inputs.create_release
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
