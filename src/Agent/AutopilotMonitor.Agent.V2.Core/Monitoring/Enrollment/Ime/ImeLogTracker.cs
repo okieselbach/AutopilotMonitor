@@ -223,7 +223,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             return true;
         }
 
-        private const int MaxScriptOutputLength = 2048;
+        // Script stdout kept per event. Measured over 1,486 script outputs in the fleet
+        // (2026-08-25..09-08): median 39, p90 644, max 1,501 chars -- the maximum being our own
+        // one-stage bootstrap, and nothing ever hit the previous 2,048 cap. The two-stage
+        // bootstrap then added a ~460-char loader preamble to that maximum and started
+        // truncating the one output an operator actually reads. 8,192 leaves room for the
+        // realistic worst case (download retries plus relax logging, ~2,700) and stays 4x below
+        // the 32K-char Table Storage property limit that bounds the event downstream. Growth
+        // driver is the number of log lines the bootstrap chain writes, so re-measure before
+        // adding a chatty step rather than raising this again.
+        private const int MaxScriptOutputLength = 8192;
         private const int MaxMultiLineBufferLines = 100;
         // Size cap for ONE entry — a single physical line (enforced by BoundedLineReader before
         // the line is materialized) and an assembled multiline entry alike. Any process able to
