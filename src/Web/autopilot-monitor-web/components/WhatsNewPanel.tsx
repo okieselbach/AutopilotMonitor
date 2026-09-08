@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ModalPortal } from "./ModalPortal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWhatsNew } from "@/hooks/useWhatsNew";
+import { useLatestVersions } from "@/lib/useLatestVersions";
 import { closeWhatsNew } from "@/lib/whatsNewStore";
 import { formatInlineMarkdown } from "@/lib/formatInlineMarkdown";
 import { isPublicPath } from "@/lib/hostRouting";
@@ -107,6 +108,24 @@ function EntryRow({ entry, isNew }: { entry: WhatsNewEntry; isNew: boolean }) {
   );
 }
 
+/**
+ * The currently published agent version, quiet under the header line. Rendered only for
+ * signed-in portal users (the endpoint is AuthenticatedUser, and the public site has no
+ * session list to compare against), so the mount itself is the fetch gate. Same plain,
+ * monospaced string as the "Agent Version" column of the session list — that match is the
+ * whole point: the reader sees at a glance whether their fleet runs the latest agent.
+ */
+function LatestAgentVersionLine() {
+  const { getAccessToken } = useAuth();
+  const { latestAgentVersion } = useLatestVersions(getAccessToken);
+  if (!latestAgentVersion) return null;
+  return (
+    <p className="mt-1 text-xs text-[var(--lp-ink-faint)]">
+      Latest agent version <span className="font-mono">{latestAgentVersion}</span>
+    </p>
+  );
+}
+
 function SkeletonRows() {
   return (
     <ul className="animate-pulse" aria-hidden="true">
@@ -140,10 +159,12 @@ export function WhatsNewPanel({ rootClassName }: { rootClassName?: string }) {
   const [seenAtOpen] = useState<WhatsNewSeen>(() => wn.seen);
   const [openedAt] = useState(() => new Date());
 
-  // Only whoever can actually flip the channel toggle gets the "subscribe" link, and only on
-  // the portal — /settings/tenant/… does not exist on the public host.
+  // The portal shows things the public site cannot: /settings/tenant/… does not exist there,
+  // and the latest-agent line needs a signed-in caller plus a session list to compare against.
+  const onPortal = !isPublicPath(pathname);
+  // Only whoever can actually flip the channel toggle gets the "subscribe" link.
   const canConfigureNotifications =
-    wn.tracksUnseen && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true) && !isPublicPath(pathname);
+    wn.tracksUnseen && (user?.isTenantAdmin === true || user?.isGlobalAdmin === true) && onPortal;
 
   const channel = wn.panelChannel;
   const entries = wn.entries(channel);
@@ -196,6 +217,7 @@ export function WhatsNewPanel({ rootClassName }: { rootClassName?: string }) {
               <div className="min-w-0 flex-1">
                 <h2 id="whats-new-title" className="text-lg font-bold leading-tight text-[var(--lp-ink)]">What&apos;s new</h2>
                 <p className="mt-0.5 text-sm text-[var(--lp-ink-soft)]">News and improvements from Autopilot Monitor.</p>
+                {onPortal && wn.tracksUnseen && <LatestAgentVersionLine />}
               </div>
               <button
                 ref={closeRef}
