@@ -425,7 +425,17 @@ foreach ($item in $publishSet) {
     # with Front Door. Route caching is disabled there, but a stale script paired with a
     # fresh manifest would fail the bootstrap SHA check -- this keeps that class of bug
     # impossible even if caching is ever re-enabled.
-    $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'Content-Type' = $ScriptContentType; 'x-ms-blob-cache-control' = 'no-cache' }
+    #
+    # Content-Disposition: without it a text/plain blob opens as a web page in every
+    # browser, and the documented "download the script" step silently becomes "copy this
+    # text". The header makes the link a download everywhere, and command-line clients
+    # (the loader, the MSI, curl) ignore it.
+    $headers = @{
+        'x-ms-blob-type'                = 'BlockBlob'
+        'Content-Type'                  = $ScriptContentType
+        'x-ms-blob-cache-control'       = 'no-cache'
+        'x-ms-blob-content-disposition' = ('attachment; filename="{0}"' -f $item.BlobName)
+    }
     Invoke-RestMethod -Uri "$ContainerUrl/$($item.BlobName)" -Method Put -Headers ($authHeaders + $headers) -Body $bytes | Out-Null
 
     # Read straight back from the blob (authoritative, no CDN in the way) before touching the
