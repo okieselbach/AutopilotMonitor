@@ -114,5 +114,6 @@ export const DIAG_ZIP_MAP = {
     'Pre-provisioned (White Glove) blobs carry a -preprov suffix — that is normal.',
     'No archive ≠ a problem: upload mode may be Off or OnFailure (so successful sessions have none).',
     'Log naming is kebab-case since 2026-08-18: agent.log, bootstrap-script.log (was bootstrap_agent.log), bootstrap-msi.log (was msi-bootstrap.log), crash-*.log (was crash_*.log), gather-rules-debug.log, ime-pattern-matches.log. Archives from older agents/bootstraps carry the old names.',
+    'bootstrap-loader.log (since 2026-09-08) is the two-stage loader: it downloaded the installer, verified its publisher and started it. Its presence means the device was assigned the loader rather than the installer directly; the MDM-LOB MSI runs the same loader but logs to bootstrap-msi.log. bootstrap-script.log is the installer itself either way.',
   ],
 } as const;
