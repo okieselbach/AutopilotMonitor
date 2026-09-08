@@ -11,6 +11,20 @@ import { registerResources } from './resources.js';
 import { registerPrompts } from './prompts.js';
 import type { DocsSearchBundle, SearchProvider } from './search-provider.js';
 import { hasGlobalScope, isGlobalAdmin, isDelegated, getDelegatedTenantIds, getHomeTenantId } from './client.js';
+import { WEBSITE_BASE_URL } from './config.js';
+
+/**
+ * serverInfo metadata (MCP `Implementation`). Hosts such as VS Code render `description`
+ * as a one-liner under the server name — omit it and they show "No description provided".
+ * Convention (spec + servers like Context7): one plain sentence on WHAT the server exposes,
+ * `websiteUrl` = product homepage. Role/safety guidance belongs in `instructions`, not here.
+ */
+export const SERVER_INFO = {
+  name: 'Autopilot-Monitor',
+  description:
+    'Autopilot Monitor provides troubleshooting for Windows Autopilot enrollments, including session timelines, analyze rules, error codes, and fleet analytics.',
+  websiteUrl: WEBSITE_BASE_URL,
+} as const;
 
 export interface ServerDeps {
   /** Advertised in serverInfo (initialize / discover / every 2026 result `_meta`) and on /health. */
@@ -88,7 +102,7 @@ const RESOURCE_CACHE_TTL_MS = 60 * 60 * 1000;
  */
 export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean, delegated: boolean, managedTenants: string[], homeTenantId?: string): McpServer {
   const s = new McpServer(
-    { name: 'Autopilot-Monitor', version: deps.serverVersion },
+    { ...SERVER_INFO, version: deps.serverVersion },
     {
       // Delivered in `initialize` (2025 clients) and `server/discover` (2026-07-28 clients).
       instructions: buildInstructions(deps, ga, strictGa, delegated, managedTenants, homeTenantId),

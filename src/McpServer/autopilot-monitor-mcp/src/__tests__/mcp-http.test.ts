@@ -83,7 +83,14 @@ describe('2026-07-28 (modern) client', () => {
     try {
       expect(client.getInstructions()).toContain('as a Global Admin you additionally have tenant-configuration write tools');
       expect(client.getInstructions()).toContain('omit tenantId for cross-tenant queries');
-      expect(client.getServerVersion()).toEqual({ name: 'Autopilot-Monitor', version: '0.0.0-test' });
+      // Hosts (VS Code) render description/websiteUrl in their server list —
+      // without them the server shows up as "No description provided".
+      expect(client.getServerVersion()).toEqual({
+        name: 'Autopilot-Monitor',
+        version: '0.0.0-test',
+        description: expect.stringContaining('troubleshooting for Windows Autopilot enrollments'),
+        websiteUrl: 'https://www.autopilotmonitor.com',
+      });
     } finally {
       await client.close();
     }
