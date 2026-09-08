@@ -8897,6 +8897,14 @@
           "doc": "Emit behavior for collected results: null / \"always\" = emit on every collection (legacy behavior); \"on_change\" = poll on the trigger cadence but emit only when the collected result differs from the last emitted one. The first in-scope result always emits; the suppressed poll count is carried on the next emitted event (suppressedPolls / suppressedSinceUtc in the event data)."
         },
         {
+          "name": "enrichErrorCodes",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "Opt-in: let the backend explain error-code fields in this rule's output (exitCode, errorCode, hresult, …) with the Windows/MSI/Intune catalog, i.e. attach the *Info siblings the built-in events get. Default false — gather-rule payload keys are author-chosen and the codes usually come from third-party logs or commands (HP Image Assistant, Dell Command Update, custom scripts) with their own exit-code numbering, where the catalog meaning would be confidently wrong. Set to true only when the parsed source really uses Windows codes (e.g. an msiexec or IME log). The agent stamps enrichErrorCodes: true into the event data so the read-time enricher can honour it without knowing the rule."
+        },
+        {
           "name": "outputEventType",
           "type": {
             "kind": "primitive",

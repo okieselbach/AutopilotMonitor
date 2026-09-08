@@ -26,7 +26,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         /// emits (executor, context guard events, collectors). The timeline feed uses it to keep
         /// gather output from re-triggering on_event rules.
         /// </summary>
-        public const string SourceName = "GatherRuleExecutor";
+        public const string SourceName = Constants.EventSources.GatherRuleExecutor;
 
         /// <summary>
         /// Upper bound on on_event executions per rule and session. on_event has no natural
@@ -496,6 +496,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 
                     result["ruleId"] = rule.RuleId;
                     result["ruleTitle"] = rule.Title;
+                    StampRuleMarkers(rule, result);
 
                     var eventType = !string.IsNullOrEmpty(rule.OutputEventType) ? rule.OutputEventType : Constants.EventTypes.GatherResult;
 
@@ -536,6 +537,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
         }
 
         // ===== Phase scope (ActivePhases / ActiveFromPhase) =====
+
+        /// <summary>
+        /// Injects the per-rule opt-in markers the backend reads at response time. Called after
+        /// the on_change hash is taken (the markers are rule config, not collected data) by the
+        /// executor and by collectors that emit directly (logparser).
+        /// </summary>
+        internal static void StampRuleMarkers(GatherRule rule, Dictionary<string, object> data)
+        {
+            if (rule.EnrichErrorCodes)
+                data[Constants.GatherRuleDataKeys.EnrichErrorCodes] = true;
+        }
 
         private static bool HasPhaseScope(GatherRule rule)
         {

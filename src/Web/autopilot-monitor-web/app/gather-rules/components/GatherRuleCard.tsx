@@ -382,6 +382,13 @@ export function GatherRuleCard({
                     {rule.outputSeverity.charAt(0).toUpperCase() + rule.outputSeverity.slice(1)}
                   </span>
                 </div>
+                {rule.enrichErrorCodes && (
+                  <div title="exitCode / errorCode / hresult fields in this rule's output are explained with the Windows/MSI/Intune error-code catalog">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                      Error codes explained
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

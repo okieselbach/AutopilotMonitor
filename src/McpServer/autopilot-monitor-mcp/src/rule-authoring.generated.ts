@@ -178,6 +178,11 @@ export const GATHER_RULE_SCHEMA: Record<string, unknown> = {
             "on_change"
           ]
         },
+        "enrichErrorCodes": {
+          "type": "boolean",
+          "description": "Opt-in: let the backend explain error-code fields in this rule's output (exitCode, errorCode, hresult, ...) with the Windows/MSI/Intune error-code catalog, attaching the same *Info siblings built-in events get. Default false because gather-rule codes usually come from third-party logs or commands (HP Image Assistant, Dell Command Update, custom scripts) with their own exit-code numbering, where the catalog meaning would be wrong. Enable only when the parsed source really uses Windows codes (e.g. an msiexec or IME log).",
+          "default": false
+        },
         "outputEventType": {
           "type": "string",
           "description": "EventType for the emitted event (e.g., \"gather_proxy_settings\")."

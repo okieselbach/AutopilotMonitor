@@ -233,6 +233,7 @@ namespace AutopilotMonitor.Functions.Services
                     ["ActivePhasesJson"] = JsonConvert.SerializeObject(rule.ActivePhases ?? new List<string>()),
                     ["ActiveFromPhase"] = rule.ActiveFromPhase ?? string.Empty,
                     ["EmitMode"] = rule.EmitMode ?? string.Empty,
+                    ["EnrichErrorCodes"] = rule.EnrichErrorCodes,
                     ["OutputEventType"] = rule.OutputEventType ?? string.Empty,
                     ["OutputSeverity"] = rule.OutputSeverity ?? "Info",
                     ["TagsJson"] = JsonConvert.SerializeObject(rule.Tags ?? new string[0]),
@@ -343,6 +344,8 @@ namespace AutopilotMonitor.Functions.Services
                 ActivePhases = MapActivePhases(entity.GetString("ActivePhasesJson")),
                 ActiveFromPhase = string.IsNullOrEmpty(entity.GetString("ActiveFromPhase")) ? null : entity.GetString("ActiveFromPhase"),
                 EmitMode = string.IsNullOrEmpty(entity.GetString("EmitMode")) ? null : entity.GetString("EmitMode"),
+                // Absent column (pre-existing rows) → false: the opt-in never turns itself on.
+                EnrichErrorCodes = entity.GetBoolean("EnrichErrorCodes") ?? false,
                 OutputEventType = entity.GetString("OutputEventType") ?? string.Empty,
                 OutputSeverity = entity.GetString("OutputSeverity") ?? "Info",
                 Tags = DeserializeJsonArray(entity.GetString("TagsJson")),

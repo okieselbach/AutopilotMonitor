@@ -145,4 +145,24 @@ describe('keyEventErrorCode (get_session_summary)', () => {
   it('surfaces an unknown code without text', () => {
     expect(keyEventErrorCode({ errorCode: '0xDEADBEEF' })).toEqual({ errorCode: '0xDEADBEEF' });
   });
+
+  it('never explains gather-rule codes by default — they live in the vendor\'s own numbering (HPiA, DCU, …)', () => {
+    // exitCode 1603 is a well-known MSI code, but from a gather rule it means whatever the parsed
+    // log says; neither the local catalog nor a stale backend sibling may attach text.
+    expect(keyEventErrorCode({ exitCode: '1603' }, 'GatherRuleExecutor')).toEqual({ errorCode: '1603' });
+    expect(keyEventErrorCode({
+      exitCode: '1603',
+      exitCodeInfo: { description: 'A fatal error occurred during installation', symbol: 'ERROR_INSTALL_FAILURE' },
+    }, 'gatherruleexecutor')).toEqual({ errorCode: '1603' });
+    expect(keyEventErrorCode({ exitCode: '1603', enrichErrorCodes: false }, 'GatherRuleExecutor')).toEqual({ errorCode: '1603' });
+    expect(keyEventErrorCode({ exitCode: '1603' }, 'ImeLogMonitor').errorText).toMatch(/^ERROR_INSTALL_FAILURE — /);
+  });
+
+  it('explains gather-rule codes when the rule opted in (agent-stamped enrichErrorCodes marker)', () => {
+    expect(keyEventErrorCode({ exitCode: '1603', enrichErrorCodes: true }, 'GatherRuleExecutor').errorText)
+      .toMatch(/^ERROR_INSTALL_FAILURE — /);
+    // Marker as a string after a DataJson roundtrip.
+    expect(keyEventErrorCode({ exitCode: '1603', enrichErrorCodes: 'true' }, 'GatherRuleExecutor').errorText)
+      .toMatch(/^ERROR_INSTALL_FAILURE — /);
+  });
 });

@@ -37,6 +37,7 @@ public class GatherRuleUpdatePartialMergeTests
         CreatedAt = new DateTime(2026, 1, 15, 12, 0, 0, DateTimeKind.Utc),
         ActiveFromPhase = "AccountSetup",
         EmitMode = "on_change",
+        EnrichErrorCodes = true,
     };
 
     private static (GatherRuleService service, Mock<IRuleRepository> repo, List<GatherRule> stored) BuildService(
@@ -77,6 +78,7 @@ public class GatherRuleUpdatePartialMergeTests
         Assert.Equal("Version", written.Parameters["valueName"]);
         Assert.Equal("AccountSetup", written.ActiveFromPhase);
         Assert.Equal("on_change", written.EmitMode);
+        Assert.True(written.EnrichErrorCodes);
         Assert.Equal(existing.CreatedAt, written.CreatedAt);
         Assert.Equal("Alice Admin", written.Author);
     }

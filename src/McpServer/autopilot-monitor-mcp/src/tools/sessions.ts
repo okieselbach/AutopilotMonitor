@@ -634,7 +634,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
           phase: phaseName(e.phase, s.enrollmentType),
           message: e.message,
           source: e.source,
-          ...keyEventErrorCode(e.data),
+          ...keyEventErrorCode(e.data, e.source),
         }));
 
         let analysis = null;
@@ -907,17 +907,39 @@ const ERROR_CODE_KEYS: ReadonlyArray<[code: string, info: string]> = [
 ];
 
 /**
+ * `source` the agent stamps on gather-rule output. Those payload keys are author-chosen and the
+ * codes come from third-party logs/commands (HP Image Assistant, Dell Command Update, custom
+ * scripts) with their own numbering, so neither the backend enricher nor the local catalog
+ * fallback may explain them unless the rule opted in via `enrichErrorCodes` (the agent then
+ * stamps `enrichErrorCodes: true` into the data). The raw code always travels.
+ */
+const GATHER_RULE_SOURCE = 'GatherRuleExecutor';
+const ENRICH_OPT_IN_KEY = 'enrichErrorCodes';
+
+function isOptedOutGatherEvent(data: Record<string, unknown>, source: string | null | undefined): boolean {
+  if (typeof source !== 'string' || source.toLowerCase() !== GATHER_RULE_SOURCE.toLowerCase()) return false;
+  const marker = data[ENRICH_OPT_IN_KEY];
+  return !(marker === true || (typeof marker === 'string' && marker.toLowerCase() === 'true'));
+}
+
+/**
  * `errorCode` + `errorText` for a key event, only when the payload carries a code. The text
  * comes from the backend-enriched `*Info` sibling (symbol + catalog meaning); an older
  * response without the sibling falls back to the server's own catalog. A code the catalog
- * does not know is still surfaced as errorCode, without errorText.
+ * does not know is still surfaced as errorCode, without errorText. Gather-rule events
+ * (`source === GatherRuleExecutor`) get catalog text only when their rule opted in.
  */
-export function keyEventErrorCode(data: Record<string, unknown> | undefined): { errorCode?: string; errorText?: string } {
+export function keyEventErrorCode(
+  data: Record<string, unknown> | undefined,
+  source?: string | null,
+): { errorCode?: string; errorText?: string } {
   if (!data) return {};
+  const suppressCatalogText = isOptedOutGatherEvent(data, source);
   for (const [codeKey, infoKey] of ERROR_CODE_KEYS) {
     const raw = data[codeKey];
     if (raw === undefined || raw === null || raw === '' || raw === 0 || raw === '0') continue;
     const errorCode = String(raw);
+    if (suppressCatalogText) return { errorCode };
     const info = data[infoKey] as { description?: unknown; symbol?: unknown } | undefined;
     let symbol: string | undefined;
     let description: string | undefined;

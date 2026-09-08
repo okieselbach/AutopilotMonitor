@@ -663,6 +663,26 @@ export function GatherRuleFormFields({ form, setForm, showRuleId, unrestrictedMo
           </select>
         </div>
       </div>
+
+      {/* Output: error-code catalog opt-in. Off by default — gather-rule codes usually follow a
+          vendor's own numbering (HPiA, DCU, custom scripts), where the Windows/MSI meaning is wrong. */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.enrichErrorCodes}
+            onChange={(e) => setForm({ ...form, enrichErrorCodes: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+          />
+          <span className="text-sm font-medium text-gray-700">Explain error codes with the Windows catalog</span>
+        </label>
+        <p className="text-xs text-gray-400 mt-1 ml-6">
+          Attaches the Windows/MSI/Intune meaning to <code className="px-1 bg-gray-100 rounded">exitCode</code>,{" "}
+          <code className="px-1 bg-gray-100 rounded">errorCode</code> and <code className="px-1 bg-gray-100 rounded">hresult</code> fields
+          in this rule&apos;s output, like on built-in events. Leave off when the source uses its own exit codes
+          (HP Image Assistant, Dell Command Update, custom scripts) — the catalog would explain them wrongly.
+        </p>
+      </div>
     </div>
   );
 }

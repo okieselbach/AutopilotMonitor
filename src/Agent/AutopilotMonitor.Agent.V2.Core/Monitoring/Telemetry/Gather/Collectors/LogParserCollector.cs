@@ -278,6 +278,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 data["logFile"] = Path.GetFileName(filePath);
                                 data["ruleId"] = rule.RuleId;
                                 data["ruleTitle"] = rule.Title;
+                                GatherRuleExecutor.StampRuleMarkers(rule, data);
 
                                 var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
                                     ? rule.OutputEventType
@@ -347,6 +348,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather.Collectors
                                 data["logFile"] = Path.GetFileName(filePath);
                                 data["ruleId"] = rule.RuleId;
                                 data["ruleTitle"] = rule.Title;
+                                GatherRuleExecutor.StampRuleMarkers(rule, data);
 
                                 var eventType = !string.IsNullOrEmpty(rule.OutputEventType)
                                     ? rule.OutputEventType
