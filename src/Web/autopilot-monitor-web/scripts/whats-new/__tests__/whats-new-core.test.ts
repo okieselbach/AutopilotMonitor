@@ -219,24 +219,28 @@ describe("buildPayload", () => {
     expect(payload.channels.agent.docsUrl).toBe("https://docs.example/changelog/agent-changelog");
   });
 
-  it("keeps the three newest periods only and preserves file order", () => {
+  const platformEntry = (title: string) => {
+    const entry = payload.channels.platform.entries.find(e => e.title === title);
+    if (!entry) throw new Error(`no platform entry titled ${title}`);
+    return entry;
+  };
+
+  it("keeps the three newest periods only and preserves the file order of the blocks", () => {
     const periods = payload.channels.platform.entries.map(e => e.period);
     expect(periods).toEqual(["September 2026", "September 2026", "September 2026", "August 2026", "July 2026"]);
   });
 
   it("dates bullets from blame and uncommitted ones from now", () => {
-    const [first, second] = payload.channels.platform.entries;
-    expect(first.addedUtc).toBe(new Date(1757200000 * 1000).toISOString());
-    expect(second.addedUtc).toBe(now.toISOString());
+    expect(platformEntry("Filter widgets by priority").addedUtc).toBe(new Date(1757200000 * 1000).toISOString());
+    expect(platformEntry("Wrapped bullet").addedUtc).toBe(now.toISOString());
   });
 
   it("splits platform titles, rewrites links and picks the first as the read-more target", () => {
-    const first = payload.channels.platform.entries[0];
-    expect(first.title).toBe("Filter widgets by priority");
-    expect(first.body).toBe(
+    const entry = platformEntry("Filter widgets by priority");
+    expect(entry.body).toBe(
       "Every chip filters the list. See [Dashboard](https://docs.example/portal-guide/dashboard-and-sessions#search-syntax) and [Concepts](https://docs.example/rules/analyze-rules/concepts).",
     );
-    expect(first.link).toBe("https://docs.example/portal-guide/dashboard-and-sessions#search-syntax");
+    expect(entry.link).toBe("https://docs.example/portal-guide/dashboard-and-sessions#search-syntax");
   });
 
   it("leaves agent bullets untitled with the sentence as body", () => {
@@ -252,6 +256,56 @@ describe("buildPayload", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(stableId("x")).toBe(stableId("x"));
     expect(stableId("x")).not.toBe(stableId("y"));
+  });
+});
+
+describe("entry order", () => {
+  const now = new Date("2026-09-08T10:00:00.000Z");
+  // Two commits, three bullets: the newest bullet is authored BELOW an older one — the
+  // topic grouping the changelogs use. Without ordering it would hide among older entries
+  // while the badge still counted it.
+  const MD = [
+    "# Platform Changelog",
+    "",
+    "## September 2026",
+    "",
+    "* **Older, listed first** — body.",
+    "* **Newest, listed last** — body.",
+    "* **Same commit as the newest** — body.",
+    "",
+    "## August 2026",
+    "",
+    "* **August** — body.",
+  ].join("\n");
+  const order = (markdown: string, blame: Record<number, number | null>) =>
+    buildPayload({
+      docsUrl: "https://docs.example",
+      docsCommit: null,
+      summary: SUMMARY,
+      now,
+      channels: { platform: { markdown, blame: blameFor(blame) }, agent: { markdown: AGENT_MD, blame: blameFor({ 7: 1757300000, 8: 1757250000 }) } },
+    }).channels.platform.entries;
+
+  it("puts the newest bullet of a period first and keeps ties in authored order", () => {
+    const entries = order(MD, { 5: 1757100000, 6: 1757200000, 7: 1757200000, 11: 1756000000 });
+    expect(entries.map(e => e.title)).toEqual([
+      "Newest, listed last",
+      "Same commit as the newest",
+      "Older, listed first",
+      "August",
+    ]);
+  });
+
+  it("does not reorder across periods — an old bullet stays in its own block", () => {
+    // August bullet dated after every September bullet: the blocks keep their file order.
+    const entries = order(MD, { 5: 1757100000, 6: 1757200000, 7: 1757200000, 11: 1757900000 });
+    expect(entries.map(e => e.period)).toEqual(["September 2026", "September 2026", "September 2026", "August 2026"]);
+  });
+
+  it("sorts an uncommitted bullet to the top — it is the newest a local build knows", () => {
+    const entries = order(MD, { 5: 1757100000, 6: 1757200000, 7: null, 11: 1756000000 });
+    expect(entries[0].title).toBe("Same commit as the newest");
+    expect(entries[0].addedUtc).toBe(now.toISOString());
   });
 });
 

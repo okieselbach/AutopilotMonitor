@@ -8,7 +8,15 @@
  * `## <Period>` blocks with `* ` bullets — and turns it into the JSON the portal
  * panel renders. Nothing here adds meaning the markdown does not carry; the only
  * derived facts are the per-bullet publish date (from `git blame`, supplied by the
- * caller) and the absolute docs URL of every relative link.
+ * caller), the absolute docs URL of every relative link, and the order of the bullets
+ * within a period.
+ *
+ * Ordering: the changelogs are authored newest-first, but related bullets are grouped by
+ * topic, so a new entry can end up below older ones in the file. The panel counts unseen
+ * entries by date, so a reader could not find the bullet the counter meant. The payload
+ * therefore sorts each period's bullets by publish date, newest first — every unseen entry
+ * sits at the top of its period and the badge is countable. The docs page keeps its
+ * authored order; it shows no dates.
  */
 
 const SCHEMA_VERSION = 1;
@@ -283,6 +291,8 @@ function toIso(epochSeconds, fallbackIso) {
 /**
  * Builds one channel's entry list from markdown + blame dates.
  * `nowIso` dates bullets git has not committed yet (local runs on a dirty tree).
+ * Period blocks keep their file order; the bullets inside one block are ordered by
+ * publish date, newest first — see the ordering note at the top of this file.
  * @returns {Entry[]}
  */
 function buildChannelEntries(markdown, blameByLine, ctx, nowIso) {
@@ -290,11 +300,12 @@ function buildChannelEntries(markdown, blameByLine, ctx, nowIso) {
   /** @type {Entry[]} */
   const entries = [];
   for (const block of blocks) {
+    /** @type {Entry[]} */
+    const blockEntries = [];
     for (const bullet of block.bullets) {
-      if (entries.length >= MAX_ENTRIES) return entries;
       const { title, body } = splitTitle(bullet.text);
       const { text, link } = rewriteLinks(body, ctx);
-      entries.push({
+      blockEntries.push({
         id: stableId(`${block.period}|${bullet.text}`),
         addedUtc: toIso(blameByLine.get(bullet.line), nowIso),
         period: block.period,
@@ -302,6 +313,13 @@ function buildChannelEntries(markdown, blameByLine, ctx, nowIso) {
         body: text,
         link,
       });
+    }
+    // Newest first inside the period; ties keep the authored order, so the bullets of one
+    // commit stay in the sequence they were written in.
+    blockEntries.sort((a, b) => Date.parse(b.addedUtc) - Date.parse(a.addedUtc));
+    for (const entry of blockEntries) {
+      if (entries.length >= MAX_ENTRIES) return entries;
+      entries.push(entry);
     }
   }
   return entries;

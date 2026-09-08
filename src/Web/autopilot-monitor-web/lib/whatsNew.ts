@@ -32,6 +32,11 @@ export interface WhatsNewEntry {
 
 export interface WhatsNewChannelData {
   docsUrl: string;
+  /**
+   * Period blocks in the order the changelog lists them; inside one block newest first,
+   * ties in authored order. The generator guarantees this — the panel renders the array as
+   * it comes, so an entry the badge counts is always at the top of its period.
+   */
   entries: WhatsNewEntry[];
 }
 
