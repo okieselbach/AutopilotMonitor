@@ -3,9 +3,11 @@
     Stage 1 of the Autopilot Monitor bootstrap: fetches the current installer and runs it.
 
 .DESCRIPTION
-    This is the file an administrator assigns in Intune. It carries no enrollment logic at
-    all: it downloads the published Install-AutopilotMonitor.ps1, proves that it was signed
-    by Autopilot Monitor, and runs it in this process.
+    This is the file an administrator assigns in Intune, and the same file the bootstrap MSI
+    installs and runs -- one implementation for both delivery channels; the MSI is only the
+    packaging. It carries no enrollment logic at all: it downloads the published
+    Install-AutopilotMonitor.ps1, proves that it was signed by Autopilot Monitor, and runs it
+    in this process.
 
     Why two stages: the installer holds every guard, relax rule and download path, and those
     change. Whoever assigns the installer directly has to replace their Intune copy each
@@ -32,6 +34,11 @@
     Installer URL. Defaults to the published stable installer; the -Dev variant of this
     loader is rendered from that default at publish time.
 
+.PARAMETER LogFileName
+    Log file inside the agent log directory. The MSI channel passes bootstrap-msi.log so the
+    delivery channel stays visible in a diagnostics package; the diag tooling keys on these
+    names, so do not rename them.
+
 .PARAMETER BootstrapArguments
     Everything else is passed through to the installer unchanged, so any parameter the
     installer accepts can be set here without this file knowing about it.
@@ -47,6 +54,8 @@
     Runtime : Windows PowerShell 5.1, SYSTEM context, during Autopilot enrollment
 
 .CHANGELOG
+    2026-09-08  v1.1  Also used by the bootstrap MSI, which replaced its own copy of this
+                      logic; -LogFileName keeps the channel visible in diagnostics.
     2026-09-08  v1.0  Initial version: two-stage bootstrap, publisher-pinned verification.
 #>
 
@@ -55,12 +64,16 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1",
 
+    [Parameter(Mandatory = $false)]
+    [ValidatePattern('^[A-Za-z0-9._-]+$')]
+    [string]$LogFileName = "bootstrap-loader.log",
+
     [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true)]
     [string[]]$BootstrapArguments
 )
 
 # Script version (bump on meaningful changes; see .CHANGELOG above)
-$ScriptVersion = "1.0"
+$ScriptVersion = "1.1"
 
 # The publisher every downloaded stage-2 script must carry. A -like pattern on the subject,
 # NOT a thumbprint: certificates are renewed, deployed loaders are not.
@@ -68,7 +81,7 @@ $ExpectedPublisher = "*O=glueckkanja AG*"
 
 $LoaderBasePath = "$env:ProgramData\AutopilotMonitor"
 $LoaderLogPath  = "$LoaderBasePath\Logs"
-$LogFile        = "$LoaderLogPath\bootstrap-loader.log"
+$LogFile        = "$LoaderLogPath\$LogFileName"
 $BootstrapPath  = "$LoaderBasePath\Install-AutopilotMonitor.ps1"
 
 $DownloadAttempts = 3

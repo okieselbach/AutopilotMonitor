@@ -1,11 +1,11 @@
 name: Build & Publish Bootstrap MSI
 
 # Thin MDM LOB delivery vehicle for WDP (Autopilot v2) — see
-# src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs. The MSI carries no bootstrap
-# logic (only the runner script that downloads the CURRENT server-hosted
-# Install-AutopilotMonitor.ps1), so it is rebuilt rarely: only when the runner script
-# or the WiX package changes. Version lives in Package.wxs — bump it there before
-# dispatching so Intune LOB update detection sees a new ProductVersion.
+# src/Agent/AutopilotMonitor.BootstrapMsi/Package.wxs. The MSI is packaging only: it
+# carries the SAME stage-1 loader that is assigned directly in Intune, so it is rebuilt
+# rarely — only when that loader or the WiX package changes. Version lives in Package.wxs
+# — bump it there before dispatching so Intune LOB update detection sees a new
+# ProductVersion.
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ permissions:
 
 env:
   MSI_PROJECT_DIR: src/Agent/AutopilotMonitor.BootstrapMsi
-  RUNNER_SCRIPT: src/Agent/AutopilotMonitor.BootstrapMsi/Invoke-BootstrapDownload.ps1
+  RUNNER_SCRIPT: scripts/Bootstrap/Start-AutopilotMonitor.ps1
   STABLE_MSI: AutopilotMonitor-Bootstrap.msi
   # Authenticode via Azure Key Vault; identity and vault come from repository variables.
   # CODE_SIGN_EXPECTED_SUBJECT is optional and pins the publisher in the verify steps.
@@ -42,8 +42,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      # The runner executes as SYSTEM on every enrolling device — a parse error or
+      # The loader executes as SYSTEM on every enrolling device — a parse error or
       # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
+      # bootstrap-script-gates.yml runs the same checks plus Pester on pushes; this job
+      # stands on its own because it can be dispatched at any time.
       - name: Validate runner script (parse + ASCII-only)
         shell: pwsh
         run: |
@@ -118,10 +120,10 @@ jobs:
           DOTNET_ROLL_FORWARD: LatestMajor
         run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
-      # BEFORE the build: wix embeds the file as it finds it, so a script signed afterwards
+      # BEFORE the build: wix embeds the file as it finds it, so a loader signed afterwards
       # would leave the copy inside the MSI unsigned. Devices under an AllSigned policy need
-      # the embedded runner to carry a signature of its own.
-      - name: Sign bootstrap runner script (Authenticode)
+      # the embedded loader to carry a signature of its own.
+      - name: Sign bootstrap loader (Authenticode)
         shell: pwsh
         env:
           DOTNET_ROLL_FORWARD: LatestMajor
@@ -169,7 +171,7 @@ jobs:
             $env:STABLE_MSI
           if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
 
-          # The MSI and the runner it carries -- verified here, before anything is published.
+          # The MSI and the loader it carries -- verified here, before anything is published.
           foreach ($file in @($env:STABLE_MSI, $env:RUNNER_SCRIPT)) {
             $sig = Get-AuthenticodeSignature -FilePath $file
             if ($sig.Status -ne 'Valid') { throw "Signature on $file is '$($sig.Status)', expected 'Valid'." }

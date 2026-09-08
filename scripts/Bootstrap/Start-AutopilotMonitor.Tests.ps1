@@ -124,4 +124,15 @@ Describe 'publish contract' {
     It 'pins the expected publisher by subject, not by thumbprint' {
         $script:loaderText -match '\$ExpectedPublisher\s*=\s*"\*O=' | Should -BeTrue
     }
+
+    # The bootstrap MSI installs this same file and runs it with -LogFileName so the delivery
+    # channel stays visible in a diagnostics package. Renaming the parameter on either side
+    # would leave the MSI channel silently logging under the wrong name.
+    It 'keeps the -LogFileName contract the bootstrap MSI relies on' {
+        $script:loaderText -match '\[string\]\$LogFileName' | Should -BeTrue
+
+        $wxs = Get-Content (Join-Path $PSScriptRoot '..\..\src\Agent\AutopilotMonitor.BootstrapMsi\Package.wxs') -Raw
+        $wxs.Contains('[INSTALLFOLDER]Start-AutopilotMonitor.ps1') | Should -BeTrue
+        $wxs.Contains('-LogFileName bootstrap-msi.log') | Should -BeTrue
+    }
 }

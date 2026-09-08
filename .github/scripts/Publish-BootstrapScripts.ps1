@@ -12,8 +12,9 @@
                                 lands a consistent set (ZIP + manifest + scripts).
 
     Both callers run the same code. The scripts on the download alias are the live
-    copy the WDP bootstrap MSI (Invoke-BootstrapDownload.ps1) downloads on every
-    enrolling device, so "current" is a correctness property, not cosmetics.
+    copy the stage-1 loader downloads on every enrolling device, whether it came from
+    Intune or from the bootstrap MSI, so "current" is a correctness property, not
+    cosmetics.
 
     Steps, in order:
       1. Parse $ScriptVersion from the loader and the bootstrap source.
@@ -100,8 +101,8 @@ $TableUrl           = "https://autopilotmonitoreu.table.core.windows.net/AdminCo
 $BootstrapSource   = Join-Path $RepoRoot 'scripts/Bootstrap/Install-AutopilotMonitor.ps1'
 $BootstrapBlob     = 'Install-AutopilotMonitor.ps1'
 $DevBlob           = 'Install-AutopilotMonitor-Dev.ps1'
-# Stage 1. What a customer assigns in Intune once; it downloads the bootstrap above on
-# every device and verifies its publisher before running it.
+# Stage 1. Assigned in Intune once, and embedded in the bootstrap MSI; it downloads the
+# bootstrap above on every device and verifies its publisher before running it.
 $LoaderSource      = Join-Path $RepoRoot 'scripts/Bootstrap/Start-AutopilotMonitor.ps1'
 $LoaderBlob        = 'Start-AutopilotMonitor.ps1'
 $LoaderDevBlob     = 'Start-AutopilotMonitor-Dev.ps1'

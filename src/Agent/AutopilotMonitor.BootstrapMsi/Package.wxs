@@ -4,16 +4,19 @@
   LOB MSIs are installed by the OMA-DM stack (EnterpriseDesktopAppManagement CSP) during
   the first MDM sync, i.e. BEFORE/parallel to the Device Preparation SLDM app batch -
   earlier than any IME-delivered script (Batch 2) or Win32 app can run. The MSI itself
-  carries no bootstrap logic: it installs one runner script and executes it once. The
-  runner downloads the CURRENT server-hosted Install-AutopilotMonitor.ps1, keeping all
-  real logic updatable without re-shipping the MSI.
+  carries no bootstrap logic and no downloader of its own: it installs the SAME stage-1
+  loader that is assigned directly in Intune (scripts/Bootstrap/Start-AutopilotMonitor.ps1)
+  and runs it once. The loader downloads the current server-hosted
+  Install-AutopilotMonitor.ps1 and verifies its publisher before executing it, so all real
+  logic stays updatable without re-shipping the MSI, and both delivery channels share one
+  implementation.
 
   Build: wix build Package.wxs -arch x64 -o bin\AutopilotMonitor-Bootstrap.msi
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Autopilot Monitor Bootstrap"
            Manufacturer="Autopilot Monitor"
-           Version="1.0.2"
+           Version="1.1.0"
            UpgradeCode="1fbe5515-d346-445c-b8b8-14ee79f97522"
            Scope="perMachine"
            Compressed="yes">
@@ -28,8 +31,13 @@
     </StandardDirectory>
 
     <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
-      <Component Id="RunnerScript" Guid="8c8e8962-719f-458b-b291-dd99d3f1dc30">
-        <File Id="RunnerPs1" Source="Invoke-BootstrapDownload.ps1" KeyPath="yes" />
+      <!-- Source is relative to the build working directory (the project dir), not to this
+           file. New component GUID because the key path changed. -->
+      <Component Id="RunnerScript" Guid="A972F561-01B5-400A-8C2A-47D12BA97DCA">
+        <File Id="RunnerPs1"
+              Source="..\..\..\scripts\Bootstrap\Start-AutopilotMonitor.ps1"
+              Name="Start-AutopilotMonitor.ps1"
+              KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
@@ -38,11 +46,12 @@
     </Feature>
 
     <!-- Deferred + no-impersonate: runs as SYSTEM after files land. Return=ignore keeps
-         the LOB install green even if the runner hits a transient error (the runner is
-         additionally fail-soft itself); diagnostics live in bootstrap-msi.log. -->
+         the LOB install green even if the loader hits a transient error (the loader is
+         additionally fail-soft itself). -LogFileName keeps this channel distinguishable in
+         a diagnostics package; the diag tooling keys on that name. -->
     <CustomAction Id="RunBootstrap"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Invoke-BootstrapDownload.ps1&quot;"
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Start-AutopilotMonitor.ps1&quot; -LogFileName bootstrap-msi.log"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
