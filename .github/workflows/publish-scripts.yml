@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # OIDC federated login for the storage writes (secret-less)
 
 # Shared with build-agent.yml: a script publish and an agent release both touch
 # version.json, and the bootstrapVersion read-modify-write must not interleave with the
@@ -45,12 +46,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Authorizes the eu blob writes and the AdminConfiguration merge. The gates job above
+      # runs the same publisher with -DryRun and deliberately without a login -- a dry run
+      # must never need Azure credentials.
+      - name: Login to Azure (OIDC)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Publish bootstrap + customer scripts
         shell: pwsh
         run: |
           $dryRun = '${{ inputs.dry_run }}' -eq 'true'
           ./.github/scripts/Publish-BootstrapScripts.ps1 `
-            -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' `
             -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
-            -TableSasToken '${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}' `
             -DryRun:$dryRun

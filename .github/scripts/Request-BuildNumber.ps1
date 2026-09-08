@@ -12,7 +12,8 @@
     A failed build burns a number, which is harmless -- uniqueness matters,
     density does not.
 
-    The blob is public-read; only the write needs the container SAS.
+    The blob is public-read; only the write needs authorization, and that comes from the
+    ambient Entra identity (see Get-StorageAuthHeaders.ps1) -- no secret is passed in.
 
     Why a counter and not the published version manifest: manifests are written
     on publish, not on build (the agent writes version.json only for stable
@@ -20,10 +21,7 @@
     overwrite each other's versioned artifact.
 
 .PARAMETER CounterUrl
-    Full URL of the counter blob, without SAS.
-
-.PARAMETER SasToken
-    Container SAS with create+write permission. A leading '?' is tolerated.
+    Full URL of the counter blob.
 
 .PARAMETER Override
     Explicit build number instead of counter+1. If it is not greater than the
@@ -37,20 +35,19 @@
     [int] the reserved build number. Progress goes to the host, not the pipeline.
 
 .EXAMPLE
-    $n = ./Request-BuildNumber.ps1 -CounterUrl $url -SasToken $sas
+    $n = ./Request-BuildNumber.ps1 -CounterUrl $url
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$CounterUrl,
-    [Parameter(Mandatory = $true)][string]$SasToken,
     [int]$Override = 0,
     [int]$MaxAttempts = 5
 )
 
 $ErrorActionPreference = 'Stop'
 
-# Tolerate both secret formats ("sp=cw&..." and "?sp=cw&...").
-$writeUrl = $CounterUrl + '?' + $SasToken.TrimStart('?')
+# The write is Entra-authorized; the read below stays anonymous (public container).
+$authHeaders = & (Join-Path $PSScriptRoot 'Get-StorageAuthHeaders.ps1')
 
 function Get-HttpStatus {
     param($ErrorRecord)
@@ -85,8 +82,8 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     $target = if ($Override -gt 0) { $Override } else { $counter.Value + 1 }
 
     try {
-        $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'If-Match' = $counter.ETag }
-        Invoke-RestMethod -Uri $writeUrl -Method Put -Headers $headers -Body "$target" -ContentType 'text/plain' | Out-Null
+        $headers = $authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'If-Match' = $counter.ETag }
+        Invoke-RestMethod -Uri $CounterUrl -Method Put -Headers $headers -Body "$target" -ContentType 'text/plain' | Out-Null
         Write-Host "  Reserved build number $target (CAS write ok, attempt $attempt)"
         return $target
     } catch {

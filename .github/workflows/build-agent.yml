@@ -67,6 +67,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # Every storage write below (counter blob, agent ZIP, manifests, AdminConfiguration)
+      # is authorized by this federated identity -- no SAS secret. One login covers the whole
+      # job: the federated credential is bound to the ref, and a release run takes ~2 minutes,
+      # well inside the token lifetime. Only the legacy mirror still needs a SAS: that account
+      # lives in the pre-migration tenant, where this principal has no identity.
+      - name: Login to Azure (OIDC)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # SDK 10 = single build toolchain (parity with local build.ps1 / global.json).
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -85,7 +97,6 @@ jobs:
         # build_number could otherwise break out of the quotes and run arbitrary code.
         env:
           BUILD_NUMBER_OVERRIDE: ${{ inputs.build_number }}
-          AGENT_SAS_TOKEN: ${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}
         run: |
           $override = 0
           if ($env:BUILD_NUMBER_OVERRIDE -ne '') {
@@ -96,7 +107,7 @@ jobs:
           }
 
           $counterUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent/buildcounter-v$($env:LINE_MAJOR).txt"
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl $counterUrl -SasToken $env:AGENT_SAS_TOKEN -Override $override
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl $counterUrl -Override $override
 
           $csproj = Get-Content $env:CSPROJ_PATH -Raw
           if ($csproj -match '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
@@ -224,7 +235,7 @@ jobs:
         shell: pwsh
         run: |
           $containerUrl = "https://autopilotmonitoreu.blob.core.windows.net/agent"
-          $sasToken = "${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}".TrimStart('?')
+          $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
           # Legacy mirror (transition until customers moved to the download.-alias):
           # blobs are ALSO pushed to the old account so the bootstrap URL baked into
           # customers' Intune scripts keeps serving current bits. Fail-soft -- a
@@ -234,7 +245,6 @@ jobs:
 
           function Send-Blob {
             param([string]$Local, [string]$BlobName, [string]$ContentType)
-            $url = "$containerUrl/$BlobName`?$sasToken"
             $bytes = [System.IO.File]::ReadAllBytes($Local)
             # no-cache on EVERY blob: they all rotate in place (even the per-line ZIP is
             # overwritten each build), and the download alias fronts them with Front Door.
@@ -248,7 +258,7 @@ jobs:
               $md5.Dispose()
             }
             Write-Host "Uploading $BlobName ($([math]::Round($bytes.Length / 1MB, 2)) MB)..."
-            Invoke-RestMethod -Uri $url -Method Put -Headers $headers -Body $bytes
+            Invoke-RestMethod -Uri "$containerUrl/$BlobName" -Method Put -Headers ($authHeaders + $headers) -Body $bytes
             Write-Host "  uploaded $BlobName"
             if (-not [string]::IsNullOrEmpty($legacySasToken)) {
               try {
@@ -275,35 +285,30 @@ jobs:
             # (dev render, version-bump guard, bootstrapVersion oracles, alias verification).
             # Runs AFTER version.json so its bootstrapVersion read sees this build's manifest.
             ./.github/scripts/Publish-BootstrapScripts.ps1 `
-              -SasToken '${{ secrets.AZURE_BLOB_AGENT_SAS_TOKEN }}' `
-              -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
-              -TableSasToken '${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}'
+              -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}'
           }
 
           # Update AdminConfiguration LatestAgentV2* -- ONLY on stable cutover. The hash-oracle
           # must never point at a build that is not actually in the stable namespace.
           # LatestBootstrapV2ScriptVersion is NOT set here: it belongs to the script publisher
           # above, which also owns it on script-only pushes. One writer per field.
-          $tableSasToken = "${{ secrets.AZURE_TABLE_ADMIN_SAS_TOKEN }}".TrimStart('?')
           if ('${{ inputs.publish_as_stable }}' -ne 'true') {
             Write-Host "SKIPPED: AdminConfiguration update (versioned-only run -- stable namespace unchanged)"
-          } elseif ([string]::IsNullOrEmpty($tableSasToken) -or $tableSasToken -eq "XXX") {
-            Write-Host "SKIPPED: Table SAS token not configured -- set AZURE_TABLE_ADMIN_SAS_TOKEN secret to enable backend hash-oracle"
           } else {
             $sha256 = "${{ steps.artifact.outputs.sha256 }}"
             $exeSha256 = "${{ steps.artifact.outputs.exe_sha256 }}"
             $agentVersion = "${{ steps.version.outputs.version }}"
-            $tableUrl = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')?$tableSasToken"
+            $tableUrl = "https://autopilotmonitoreu.table.core.windows.net/AdminConfiguration(PartitionKey='GlobalConfig',RowKey='config')"
             $tableBody = @{
               LatestAgentV2Version    = $agentVersion
               LatestAgentV2Sha256     = $sha256
               LatestAgentV2ExeSha256  = $exeSha256
             }
-            Invoke-RestMethod -Uri $tableUrl -Method Merge -Headers @{
+            Invoke-RestMethod -Uri $tableUrl -Method Merge -Headers ($authHeaders + @{
               "Content-Type" = "application/json"
               "Accept"       = "application/json;odata=nometadata"
               "If-Match"     = "*"
-            } -Body ($tableBody | ConvertTo-Json)
+            }) -Body ($tableBody | ConvertTo-Json)
             Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256"
           }
 

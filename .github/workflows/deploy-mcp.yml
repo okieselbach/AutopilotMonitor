@@ -59,7 +59,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/mcp.txt" -SasToken '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/mcp.txt"
 
           $pkgVersion = (Get-Content ${{ env.PACKAGE_JSON }} -Raw | ConvertFrom-Json).version
           $prefix = ($pkgVersion -split '\.')[0..1] -join '.'
@@ -144,9 +144,9 @@ jobs:
             docsCommit  = '${{ steps.docs.outputs.sha }}'.Substring(0, 7)
           } | ConvertTo-Json
 
-          $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
-          $url = "${{ env.VERSIONS_CONTAINER }}/mcp.json?$sas"
+          $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
+          $url = "${{ env.VERSIONS_CONTAINER }}/mcp.json"
           # no-cache: rotating pointer, must never be served stale by any fronting cache.
-          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' } -Body $manifest -ContentType 'application/json' | Out-Null
+          Invoke-RestMethod -Uri $url -Method Put -Headers ($authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' }) -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/mcp.json"
           Write-Host $manifest

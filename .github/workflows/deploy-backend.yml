@@ -41,7 +41,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/backend.txt" -SasToken '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'
+          $buildNumber = & ./.github/scripts/Request-BuildNumber.ps1 -CounterUrl "${{ env.VERSIONS_CONTAINER }}/backend.txt"
 
           $csproj = Get-Content ${{ env.CSPROJ_PATH }} -Raw
           if ($csproj -notmatch '<VersionPrefix>(\d+\.\d+)</VersionPrefix>') {
@@ -115,9 +115,9 @@ jobs:
             runId       = '${{ github.run_id }}'
           } | ConvertTo-Json
 
-          $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')
-          $url = "${{ env.VERSIONS_CONTAINER }}/backend.json?$sas"
+          $authHeaders = & ./.github/scripts/Get-StorageAuthHeaders.ps1
+          $url = "${{ env.VERSIONS_CONTAINER }}/backend.json"
           # no-cache: rotating pointer, must never be served stale by any fronting cache.
-          Invoke-RestMethod -Uri $url -Method Put -Headers @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' } -Body $manifest -ContentType 'application/json' | Out-Null
+          Invoke-RestMethod -Uri $url -Method Put -Headers ($authHeaders + @{ 'x-ms-blob-type' = 'BlockBlob'; 'x-ms-blob-cache-control' = 'no-cache' }) -Body $manifest -ContentType 'application/json' | Out-Null
           Write-Host "Published versions/backend.json"
           Write-Host $manifest

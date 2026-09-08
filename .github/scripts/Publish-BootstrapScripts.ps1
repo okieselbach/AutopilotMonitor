@@ -31,14 +31,10 @@
          lose its agent fields) and AdminConfiguration.LatestBootstrapV2ScriptVersion.
       6. Verify through the alias -- re-download each blob and compare SHA-256.
 
-.PARAMETER SasToken
-    Container SAS for the eu storage account with write permission. Leading '?' tolerated.
-
 .PARAMETER LegacySasToken
     Container SAS for the legacy account. Optional -- a mirror failure warns, never fails.
-
-.PARAMETER TableSasToken
-    Table SAS for AdminConfiguration. Optional -- omitted or 'XXX' skips the oracle update.
+    The legacy account lives in a different tenant, so the ambient Entra identity cannot
+    reach it; this is the only credential the publisher still takes.
 
 .PARAMETER RepoRoot
     Repository root. Defaults to the parent of .github/scripts.
@@ -50,13 +46,11 @@
     ./Publish-BootstrapScripts.ps1 -DryRun
 
 .EXAMPLE
-    ./Publish-BootstrapScripts.ps1 -SasToken $env:SAS -TableSasToken $env:TABLE_SAS
+    ./Publish-BootstrapScripts.ps1 -LegacySasToken $env:LEGACY_SAS
 #>
 [CmdletBinding()]
 param(
-    [string]$SasToken,
     [string]$LegacySasToken,
-    [string]$TableSasToken,
     [string]$RepoRoot,
     [switch]$DryRun
 )
@@ -65,9 +59,6 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $RepoRoot) {
     $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-}
-if (-not $DryRun -and [string]::IsNullOrWhiteSpace($SasToken)) {
-    throw 'SasToken is required unless -DryRun is used.'
 }
 
 $ContainerUrl       = 'https://autopilotmonitoreu.blob.core.windows.net/agent'
@@ -218,7 +209,10 @@ foreach ($extra in $extraSources) {
 }
 
 $legacySas = if ($LegacySasToken) { $LegacySasToken.TrimStart('?') } else { '' }
-$writeSas  = if ($SasToken) { $SasToken.TrimStart('?') } else { '' }
+
+# Acquired lazily: a dry run must stay runnable without any Azure login -- the PR gate
+# (bootstrap-script-gates.yml) executes this script with -DryRun and never logs in.
+$authHeaders = if ($DryRun) { $null } else { & (Join-Path $PSScriptRoot 'Get-StorageAuthHeaders.ps1') }
 
 foreach ($item in $publishSet) {
     # Explicit type, not a convenience: an Object[] body is uploaded as space-separated
@@ -242,7 +236,7 @@ foreach ($item in $publishSet) {
     # fresh manifest would fail the bootstrap SHA check -- this keeps that class of bug
     # impossible even if caching is ever re-enabled.
     $headers = @{ 'x-ms-blob-type' = 'BlockBlob'; 'Content-Type' = $ScriptContentType; 'x-ms-blob-cache-control' = 'no-cache' }
-    Invoke-RestMethod -Uri "$ContainerUrl/$($item.BlobName)?$writeSas" -Method Put -Headers $headers -Body $bytes | Out-Null
+    Invoke-RestMethod -Uri "$ContainerUrl/$($item.BlobName)" -Method Put -Headers ($authHeaders + $headers) -Body $bytes | Out-Null
 
     # Read straight back from the blob (authoritative, no CDN in the way) before touching the
     # mirror or the next file. The alias verification at the end would catch a bad body too,
@@ -290,7 +284,7 @@ if (-not $DryRun) {
                 'x-ms-blob-cache-control' = 'no-cache'
                 'If-Match'                = $etag
             }
-            Invoke-RestMethod -Uri "$ContainerUrl/version.json?$writeSas" -Method Put -Headers $manifestHeaders -Body $body | Out-Null
+            Invoke-RestMethod -Uri "$ContainerUrl/version.json" -Method Put -Headers ($authHeaders + $manifestHeaders) -Body $body | Out-Null
             Write-Host "version.json bootstrapVersion -> $scriptVersion (agent fields untouched)"
 
             if ($legacySas) {
@@ -310,11 +304,8 @@ if (-not $DryRun) {
     }
 }
 
-$tableSas = if ($TableSasToken) { $TableSasToken.TrimStart('?') } else { '' }
 if ($DryRun) {
     Write-Host "  [dry-run] would set AdminConfiguration.LatestBootstrapV2ScriptVersion = $scriptVersion"
-} elseif ([string]::IsNullOrEmpty($tableSas) -or $tableSas -eq 'XXX') {
-    Write-Host 'SKIPPED: AdminConfiguration update -- set AZURE_TABLE_ADMIN_SAS_TOKEN to enable the portal version oracle'
 } else {
     $tableHeaders = @{
         'Content-Type' = 'application/json'
@@ -322,7 +313,7 @@ if ($DryRun) {
         'If-Match'     = '*'
     }
     $tableBody = @{ LatestBootstrapV2ScriptVersion = $scriptVersion } | ConvertTo-Json
-    Invoke-RestMethod -Uri "$TableUrl`?$tableSas" -Method Merge -Headers $tableHeaders -Body $tableBody | Out-Null
+    Invoke-RestMethod -Uri $TableUrl -Method Merge -Headers ($authHeaders + $tableHeaders) -Body $tableBody | Out-Null
     Write-Host "AdminConfiguration.LatestBootstrapV2ScriptVersion = $scriptVersion"
 }
 
