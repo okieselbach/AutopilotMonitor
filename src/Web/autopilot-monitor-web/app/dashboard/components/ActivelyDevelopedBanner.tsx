@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { DOCS_URL } from "@/utils/config";
 import { trackEvent } from "@/lib/appInsights";
+import { useWhatsNew } from "@/hooks/useWhatsNew";
 
 // Session-scoped dismissal: sessionStorage is per-tab, so the banner stays hidden
 // across reloads in this tab (service-desk monitor use case) but reappears in every
@@ -30,6 +31,7 @@ const linkClassName =
 
 export function ActivelyDevelopedBanner() {
   const dismissed = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const whatsNew = useWhatsNew();
   if (dismissed) return null;
 
   const trackLink = (link: string) => trackEvent("dev_banner_link_clicked", { link });
@@ -43,16 +45,14 @@ export function ActivelyDevelopedBanner() {
         <span className="font-semibold">Actively developed.</span>{" "}
         Autopilot Monitor recognizes a wide range of deployment scenarios and improves
         continuously — your reports directly shape it.{" "}
-        If something looks off, check the{" "}
-        <a
-          href={`${DOCS_URL}/changelog/platform-changelog`}
-          target="_blank"
-          rel="noopener noreferrer"
+        If something looks off, check{" "}
+        <button
+          type="button"
           className={linkClassName}
-          onClick={() => trackLink("platform_changelog")}
+          onClick={() => { trackLink("whats_new"); whatsNew.open("banner", "platform"); }}
         >
-          Platform Changelog
-        </a>{" "}
+          What&apos;s new
+        </button>{" "}
         or{" "}
         <a
           href={`${DOCS_URL}/troubleshooting/service-announcements`}

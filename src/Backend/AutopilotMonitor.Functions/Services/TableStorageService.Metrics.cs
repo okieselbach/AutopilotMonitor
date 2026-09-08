@@ -1091,7 +1091,7 @@ namespace AutopilotMonitor.Functions.Services
 
         /// <summary>
         /// Upserts a single presence row (PK=tenantId, RK=hash(UPN)) stamped with LastSeen=now.
-        /// One row per user — overwritten on every call, so the table never grows past the distinct-user count.
+        /// One row per user, so the table never grows past the distinct-user count.
         /// </summary>
         public async Task RecordUserPresenceAsync(string tenantId, string upn, string userRole)
         {
@@ -1105,7 +1105,11 @@ namespace AutopilotMonitor.Functions.Services
                     ["LastSeen"] = DateTime.UtcNow
                 };
 
-                await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+                // Merge preserves the What's-new seen marks carried on the same row
+                // (WhatsNewSeenPlatformUtc / WhatsNewSeenAgentUtc); a Replace upsert every
+                // ≥60s would wipe them. Upn/UserRole/LastSeen are always set here, so Merge
+                // is semantically identical for presence.
+                await tableClient.UpsertEntityAsync(entity, TableUpdateMode.Merge);
             }
             catch (Exception ex)
             {
@@ -1113,6 +1117,89 @@ namespace AutopilotMonitor.Functions.Services
                 _logger.LogDebug(ex, "Failed to record presence for {Upn} in tenant {TenantId}", upn, tenantId);
             }
         }
+
+        public async Task<UserWhatsNewSeen> GetUserWhatsNewSeenAsync(string tenantId, string upn)
+        {
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UserPresence);
+                var entity = (await tableClient.GetEntityAsync<TableEntity>(
+                    tenantId,
+                    PresenceRowKey(upn),
+                    select: new[] { WhatsNewSeenPlatformColumn, WhatsNewSeenAgentColumn })).Value;
+
+                return new UserWhatsNewSeen(
+                    entity.GetDateTime(WhatsNewSeenPlatformColumn),
+                    entity.GetDateTime(WhatsNewSeenAgentColumn));
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return new UserWhatsNewSeen();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read What's-new seen marks for {Upn} in tenant {TenantId}", upn, tenantId);
+                return new UserWhatsNewSeen();
+            }
+        }
+
+        public async Task MarkUserWhatsNewSeenAsync(string tenantId, string upn, string channel, DateTime seenUtc)
+        {
+            var column = channel.ToLowerInvariant() switch
+            {
+                "platform" => WhatsNewSeenPlatformColumn,
+                "agent" => WhatsNewSeenAgentColumn,
+                _ => throw new ArgumentException("Unknown What's-new channel.", nameof(channel))
+            };
+
+            seenUtc = NormalizeTableUtc(seenUtc);
+
+            try
+            {
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.UserPresence);
+                var rowKey = PresenceRowKey(upn);
+                DateTime? existing = null;
+
+                try
+                {
+                    var entity = (await tableClient.GetEntityAsync<TableEntity>(
+                        tenantId,
+                        rowKey,
+                        select: new[] { column })).Value;
+                    existing = entity.GetDateTime(column);
+                }
+                catch (RequestFailedException ex) when (ex.Status == 404)
+                {
+                    // Missing presence is fine: this endpoint may be the first thing that writes the row.
+                }
+
+                if (existing.HasValue && NormalizeTableUtc(existing.Value) >= seenUtc)
+                    return;
+
+                var patch = new TableEntity(tenantId, rowKey)
+                {
+                    ["Upn"] = upn ?? string.Empty,
+                    [column] = seenUtc
+                };
+
+                await tableClient.UpsertEntityAsync(patch, TableUpdateMode.Merge);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to mark What's-new {Channel} as seen for {Upn} in tenant {TenantId}", channel, upn, tenantId);
+            }
+        }
+
+        private const string WhatsNewSeenPlatformColumn = "WhatsNewSeenPlatformUtc";
+        private const string WhatsNewSeenAgentColumn = "WhatsNewSeenAgentUtc";
+
+        private static DateTime NormalizeTableUtc(DateTime value)
+            => value.Kind switch
+            {
+                DateTimeKind.Utc => value,
+                DateTimeKind.Local => value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            };
 
         /// <summary>
         /// Returns all users whose LastSeen is within the given window (cross-tenant), newest first.

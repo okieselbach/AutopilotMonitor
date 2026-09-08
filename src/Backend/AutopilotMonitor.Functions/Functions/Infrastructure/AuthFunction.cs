@@ -100,7 +100,8 @@ public class AuthFunction
 
         // --- Parallel data fetch: all independent queries run concurrently ---
         // Fail-fast: if any fetch throws, AggregateException propagates → Azure Functions returns 500.
-        // This is intentional — all 6 queries are required for the auth decision.
+        // This is intentional — the auth-decision queries are required; the What's-new marker read
+        // is fail-soft inside the repository because it is only a UX convenience.
         // Non-creating read: do NOT auto-persist a default config row just because someone authenticated.
         // A delegated-only external MSP login must not phantom-onboard its home tenant (see the side-effect
         // gate below). A genuine first-user still gets their config created by HandleNewTenantDomainAsync.
@@ -116,9 +117,10 @@ public class AuthFunction
         // middleware does (the table-vs-claim reconciliation happens inside the shared role resolver).
         var mcpCheckTask = _mcpUserService.IsAllowedAsync(upn, tenantId, objectId, principal.GetAppRoles());
         var existingAdminsTask = _tenantAdminsService.GetTenantAdminsAsync(tenantId);
+        var whatsNewSeenTask = _metricsRepo.GetUserWhatsNewSeenAsync(tenantId, upn);
 
         await Task.WhenAll(tenantConfigTask, globalRoleTask, delegatedScopeTask, isApprovedTask,
-                           membershipTask, mcpCheckTask, existingAdminsTask);
+                           membershipTask, mcpCheckTask, existingAdminsTask, whatsNewSeenTask);
 
         var (tenantConfig, _) = tenantConfigTask.Result;
         var globalRole = globalRoleTask.Result;
@@ -131,6 +133,7 @@ public class AuthFunction
         var (tableState, tableRole) = membershipTask.Result;
         var mcpCheck = mcpCheckTask.Result;
         var existingAdmins = existingAdminsTask.Result;
+        var whatsNewSeen = whatsNewSeenTask.Result;
 
         // Reconcile the TenantAdmins table state with any Entra app-role claim. An enabled row
         // wins; a disabled row is an explicit deny (claim ignored); only a missing row falls back
@@ -164,7 +167,9 @@ public class AuthFunction
             memberRole, mcpCheck, existingAdmins.Count > 0,
             tenantId, upn, displayName ?? string.Empty, objectId ?? string.Empty,
             delegatedTenantIds,
-            homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary");
+            homedApp: _appRegistry.ResolveForTenant(tenantConfig).IsLegacy ? "legacy" : "primary",
+            whatsNewSeenPlatformUtc: whatsNewSeen.PlatformUtc,
+            whatsNewSeenAgentUtc: whatsNewSeen.AgentUtc);
 
         if (!decision.IsSuccess)
         {
@@ -191,6 +196,35 @@ public class AuthFunction
         var response = req.CreateResponse(HttpStatusCode.OK);
         await response.WriteAsJsonAsync(decision.Body);
         return response;
+    }
+
+    /// <summary>
+    /// PUT /api/auth/me/whats-new-seen
+    /// Marks the caller's What's-new channel as seen.
+    /// </summary>
+    [Function("MarkWhatsNewSeen")]
+    [Authorize]
+    public async Task<HttpResponseData> MarkWhatsNewSeen(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "put", Route = "auth/me/whats-new-seen")] HttpRequestData req,
+        FunctionContext context)
+    {
+        var principal = context.GetUser();
+        if (principal == null)
+            return req.CreateResponse(HttpStatusCode.Unauthorized);
+
+        var tenantId = principal.GetTenantId();
+        var upn = principal.GetUserPrincipalName();
+        if (string.IsNullOrEmpty(tenantId) || string.IsNullOrEmpty(upn))
+            return await req.BadRequestAsync("Missing required claims");
+
+        var read = await req.ReadAsync<WhatsNewSeenRequest>();
+        if (read.Error != null) return read.Error;
+
+        if (!TryNormalizeWhatsNewSeen(read.Value, DateTime.UtcNow, out var channel, out var seenUtc, out var error))
+            return await req.BadRequestAsync(error);
+
+        await _metricsRepo.MarkUserWhatsNewSeenAsync(tenantId, upn, channel, seenUtc);
+        return req.CreateResponse(HttpStatusCode.NoContent);
     }
 
     /// <summary>
@@ -515,7 +549,9 @@ public class AuthFunction
         bool hasTenantAdmins,
         string tenantId, string upn, string displayName, string objectId,
         IReadOnlyCollection<string>? delegatedTenantIds = null,
-        string homedApp = "primary")
+        string homedApp = "primary",
+        DateTime? whatsNewSeenPlatformUtc = null,
+        DateTime? whatsNewSeenAgentUtc = null)
     {
         // A delegated ("MSP") admin manages a subset of OTHER tenants. They are explicitly authorized, so —
         // like a Global Admin / Reader — they bypass the private-preview gate even when their own home tenant
@@ -603,9 +639,60 @@ public class AuthFunction
             BootstrapTokenEnabled = TenantEntitlementService.IsBootstrapEnabled(tenantConfig, DateTime.UtcNow),
             UnrestrictedModeEnabled =
                 FeatureEntitlementCatalog.Get(TenantEntitlementService.Resolve(tenantConfig, DateTime.UtcNow)).UnrestrictedModeAvailable
-                && tenantConfig.UnrestrictedModeEnabled
+                && tenantConfig.UnrestrictedModeEnabled,
+            WhatsNewSeenPlatformUtc = whatsNewSeenPlatformUtc,
+            WhatsNewSeenAgentUtc = whatsNewSeenAgentUtc
         }, needsAutoAdmin);
     }
+
+    internal static bool TryNormalizeWhatsNewSeen(
+        WhatsNewSeenRequest? body,
+        DateTime nowUtc,
+        out string channel,
+        out DateTime seenUtc,
+        out string error)
+    {
+        channel = string.Empty;
+        seenUtc = default;
+        error = string.Empty;
+
+        if (body == null)
+        {
+            error = "Request body is required";
+            return false;
+        }
+
+        channel = (body.Channel ?? string.Empty).Trim().ToLowerInvariant();
+        if (channel is not ("platform" or "agent"))
+        {
+            error = "channel must be 'platform' or 'agent'";
+            return false;
+        }
+
+        if (body.SeenUtc == default)
+        {
+            error = "seenUtc is required";
+            return false;
+        }
+
+        nowUtc = NormalizeUtc(nowUtc);
+        seenUtc = NormalizeUtc(body.SeenUtc);
+        if (seenUtc > nowUtc.AddMinutes(5))
+        {
+            // Client clocks can run ahead; clamp rather than reject so the marker remains harmless.
+            seenUtc = nowUtc;
+        }
+
+        return true;
+    }
+
+    private static DateTime NormalizeUtc(DateTime value)
+        => value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 
     /// <summary>
     /// Extracts domain name from UPN (e.g., user@contoso.com -> contoso.com)

@@ -16,6 +16,8 @@ import { useEditionInfo } from '@/hooks/useEditionInfo';
 import GlobalSearch from './GlobalSearch';
 import { DOCS_URL } from "@/utils/config";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { useWhatsNew } from "@/hooks/useWhatsNew";
+import { WhatsNewCountBadge, WhatsNewIconBadge } from "./WhatsNewPanel";
 
 export default function Navbar() {
   const { isAuthenticated, user, hasGlobalScope, logout } = useAuth();
@@ -37,6 +39,7 @@ export default function Navbar() {
   // null until the feature-flags fetch confirms → no label flash for Pro tenants.
   const editionInfo = useEditionInfo();
   const showCommunityTag = editionInfo?.edition === 'community';
+  const whatsNew = useWhatsNew();
 
   const notificationRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -485,10 +488,11 @@ export default function Navbar() {
 
             {/* Help Menu (?) — hidden on <sm, moved to overflow */}
             <div className="hidden sm:block relative" ref={helpRef}>
-              <button onClick={() => setShowHelp(!showHelp)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Help & Info">
+              <button onClick={() => setShowHelp(!showHelp)} className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Help & Info">
                 <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
+                <WhatsNewIconBadge count={whatsNew.totalUnseen} />
               </button>
 
               {showHelp && (
@@ -506,18 +510,17 @@ export default function Navbar() {
                     <span>Documentation</span>
                   </a>
 
-                  <a
-                    href={`${DOCS_URL}${DOCS_PATHS.platformChangelog}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                    onClick={() => setShowHelp(false)}
+                    onClick={() => { setShowHelp(false); whatsNew.open("help"); }}
                   >
                     <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
-                    <span>Changelog</span>
-                  </a>
+                    <span>What&apos;s new</span>
+                    <WhatsNewCountBadge count={whatsNew.totalUnseen} className="ml-auto" />
+                  </button>
 
                   <a
                     href={`${DOCS_URL}${DOCS_PATHS.serviceAnnouncements}`}
@@ -578,12 +581,13 @@ export default function Navbar() {
             <div className="sm:hidden relative" ref={overflowRef}>
               <button
                 onClick={() => { setShowOverflow(!showOverflow); setOverflowSubmenu(null); }}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 title="More"
               >
                 <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
                 </svg>
+                <WhatsNewIconBadge count={whatsNew.totalUnseen} />
               </button>
               {showOverflow && (
                 <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 py-1">
@@ -641,6 +645,7 @@ export default function Navbar() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           <span>Help</span>
+                          <WhatsNewCountBadge count={whatsNew.totalUnseen} />
                         </div>
                         <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -722,10 +727,11 @@ export default function Navbar() {
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
                         <span>Documentation</span>
                       </a>
-                      <a href={`${DOCS_URL}${DOCS_PATHS.platformChangelog}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
+                      <button type="button" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); whatsNew.open("overflow"); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                        <span>Changelog</span>
-                      </a>
+                        <span>What&apos;s new</span>
+                        <WhatsNewCountBadge count={whatsNew.totalUnseen} className="ml-auto" />
+                      </button>
                       <a href={`${DOCS_URL}${DOCS_PATHS.serviceAnnouncements}`} target="_blank" rel="noopener noreferrer" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" onClick={() => { setShowOverflow(false); setOverflowSubmenu(null); }}>
                         <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
                         <span>Service Announcements</span>

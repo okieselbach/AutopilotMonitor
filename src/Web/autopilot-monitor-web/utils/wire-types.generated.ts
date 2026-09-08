@@ -758,6 +758,10 @@ export interface AuthMeResponse {
   homedApp: string;
   bootstrapTokenEnabled: boolean;
   unrestrictedModeEnabled: boolean;
+  /** When this user last viewed the Platform tab of What's new; null = never and the key is omitted (client treats as first visit). */
+  whatsNewSeenPlatformUtc?: string;
+  /** Same for the Agent tab; null = never and the key is omitted. */
+  whatsNewSeenAgentUtc?: string;
 }
 
 export interface AutoResolveCpeMappingItem {
@@ -5247,4 +5251,12 @@ export interface VerdictCalibrationTrendWindow {
   count: number;
   sessions: number;
   sharePct: number;
+}
+
+/** Body of PUT auth/me/whats-new-seen. */
+export interface WhatsNewSeenRequest {
+  /** What's-new channel: "platform" or "agent". */
+  channel: string;
+  /** UTC timestamp when the caller viewed the channel. */
+  seenUtc: string;
 }

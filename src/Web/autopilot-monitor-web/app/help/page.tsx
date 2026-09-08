@@ -1,10 +1,14 @@
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
+import { WhatsNewTile } from "../../components/landing/WhatsNewTile";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
 const GITHUB_ISSUES = "https://github.com/okieselbach/AutopilotMonitor/issues";
 const LINKEDIN_PROFILE = "https://www.linkedin.com/in/oliver-kieselbach/";
 const GITHUB_ADVISORY = "https://github.com/okieselbach/AutopilotMonitor/security/advisories/new";
+
+const TILE_CLASS =
+  "rounded-xl border border-[var(--lp-line-soft)] bg-[var(--lp-surface)] px-5 py-4 hover:border-[var(--lp-accent-line)] hover:bg-[var(--lp-accent-soft)] transition-colors";
 
 const SELF_SERVICE_LINKS = [
   {
@@ -21,11 +25,6 @@ const SELF_SERVICE_LINKS = [
     label: "Service Announcements",
     description: "Known issues and current service status.",
     href: `${DOCS_URL}/troubleshooting/service-announcements`,
-  },
-  {
-    label: "Platform Changelog",
-    description: "What changed recently in the portal and backend.",
-    href: `${DOCS_URL}/changelog/platform-changelog`,
   },
 ];
 
@@ -142,12 +141,13 @@ export default function HelpPage() {
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-[var(--lp-line-soft)] bg-[var(--lp-surface)] px-5 py-4 hover:border-[var(--lp-accent-line)] hover:bg-[var(--lp-accent-soft)] transition-colors"
+                className={TILE_CLASS}
               >
                 <span className="block text-sm font-semibold text-gray-800 mb-1">{link.label} →</span>
                 <span className="block text-sm text-gray-600 leading-relaxed">{link.description}</span>
               </a>
             ))}
+            <WhatsNewTile className={TILE_CLASS} />
           </div>
         </section>
 

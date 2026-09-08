@@ -7,7 +7,8 @@
  *   mcp      live  in-process build info (this process IS the live deployment)
  *   mcp      manifest versions/mcp.json              → … + docsCommit
  *   web      live  GET {PORTAL}/version.json         → { component, commit, buildUtc }
- *   web      manifest versions/web.json              → { component, commit, deployedUtc, runId }
+ *   web      manifest versions/web.json              → { component, commit, deployedUtc, runId, docsCommit }
+ *            (docsCommit = the docs revision the live What's new panel was generated from)
  *   agent    manifest {AGENT}/version.json           → { version, commit, buildUtc, sha256, bootstrapVersion }
  *            (no live endpoint — the agent runs on devices)
  *

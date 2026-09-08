@@ -4210,6 +4210,24 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        {
+          "name": "whatsNewSeenPlatformUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When this user last viewed the Platform tab of What's new; null = never and the key is omitted (client treats as first visit)."
+        },
+        {
+          "name": "whatsNewSeenAgentUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Same for the Agent tab; null = never and the key is omitted."
         }
       ]
     },
@@ -23883,6 +23901,28 @@
             "kind": "primitive",
             "name": "number"
           }
+        }
+      ]
+    },
+    "WhatsNewSeenRequest": {
+      "kind": "object",
+      "doc": "Body of PUT auth/me/whats-new-seen.",
+      "fields": [
+        {
+          "name": "channel",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "What's-new channel: \"platform\" or \"agent\"."
+        },
+        {
+          "name": "seenUtc",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "UTC timestamp when the caller viewed the channel."
         }
       ]
     }

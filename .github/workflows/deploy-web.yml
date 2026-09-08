@@ -40,6 +40,23 @@ jobs:
           lfs: false
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
 
+      # The customer docs repo is the single source of the "What's new" panel: the prebuild
+      # step (scripts/whats-new/build-whats-new.js) turns changelog/*.md into
+      # public/whats-new.json and dates every bullet via git blame — hence the full history.
+      # Public repo, no token. Editing the docs does NOT update the live panel until this
+      # workflow runs again (push under src/Web/** or a manual dispatch); versions/web.json
+      # records which docs commit is live.
+      - name: Check out documentation bundle
+        uses: actions/checkout@v7
+        with:
+          repository: autopilotmonitor/autopilotmonitor-docs
+          path: whats-new-docs
+          fetch-depth: 0
+
+      - name: Resolve docs commit
+        id: docs
+        run: echo "sha=$(git -C whats-new-docs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -51,7 +68,7 @@ jobs:
         run: npm ci
 
       # next.config output:'export' -- `next build` writes the static site to out/
-      # (prebuild: sync-error-codes, generate-lastmod, generate-version).
+      # (prebuild: sync-error-codes, generate-lastmod, generate-version, whats-new).
       - name: Build
         working-directory: ${{ env.WEB_DIR }}
         env:
@@ -68,9 +85,12 @@ jobs:
           # Build stamp for public/version.json (scripts/generate-version.js in prebuild);
           # the verify step below polls the deployed file for exactly this commit.
           GITHUB_SHA: ${{ github.sha }}
+          # Docs checkout for public/whats-new.json; the prebuild fails in CI without it.
+          WHATS_NEW_DOCS_DIR: ${{ github.workspace }}/whats-new-docs
         run: |
           npm run build
           test -f out/version.json || { echo "out/version.json missing - export did not run"; exit 1; }
+          test -f out/whats-new.json || { echo "out/whats-new.json missing - whats-new prebuild did not run"; exit 1; }
 
       # One archive of the exact bytes that get uploaded, so the attestation has a single subject.
       - name: Package export
@@ -136,7 +156,8 @@ jobs:
           throw "Portal did not serve commit $expectedCommit within 5 minutes -- deployment not verified, version manifest NOT published"
 
       # Cross-component deploy record, written last and only on a verified deploy --
-      # same contract as versions/backend.json and versions/mcp.json.
+      # same contract as versions/backend.json and versions/mcp.json. docsCommit says which
+      # docs revision the live What's new panel was generated from (as for the MCP corpus).
       - name: Publish version manifest
         shell: pwsh
         run: |
@@ -145,6 +166,7 @@ jobs:
             commit      = '${{ github.sha }}'.Substring(0, 7)
             deployedUtc = [DateTime]::UtcNow.ToString('o')
             runId       = '${{ github.run_id }}'
+            docsCommit  = '${{ steps.docs.outputs.sha }}'.Substring(0, 7)
           } | ConvertTo-Json
 
           $sas = '${{ secrets.AZURE_BLOB_VERSIONS_SAS_TOKEN }}'.TrimStart('?')

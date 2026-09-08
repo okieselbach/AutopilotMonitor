@@ -209,6 +209,7 @@ public static class EndpointAccessPolicyCatalog
 
         // ── AuthenticatedUser ───────────────────────────────────────────
         new("GET",    "auth/me",                   EndpointPolicy.AuthenticatedUser),
+        new("PUT",    "auth/me/whats-new-seen",    EndpointPolicy.AuthenticatedUser),
         new("GET",    "auth/is-global-admin",      EndpointPolicy.AuthenticatedUser),
         new("POST",   "realtime/negotiate",        EndpointPolicy.AuthenticatedUser),
         // Group join/leave is AuthenticatedUserWithRole — NOT MemberRead — on purpose. The real,

@@ -28,6 +28,8 @@ public class InfrastructureWireParityTests
         var displayName = "Admin User";
         var objectId = "0b6f7a37-1111-4d61-9c93-0aa111111111";
         var managedTenantIds = new[] { "7b7b46b3-40c3-4f2f-9a1b-6d9f1a2b3c4e" };
+        var platformSeen = new DateTime(2026, 9, 8, 10, 0, 0, DateTimeKind.Utc);
+        var agentSeen = new DateTime(2026, 9, 8, 10, 5, 0, DateTimeKind.Utc);
 
         AssertParity(
             new
@@ -46,7 +48,9 @@ public class InfrastructureWireParityTests
                 hasMcpAccess = true,
                 homedApp = "primary",
                 bootstrapTokenEnabled = true,
-                unrestrictedModeEnabled = false
+                unrestrictedModeEnabled = false,
+                whatsNewSeenPlatformUtc = platformSeen,
+                whatsNewSeenAgentUtc = agentSeen
             },
             new AuthMeResponse
             {
@@ -64,7 +68,9 @@ public class InfrastructureWireParityTests
                 HasMcpAccess = true,
                 HomedApp = "primary",
                 BootstrapTokenEnabled = true,
-                UnrestrictedModeEnabled = false
+                UnrestrictedModeEnabled = false,
+                WhatsNewSeenPlatformUtc = platformSeen,
+                WhatsNewSeenAgentUtc = agentSeen
             });
     }
 
@@ -78,6 +84,8 @@ public class InfrastructureWireParityTests
         var displayName = "Reader User";
         var objectId = "0b6f7a37-2222-4d61-9c93-0aa222222222";
         string? role = null;
+        DateTime? whatsNewSeenPlatformUtc = null;
+        DateTime? whatsNewSeenAgentUtc = null;
 
         AssertParity(
             new
@@ -96,7 +104,9 @@ public class InfrastructureWireParityTests
                 hasMcpAccess = true,
                 homedApp = "legacy",
                 bootstrapTokenEnabled = false,
-                unrestrictedModeEnabled = false
+                unrestrictedModeEnabled = false,
+                whatsNewSeenPlatformUtc,
+                whatsNewSeenAgentUtc
             },
             new AuthMeResponse
             {
@@ -114,7 +124,9 @@ public class InfrastructureWireParityTests
                 HasMcpAccess = true,
                 HomedApp = "legacy",
                 BootstrapTokenEnabled = false,
-                UnrestrictedModeEnabled = false
+                UnrestrictedModeEnabled = false,
+                WhatsNewSeenPlatformUtc = null,
+                WhatsNewSeenAgentUtc = null
             });
     }
 

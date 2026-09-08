@@ -11,6 +11,7 @@ import { ThemeProvider } from "../contexts/ThemeContext";
 import Navbar from "../components/Navbar";
 import ScrollToTopButton from "../components/ScrollToTopButton";
 import FeedbackBubble from "../components/FeedbackBubble";
+import { WhatsNewPanelHost } from "../components/WhatsNewPanelHost";
 import { SidebarProvider } from "../contexts/SidebarContext";
 import { GlobalSidebar } from "../components/GlobalSidebar";
 import AppInsightsInit from "../components/AppInsightsInit";
@@ -198,6 +199,7 @@ export default function RootLayout({
                         </GlobalSidebar>
                         <ScrollToTopButton />
                         <FeedbackBubble />
+                        <WhatsNewPanelHost />
                       </SidebarProvider>
                     </TenantProvider>
                   </TenantNotificationProvider>
