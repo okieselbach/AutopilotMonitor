@@ -25,6 +25,13 @@ env:
   MSI_PROJECT_DIR: src/Agent/AutopilotMonitor.BootstrapMsi
   RUNNER_SCRIPT: src/Agent/AutopilotMonitor.BootstrapMsi/Invoke-BootstrapDownload.ps1
   STABLE_MSI: AutopilotMonitor-Bootstrap.msi
+  # Authenticode via Azure Key Vault; identity and vault come from repository variables.
+  # CODE_SIGN_EXPECTED_SUBJECT is optional and pins the publisher in the verify steps.
+  CODE_SIGN_CLIENT_ID: ${{ vars.CODE_SIGN_CLIENT_ID }}
+  CODE_SIGN_CERTIFICATE_NAME: ${{ vars.CODE_SIGN_CERTIFICATE_NAME }}
+  CODE_SIGN_KEY_VAULT_URL: ${{ vars.CODE_SIGN_KEY_VAULT_URL }}
+  CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
+  CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
   build:
@@ -62,6 +69,38 @@ jobs:
           Write-Host "MSI version (from Package.wxs): $version"
           "version=$version" >> $env:GITHUB_OUTPUT
 
+      # Every published MSI is signed; a missing variable stops the run before the build.
+      - name: Check code-signing configuration
+        shell: pwsh
+        run: |
+          foreach ($name in 'CODE_SIGN_CLIENT_ID', 'CODE_SIGN_CERTIFICATE_NAME', 'CODE_SIGN_KEY_VAULT_URL') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository variable $name is not set. Every published MSI must be Authenticode-signed."
+            }
+          }
+
+      # Logs in FIRST and only to fetch the Key Vault token: azure/login sets the default az
+      # account, so the storage login below has to be the last one. Both federated credentials
+      # are bound to the ref, so this job must never be given an `environment:` -- that would
+      # change the OIDC subject claim and break both logins.
+      - name: Login to Azure (code-signing identity)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        with:
+          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Acquire Key Vault token for signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Could not acquire a Key Vault token for the code-signing identity."
+          }
+          Write-Host "::add-mask::$token"
+          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # The blob upload below is authorized by this federated identity, not by a SAS.
       - name: Login to Azure (OIDC)
         uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
@@ -73,6 +112,32 @@ jobs:
       - name: Install WiX toolset
         run: dotnet tool install --global wix --version "5.*"
 
+      # Version pinned; roll-forward because the tool targets an older runtime than the SDK.
+      - name: Install AzureSignTool
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
+
+      # BEFORE the build: wix embeds the file as it finds it, so a script signed afterwards
+      # would leave the copy inside the MSI unsigned. Devices under an AllSigned policy need
+      # the embedded runner to carry a signature of its own.
+      - name: Sign bootstrap runner script (Authenticode)
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & azuresigntool.exe sign --verbose `
+            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
+            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
+            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
+            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
+            --file-digest sha256 `
+            --description 'Autopilot Monitor bootstrap runner' `
+            --description-url 'https://www.autopilotmonitor.com' `
+            $env:RUNNER_SCRIPT
+          if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
+
       - name: Build MSI
         shell: pwsh
         run: |
@@ -83,9 +148,39 @@ jobs:
           wix build Package.wxs -arch x64 -o $out
           Pop-Location
           if (-not (Test-Path $env:STABLE_MSI)) { Write-Error "wix build produced no MSI"; exit 1 }
-          $sha256 = (Get-FileHash $env:STABLE_MSI -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "Built $env:STABLE_MSI ($([math]::Round((Get-Item $env:STABLE_MSI).Length / 1KB)) KB)"
-          Write-Host "SHA-256: $sha256"
+
+      # Signing rewrites the MSI, so it runs before the hash and the upload. A missing
+      # timestamp fails the run: without it the signature dies with the certificate.
+      - name: Sign MSI (Authenticode)
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & azuresigntool.exe sign --verbose `
+            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
+            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
+            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
+            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
+            --file-digest sha256 `
+            --description 'Autopilot Monitor Bootstrap' `
+            --description-url 'https://www.autopilotmonitor.com' `
+            $env:STABLE_MSI
+          if ($LASTEXITCODE -ne 0) { throw "azuresigntool failed with exit code $LASTEXITCODE" }
+
+          # The MSI and the runner it carries -- verified here, before anything is published.
+          foreach ($file in @($env:STABLE_MSI, $env:RUNNER_SCRIPT)) {
+            $sig = Get-AuthenticodeSignature -FilePath $file
+            if ($sig.Status -ne 'Valid') { throw "Signature on $file is '$($sig.Status)', expected 'Valid'." }
+            if (-not $sig.TimeStamperCertificate) { throw "Signature on $file carries no timestamp." }
+            if ($env:CODE_SIGN_EXPECTED_SUBJECT -and $sig.SignerCertificate.Subject -notlike $env:CODE_SIGN_EXPECTED_SUBJECT) {
+              throw "$file was signed by '$($sig.SignerCertificate.Subject)', expected '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+            }
+            Write-Host "$file : Valid, timestamped, signer $($sig.SignerCertificate.Subject.Split(',')[0])"
+          }
+
+          Write-Host "SHA-256: $((Get-FileHash $env:STABLE_MSI -Algorithm SHA256).Hash.ToLowerInvariant())"
 
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
@@ -133,9 +228,11 @@ jobs:
           }
           Write-Host "Alias verified: https://download.autopilotmonitor.com/agent/$env:STABLE_MSI ($remoteSize bytes)"
 
-      # Sigstore keyless provenance, same as the agent ZIP. Verify:
+      # Sigstore keyless provenance, same as the agent ZIP; covers the signed bytes. Skipped
+      # on runs that publish nothing -- no log entry for bytes nobody receives. Verify:
       # gh attestation verify AutopilotMonitor-Bootstrap.msi --repo okieselbach/AutopilotMonitor
       - name: Attest build provenance (MSI)
+        if: inputs.upload_blob
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ env.STABLE_MSI }}
