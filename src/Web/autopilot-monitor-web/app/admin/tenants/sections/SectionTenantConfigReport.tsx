@@ -156,6 +156,7 @@ interface ChannelView {
   notifyOnSuccess?: boolean;
   notifyOnFailure?: boolean;
   notifyOnSlaEvents?: boolean;
+  notifyOnWhatsNew?: boolean;
 }
 
 /** Channel list when migrated, else the legacy single-webhook fields — mirrors TenantConfiguration.GetNotificationChannels. */
@@ -194,6 +195,7 @@ function ChannelRows({ config }: { config: TenantConfiguration }) {
                 <ConfigRow label="Notify On Success" display={formatValue(ch.notifyOnSuccess ?? false)} />
                 <ConfigRow label="Notify On Failure" display={formatValue(ch.notifyOnFailure ?? false)} />
                 <ConfigRow label="Notify On SLA" display={formatValue(ch.notifyOnSlaEvents ?? false)} />
+                <ConfigRow label="Notify On What's New" display={formatValue(ch.notifyOnWhatsNew ?? false)} />
               </tbody>
             </table>
           </td>

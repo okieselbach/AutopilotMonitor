@@ -468,6 +468,13 @@ builder.Services.AddHttpClient<TelegramNotificationService>()
 // Channel-level send API — routes each NotificationChannel to its transport (webhook renderer
 // vs. the platform Telegram bot). Transient: both transports are typed HttpClients.
 builder.Services.AddTransient<AutopilotMonitor.Functions.Services.Notifications.NotificationChannelDispatcher>();
+// What's new → channel digest (hourly timer). The feed client is a typed HttpClient reading the
+// portal's static whats-new.json; the service is transient because the dispatcher it wraps is.
+builder.Services.AddHttpClient<AutopilotMonitor.Functions.Services.WhatsNew.IWhatsNewFeedClient,
+    AutopilotMonitor.Functions.Services.WhatsNew.WhatsNewFeedClient>()
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15))
+    .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+builder.Services.AddTransient<AutopilotMonitor.Functions.Services.WhatsNew.WhatsNewNotificationService>();
 // Durable channel notifications from the agent hot paths (ingest terminal alerts, hardware
 // rejection): the producer enqueues channel ids + alert, Functions/Queue/NotificationDispatchQueueFunction
 // re-resolves the channels from the tenant config and sends. Handler is transient because the

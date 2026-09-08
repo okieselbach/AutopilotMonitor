@@ -10,8 +10,8 @@ namespace AutopilotMonitor.Shared.Models.Notifications
     /// per tenant. Stored as a JSON array in <c>TenantConfiguration.NotificationChannelsJson</c>
     /// (camelCase contract shared with the web UI).
     /// <para>
-    /// Routing granularity: enrollment/SLA events are opted into per channel via the
-    /// <c>NotifyOn*</c> toggles below; analyze rules reference a channel by <see cref="Id"/>
+    /// Routing granularity: enrollment/SLA events and What's new product updates are opted into
+    /// per channel via the <c>NotifyOn*</c> toggles below; analyze rules reference a channel by <see cref="Id"/>
     /// (rule-level notify, see <c>RuleState.NotifyChannelIds</c>). A channel with all toggles
     /// off that is only referenced by rules acts as a dedicated "rules-only" channel.
     /// </para>
@@ -93,6 +93,14 @@ namespace AutopilotMonitor.Shared.Models.Notifications
         /// flags — this toggle only decides whether THIS channel is a recipient.
         /// </summary>
         public bool NotifyOnSlaEvents { get; set; }
+
+        /// <summary>
+        /// Receive "What's new" product updates: whenever new platform / agent changelog entries
+        /// go live in the portal's What's new panel, one digest message per batch is sent to this
+        /// channel (see <c>WhatsNewNotificationService</c>). Opt-in; the legacy synthesized channel
+        /// never receives them.
+        /// </summary>
+        public bool NotifyOnWhatsNew { get; set; }
 
         /// <summary>
         /// Parses <see cref="CustomHeadersJson"/> into request headers for the generic-webhook

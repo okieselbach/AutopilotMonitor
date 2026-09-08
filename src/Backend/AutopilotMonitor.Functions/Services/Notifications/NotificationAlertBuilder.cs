@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Notifications;
+using AutopilotMonitor.Shared.Models.WhatsNew;
 
 namespace AutopilotMonitor.Functions.Services.Notifications
 {
@@ -465,5 +466,106 @@ namespace AutopilotMonitor.Functions.Services.Notifications
             var result = string.Join(" ", Array.FindAll(parts, p => p != null));
             return string.IsNullOrEmpty(result) ? "\u2013" : result;
         }
+
+        // ── What's new digest ─────────────────────────────────────────────────
+
+        /// <summary>Entries rendered in full; the rest is folded into a "+N more" line.</summary>
+        public const int WhatsNewMaxSections = 6;
+        private const int WhatsNewMaxBodyLength = 280;
+
+        /// <summary>
+        /// Builds the "What's new" digest sent to channels with <c>NotifyOnWhatsNew</c>: one
+        /// message per batch of newly published changelog entries (newest first), one section per
+        /// entry. Entry text is inline markdown authored for the docs; renderers disagree on
+        /// markdown dialects (Adaptive Card vs. Slack mrkdwn vs. Discord), so it is flattened to
+        /// plain text here and the links live in the action buttons instead.
+        /// </summary>
+        public static NotificationAlert BuildWhatsNewAlert(
+            IReadOnlyList<WhatsNewFeedEntry> newEntries,
+            IReadOnlyDictionary<string, string>? docsUrls,
+            string portalWhatsNewUrl)
+        {
+            if (newEntries == null) throw new ArgumentNullException(nameof(newEntries));
+            if (newEntries.Count == 0) throw new ArgumentException("At least one entry is required.", nameof(newEntries));
+
+            var ordered = newEntries.OrderByDescending(e => e.AddedUtc).ToList();
+            var platformCount = ordered.Count(e => e.Channel == WhatsNewFeed.PlatformChannel);
+            var agentCount = ordered.Count - platformCount;
+
+            var alert = new NotificationAlert
+            {
+                EventType = "whats_new",
+                Title = "\ud83c\udd95 What's new in Autopilot Monitor",
+                Summary = BuildWhatsNewSummary(ordered.Count, platformCount, agentCount),
+                Severity = NotificationSeverity.Info,
+                ThemeColor = "0078D4",
+            };
+
+            foreach (var entry in ordered.Take(WhatsNewMaxSections))
+            {
+                var channelLabel = entry.Channel == WhatsNewFeed.AgentChannel ? "Agent" : "Platform";
+                var heading = $"{channelLabel} \u00b7 {entry.AddedUtc:MMM d, yyyy}";
+                var title = StripInlineMarkdown(entry.Title);
+                if (!string.IsNullOrEmpty(title))
+                    heading += $" \u2014 {title}";
+
+                alert.Sections.Add(new NotificationSection
+                {
+                    Title = heading,
+                    Text = Truncate(StripInlineMarkdown(entry.Body), WhatsNewMaxBodyLength),
+                });
+            }
+
+            var remaining = ordered.Count - WhatsNewMaxSections;
+            if (remaining > 0)
+            {
+                alert.Sections.Add(new NotificationSection
+                {
+                    Title = string.Empty,
+                    Text = $"+ {remaining} more update{(remaining == 1 ? "" : "s")} \u2014 see the full changelog.",
+                });
+            }
+
+            alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Open What's new", Url = portalWhatsNewUrl });
+
+            // Changelog button for the channel with the most new entries (platform on a tie).
+            var primaryChannel = agentCount > platformCount ? WhatsNewFeed.AgentChannel : WhatsNewFeed.PlatformChannel;
+            if (docsUrls != null && docsUrls.TryGetValue(primaryChannel, out var docsUrl) && !string.IsNullOrWhiteSpace(docsUrl))
+                alert.Actions.Add(new NotificationAction { Type = "openUrl", Title = "Full changelog", Url = docsUrl });
+
+            return alert;
+        }
+
+        private static string BuildWhatsNewSummary(int total, int platformCount, int agentCount)
+        {
+            var parts = new List<string>(2);
+            if (platformCount > 0) parts.Add($"{platformCount} platform");
+            if (agentCount > 0) parts.Add($"{agentCount} agent");
+            var breakdown = parts.Count == 2 ? $" ({string.Join(", ", parts)})" : string.Empty;
+            return $"{total} new update{(total == 1 ? "" : "s")}{breakdown} just went live in the portal.";
+        }
+
+        /// <summary>
+        /// Flattens the docs' inline markdown: <c>[label](url)</c> → label, <c>**x**</c>/<c>__x__</c> → x,
+        /// <c>`x`</c> → x, <c>*x*</c>/<c>_x_</c> → x. Null-safe; whitespace is collapsed.
+        /// </summary>
+        internal static string StripInlineMarkdown(string? markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown))
+                return string.Empty;
+
+            var text = markdown!;
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^)]*\)", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.+?)\*\*", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"__(.+?)__", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]*)`", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+            return text.Trim();
+        }
+
+        private static string Truncate(string text, int maxLength)
+            => text.Length <= maxLength ? text : text[..(maxLength - 1)].TrimEnd() + "\u2026";
     }
 }
