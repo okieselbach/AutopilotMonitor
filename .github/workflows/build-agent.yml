@@ -57,6 +57,16 @@ env:
   VERSIONED_ZIP: AutopilotMonitor-Agent-v2.zip
   STABLE_ZIP: AutopilotMonitor-Agent.zip
   STABLE_MANIFEST: version.json
+  # Authenticode via Azure Key Vault. Vault URL and client id stay in repository variables:
+  # this repo is public and infrastructure names do not belong in it. The signing identity
+  # lives in the same tenant as the deploy identity, so AZURE_TENANT_ID covers both.
+  # CODE_SIGN_EXPECTED_SUBJECT is optional -- when set, the verify step pins the publisher
+  # instead of accepting any trusted signature.
+  CODE_SIGN_CLIENT_ID: ${{ vars.CODE_SIGN_CLIENT_ID }}
+  CODE_SIGN_CERTIFICATE_NAME: ${{ vars.CODE_SIGN_CERTIFICATE_NAME }}
+  CODE_SIGN_KEY_VAULT_URL: ${{ vars.CODE_SIGN_KEY_VAULT_URL }}
+  CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
+  CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
   build:
@@ -66,6 +76,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      # Fail before a build number is burnt if the signing configuration is incomplete.
+      # Every released build is signed -- there is no unsigned fallback, so a missing
+      # variable is a stop, not a warning.
+      - name: Check code-signing configuration
+        shell: pwsh
+        run: |
+          foreach ($name in 'CODE_SIGN_CLIENT_ID', 'CODE_SIGN_CERTIFICATE_NAME', 'CODE_SIGN_KEY_VAULT_URL') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository variable $name is not set. Every released build must be Authenticode-signed."
+            }
+          }
+          Write-Host "Code-signing configuration present (certificate '$env:CODE_SIGN_CERTIFICATE_NAME')"
+
+      # The signing identity is a SECOND federated principal in the same tenant, and it logs in
+      # FIRST on purpose: azure/login sets the default az account, so the storage login below
+      # would otherwise be overwritten. Only the Key Vault token is taken from this context --
+      # a plain string that survives the switch -- and everything after this step runs as the
+      # deploy principal again.
+      # Both federated credentials are bound to the same subject
+      # (repo:okieselbach/AutopilotMonitor:ref:refs/heads/main). Never add an `environment:` to
+      # this job: that rewrites the OIDC subject claim and breaks BOTH logins at once.
+      - name: Login to Azure (code-signing identity)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        with:
+          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Acquire Key Vault token for signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Could not acquire a Key Vault token for the code-signing identity."
+          }
+          Write-Host "::add-mask::$token"
+          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # Every storage write below (counter blob, agent ZIP, manifests, AdminConfiguration)
       # is authorized by this federated identity -- no SAS secret. One login covers the whole
@@ -84,6 +133,13 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+
+      # Version pinned: a new or compromised NuGet release must not flow into signing unreviewed.
+      # LatestMajor roll-forward because the tool targets an older runtime than the SDK above.
+      - name: Install AzureSignTool
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
 
       # Build numbers come from the shared counter blob -- one counter and one
       # implementation for CI and the local build (.github/scripts/Request-BuildNumber.ps1).
@@ -139,6 +195,52 @@ jobs:
 
       - name: Run Agent unit tests
         run: dotnet test ${{ env.TEST_PROJECT }} --configuration Release --no-restore --verbosity quiet
+
+      # Authenticode over everything we author: the two EXEs that run on a device and our own
+      # DLLs beside them. Third-party assemblies keep their publisher's signature -- re-signing
+      # would replace it.
+      #
+      # THE POSITION IS LOAD-BEARING: signing rewrites the PE file. It must happen before the
+      # staging copy, the ZIP and every SHA-256 in the next step, because those hashes are the
+      # bootstrap's integrity oracle (version.json / AdminConfiguration). Signing afterwards
+      # would publish hashes that no downloaded file can ever match.
+      #
+      # azuresigntool is a native tool, so $LASTEXITCODE must be checked explicitly -- PowerShell
+      # does not throw on a non-zero exit, and a silently unsigned release is exactly the
+      # outcome signing exists to prevent.
+      - name: Sign agent binaries (Authenticode)
+        shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $targets = @()
+          $targets += Get-ChildItem -Path "$env:AGENT_OUTPUT/*" -Include 'AutopilotMonitor.*.exe', 'AutopilotMonitor.*.dll' -File
+          $targets += Get-ChildItem -Path "$env:DIALOG_OUTPUT/AutopilotMonitor.SummaryDialog.exe" -File
+
+          if (-not ($targets | Where-Object Name -eq 'AutopilotMonitor.Agent.exe')) {
+            throw "AutopilotMonitor.Agent.exe not found in $env:AGENT_OUTPUT -- nothing to sign."
+          }
+          if (-not ($targets | Where-Object Name -eq 'AutopilotMonitor.SummaryDialog.exe')) {
+            throw "AutopilotMonitor.SummaryDialog.exe not found in $env:DIALOG_OUTPUT -- nothing to sign."
+          }
+
+          $targets | ForEach-Object { Write-Host "Signing $($_.Name)" }
+
+          & azuresigntool.exe sign --verbose `
+            --azure-key-vault-url "$env:CODE_SIGN_KEY_VAULT_URL" `
+            --azure-key-vault-accesstoken "$env:CODE_SIGN_AKV_ACCESS_TOKEN" `
+            --azure-key-vault-certificate "$env:CODE_SIGN_CERTIFICATE_NAME" `
+            --timestamp-rfc3161 "$env:CODE_SIGN_TIMESTAMP_URL" `
+            --file-digest sha256 `
+            --description "Autopilot Monitor Agent" `
+            --description-url "https://www.autopilotmonitor.com" `
+            ($targets | ForEach-Object { $_.FullName })
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "azuresigntool failed with exit code $LASTEXITCODE -- aborting before anything is published."
+          }
 
       - name: Create release artifact
         id: artifact
@@ -230,6 +332,54 @@ jobs:
           "sha256=$sha256Hash" >> $env:GITHUB_OUTPUT
           "exe_sha256=$exeSha256Hash" >> $env:GITHUB_OUTPUT
 
+      # Verified against the STAGING copy -- the exact bytes that went into the ZIP and into
+      # both hashes, not the build output. The invariant is "every AutopilotMonitor PE in the
+      # shipped ZIP is signed", so a project added later cannot ride along unsigned.
+      # A missing timestamp is a failure, not a detail: without it the signature dies with the
+      # certificate. `Valid` alone only proves *a* trusted signature -- set the repository
+      # variable CODE_SIGN_EXPECTED_SUBJECT to pin the publisher as well.
+      - name: Verify Authenticode signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Path "staging/agent/*" -Include 'AutopilotMonitor.*.exe', 'AutopilotMonitor.*.dll' -File
+          if ($files.Count -lt 2) {
+            throw "Expected signed binaries in staging/agent, found $($files.Count)."
+          }
+
+          $failed = $false
+          $thumbprints = @{}
+          foreach ($file in $files) {
+            $sig = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($sig.Status -ne 'Valid') {
+              Write-Host "::error file=$($file.Name)::Signature status is '$($sig.Status)' -- expected 'Valid'."
+              $failed = $true
+              continue
+            }
+            if (-not $sig.TimeStamperCertificate) {
+              Write-Host "::error file=$($file.Name)::Signature carries no RFC-3161 timestamp -- it would expire with the certificate."
+              $failed = $true
+              continue
+            }
+            if (-not [string]::IsNullOrWhiteSpace($env:CODE_SIGN_EXPECTED_SUBJECT) -and
+                $sig.SignerCertificate.Subject -notlike $env:CODE_SIGN_EXPECTED_SUBJECT) {
+              Write-Host "::error file=$($file.Name)::Signed by '$($sig.SignerCertificate.Subject)', expected '$env:CODE_SIGN_EXPECTED_SUBJECT'."
+              $failed = $true
+              continue
+            }
+            $thumbprints[$sig.SignerCertificate.Thumbprint] = $true
+            Write-Host "$($file.Name): Valid, timestamped $($sig.TimeStamperCertificate.Subject.Split(',')[0]), signer $($sig.SignerCertificate.Subject)"
+          }
+
+          if ($thumbprints.Count -gt 1) {
+            Write-Host "::error::Staged binaries carry $($thumbprints.Count) different signing certificates -- expected exactly one."
+            $failed = $true
+          }
+          if ($failed) {
+            throw "Signature verification failed. Nothing was published."
+          }
+          Write-Host "All $($files.Count) binaries signed with certificate $($thumbprints.Keys -join ', ')"
+
       - name: Upload to Azure Blob Storage
         if: inputs.upload_blob
         shell: pwsh
@@ -312,14 +462,22 @@ jobs:
             Write-Host "AdminConfiguration updated: V2 version=$agentVersion, sha256=$sha256, exeSha256=$exeSha256"
           }
 
-      # Sigstore keyless provenance: binds the ZIP digest to this workflow run (repo, ref,
-      # commit, workflow file) in a public transparency log. The digest covers the identical
+      # Sigstore keyless provenance: binds the artifact digests to this workflow run (repo, ref,
+      # commit, workflow file) in a public transparency log. The digests cover the identical
       # bytes uploaded to blob (versioned AND stable), so one attestation covers all copies.
-      # Verify: gh attestation verify <zip> --repo okieselbach/AutopilotMonitor
-      - name: Attest build provenance (ZIP)
+      # Complementary to Authenticode, not a substitute: the signature says who published the
+      # binary and is what Windows, SmartScreen and WDAC evaluate; the attestation says which
+      # build produced these exact bytes and is checked with `gh attestation verify`. The two
+      # EXEs are subjects of their own so an extracted binary can be verified without the ZIP.
+      # Runs after signing -- the digests must be those of the signed files.
+      # Verify: gh attestation verify <file> --repo okieselbach/AutopilotMonitor
+      - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: ${{ steps.artifact.outputs.versioned_zip_release }}
+          subject-path: |
+            ${{ steps.artifact.outputs.versioned_zip_release }}
+            staging/agent/AutopilotMonitor.Agent.exe
+            staging/agent/AutopilotMonitor.SummaryDialog.exe
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
@@ -361,7 +519,7 @@ jobs:
             - **Published as stable:** ${{ inputs.publish_as_stable }}
 
             ### Provenance
-            This ZIP carries a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
+            The executables are Authenticode-signed and timestamped. The ZIP and both executables carry a [GitHub Artifact Attestation](https://github.com/okieselbach/AutopilotMonitor/attestations) (Sigstore keyless). Verify:
             ```
             gh attestation verify AutopilotMonitor-Agent-v${{ steps.version.outputs.version }}.zip --repo okieselbach/AutopilotMonitor
             ```
