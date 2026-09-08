@@ -3,16 +3,17 @@
 import { useState, useMemo } from "react";
 import { EnrollmentEvent, Session } from "@/types";
 import { normalizeEventDataForDisplay, shortenBuildHashInMessage } from "../utils/eventHelpers";
-import { buildEventSearchMatcher, parseEventSearchQuery } from "../utils/eventSearchQuery";
+import { buildEventSearchMatcher, formatEventSearchTerm, parseEventSearchQuery } from "../utils/eventSearchQuery";
 import { getEnrichedOrLookup, formatErrorCode, errorCodeTooltip, type ErrorCodeInfo } from "@/utils/errorCodeMap";
 import { readTimeProvenance, classifyTimeJump, readClockChangeDeltaMs } from "@/lib/timeProvenance";
 import { isRebootOrRetryClass } from "@/lib/installProgress";
 import { formatDuration, formatUtcOffset } from "@/lib/formatting";
 
 const SEARCH_SYNTAX_HINT =
-  "Searches event type, message and source. Several terms are combined with AND. " +
+  "Searches event type, message, source and the details JSON (e.g. gather output). " +
+  "Several terms are combined with AND; quote a phrase, e.g. \"Installation completed\". " +
   "A leading minus hides matches, e.g. -app_install_progress. " +
-  'Quote a term to take it literally, e.g. "-1".';
+  "Restrict a term to one field with type=, message=, source= or data=, e.g. data=hpia-log-collect.";
 
 interface EventTimelineProps {
   filteredEvents: EnrollmentEvent[];
@@ -67,9 +68,12 @@ export default function EventTimeline({
   const [searchQuery, setSearchQuery] = useState("");
   const [rawMode, setRawMode] = useState(false);
 
-  // Terms are AND-ed, a leading minus excludes — see utils/eventSearchQuery.ts.
+  // Terms are AND-ed, a leading minus excludes, key=value restricts — see utils/eventSearchQuery.ts.
   const matchesSearch = useMemo(() => buildEventSearchMatcher(searchQuery), [searchQuery]);
-  const excludedTerms = useMemo(() => parseEventSearchQuery(searchQuery).exclude, [searchQuery]);
+  const excludedTerms = useMemo(
+    () => parseEventSearchQuery(searchQuery).exclude.map(formatEventSearchTerm),
+    [searchQuery],
+  );
 
   // The counter has to follow the search, otherwise excluding event types leaves it
   // reporting a number of rows the timeline no longer shows.
