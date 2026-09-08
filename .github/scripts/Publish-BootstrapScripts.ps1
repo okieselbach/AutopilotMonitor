@@ -16,20 +16,30 @@
     enrolling device, so "current" is a correctness property, not cosmetics.
 
     Steps, in order:
-      1. Parse $ScriptVersion from the bootstrap source.
-      2. Render the -Dev variant by literal substitution of the two URL/manifest
+      1. Parse $ScriptVersion from the loader and the bootstrap source.
+      2. Render the -Dev variants by literal substitution of the URL/manifest
          defaults. A missing anchor is a hard failure -- a silently un-substituted
          dev script would point the dev fleet at the stable agent.
-      3. Version-bump guard: if the published bootstrap differs from the source
-         but carries the same $ScriptVersion, abort. Otherwise the docs badge,
+      3. Version-bump guard: if a published script differs from its source but
+         carries the same $ScriptVersion, abort. Otherwise the docs badge,
          version.json.bootstrapVersion and the portal's "your script is outdated"
          hint would all keep asserting a version that is no longer what ships.
-      4. Upload every script blob with Cache-Control: no-cache (they rotate in
+      4. Build the publish set (loader, bootstrap, both dev renders, the extras).
+      5. Authenticode-sign every script (see -SigningToken). Signing is the LAST
+         transformation: it covers the exact CRLF/UTF-8 bytes that get uploaded,
+         and nothing may touch them afterwards or the signature breaks.
+      6. Upload every script blob with Cache-Control: no-cache (they rotate in
          place), mirrored fail-soft to the legacy account.
-      5. Reconcile the two version oracles: version.json.bootstrapVersion
-         (read-modify-write under If-Match, so a concurrent agent release cannot
-         lose its agent fields) and AdminConfiguration.LatestBootstrapV2ScriptVersion.
-      6. Verify through the alias -- re-download each blob and compare SHA-256.
+      7. Reconcile the version oracles: version.json.bootstrapVersion and
+         .loaderVersion (read-modify-write under If-Match, so a concurrent agent
+         release cannot lose its agent fields) and
+         AdminConfiguration.LatestBootstrapV2ScriptVersion.
+      8. Verify through the alias -- re-download each blob and compare SHA-256.
+
+    Comparisons against a published script always strip its signature block first
+    (Get-ComparableText). A signature carries a timestamp, so signed bytes differ on
+    every run; without stripping, the bump guard and the drift check would report a
+    change for every unchanged script.
 
 .PARAMETER LegacySasToken
     Container SAS for the legacy account. Optional -- a mirror failure warns, never fails.
@@ -40,18 +50,39 @@
     Repository root. Defaults to the parent of .github/scripts.
 
 .PARAMETER DryRun
-    Run every check and render, upload nothing.
+    Run every check and render, upload nothing. A dry run signs when a token is supplied
+    and skips signing when it is not: the PR gate runs this without any Azure login.
+
+.PARAMETER SigningToken
+    Azure Key Vault access token for AzureSignTool. MANDATORY for a real publish -- an
+    unsigned customer script is not something this repo publishes. Together with
+    -KeyVaultUrl and -CertificateName.
+
+.PARAMETER ExpectedPublisher
+    Optional -like pattern the signer subject must match after signing. Pins the publisher
+    instead of accepting any trusted signature; the loader on the device pins the same way.
+
+.PARAMETER SignedOutputDir
+    Optional directory that receives a copy of every published file exactly as uploaded.
+    Used by CI to offer the signed scripts as a build artifact for local inspection.
 
 .EXAMPLE
     ./Publish-BootstrapScripts.ps1 -DryRun
 
 .EXAMPLE
-    ./Publish-BootstrapScripts.ps1 -LegacySasToken $env:LEGACY_SAS
+    ./Publish-BootstrapScripts.ps1 -LegacySasToken $env:LEGACY_SAS -SigningToken $env:AKV_TOKEN `
+        -KeyVaultUrl $env:KV_URL -CertificateName $env:CERT
 #>
 [CmdletBinding()]
 param(
     [string]$LegacySasToken,
     [string]$RepoRoot,
+    [string]$SigningToken,
+    [string]$KeyVaultUrl,
+    [string]$CertificateName,
+    [string]$TimestampUrl = 'http://timestamp.acs.microsoft.com',
+    [string]$ExpectedPublisher,
+    [string]$SignedOutputDir,
     [switch]$DryRun
 )
 
@@ -69,7 +100,22 @@ $TableUrl           = "https://autopilotmonitoreu.table.core.windows.net/AdminCo
 $BootstrapSource   = Join-Path $RepoRoot 'scripts/Bootstrap/Install-AutopilotMonitor.ps1'
 $BootstrapBlob     = 'Install-AutopilotMonitor.ps1'
 $DevBlob           = 'Install-AutopilotMonitor-Dev.ps1'
+# Stage 1. What a customer assigns in Intune once; it downloads the bootstrap above on
+# every device and verifies its publisher before running it.
+$LoaderSource      = Join-Path $RepoRoot 'scripts/Bootstrap/Start-AutopilotMonitor.ps1'
+$LoaderBlob        = 'Start-AutopilotMonitor.ps1'
+$LoaderDevBlob     = 'Start-AutopilotMonitor-Dev.ps1'
 $ScriptContentType = 'text/plain; charset=utf-8'
+
+$SigningEnabled = -not [string]::IsNullOrWhiteSpace($SigningToken)
+if (-not $DryRun -and -not $SigningEnabled) {
+    throw ('Publishing requires -SigningToken (plus -KeyVaultUrl and -CertificateName): the ' +
+           'loader on every device verifies the publisher of what it downloads, so an unsigned ' +
+           'script would be rejected in the field. Only -DryRun may run without signing.')
+}
+if ($SigningEnabled -and ([string]::IsNullOrWhiteSpace($KeyVaultUrl) -or [string]::IsNullOrWhiteSpace($CertificateName))) {
+    throw '-SigningToken needs -KeyVaultUrl and -CertificateName.'
+}
 
 function Get-HttpStatus {
     param($ErrorRecord)
@@ -116,6 +162,122 @@ function Get-PublishBytes {
     return ,(New-Object System.Text.UTF8Encoding $false).GetBytes($normalised)
 }
 
+# A PowerShell signature is appended as a comment block at the end of the file, so the
+# published bytes are "source + signature". Everything that compares a published script to
+# its source has to cut that block off first -- the signature carries a timestamp and is
+# therefore different on every publish, while the script above it is unchanged.
+function Remove-SignatureBlock {
+    param([string]$Text)
+    $marker = '# SIG # Begin signature block'
+    $index = $Text.IndexOf($marker)
+    if ($index -lt 0) { return $Text }
+    return $Text.Substring(0, $index)
+}
+
+# Comparison form: no signature, LF, no trailing blank lines. Used for "is the published
+# copy still this source" -- never for what gets uploaded.
+function Get-ComparableText {
+    param([string]$Text)
+    return (Remove-SignatureBlock $Text).Replace("`r`n", "`n").TrimEnd("`n")
+}
+
+# Signs the publish set in place: each item's bytes are written to a work directory, signed
+# there, verified, and read back as the bytes that will be uploaded. Signing has to be the
+# last transformation -- the signature covers exactly these bytes, so nothing may normalise
+# or re-encode them afterwards.
+function Set-PublishSetSignature {
+    param([object[]]$Items, [string]$WorkDir)
+
+    if (-not (Get-Command azuresigntool -ErrorAction SilentlyContinue)) {
+        throw "azuresigntool is not on PATH. Install it with: dotnet tool install --global AzureSignTool --version 7.0.1"
+    }
+
+    New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+
+    $paths = @()
+    foreach ($item in $Items) {
+        $path = Join-Path $WorkDir $item.BlobName
+        [System.IO.File]::WriteAllBytes($path, [byte[]]$item.Bytes)
+        $paths += $path
+    }
+
+    Write-Host "Signing $($paths.Count) script(s) with certificate '$CertificateName'..."
+    & azuresigntool.exe sign --verbose `
+        --azure-key-vault-url $KeyVaultUrl `
+        --azure-key-vault-accesstoken $SigningToken `
+        --azure-key-vault-certificate $CertificateName `
+        --timestamp-rfc3161 $TimestampUrl `
+        --file-digest sha256 `
+        --description 'Autopilot Monitor bootstrap' `
+        --description-url 'https://www.autopilotmonitor.com' `
+        $paths
+
+    # Native tool: PowerShell does not throw on a non-zero exit, and an unnoticed signing
+    # failure would publish unsigned scripts that every loader in the field then rejects.
+    if ($LASTEXITCODE -ne 0) {
+        throw "azuresigntool failed with exit code $LASTEXITCODE -- nothing was uploaded."
+    }
+
+    foreach ($item in $Items) {
+        $path = Join-Path $WorkDir $item.BlobName
+        $sig = Get-AuthenticodeSignature -FilePath $path
+        if ($sig.Status -ne 'Valid') {
+            throw "Signature on $($item.BlobName) is '$($sig.Status)', expected 'Valid'."
+        }
+        # Without a timestamp the signature dies with the certificate, and these scripts sit
+        # on customer devices far longer than a certificate lifetime.
+        if (-not $sig.TimeStamperCertificate) {
+            throw "Signature on $($item.BlobName) carries no timestamp."
+        }
+        if ($ExpectedPublisher -and $sig.SignerCertificate.Subject -notlike $ExpectedPublisher) {
+            throw "$($item.BlobName) was signed by '$($sig.SignerCertificate.Subject)', expected '$ExpectedPublisher'."
+        }
+        $item.Bytes = ,([System.IO.File]::ReadAllBytes($path))
+        Write-Host "  signed $($item.BlobName) ($($item.Bytes.Length) bytes, signer $($sig.SignerCertificate.Subject.Split(',')[0]))"
+    }
+}
+
+# Aborts when a published script changed behaviour without a version bump. Consumers act on
+# the version (docs badge, version.json, the portal's outdated-script hint), so an unchanged
+# version has to mean unchanged behaviour.
+function Assert-VersionBump {
+    param(
+        [string]$BlobName,
+        [string]$SourceContent,
+        [string]$SourceOrigin,
+        [string]$SourceVersion
+    )
+
+    $publishedBytes = Get-PublishedBytes "$AliasUrl/$BlobName"
+    if ($null -eq $publishedBytes) {
+        Write-Host "No published $BlobName yet -- version-bump guard skipped (first publish)"
+        return
+    }
+
+    $publishedText = [System.Text.Encoding]::UTF8.GetString($publishedBytes)
+    if ((Get-ComparableText $publishedText) -eq (Get-ComparableText $SourceContent)) {
+        Write-Host "Published $BlobName is already this source (signature block aside)"
+        return
+    }
+
+    $publishedVersion = Get-BootstrapScriptVersion -Content $publishedText -Origin "$AliasUrl/$BlobName" -Optional
+
+    if ($null -eq $publishedVersion) {
+        Write-Host "::warning::The published $BlobName is not a readable script (no ScriptVersion found). Republishing over it."
+    } elseif ($publishedVersion -ne $SourceVersion) {
+        Write-Host "Version bump: $publishedVersion -> $SourceVersion ($BlobName)"
+    } elseif ((Get-CodeFingerprint -Text (Remove-SignatureBlock $publishedText) -Origin "$AliasUrl/$BlobName") -eq
+              (Get-CodeFingerprint -Text $SourceContent -Origin $SourceOrigin)) {
+        # Comments, typos in comments, reflow -- nothing a consumer of the version can act on.
+        Write-Host "::warning::$BlobName changed in comments or formatting only; publishing under the unchanged version $SourceVersion."
+    } else {
+        throw ("Version-bump guard: $BlobName changed behaviour but ScriptVersion is still $SourceVersion. " +
+               "Bump it in $SourceOrigin -- the docs badge, version.json and the " +
+               'portal outdated-script hint all read that value, and customers decide from it whether ' +
+               'to re-upload their Intune copy. Comment-only and formatting changes do not need a bump.')
+    }
+}
+
 function Get-BootstrapScriptVersion {
     param([string]$Content, [string]$Origin, [switch]$Optional)
     if ($Content -match '\$ScriptVersion\s*=\s*"([\d\.\-a-zA-Z]+)"') { return $Matches[1] }
@@ -143,11 +305,15 @@ function Get-CodeFingerprint {
     return (($tokens | Where-Object { $ignored -notcontains $_.Kind.ToString() } | ForEach-Object { $_.Text }) -join "`n")
 }
 
-# ------------------------------------------------------------------ 1. source
+# ------------------------------------------------------------------ 1. sources
 $sourceContent = Get-Content $BootstrapSource -Raw
 $sourceBytes   = Get-PublishBytes $sourceContent
 $scriptVersion = Get-BootstrapScriptVersion -Content $sourceContent -Origin $BootstrapSource
 Write-Host "Bootstrap script version: $scriptVersion"
+
+$loaderContent = Get-Content $LoaderSource -Raw
+$loaderVersion = Get-BootstrapScriptVersion -Content $loaderContent -Origin $LoaderSource
+Write-Host "Loader script version: $loaderVersion"
 
 # ------------------------------------------------------------------ 2. dev render
 $stableUrlLiteral = '$AgentDownloadUrl = "https://download.autopilotmonitor.com/agent/AutopilotMonitor-Agent.zip"'
@@ -161,33 +327,21 @@ if ($sourceContent.IndexOf($stableUrlLiteral) -lt 0 -or $sourceContent.IndexOf($
 $devContent = $sourceContent.Replace($stableUrlLiteral, $devUrlLiteral).Replace($stableManLiteral, $devManLiteral)
 Write-Host "Rendered $DevBlob (dev agent URL + version-dev.json)"
 
-# ------------------------------------------------------------------ 3. bump guard
-$publishedBytes = Get-PublishedBytes "$AliasUrl/$BootstrapBlob"
-if ($null -eq $publishedBytes) {
-    Write-Host 'No published bootstrap yet -- version-bump guard skipped (first publish)'
-} elseif ((Get-Sha256 $publishedBytes) -eq (Get-Sha256 $sourceBytes)) {
-    Write-Host 'Published bootstrap is already byte-identical to the source'
-} else {
-    $publishedText    = [System.Text.Encoding]::UTF8.GetString($publishedBytes)
-    $publishedVersion = Get-BootstrapScriptVersion -Content $publishedText -Origin "$AliasUrl/$BootstrapBlob" -Optional
+# The dev loader must fetch the dev bootstrap, or a dev device would run the stable chain.
+$stableLoaderLiteral = '$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor.ps1"'
+$devLoaderLiteral    = '$BootstrapUrl = "https://download.autopilotmonitor.com/agent/Install-AutopilotMonitor-Dev.ps1"'
 
-    if ($null -eq $publishedVersion) {
-        Write-Host "::warning::The published $BootstrapBlob is not a readable bootstrap script (no ScriptVersion found). Republishing over it."
-    } elseif ($publishedVersion -ne $scriptVersion) {
-        Write-Host "Version bump: $publishedVersion -> $scriptVersion"
-    } elseif ((Get-CodeFingerprint -Text $publishedText -Origin "$AliasUrl/$BootstrapBlob") -eq
-              (Get-CodeFingerprint -Text $sourceContent -Origin $BootstrapSource)) {
-        # Comments, typos in comments, reflow -- nothing a consumer of the version can act on.
-        Write-Host "::warning::$BootstrapBlob changed in comments or formatting only; publishing under the unchanged version $scriptVersion."
-    } else {
-        throw ("Version-bump guard: $BootstrapBlob changed behaviour but ScriptVersion is still $scriptVersion. " +
-               "Bump it in $BootstrapSource -- the docs badge, version.json.bootstrapVersion and the " +
-               'portal outdated-script hint all read that value, and customers decide from it whether ' +
-               'to re-upload their Intune copy. Comment-only and formatting changes do not need a bump.')
-    }
+if ($loaderContent.IndexOf($stableLoaderLiteral) -lt 0) {
+    throw "Loader dev-render: anchor literal missing in $LoaderSource"
 }
+$devLoaderContent = $loaderContent.Replace($stableLoaderLiteral, $devLoaderLiteral)
+Write-Host "Rendered $LoaderDevBlob (points at $DevBlob)"
 
-# ------------------------------------------------------------------ 4. upload
+# ------------------------------------------------------------------ 3. bump guards
+Assert-VersionBump -BlobName $BootstrapBlob -SourceContent $sourceContent -SourceOrigin $BootstrapSource -SourceVersion $scriptVersion
+Assert-VersionBump -BlobName $LoaderBlob    -SourceContent $loaderContent -SourceOrigin $LoaderSource    -SourceVersion $loaderVersion
+
+# ------------------------------------------------------------------ 4. publish set
 # Sources beyond the bootstrap pair, read straight from the repo.
 $extraSources = @(
     @{ Path = 'scripts/Bootstrap/Test-ShouldBootstrapAgent.ps1';       BlobName = 'Test-ShouldBootstrapAgent.ps1' }
@@ -197,15 +351,29 @@ $extraSources = @(
 # Uninstall-AutopilotMonitor.ps1 is deliberately NOT published: nothing links it, and
 # an unauthenticated uninstall script on the public download host is not a feature.
 
+# Text is the unsigned publish form and stays the reference for every comparison against a
+# published copy; Bytes is what goes on the wire and carries the signature after step 4.
 $publishSet = [System.Collections.Generic.List[object]]::new()
-$publishSet.Add([pscustomobject]@{ BlobName = $BootstrapBlob; Bytes = $sourceBytes })
-$publishSet.Add([pscustomobject]@{ BlobName = $DevBlob;       Bytes = (Get-PublishBytes $devContent) })
+$publishSet.Add([pscustomobject]@{ BlobName = $LoaderBlob;    Text = $loaderContent;    Bytes = (Get-PublishBytes $loaderContent) })
+$publishSet.Add([pscustomobject]@{ BlobName = $LoaderDevBlob; Text = $devLoaderContent; Bytes = (Get-PublishBytes $devLoaderContent) })
+$publishSet.Add([pscustomobject]@{ BlobName = $BootstrapBlob; Text = $sourceContent;    Bytes = $sourceBytes })
+$publishSet.Add([pscustomobject]@{ BlobName = $DevBlob;       Text = $devContent;       Bytes = (Get-PublishBytes $devContent) })
 foreach ($extra in $extraSources) {
     $extraPath = Join-Path $RepoRoot $extra.Path
     if (-not (Test-Path $extraPath)) {
         throw "Publish source missing: $extraPath"
     }
-    $publishSet.Add([pscustomobject]@{ BlobName = $extra.BlobName; Bytes = (Get-PublishBytes (Get-Content $extraPath -Raw)) })
+    $extraText = Get-Content $extraPath -Raw
+    $publishSet.Add([pscustomobject]@{ BlobName = $extra.BlobName; Text = $extraText; Bytes = (Get-PublishBytes $extraText) })
+}
+
+# ------------------------------------------------------------------ 5. sign
+# After this point the bytes are final. Normalising, re-encoding or rewriting a line ending
+# would invalidate the signature, and the device-side loader would refuse the script.
+if ($SigningEnabled) {
+    Set-PublishSetSignature -Items $publishSet -WorkDir (Join-Path ([System.IO.Path]::GetTempPath()) "apm-publish-$PID")
+} else {
+    Write-Host '::warning::No signing token supplied -- dry run continues with unsigned scripts.'
 }
 
 $legacySas = if ($LegacySasToken) { $LegacySasToken.TrimStart('?') } else { '' }
@@ -214,6 +382,7 @@ $legacySas = if ($LegacySasToken) { $LegacySasToken.TrimStart('?') } else { '' }
 # (bootstrap-script-gates.yml) executes this script with -DryRun and never logs in.
 $authHeaders = if ($DryRun) { $null } else { & (Join-Path $PSScriptRoot 'Get-StorageAuthHeaders.ps1') }
 
+# ------------------------------------------------------------------ 6. upload
 foreach ($item in $publishSet) {
     # Explicit type, not a convenience: an Object[] body is uploaded as space-separated
     # decimals rather than raw bytes, and every hash check still passes because [byte[]]
@@ -221,11 +390,21 @@ foreach ($item in $publishSet) {
     [byte[]]$bytes = $item.Bytes
     $item | Add-Member -NotePropertyName Sha256 -NotePropertyValue (Get-Sha256 $bytes) -Force
 
+    # Exactly the bytes that go on the wire, for the CI artifact. Written in a dry run too:
+    # that is the run an operator uses to inspect a signed script before it is published.
+    if ($SignedOutputDir) {
+        New-Item -ItemType Directory -Force -Path $SignedOutputDir | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $SignedOutputDir $item.BlobName), $bytes)
+    }
+
     if ($DryRun) {
-        # Doubles as a drift check: says per blob whether the alias already serves this source.
+        # Doubles as a drift check: says per blob whether the alias already serves this
+        # source. Compared as text without the signature block -- signed bytes differ on
+        # every run, so a byte comparison would report drift for every unchanged script.
         $served = Get-PublishedBytes "$AliasUrl/$($item.BlobName)"
         $state = if ($null -eq $served) { 'MISSING on the alias' }
-                 elseif ((Get-Sha256 $served) -eq $item.Sha256) { 'already current' }
+                 elseif ((Get-ComparableText ([System.Text.Encoding]::UTF8.GetString($served))) -eq
+                         (Get-ComparableText $item.Text)) { 'already current' }
                  else { 'STALE on the alias' }
         Write-Host "  [dry-run] $($item.BlobName) ($($bytes.Length) bytes, sha256 $($item.Sha256)) -- $state"
         continue
@@ -260,7 +439,7 @@ foreach ($item in $publishSet) {
     }
 }
 
-# ------------------------------------------------------------------ 5. version oracles
+# ------------------------------------------------------------------ 7. version oracles
 # version.json is the agent manifest; only bootstrapVersion belongs to us. Read from the
 # blob (not the alias) for an authoritative ETag, write back under If-Match so a concurrent
 # agent release cannot lose its version/sha256 fields.
@@ -272,11 +451,15 @@ if (-not $DryRun) {
         } else { [string]$manifestResp.Content }
         $manifest = $manifestRaw | ConvertFrom-Json
 
-        if ($manifest.bootstrapVersion -eq $scriptVersion) {
-            Write-Host "version.json already reports bootstrapVersion $scriptVersion"
+        if ($manifest.bootstrapVersion -eq $scriptVersion -and $manifest.loaderVersion -eq $loaderVersion) {
+            Write-Host "version.json already reports bootstrapVersion $scriptVersion and loaderVersion $loaderVersion"
         } else {
             $etag = '"' + ([string]($manifestResp.Headers['ETag'] | Select-Object -First 1)).Trim('"') + '"'
             $manifest | Add-Member -NotePropertyName 'bootstrapVersion' -NotePropertyValue $scriptVersion -Force
+            # Additive: no consumer reads loaderVersion yet. It exists so support can tell
+            # which stage-1 file a device was assigned -- stage 2 is always current by
+            # construction, so its version says nothing about the customer's Intune copy.
+            $manifest | Add-Member -NotePropertyName 'loaderVersion' -NotePropertyValue $loaderVersion -Force
             $body = [System.Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Compress))
             $manifestHeaders = @{
                 'x-ms-blob-type'          = 'BlockBlob'
@@ -285,7 +468,7 @@ if (-not $DryRun) {
                 'If-Match'                = $etag
             }
             Invoke-RestMethod -Uri "$ContainerUrl/version.json" -Method Put -Headers ($authHeaders + $manifestHeaders) -Body $body | Out-Null
-            Write-Host "version.json bootstrapVersion -> $scriptVersion (agent fields untouched)"
+            Write-Host "version.json bootstrapVersion -> $scriptVersion, loaderVersion -> $loaderVersion (agent fields untouched)"
 
             if ($legacySas) {
                 try {
@@ -317,7 +500,7 @@ if ($DryRun) {
     Write-Host "AdminConfiguration.LatestBootstrapV2ScriptVersion = $scriptVersion"
 }
 
-# ------------------------------------------------------------------ 6. verify via alias
+# ------------------------------------------------------------------ 8. verify via alias
 if (-not $DryRun) {
     $pending = [System.Collections.ArrayList]::new()
     $publishSet | ForEach-Object { [void]$pending.Add($_) }
@@ -349,7 +532,8 @@ if ($env:GITHUB_STEP_SUMMARY) {
     $summary = @(
         "### Bootstrap scripts: $mode",
         '',
-        "Bootstrap script version: **$scriptVersion**",
+        "Loader script version: **$loaderVersion** | Bootstrap script version: **$scriptVersion**",
+        "Signed: **$(if ($SigningEnabled) { "yes, certificate '$CertificateName'" } else { 'NO (unsigned dry run)' })**",
         ''
     ) + ($publishSet | ForEach-Object { "- $($_.BlobName) -- sha256 $($_.Sha256)" })
     ($summary -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

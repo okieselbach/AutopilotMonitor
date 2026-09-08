@@ -35,6 +35,16 @@ concurrency:
   group: agent-blob-publish
   cancel-in-progress: false
 
+# Authenticode for the customer scripts. Same identity and same repository variables as
+# build-agent.yml -- the loader on every device pins this publisher, so the two must not
+# drift apart.
+env:
+  CODE_SIGN_CLIENT_ID: ${{ vars.CODE_SIGN_CLIENT_ID }}
+  CODE_SIGN_CERTIFICATE_NAME: ${{ vars.CODE_SIGN_CERTIFICATE_NAME }}
+  CODE_SIGN_KEY_VAULT_URL: ${{ vars.CODE_SIGN_KEY_VAULT_URL }}
+  CODE_SIGN_EXPECTED_SUBJECT: ${{ vars.CODE_SIGN_EXPECTED_SUBJECT }}
+  CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
+
 jobs:
   gates:
     uses: ./.github/workflows/bootstrap-script-gates.yml
@@ -46,6 +56,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check code-signing configuration
+        shell: pwsh
+        run: |
+          foreach ($name in 'CODE_SIGN_CLIENT_ID', 'CODE_SIGN_CERTIFICATE_NAME', 'CODE_SIGN_KEY_VAULT_URL') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Repository variable $name is not set. Published customer scripts must be signed."
+            }
+          }
+
+      # First, and only to fetch the Key Vault token: azure/login sets the default az
+      # account and the storage login below has to be the one that stays. See D-223 --
+      # both federated credentials are bound to the ref, so this job must never carry a
+      # GitHub `environment:`.
+      - name: Login to Azure (code-signing identity)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        with:
+          client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Acquire Key Vault token for signing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $token = az account get-access-token --scope https://vault.azure.net/.default --query accessToken --output tsv
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($token)) {
+            throw "Could not acquire a Key Vault token for the code-signing identity."
+          }
+          Write-Host "::add-mask::$token"
+          "CODE_SIGN_AKV_ACCESS_TOKEN=$token" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # Authorizes the eu blob writes and the AdminConfiguration merge. The gates job above
       # runs the same publisher with -DryRun and deliberately without a login -- a dry run
       # must never need Azure credentials.
@@ -56,10 +97,38 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Version pinned so a new or compromised NuGet release cannot flow into signing
+      # unreviewed; roll-forward because the tool targets an older runtime than the SDK
+      # preinstalled on the runner.
+      - name: Install AzureSignTool
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: dotnet tool install --no-cache --global AzureSignTool --version 7.0.1
+
       - name: Publish bootstrap + customer scripts
         shell: pwsh
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
         run: |
           $dryRun = '${{ inputs.dry_run }}' -eq 'true'
           ./.github/scripts/Publish-BootstrapScripts.ps1 `
             -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
+            -SigningToken $env:CODE_SIGN_AKV_ACCESS_TOKEN `
+            -KeyVaultUrl $env:CODE_SIGN_KEY_VAULT_URL `
+            -CertificateName $env:CODE_SIGN_CERTIFICATE_NAME `
+            -TimestampUrl $env:CODE_SIGN_TIMESTAMP_URL `
+            -ExpectedPublisher $env:CODE_SIGN_EXPECTED_SUBJECT `
+            -SignedOutputDir "$env:RUNNER_TEMP/signed-scripts" `
             -DryRun:$dryRun
+
+      # The exact bytes that were (or, on a dry run, would have been) uploaded. A dry-run
+      # dispatch is therefore the way to inspect a signed script locally before it reaches
+      # a single customer. Kept on failure too: a failed alias verification is precisely
+      # when someone wants to look at the file.
+      - name: Upload signed scripts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: signed-scripts
+          path: ${{ runner.temp }}/signed-scripts
+          if-no-files-found: ignore

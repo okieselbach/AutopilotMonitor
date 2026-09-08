@@ -434,8 +434,16 @@ jobs:
             # to main, so a release lands a set that is consistent with what is already live
             # (dev render, version-bump guard, bootstrapVersion oracles, alias verification).
             # Runs AFTER version.json so its bootstrapVersion read sees this build's manifest.
+            # Same signing identity as the binaries above: the loader on every device
+            # verifies the publisher of the script it downloads, so the publisher refuses
+            # to upload unsigned scripts.
             ./.github/scripts/Publish-BootstrapScripts.ps1 `
-              -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}'
+              -LegacySasToken '${{ secrets.AZURE_BLOB_AGENT_LEGACY_SAS_TOKEN }}' `
+              -SigningToken $env:CODE_SIGN_AKV_ACCESS_TOKEN `
+              -KeyVaultUrl $env:CODE_SIGN_KEY_VAULT_URL `
+              -CertificateName $env:CODE_SIGN_CERTIFICATE_NAME `
+              -TimestampUrl $env:CODE_SIGN_TIMESTAMP_URL `
+              -ExpectedPublisher $env:CODE_SIGN_EXPECTED_SUBJECT
           }
 
           # Update AdminConfiguration LatestAgentV2* -- ONLY on stable cutover. The hash-oracle
