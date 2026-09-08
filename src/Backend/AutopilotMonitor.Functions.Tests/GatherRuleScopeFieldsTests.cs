@@ -129,6 +129,29 @@ public class GatherRuleScopeFieldsTests
         Assert.Null(mapped.ActivePhases);
         Assert.Null(mapped.ActiveFromPhase);
         Assert.Null(mapped.EmitMode);
+        Assert.False(mapped.EnrichErrorCodes);
+    }
+
+    [Fact]
+    public async Task Roundtrip_EnrichErrorCodes_SurvivesStoreAndMap()
+    {
+        var (service, lastUpserted) = BuildStorageHarness();
+        var rule = new GatherRule
+        {
+            RuleId = "GATHER-ENRICH-001",
+            Title = "MSI log parser",
+            CollectorType = "logparser",
+            Target = "C:\\Windows\\Temp\\msi.log",
+            Trigger = "interval",
+            IntervalSeconds = 60,
+            OutputEventType = "gather_msi",
+            EnrichErrorCodes = true,
+        };
+
+        Assert.True(await service.StoreGatherRuleAsync(rule, "global"));
+        var mapped = service.MapToGatherRule(lastUpserted()!);
+
+        Assert.True(mapped.EnrichErrorCodes);
     }
 
     // ── ContentEquivalent ──────────────────────────────────────────────────
@@ -175,6 +198,10 @@ public class GatherRuleScopeFieldsTests
         var emit = BaseRule();
         emit.EmitMode = "on_change";
         Assert.False(GatherRuleService.ContentEquivalent(baseline, emit));
+
+        var enrich = BaseRule();
+        enrich.EnrichErrorCodes = true;
+        Assert.False(GatherRuleService.ContentEquivalent(baseline, enrich));
     }
 
     [Fact]

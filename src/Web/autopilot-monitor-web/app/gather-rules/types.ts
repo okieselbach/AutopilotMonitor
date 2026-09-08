@@ -20,6 +20,7 @@ export interface GatherRule {
   activePhases?: string[] | null;
   activeFromPhase?: string | null;
   emitMode?: string | null;
+  enrichErrorCodes?: boolean;
   outputEventType: string;
   outputSeverity: string;
   tags: string[];
@@ -57,6 +58,7 @@ export interface NewRuleForm {
   activePhases: string[];
   activeFromPhase: string;
   emitMode: string;
+  enrichErrorCodes: boolean;
   outputEventType: string;
   outputSeverity: string;
   tags: string[];
@@ -172,6 +174,7 @@ export const EMPTY_FORM: NewRuleForm = {
   activeFromPhase: "",
   // New rules default to on_change (anti-spam); existing rules load as "always" in startEditing.
   emitMode: "on_change",
+  enrichErrorCodes: false,
   outputEventType: "",
   outputSeverity: "info",
   tags: [],
@@ -253,6 +256,7 @@ export function buildScopeFields(form: NewRuleForm) {
     activePhases: scoped && form.scopeMode === "during" && form.activePhases.length > 0 ? form.activePhases : null,
     activeFromPhase: scoped && form.scopeMode === "from" && form.activeFromPhase ? form.activeFromPhase : null,
     emitMode: supportsEmitMode(form) ? (form.emitMode || null) : null,
+    enrichErrorCodes: form.enrichErrorCodes === true,
   };
 }
 
@@ -269,7 +273,8 @@ export function withDerivedScopeMode(form: NewRuleForm): NewRuleForm {
   const scopeMode: NewRuleForm["scopeMode"] =
     activePhases.length > 0 ? "during" : activeFromPhase ? "from" : "always";
   const emitMode = form.emitMode === "on_change" ? "on_change" : "always";
-  return { ...form, activePhases, activeFromPhase, scopeMode, emitMode };
+  const enrichErrorCodes = form.enrichErrorCodes === true;
+  return { ...form, activePhases, activeFromPhase, scopeMode, emitMode, enrichErrorCodes };
 }
 
 /**
@@ -322,6 +327,7 @@ export function gatherRuleToForm(input: PastedGatherJson): NewRuleForm {
     // A rule without the field behaves "always"; only an explicit on_change survives —
     // the on_change default is for rules started from the empty form, not for imports.
     emitMode: input.emitMode ?? "always",
+    enrichErrorCodes: input.enrichErrorCodes === true,
     outputEventType: input.outputEventType ?? "",
     outputSeverity: input.outputSeverity ?? EMPTY_FORM.outputSeverity,
     tags: Array.isArray(input.tags) ? input.tags.filter((t): t is string => typeof t === "string") : [],

@@ -823,6 +823,27 @@ namespace AutopilotMonitor.Shared
             public const string Registry = "Registry";
             public const string WMI      = "WMI";
             public const string Network  = "Network";
+
+            /// <summary>
+            /// Stamped on every event the agent's gather-rule pipeline emits (executor, guard
+            /// events, collectors). Backend and MCP key off it to treat the payload as
+            /// author-defined (no error-code enrichment unless <see cref="GatherRuleDataKeys.EnrichErrorCodes"/>).
+            /// </summary>
+            public const string GatherRuleExecutor = "GatherRuleExecutor";
+        }
+
+        /// <summary>
+        /// Well-known keys the agent injects into gather-rule event data next to the
+        /// collector's own fields.
+        /// </summary>
+        public static class GatherRuleDataKeys
+        {
+            /// <summary>
+            /// <c>true</c> when the rule opted into <see cref="Models.GatherRule.EnrichErrorCodes"/>;
+            /// absent otherwise. Lets the read-time error-code enricher honour the rule setting
+            /// without knowing the rule.
+            /// </summary>
+            public const string EnrichErrorCodes = "enrichErrorCodes";
         }
 
         // -----------------------------------------------------------------------

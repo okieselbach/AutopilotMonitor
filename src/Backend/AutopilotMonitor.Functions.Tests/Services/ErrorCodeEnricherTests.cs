@@ -161,6 +161,88 @@ public sealed class ErrorCodeEnricherTests
     }
 
     [Fact]
+    public void EnrichEvent_skips_gather_rule_events_by_default()
+    {
+        // A logparser gather rule on HP Image Assistant.log captured `exitcode` — HPiA has its own
+        // exit-code table, so the MSI/Win32 catalog meaning ("ERROR_SUCCESS") must not be attached
+        // unless the rule opted in (no enrichErrorCodes marker here).
+        var evt = new EnrollmentEvent
+        {
+            EventType = "HPiA-UpdateStatus",
+            Source = "GatherRuleExecutor",
+            Message = "Gather: HP Updater Log Analyze",
+            Data = new()
+            {
+                { "exitcode", "0" },
+                { "errorCode", "0x80070005" },
+                { "enforcementState", "1000" },
+                { "ruleId", "hpia-log-collect" },
+            },
+        };
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.DoesNotContain(evt.Data.Keys, k => k.EndsWith("Info"));
+        Assert.Equal(4, evt.Data.Count);
+    }
+
+    [Fact]
+    public void EnrichEvent_matches_gather_rule_source_case_insensitively()
+    {
+        var evt = EventWithData(new() { { "exitCode", "1603" } });
+        evt.Source = "gatherruleexecutor";
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.False(evt.Data.ContainsKey("exitCodeInfo"));
+    }
+
+    [Theory]
+    [InlineData(true)]        // in-process CLR bool
+    [InlineData("true")]      // string form after DataJson roundtrip
+    [InlineData("True")]
+    public void EnrichEvent_enriches_gather_rule_events_that_opted_in(object marker)
+    {
+        // A rule that parses an msiexec log set enrichErrorCodes; the agent stamped the marker.
+        var evt = EventWithData(new()
+        {
+            { "exitCode", "1603" },
+            { "ruleId", "msi-log" },
+            { "enrichErrorCodes", marker },
+        });
+        evt.Source = "GatherRuleExecutor";
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.Equal("ERROR_INSTALL_FAILURE", Info(evt, "exitCodeInfo")["symbol"]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData("false")]
+    [InlineData("")]
+    public void EnrichEvent_ignores_gather_rule_marker_that_is_not_true(object marker)
+    {
+        var evt = EventWithData(new() { { "exitCode", "1603" }, { "enrichErrorCodes", marker } });
+        evt.Source = "GatherRuleExecutor";
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.False(evt.Data.ContainsKey("exitCodeInfo"));
+    }
+
+    [Fact]
+    public void EnrichEvent_marker_on_non_gather_event_changes_nothing()
+    {
+        // Built-in events are always enriched; the marker is only consulted for gather events.
+        var evt = EventWithData(new() { { "exitCode", "1603" }, { "enrichErrorCodes", false } });
+
+        ErrorCodeEnricher.EnrichEvent(evt);
+
+        Assert.True(evt.Data.ContainsKey("exitCodeInfo"));
+    }
+
+    [Fact]
     public void EnrichEvent_handles_null_data_dictionary()
     {
         var evt = new EnrollmentEvent { EventType = "x", Source = "x", Message = "x", Data = null! };

@@ -505,7 +505,8 @@ namespace AutopilotMonitor.Functions.Services
                 && a.TriggerPhase == b.TriggerPhase
                 && ActivePhasesEquivalent(a.ActivePhases, b.ActivePhases)
                 && a.ActiveFromPhase == b.ActiveFromPhase
-                && a.EmitMode == b.EmitMode;
+                && a.EmitMode == b.EmitMode
+                && a.EnrichErrorCodes == b.EnrichErrorCodes;
         }
 
         /// <summary>

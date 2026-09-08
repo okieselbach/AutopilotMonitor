@@ -165,6 +165,19 @@ namespace AutopilotMonitor.Shared.Models
         /// </summary>
         public string? EmitMode { get; set; }
 
+        /// <summary>
+        /// Opt-in: let the backend explain error-code fields in this rule's output
+        /// (<c>exitCode</c>, <c>errorCode</c>, <c>hresult</c>, …) with the Windows/MSI/Intune
+        /// catalog, i.e. attach the <c>*Info</c> siblings the built-in events get.
+        /// Default false — gather-rule payload keys are author-chosen and the codes usually come
+        /// from third-party logs or commands (HP Image Assistant, Dell Command Update, custom
+        /// scripts) with their own exit-code numbering, where the catalog meaning would be
+        /// confidently wrong. Set to true only when the parsed source really uses Windows codes
+        /// (e.g. an msiexec or IME log). The agent stamps <c>enrichErrorCodes: true</c> into the
+        /// event data so the read-time enricher can honour it without knowing the rule.
+        /// </summary>
+        public bool EnrichErrorCodes { get; set; } = false;
+
         // ===== OUTPUT =====
 
         /// <summary>

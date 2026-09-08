@@ -107,6 +107,13 @@ export const RULE_AUTHORING_GUIDE = {
       'Optional activePhases (array) or activeFromPhase restrict when the rule may run at all; ' +
       'emitMode "on_change" emits only when the collected payload differs from the previous run ' +
       '(default "always").',
+    errorCodes:
+      'Gather-rule output is NOT run through the Windows/MSI/Intune error-code catalog by default: ' +
+      'a captured exitCode/errorCode/hresult from a third-party log (HP Image Assistant, Dell ' +
+      'Command Update, custom scripts) uses the vendor\'s own numbering, and a catalog meaning would ' +
+      'be confidently wrong. Set enrichErrorCodes: true only when the parsed source really uses ' +
+      'Windows codes (e.g. an msiexec or IME log); the backend then attaches the *Info siblings ' +
+      '(exitCodeInfo, errorCodeInfo, ...) exactly like on built-in events.',
     output:
       'outputEventType names the emitted event; use the gather_ prefix convention (e.g. ' +
       '"gather_pending_reboot") so analyze rules and humans can tell collected events from ' +

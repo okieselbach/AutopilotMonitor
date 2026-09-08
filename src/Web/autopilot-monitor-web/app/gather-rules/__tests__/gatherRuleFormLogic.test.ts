@@ -84,11 +84,11 @@ describe("buildScopeFields", () => {
   it("sends the selected scope and emit mode for a repeating trigger", () => {
     expect(buildScopeFields(form({
       trigger: "interval", scopeMode: "from", activeFromPhase: "AccountSetup", emitMode: "on_change",
-    }))).toEqual({ activePhases: null, activeFromPhase: "AccountSetup", emitMode: "on_change" });
+    }))).toEqual({ activePhases: null, activeFromPhase: "AccountSetup", emitMode: "on_change", enrichErrorCodes: false });
 
     expect(buildScopeFields(form({
       trigger: "interval", scopeMode: "during", activePhases: ["DeviceSetup", "AppsDevice"], emitMode: "always",
-    }))).toEqual({ activePhases: ["DeviceSetup", "AppsDevice"], activeFromPhase: null, emitMode: "always" });
+    }))).toEqual({ activePhases: ["DeviceSetup", "AppsDevice"], activeFromPhase: null, emitMode: "always", enrichErrorCodes: false });
   });
 
   it("drops hidden-control state instead of leaking it into the payload", () => {
@@ -103,14 +103,23 @@ describe("buildScopeFields", () => {
     });
 
     expect(buildScopeFields(switched)).toEqual({
-      activePhases: null, activeFromPhase: null, emitMode: null,
+      activePhases: null, activeFromPhase: null, emitMode: null, enrichErrorCodes: false,
     });
   });
 
   it("keeps a deferring scope on a startup rule but drops its emit mode", () => {
     expect(buildScopeFields(form({
       trigger: "startup", scopeMode: "from", activeFromPhase: "AccountSetup", emitMode: "on_change",
-    }))).toEqual({ activePhases: null, activeFromPhase: "AccountSetup", emitMode: null });
+    }))).toEqual({ activePhases: null, activeFromPhase: "AccountSetup", emitMode: null, enrichErrorCodes: false });
+  });
+
+  it("sends the error-code opt-in for every trigger, and only as a strict boolean", () => {
+    // Enrichment is about the payload, not the cadence — no trigger hides it.
+    expect(buildScopeFields(form({ trigger: "startup", enrichErrorCodes: true })).enrichErrorCodes).toBe(true);
+    expect(buildScopeFields(form({ trigger: "phase_change", triggerPhase: "AccountSetup", enrichErrorCodes: true })).enrichErrorCodes).toBe(true);
+    expect(buildScopeFields(form({ trigger: "interval", enrichErrorCodes: true })).enrichErrorCodes).toBe(true);
+    // A JSON-mode paste can carry anything; the backend gets a real boolean.
+    expect(buildScopeFields(form({ enrichErrorCodes: "true" as unknown as boolean })).enrichErrorCodes).toBe(false);
   });
 
   it("treats an unfilled scope mode as unrestricted", () => {
@@ -128,6 +137,12 @@ describe("withDerivedScopeMode", () => {
   it("coerces unknown or missing emit modes to always", () => {
     expect(withDerivedScopeMode(form({ emitMode: "sometimes" })).emitMode).toBe("always");
     expect(withDerivedScopeMode(form({ emitMode: "on_change" })).emitMode).toBe("on_change");
+  });
+
+  it("coerces the error-code opt-in to a strict boolean", () => {
+    expect(withDerivedScopeMode(form({ enrichErrorCodes: true })).enrichErrorCodes).toBe(true);
+    expect(withDerivedScopeMode({ ...EMPTY_FORM, enrichErrorCodes: undefined } as unknown as NewRuleForm).enrichErrorCodes).toBe(false);
+    expect(withDerivedScopeMode({ ...EMPTY_FORM, enrichErrorCodes: "yes" } as unknown as NewRuleForm).enrichErrorCodes).toBe(false);
   });
 
   it("survives non-array activePhases from hand-written JSON", () => {
@@ -166,6 +181,8 @@ describe("gatherRuleToForm", () => {
     // A rule without emitMode behaves "always" — the import must not upgrade it to
     // the empty-form on_change default.
     expect(form.emitMode).toBe("always");
+    // A rule without enrichErrorCodes (older export) stays opted out.
+    expect(form.enrichErrorCodes).toBe(false);
   });
 
   it("prefers the parameters object over stale flat fields on an edit merge", () => {
@@ -213,6 +230,7 @@ describe("gatherRuleToForm", () => {
       intervalSeconds: 300,
       activePhases: ["DeviceSetup", "AppsDevice"],
       emitMode: "on_change",
+      enrichErrorCodes: true,
       outputEventType: "battery_status",
       outputSeverity: "info",
       tags: ["power"],
@@ -223,10 +241,12 @@ describe("gatherRuleToForm", () => {
     expect(form.activePhases).toEqual(["DeviceSetup", "AppsDevice"]);
     expect(form.intervalSeconds).toBe(300);
     expect(form.emitMode).toBe("on_change");
+    expect(form.enrichErrorCodes).toBe(true);
     expect(buildScopeFields(form)).toEqual({
       activePhases: ["DeviceSetup", "AppsDevice"],
       activeFromPhase: null,
       emitMode: "on_change",
+      enrichErrorCodes: true,
     });
   });
 });
