@@ -31,6 +31,9 @@ export const API_BASE_URL = resolveApiBaseUrl();
 /** Entra ID login/token authority host (no trailing slash). */
 export const ENTRA_LOGIN_BASE_URL = 'https://login.microsoftonline.com';
 
+/** The product homepage — advertised as serverInfo.websiteUrl. */
+export const WEBSITE_BASE_URL = 'https://www.autopilotmonitor.com';
+
 /** Published customer documentation — base for citable search_docs links. */
 export const DOCS_BASE_URL = 'https://docs.autopilotmonitor.com';
 
