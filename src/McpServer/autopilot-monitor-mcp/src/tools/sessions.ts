@@ -436,7 +436,7 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session.', 'Tenant ID. If omitted, auto-resolved from the session.')),
-        eventType: z.string().optional().describe('Filter to only events of this type'),
+        eventType: z.string().optional().describe('Filter to only events of this type — valid values come from the event_types catalog (call get_resource(name="event_types")); an invented type is rejected, not an empty result'),
         severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()

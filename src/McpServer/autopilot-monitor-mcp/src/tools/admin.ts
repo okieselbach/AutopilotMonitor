@@ -1486,7 +1486,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Query Table',
       description:
-        'Query any Azure Table Storage table directly with OData filters. Global Admin only. ' +
+        'Query any Azure Table Storage table directly with OData filters. Table names come from list_tables — a guessed name is a NotFound, not an empty result. Global Admin only. ' +
         'Use list_tables to see available tables. Useful for inspecting TenantConfiguration, RuleResults, or any raw data ' +
         'where no specialized tool exists. ' +
         'For COUNTING / AGGREGATION queries pass `fields=PartitionKey,RowKey,Status,AgentVersion` (or similar lean subset) ' +
@@ -1673,7 +1673,8 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to change.'),
         fields: z.record(z.string(), z.unknown())
           .describe('Object of fieldName → newValue for ONLY the fields to change (e.g. {"dataRetentionDays": 90}). ' +
-                    'Use get_tenant_config for current values and exact field names.'),
+                    'Field names, JSON types and writability come from get_tenant_config_schema; get_tenant_config ' +
+                    'shows the CURRENT values but not the full field set, so it cannot tell you what is writable.'),
         reason: z.string().min(1)
           .describe('REQUIRED: why this change is being made. Stored with the backup snapshot and the audit log entry.'),
       },

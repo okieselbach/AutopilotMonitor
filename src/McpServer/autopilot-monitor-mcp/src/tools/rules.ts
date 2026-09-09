@@ -122,7 +122,7 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
         (ga ? ' Platform-scope callers can target any tenant\'s session — the tenant is resolved from the session automatically.' : ''),
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID to evaluate the draft against'),
-        rule: z.record(z.string(), z.unknown()).describe('The draft analyze rule JSON object'),
+        rule: z.record(z.string(), z.unknown()).describe('The draft analyze rule JSON object. Condition shapes — including the allowed condition `source` values — come from get_resource(name="rule_schemas"); run validate_rule first if the draft has not been validated yet'),
       },
       annotations: READ_ONLY,
     },
