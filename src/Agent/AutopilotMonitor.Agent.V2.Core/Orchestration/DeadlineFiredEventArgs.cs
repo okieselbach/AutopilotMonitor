@@ -9,9 +9,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
     /// <para>
     /// The orchestrator consumes this event and translates it into a synthetic
     /// <c>DeadlineFired</c>-<see cref="AutopilotMonitor.DecisionCore.Signals.DecisionSignal"/>
-    /// whose <c>OccurredAtUtc</c> equals the deadline's <see cref="ActiveDeadline.DueAtUtc"/>,
-    /// not the wall-clock firing time — so replay stays deterministic even if the agent
-    /// restarts long after the deadline has passed.
+    /// whose <c>OccurredAtUtc</c> is <see cref="FiredAtUtc"/> — the moment the agent actually
+    /// decided — and whose payload carries the deadline's <see cref="ActiveDeadline.DueAtUtc"/>.
+    /// A timer that was due during Modern Standby or a reboot fires only afterwards; stamping
+    /// the due time instead would date the verdict into the outage.
     /// </para>
     /// </summary>
     public sealed class DeadlineFiredEventArgs : EventArgs
@@ -24,7 +25,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
 
         public ActiveDeadline Deadline { get; }
 
-        /// <summary>Wall-clock time the event was raised. For observability; does NOT influence the signal's OccurredAtUtc.</summary>
+        /// <summary>Wall-clock time the timer fired; becomes the signal's OccurredAtUtc.</summary>
         public DateTime FiredAtUtc { get; }
     }
 }

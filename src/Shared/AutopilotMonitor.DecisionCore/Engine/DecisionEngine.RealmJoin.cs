@@ -252,10 +252,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             // Third staleness shape (introduced with the activity-based extension): the fire
             // belongs to an OLDER deadline incarnation that a re-arm has since replaced —
-            // recognizable because the armed deadline is due LATER than this fire
-            // (OccurredAtUtc = DueAtUtc per the scheduler contract). Without this guard the
+            // recognizable because the armed deadline is due LATER than the due time this fire
+            // belongs to (payload, see DeadlineDueAtUtc — never the signal time, which is the
+            // firing clock and trails the due time after standby). Without this guard the
             // stale fire would evaluate the timeout/extension decision ahead of schedule.
-            var supersededByRearm = armedDeadline != null && armedDeadline.DueAtUtc > signal.OccurredAtUtc;
+            var supersededByRearm = armedDeadline != null && armedDeadline.DueAtUtc > DeadlineDueAtUtc(signal);
 
             if (alreadyResolvedOrTimedOut || armedDeadline == null || supersededByRearm)
             {

@@ -5,6 +5,7 @@ import { EnrollmentEvent, Session } from "@/types";
 import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
 import { detectSkipUserStatusPage } from "../utils/espConfig";
 import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
+import { sumStandbySeconds } from "@/lib/standby";
 
 interface PhaseGrouping {
   eventsByPhase: Record<string, EnrollmentEvent[]>;
@@ -138,7 +139,7 @@ export function useSessionDerivedData(
   // agent started — environment observation, not enrollment activity — and would drag the
   // start toward pre-enrollment OOBE idle time (mirrors the backend anchor eligibility;
   // field case d0c5b672).
-  const enrollmentDurationFromEvents = useMemo(() => {
+  const enrollmentWindow = useMemo(() => {
     const activityEvents = events.filter(e => e.source !== "SystemTimelineWatcher");
     if (activityEvents.length === 0) return null;
     const timestamps = activityEvents.map(e => new Date(e.timestamp).getTime());
@@ -147,11 +148,16 @@ export function useSessionDerivedData(
     const endTime = completeEvent
       ? new Date(completeEvent.timestamp).getTime()
       : Math.max(...timestamps);
-    const durationSec = Math.round((endTime - firstEventTime) / 1000);
+    return { startMs: firstEventTime, endMs: endTime };
+  }, [events]);
+
+  const enrollmentDurationFromEvents = useMemo(() => {
+    if (!enrollmentWindow) return null;
+    const durationSec = Math.round((enrollmentWindow.endMs - enrollmentWindow.startMs) / 1000);
     if (durationSec < 60) return `${durationSec}s`;
     if (durationSec < 3600) return `${Math.floor(durationSec / 60)}m ${durationSec % 60}s`;
     return `${Math.floor(durationSec / 3600)}h ${Math.floor((durationSec % 3600) / 60)}m`;
-  }, [events]);
+  }, [enrollmentWindow]);
 
   // Last moment the agent reported anything — the end of the observation window, in the
   // device clock frame the event timestamps share. Deliberately NOT the enrollment duration
@@ -171,24 +177,14 @@ export function useSessionDerivedData(
     return max;
   }, [events, sessionLastEventAt]);
 
-  // Total observed sleep/standby seconds (system_sleep_episode ground truth). The wall-clock
-  // duration deliberately keeps the pause — this number tells the story next to it ("1h 20m,
-  // 56m of it standby"). Dedup on enteredAt: the same episode can be observed twice (agent
-  // restart re-backfills it from a different event-log record).
-  const standbySeconds = useMemo(() => {
-    const seenEpisodes = new Set<string>();
-    let total = 0;
-    for (const e of events) {
-      if (e.eventType !== "system_sleep_episode" || !e.data) continue;
-      const duration = Number(e.data.durationSeconds);
-      if (!Number.isFinite(duration) || duration <= 0) continue;
-      const enteredAt = typeof e.data.enteredAt === "string" ? e.data.enteredAt : `seq-${e.sequence}`;
-      if (seenEpisodes.has(enteredAt)) continue;
-      seenEpisodes.add(enteredAt);
-      total += duration;
-    }
-    return total > 0 ? Math.round(total) : null;
-  }, [events]);
+  // Sleep/standby seconds inside the enrollment window above (system_sleep_episode ground
+  // truth). The wall-clock duration deliberately keeps the pause — this number tells the story
+  // next to it ("1h 20m, 56m of it standby") and is clipped to the same window so the two agree
+  // with the time-attribution chip; sleep after the verdict is not enrollment time.
+  const standbySeconds = useMemo(
+    () => sumStandbySeconds(events, enrollmentWindow?.startMs ?? null, enrollmentWindow?.endMs ?? null),
+    [events, enrollmentWindow],
+  );
 
   const phaseNamesMap = session?.enrollmentType === "v2" ? V2_PHASE_NAMES : V1_PHASE_NAMES;
   const phaseOrder = session?.enrollmentType === "v2" ? V2_PHASE_ORDER : V1_PHASE_ORDER;

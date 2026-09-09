@@ -255,10 +255,11 @@ namespace AutopilotMonitor.DecisionCore.Engine
             // --- Stale-fire guard C: DueAtUtc mismatch ---
             // Cancel-then-rearm race: an old DeadlineFired (from a deadline incarnation that was
             // replaced by a later HandleDeviceSetupProvisioningCompleteV1 arming) is processed
-            // after the rearm. DeadlineScheduler posts OccurredAtUtc == deadline.DueAtUtc, so the
-            // OLD fire carries the OLD DueAtUtc. Dead-end WITHOUT cancelling the active deadline
-            // (the whole point is to keep the new one for its real fire).
-            if (activeDeadline.DueAtUtc != signal.OccurredAtUtc)
+            // after the rearm. The fire carries the due time of the incarnation it belongs to
+            // (payload, see DeadlineDueAtUtc), so the OLD fire carries the OLD DueAtUtc. Dead-end
+            // WITHOUT cancelling the active deadline (the whole point is to keep the new one for
+            // its real fire).
+            if (activeDeadline.DueAtUtc != DeadlineDueAtUtc(signal))
             {
                 var bookkept = BumpStepBookkeeping(state, signal);
                 var transition = BuildDeadEndTransition(

@@ -282,11 +282,9 @@ namespace AutopilotMonitor.DecisionCore.Engine
 
             if (!reachedTerminal)
             {
-                // The DeadlineFired signal carries DueAtUtc as OccurredAtUtc, so for a tick
-                // armed in the current run this is already current-clock-equivalent. The
-                // EffectiveDeadlineBase guard still fires correctly across restart, where
-                // a stale DueAtUtc from the prior run could otherwise re-arm the next tick
-                // in the past.
+                // The DeadlineFired signal carries the wall-clock firing time, so the next tick
+                // is armed relative to now — also after a late fire (standby). The
+                // EffectiveDeadlineBase guard still floors a replayed fire at boot.
                 var rearm = BuildClassifierTickDeadline(EffectiveDeadlineBase(state, signal));
                 builder.AddDeadline(rearm);
                 effects.Add(new DecisionEffect(DecisionEffectKind.ScheduleDeadline, deadline: rearm));

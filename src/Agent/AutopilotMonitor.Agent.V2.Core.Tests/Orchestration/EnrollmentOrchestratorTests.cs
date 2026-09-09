@@ -265,6 +265,42 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
             sut.Stop();
         }
 
+        [Fact]
+        public void Deadline_fired_late_is_stamped_with_the_firing_clock_and_carries_its_due_time()
+        {
+            // A deadline that was due while the device slept (or the agent was down) fires only
+            // afterwards. The signal must carry the firing clock as OccurredAtUtc — that time
+            // stamps every effect of the step, and a due time inside the outage would place the
+            // verdict there — while the due time travels in the payload for the stale-fire guards.
+            using var rig = new EnrollmentOrchestratorRig(At);
+            var sut = rig.Build();
+            sut.Start();
+
+            var dueAt = At.AddMinutes(-5);
+            var scheduler = GetScheduler(sut);
+            scheduler.Schedule(new ActiveDeadline(
+                name: "hello_safety",
+                dueAtUtc: dueAt,
+                firesSignalKind: DecisionSignalKind.DeadlineFired,
+                firesPayload: new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = "hello_safety" }));
+
+            var signalLog = GetSignalLog(sut);
+            Assert.True(SpinWait.SpinUntil(() => ContainsDeadlineFired(signalLog), 3000));
+
+            DecisionSignal? fired = null;
+            foreach (var sig in signalLog.ReadAll())
+            {
+                if (sig.Kind == DecisionSignalKind.DeadlineFired) { fired = sig; break; }
+            }
+            Assert.NotNull(fired);
+            Assert.Equal(At, fired!.OccurredAtUtc);
+            Assert.NotNull(fired.Payload);
+            Assert.Equal("hello_safety", fired.Payload![SignalPayloadKeys.Deadline]);
+            Assert.Equal(dueAt.ToString("O"), fired.Payload[SignalPayloadKeys.DeadlineDueAtUtc]);
+
+            sut.Stop();
+        }
+
         // ========================================================================= Quarantine
 
         [Fact]

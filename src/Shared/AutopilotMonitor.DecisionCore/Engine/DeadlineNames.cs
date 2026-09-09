@@ -86,6 +86,15 @@ namespace AutopilotMonitor.DecisionCore.Engine
         /// <summary>On <c>DeadlineFired</c>: the deadline name from <see cref="DeadlineNames"/>.</summary>
         public const string Deadline = "deadline";
 
+        /// <summary>
+        /// On <c>DeadlineFired</c>: the deadline's <see cref="State.ActiveDeadline.DueAtUtc"/> as an
+        /// ISO-8601 round-trip string. The signal's <c>OccurredAtUtc</c> is the time the timer
+        /// actually fired (which trails the due time after standby or an agent restart); stale-fire
+        /// guards that must identify the deadline incarnation read this key via
+        /// <c>DecisionEngine.DeadlineDueAtUtc</c>.
+        /// </summary>
+        public const string DeadlineDueAtUtc = "deadlineDueAtUtc";
+
         /// <summary>On <c>EspPhaseChanged</c>: the raw phase name as observed by the collector.</summary>
         public const string EspPhase = "phase";
 

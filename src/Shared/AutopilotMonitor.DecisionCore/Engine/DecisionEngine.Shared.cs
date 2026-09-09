@@ -1014,6 +1014,27 @@ namespace AutopilotMonitor.DecisionCore.Engine
         }
 
         /// <summary>
+        /// The due time of the deadline a <c>DeadlineFired</c> signal belongs to. The host stamps the
+        /// signal with the wall-clock firing time (after Modern Standby or an agent restart that
+        /// trails the due time by minutes) and carries the due time under
+        /// <see cref="SignalPayloadKeys.DeadlineDueAtUtc"/>; stale-fire guards compare THIS against
+        /// the armed <see cref="ActiveDeadline.DueAtUtc"/>, never the signal time. Falls back to
+        /// <c>signal.OccurredAtUtc</c> for signal logs written before the key existed, where the
+        /// two were equal by contract.
+        /// </summary>
+        internal static DateTime DeadlineDueAtUtc(DecisionSignal signal)
+        {
+            if (signal.Payload != null
+                && signal.Payload.TryGetValue(SignalPayloadKeys.DeadlineDueAtUtc, out var raw)
+                && DateTime.TryParseExact(raw, "o", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var due))
+            {
+                return due.Kind == DateTimeKind.Utc ? due : due.ToUniversalTime();
+            }
+            return signal.OccurredAtUtc;
+        }
+
+        /// <summary>
         /// Determine the user-visible enrollment phase implied by an ESP phase-change signal.
         /// Plan §2.3 phase-fact mapping. Populated in M3.1 as Classic handlers come online.
         /// </summary>

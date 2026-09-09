@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Session } from "@/types";
 import { SessionStatusBadge } from "@/components/SessionStatusBadge";
 import FailureSnapshotBlock from "./FailureSnapshotBlock";
+import { formatDuration } from "@/lib/formatting";
 
 interface SessionInfoCardProps {
   session: Session;
@@ -12,14 +13,8 @@ interface SessionInfoCardProps {
   isGatherRulesSession: boolean;
   ntpOffset?: { offsetSeconds: number; ntpServer?: string } | null;
   configMgrDetected?: { ccmVersion?: string; ccmServiceState?: string; siteCode?: string; confidenceScore?: number } | null;
-  /** Total observed sleep/standby seconds (system_sleep_episode ground truth) — explains an inflated wall-clock duration. */
+  /** Sleep/standby seconds inside the enrollment window (system_sleep_episode ground truth) — explains an inflated wall-clock duration. */
   standbySeconds?: number | null;
-}
-
-// Compact duration for the standby note: "56m", "1h 2m".
-function formatStandby(seconds: number): string {
-  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-  return `${Math.max(1, Math.round(seconds / 60))}m`;
 }
 
 export default function SessionInfoCard({ session, enrollmentDuration, displayStatus, isGatherRulesSession, ntpOffset, configMgrDetected, standbySeconds }: SessionInfoCardProps) {
@@ -72,9 +67,9 @@ export default function SessionInfoCard({ session, enrollmentDuration, displaySt
                 {enrollmentDuration ?? `${Math.round((session.durationSeconds ?? 0) / 60)} min`}
                 <span
                   className="text-indigo-600 font-normal"
-                  title={`The device spent ${formatStandby(standbySeconds)} asleep (standby/hibernate) during this window — the wall-clock duration includes that pause. Subtract it for the active enrollment time.`}
+                  title={`The device spent ${formatDuration(standbySeconds)} asleep (standby/hibernate) during this window — the wall-clock duration includes that pause. Subtract it for the active enrollment time.`}
                 >
-                  {" "}· 🌙 {formatStandby(standbySeconds)} standby
+                  {" "}· 🌙 {formatDuration(standbySeconds)} standby
                 </span>
               </span>
             ) : (

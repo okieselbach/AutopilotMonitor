@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1159,7 +1160,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                 var evidence = new Evidence(
                     kind: EvidenceKind.Synthetic,
                     identifier: e.Deadline.Name,
-                    summary: $"deadline '{e.Deadline.Name}' fired at {e.Deadline.DueAtUtc:O}");
+                    summary: $"deadline '{e.Deadline.Name}' due {e.Deadline.DueAtUtc:O} fired at {e.FiredAtUtc:O}");
 
                 // The reducer reads the deadline name under SignalPayloadKeys.Deadline
                 // (see HandleDeadlineFiredV1 in DecisionEngine.Shared). Forward the
@@ -1180,10 +1181,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     payload[SignalPayloadKeys.Deadline] = e.Deadline.Name;
                 }
 
-                // OccurredAtUtc = DueAtUtc (not firedAt) — replay-determinism per DeadlineFiredEventArgs doc.
+                // OccurredAtUtc = the firing clock, never DueAtUtc: every effect of the resulting
+                // step (phase_transition, enrollment_complete) is stamped with the signal time, and a
+                // due time that passed during Modern Standby or a reboot would place the verdict
+                // inside the outage. The due time travels in the payload for the stale-fire guards.
+                payload[SignalPayloadKeys.DeadlineDueAtUtc] = e.Deadline.DueAtUtc.ToString("O", CultureInfo.InvariantCulture);
+
                 _ingress.Post(
                     kind: DecisionSignalKind.DeadlineFired,
-                    occurredAtUtc: e.Deadline.DueAtUtc,
+                    occurredAtUtc: e.FiredAtUtc,
                     sourceOrigin: "DeadlineScheduler",
                     evidence: evidence,
                     payload: payload);

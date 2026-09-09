@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using AutopilotMonitor.DecisionCore.Signals;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -46,7 +47,7 @@ namespace AutopilotMonitor.DecisionCore.Serialization
                 var d = new Dictionary<string, string>();
                 foreach (var prop in diObj.Properties())
                 {
-                    d[prop.Name] = prop.Value?.ToString() ?? string.Empty;
+                    d[prop.Name] = StringValue(prop.Value);
                 }
                 derivationInputs = d;
             }
@@ -64,7 +65,7 @@ namespace AutopilotMonitor.DecisionCore.Serialization
                 var p = new Dictionary<string, string>();
                 foreach (var prop in payloadObj.Properties())
                 {
-                    p[prop.Name] = prop.Value?.ToString() ?? string.Empty;
+                    p[prop.Name] = StringValue(prop.Value);
                 }
                 payload = p;
             }
@@ -110,6 +111,23 @@ namespace AutopilotMonitor.DecisionCore.Serialization
                 evidence: evidence,
                 payload: payload,
                 typedPayload: typedPayload);
+        }
+
+        /// <summary>
+        /// String-dictionary values (Payload, DerivationInputs) verbatim. The shared reader
+        /// tokenizes an ISO-8601 string as a Date (<c>DateParseHandling.DateTime</c>), and
+        /// <c>JValue.ToString()</c> would then render it in the current culture — a replayed
+        /// <c>deadlineDueAtUtc</c> came back as "4/20/2026 9:55:00 AM". Render a Date token as
+        /// the round-trip text the writer produced.
+        /// </summary>
+        private static string StringValue(JToken? token)
+        {
+            if (token is JValue jv && jv.Type == JTokenType.Date && jv.Value is DateTime dt)
+            {
+                var utc = dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                return utc.ToString("O", CultureInfo.InvariantCulture);
+            }
+            return token?.ToString() ?? string.Empty;
         }
 
         private static T ParseEnum<T>(string? raw, T fallback) where T : struct, Enum

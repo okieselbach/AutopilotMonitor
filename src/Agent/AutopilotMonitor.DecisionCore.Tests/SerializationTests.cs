@@ -55,6 +55,37 @@ namespace AutopilotMonitor.DecisionCore.Tests
         }
 
         [Fact]
+        public void SignalSerializer_roundtrip_keeps_date_like_payload_strings_verbatim()
+        {
+            // The shared reader tokenizes ISO-8601 strings as dates; the string dictionaries must
+            // still come back as the round-trip text the writer produced, never culture-formatted
+            // (the DeadlineFired due time is parsed back with the "o" format on replay).
+            var due = new DateTime(2026, 4, 20, 9, 55, 0, DateTimeKind.Utc);
+            var original = new DecisionSignal(
+                sessionSignalOrdinal: 7,
+                sessionTraceOrdinal: 7,
+                kind: DecisionSignalKind.DeadlineFired,
+                kindSchemaVersion: 1,
+                occurredAtUtc: due.AddMinutes(5),
+                sourceOrigin: "DeadlineScheduler",
+                evidence: new Evidence(
+                    kind: EvidenceKind.Synthetic,
+                    identifier: "hello_safety",
+                    summary: "deadline fired",
+                    derivationInputs: new Dictionary<string, string> { ["armedAt"] = "2026-04-20T09:50:00.0000000Z" }),
+                payload: new Dictionary<string, string>
+                {
+                    ["deadline"] = "hello_safety",
+                    ["deadlineDueAtUtc"] = due.ToString("O"),
+                });
+
+            var roundtripped = SignalSerializer.Deserialize(SignalSerializer.Serialize(original));
+
+            Assert.Equal("2026-04-20T09:55:00.0000000Z", roundtripped.Payload!["deadlineDueAtUtc"]);
+            Assert.Equal("2026-04-20T09:50:00.0000000Z", roundtripped.Evidence.DerivationInputs!["armedAt"]);
+        }
+
+        [Fact]
         public void SignalSerializer_Deserialize_MissingEvidence_throws()
         {
             var json = "{\"SessionSignalOrdinal\":0,\"Kind\":\"SessionStarted\",\"KindSchemaVersion\":1,\"OccurredAtUtc\":\"2026-04-20T10:00:00Z\",\"SourceOrigin\":\"test\"}";
