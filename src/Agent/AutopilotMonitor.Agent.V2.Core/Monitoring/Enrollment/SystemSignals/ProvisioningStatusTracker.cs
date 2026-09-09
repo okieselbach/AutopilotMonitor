@@ -80,6 +80,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             "AccountSetupCategory.Status"
         };
 
+        // Order in which TryGetPendingFailureArgs resolves concurrently armed settle windows.
+        private static readonly string[] PendingFailurePreference =
+        {
+            "DeviceSetupCategory.Status",
+            "AccountSetupCategory.Status",
+            "DevicePreparationCategory.Status"
+        };
+
         private readonly AgentLogger _logger;
         private readonly string _sessionId;
         private readonly string _tenantId;
@@ -1710,6 +1718,29 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// <summary>Test seam — drive the settle-timer callback synchronously.</summary>
         internal void TriggerSettleTimerForTest(string categoryName)
             => OnProvisioningFailureSettleExpired(categoryName);
+
+        /// <summary>
+        /// The registry-derived failure detail of a settle window that is still open (armed,
+        /// not yet expired or retracted) — null when none is pending. Read by the coordinator
+        /// when a Shell-Core 62407 failure arrives inside the window, so the terminal signal
+        /// inherits HRESULT / failed subcategory / category instead of racing them away
+        /// (session 683f1eff). Windows fail one category at a time, but should two be armed
+        /// the device-phase category wins: it is the one the ESP page reports.
+        /// </summary>
+        internal EspFailureDetectedEventArgs TryGetPendingFailureArgs()
+        {
+            lock (_stateLock)
+            {
+                if (_provisioningFailureSettleArgs == null || _provisioningFailureSettleArgs.Count == 0)
+                    return null;
+                foreach (var category in PendingFailurePreference)
+                {
+                    if (_provisioningFailureSettleArgs.TryGetValue(category, out var args) && args != null)
+                        return args;
+                }
+                return null;
+            }
+        }
 
         private bool HasCategorySucceededChanged(string categoryName, bool? newValue)
         {

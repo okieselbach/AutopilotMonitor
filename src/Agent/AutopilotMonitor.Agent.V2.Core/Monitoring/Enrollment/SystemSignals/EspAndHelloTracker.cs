@@ -44,6 +44,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         private readonly Func<bool> _userEspAppsSettledProbe;
         private readonly Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> _starvedUserEspAppsProbe;
         private readonly Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> _packageStatesProbe;
+        // Session 683f1eff: registry failure detail still sitting in an open settle window,
+        // consulted when a Shell-Core failure terminalises first (see OnShellCoreEspFailureDetected).
+        private readonly Func<EspFailureDetectedEventArgs> _pendingEspFailureProbe;
 
         // Session caa6cf50 gate-starvation fix (2026-06-11) — fire-once guard for the
         // user-ESP-apps-settled AccountSetup synthesis (see MaybeSynthesizeAccountSetupComplete).
@@ -174,8 +177,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         /// late "Installing-→-Error" promotion can classify the failure correctly
         /// AND refuse to promote when the failure originated outside the Apps
         /// subcategory (a non-Apps HRESULT does not describe per-app outcome).
-        /// Null when no HRESULT-carrying ESP failure has fired (or all observed
-        /// failures came from ShellCoreTracker, which has no HRESULT surface).
+        /// Null when no registry-derived failure detail has been observed — neither from
+        /// a settle window that expired nor from one a Shell-Core failure inherited.
         /// </summary>
         public Termination.EspTerminalFailureSnapshot LastEspTerminalFailure { get; private set; }
 
@@ -243,7 +246,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             Func<bool> accountSetupActivityProbe = null,
             Func<bool> userEspAppsSettledProbe = null,
             Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> starvedUserEspAppsProbe = null,
-            Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> packageStatesProbe = null)
+            Func<System.Collections.Generic.IReadOnlyList<Ime.AppPackageState>> packageStatesProbe = null,
+            Func<EspFailureDetectedEventArgs> pendingEspFailureProbe = null)
         {
             _sessionId = sessionId ?? throw new ArgumentNullException(nameof(sessionId));
             _tenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
@@ -277,6 +281,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
             // provisioning tracker name not-completed apps on an Apps-subcategory failure.
             _packageStatesProbe = packageStatesProbe
                 ?? (() => Array.Empty<Ime.AppPackageState>());
+            // Test seam: defaults to the provisioning tracker's open settle window (null when
+            // none is armed or the tracker is not running, e.g. Device Preparation).
+            _pendingEspFailureProbe = pendingEspFailureProbe
+                ?? (() => _provisioningTracker?.TryGetPendingFailureArgs());
         }
 
         /// <summary>
@@ -658,6 +666,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         internal void TriggerEspExitedForTest(DateTime occurredAtUtc) =>
             OnEspExited(this, new EspExitedEventArgs(occurredAtUtc));
 
+        // Test seam for a Shell-Core 62407 failure — drives the coordinator forwarder including
+        // the pending-settle inheritance, without a real ShellCoreTracker.
+        internal void TriggerShellCoreEspFailureForTest(string failureType) =>
+            OnShellCoreEspFailureDetected(this, failureType);
+
         // Test seam for HelloWizardStarted — same contract as TriggerEspExitedForTest.
         internal void TriggerHelloWizardStartedForTest(DateTime occurredAtUtc) =>
             OnHelloWizardStarted(this, new HelloWizardStartedEventArgs(occurredAtUtc));
@@ -673,33 +686,56 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
         // Forwarder for ShellCoreTracker (event-log-derived ESP failures, e.g. Shell-Core 62407
         // failure descriptions). Source-event timestamp is mirrored so the adapter can stamp the
         // DecisionSignal with the historical instant on backfill. ShellCoreTracker has no HRESULT
-        // surface, so only FailureType is set on the args.
+        // surface; the registry detail is inherited from an open settle window (see below).
         private void OnShellCoreEspFailureDetected(object sender, string failureType)
         {
             LastEventOccurredAtUtc = (sender as ShellCoreTracker)?.LastEventOccurredAtUtc;
             try
             {
-                EspFailureDetected?.Invoke(this, new EspFailureDetectedEventArgs(failureType));
+                EspFailureDetected?.Invoke(this, BuildShellCoreFailureArgs(failureType));
             }
             catch (Exception ex) { _logger.Error($"Error forwarding ShellCore EspFailureDetected for '{failureType}'", ex); }
             finally { LastEventOccurredAtUtc = null; }
         }
 
-        // Forwarder for ProvisioningStatusTracker (registry-derived ESP failures). Args carry the
-        // full failure detail (FailureType, ErrorCode, FailedSubcategory, Category) extracted
-        // from the failed subcategory's statusText. Provisioning has no source-event timestamp
-        // surfaced today, so the adapter falls back to clock.
-        private void OnProvisioningEspFailureDetected(object sender, EspFailureDetectedEventArgs args)
+        // Session 683f1eff: the Shell-Core 62407 failure usually lands INSIDE the provisioning
+        // tracker's 30-s settle window — after the registry named the failed subcategory and its
+        // HRESULT, before the settle timer would have forwarded them. The engine terminalises on
+        // the first EspTerminalFailure and the agent stops seconds later, so whatever this signal
+        // carries is all the terminal event, the backend FailureReason and the termination-time
+        // app classification ever see (a third of all ESP terminal failures took this path). The
+        // pending detail is inherited here; FailureType stays the Shell-Core value because that
+        // is the signal that actually terminalised.
+        private EspFailureDetectedEventArgs BuildShellCoreFailureArgs(string failureType)
         {
-            LastEventOccurredAtUtc = null;
-            // Session 080edee9 follow-up + Codex review (P2/P3) — snapshot the full
-            // failure context (HRESULT + failedSubcategory + category) before
-            // forwarding so EnrollmentTerminationHandler can read it on the terminal-
-            // failure pathway. Only update when the args carry at least one of the
-            // three fields, so a later ShellCore-derived failure (which has none of
-            // them) cannot wipe out the registry snapshot. We deliberately do NOT
-            // gate on ErrorCode alone — a non-Apps subcategory failure without
-            // HRESULT is still useful for downstream "should we promote?" gating.
+            EspFailureDetectedEventArgs pending = null;
+            try { pending = _pendingEspFailureProbe(); }
+            catch (Exception ex) { _logger.Warning($"EspAndHelloTracker: pending ESP failure probe threw: {ex.Message}"); }
+
+            if (pending == null)
+                return new EspFailureDetectedEventArgs(failureType);
+
+            RecordTerminalFailureSnapshot(pending);
+            _logger.Info(
+                $"EspAndHelloTracker: Shell-Core failure '{failureType}' inherits the pending provisioning failure detail " +
+                $"(category={pending.Category ?? "n/a"}, failedSubcategory={pending.FailedSubcategory ?? "n/a"}, " +
+                $"errorCode={pending.ErrorCode ?? "n/a"})");
+            return new EspFailureDetectedEventArgs(
+                failureType,
+                errorCode: pending.ErrorCode,
+                failedSubcategory: pending.FailedSubcategory,
+                category: pending.Category,
+                likelyCulpritApps: pending.LikelyCulpritApps);
+        }
+
+        // Session 080edee9 follow-up + Codex review (P2/P3) — snapshot the full failure context
+        // (HRESULT + failedSubcategory + category) so EnrollmentTerminationHandler can read it on
+        // the terminal-failure pathway. Only update when the args carry at least one of the three
+        // fields, so a bare Shell-Core failure cannot wipe out the registry snapshot. Deliberately
+        // NOT gated on ErrorCode alone — a non-Apps subcategory failure without HRESULT is still
+        // useful for downstream "should we promote?" gating.
+        private void RecordTerminalFailureSnapshot(EspFailureDetectedEventArgs args)
+        {
             if (!string.IsNullOrEmpty(args?.ErrorCode)
                 || !string.IsNullOrEmpty(args?.FailedSubcategory)
                 || !string.IsNullOrEmpty(args?.Category))
@@ -709,6 +745,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.SystemSignals
                     failedSubcategory: args.FailedSubcategory,
                     category: args.Category);
             }
+        }
+
+        // Forwarder for ProvisioningStatusTracker (registry-derived ESP failures). Args carry the
+        // full failure detail (FailureType, ErrorCode, FailedSubcategory, Category) extracted
+        // from the failed subcategory's statusText. Provisioning has no source-event timestamp
+        // surfaced today, so the adapter falls back to clock.
+        private void OnProvisioningEspFailureDetected(object sender, EspFailureDetectedEventArgs args)
+        {
+            LastEventOccurredAtUtc = null;
+            RecordTerminalFailureSnapshot(args);
             try
             {
                 EspFailureDetected?.Invoke(this, args);

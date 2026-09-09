@@ -201,8 +201,11 @@ export const RULE_AUTHORING_GUIDE = {
     ],
     operatorNotes:
       'String comparisons are case-insensitive; regex runs case-insensitive with a 1s timeout ' +
-      '(.NET regex syntax); in/not_in take a comma-separated value list. An operator the engine ' +
-      'does not know silently evaluates to FALSE in production — validate_rule catches this.',
+      '(.NET regex syntax); in/not_in take a comma-separated value list. exists/not_exists with a ' +
+      'dataField test whether ANY event of the type carries a non-empty value there — not_exists ' +
+      'matches when none does, also when the event type is absent (e.g. "the ESP failure carried no ' +
+      'errorCode"); without a dataField they test only the presence of the event type. An operator ' +
+      'the engine does not know silently evaluates to FALSE in production — validate_rule catches this.',
     required:
       'required=true conditions are the firing core: ALL of them must match or the rule produces ' +
       'nothing. required=false conditions are optional reinforcers whose evidence feeds ' +

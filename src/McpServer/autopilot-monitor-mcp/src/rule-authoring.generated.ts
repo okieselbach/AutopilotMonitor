@@ -470,7 +470,7 @@ export const ANALYZE_RULE_SCHEMA: Record<string, unknown> = {
         },
         "operator": {
           "type": "string",
-          "description": "Comparison operator.",
+          "description": "Comparison operator. exists/not_exists with a dataField test whether ANY event of the type carries a non-empty value at that field: not_exists matches when no event does — including when the event type is absent altogether — so a rule can gate on a missing field (e.g. an ESP failure without an HRESULT). Without a dataField they test only the presence of the event type.",
           "enum": [
             "equals",
             "not_equals",

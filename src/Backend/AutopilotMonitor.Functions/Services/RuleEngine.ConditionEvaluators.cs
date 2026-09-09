@@ -127,6 +127,18 @@ namespace AutopilotMonitor.Functions.Services
                 });
             }
 
+            // Field-absence gate: not_exists WITH a dataField matches when no event of the type
+            // carries a non-empty value at that field — including when the type is absent — the
+            // same semantics as the precondition gate. Must run before the "no matching events"
+            // veto and the per-event loop below, whose null short-circuit could never express
+            // "the field is missing" (session 683f1eff: "esp_failure_settle_started.errorCode
+            // not_exists" was silently dead).
+            if (!string.IsNullOrEmpty(condition.DataField)
+                && string.Equals(condition.Operator, "not_exists", StringComparison.OrdinalIgnoreCase))
+            {
+                return EvaluateFieldAbsence(condition, matchingEvents);
+            }
+
             if (!matchingEvents.Any())
                 return (false, "no matching events");
 
@@ -206,6 +218,11 @@ namespace AutopilotMonitor.Functions.Services
         {
             var matchingEvents = ApplyValueFilter(condition, events.Where(e => MatchesEventType(e, condition.EventType)).ToList());
 
+            // Field-absence gate — see EvaluateEventTypeCondition; here it applies to the
+            // filtered event set, so "no event with filterField=x carries dataField" is expressible.
+            if (string.Equals(condition.Operator, "not_exists", StringComparison.OrdinalIgnoreCase))
+                return EvaluateFieldAbsence(condition, matchingEvents);
+
             foreach (var evt in matchingEvents)
             {
                 var fieldValue = GetDataFieldValue(evt, condition.DataField);
@@ -225,6 +242,26 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             return (false, "no matching data");
+        }
+
+        /// <summary>
+        /// <c>not_exists</c> with a dataField: true when none of <paramref name="matchingEvents"/>
+        /// carries a non-empty value at the field (an empty set counts as absent). A single
+        /// non-empty value disproves it. Evidence names the type, the field and how many events
+        /// of the type were inspected, so a finding can say "0 esp_failure_settle_started events
+        /// carried errorCode" rather than pointing at one event.
+        /// </summary>
+        private static (bool matched, object evidence) EvaluateFieldAbsence(RuleCondition condition, List<EnrollmentEvent> matchingEvents)
+        {
+            if (matchingEvents.Any(e => !string.IsNullOrEmpty(GetDataFieldValue(e, condition.DataField))))
+                return (false, "data field present");
+
+            return (true, new Dictionary<string, object>
+            {
+                ["eventType"] = condition.EventType,
+                ["field"] = condition.DataField,
+                ["count"] = matchingEvents.Count
+            });
         }
 
         /// <summary>

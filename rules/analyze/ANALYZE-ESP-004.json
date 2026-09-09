@@ -1,11 +1,11 @@
 {
   "$schema": "../schema/analyze-rule.schema.json",
   "ruleId": "ANALYZE-ESP-004",
-  "title": "ESP Timeout with 'Continue Anyway' (Soft Failure)",
-  "description": "Detects an ESP terminal failure on a profile that allows 'Continue anyway'. The enrollment is reported as failed, but the user most likely dismissed the error screen and reached the desktop — a soft failure rather than an unusable device.",
+  "title": "ESP Gave Up on a Blocking App with 'Continue Anyway' (Soft Failure)",
+  "description": "Detects an ESP terminal failure where the ESP gave up while a blocking app was still installing (the agent's own esp_apps_timeout verdict — no per-app HRESULT was reported) on a profile that allows 'Continue anyway'. The enrollment is reported as failed, but the user most likely dismissed the error screen and reached the desktop — a soft failure rather than an unusable device. An ESP failure that carries a specific error code (a failed installer, a detection mismatch) is a different case and stays with the rule that explains that code.",
   "severity": "warning",
   "category": "esp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "enabled": true,
   "baseConfidence": 80,
   "conditions": [
@@ -27,6 +27,27 @@
       "required": true
     },
     {
+      "signal": "esp_gave_up_on_app",
+      "source": "event_type",
+      "eventType": "app_install_failed",
+      "dataField": "failureType",
+      "operator": "equals",
+      "value": "esp_apps_timeout",
+      "required": true
+    },
+    {
+      "signal": "appName",
+      "source": "event_data",
+      "eventType": "app_install_failed",
+      "dataField": "appName",
+      "operator": "exists",
+      "value": "",
+      "filterField": "failureType",
+      "filterOperator": "equals",
+      "filterValue": "esp_apps_timeout",
+      "required": false
+    },
+    {
       "signal": "espSyncFailureTimeoutMinutes",
       "source": "event_type",
       "eventType": "enrollment_failed",
@@ -38,34 +59,25 @@
     {
       "signal": "failedSubcategory",
       "source": "event_type",
-      "eventType": "enrollment_failed",
+      "eventType": "esp_failure_settle_started",
       "dataField": "failedSubcategory",
-      "operator": "exists",
-      "value": "",
-      "required": false
-    },
-    {
-      "signal": "appName",
-      "source": "event_type",
-      "eventType": "app_install_failed",
-      "dataField": "appName",
       "operator": "exists",
       "value": "",
       "required": false
     }
   ],
   "confidenceFactors": [
-    { "signal": "appName", "condition": "exists", "weight": 10 }
+    { "signal": "failedSubcategory", "condition": "exists", "weight": 10 }
   ],
-  "explanation": "This enrollment was reported as **failed** because the Enrollment Status Page reached its configured terminal timeout (`{{espSyncFailureTimeoutMinutes}} min`) before all blocking items finished. The ESP profile, however, allows **'Continue anyway'** — so the user most likely dismissed the error screen and reached the desktop with a working, though not fully provisioned, device.\n\nThe agent only observes the ESP terminal failure on the device side; it cannot see what the user did after the failure screen. Treat this as a **soft failure**: the device may well be in productive use, while at least one blocking item (`{{failedSubcategory}}` subcategory / app `{{appName}}`) did not complete inside the ESP window.\n\nA cluster of these across a tenant almost always points at one slow blocking app holding the whole fleet at the ESP timeout wall, not at broken devices. Any field still shown as a literal `{{…}}` placeholder was simply not recorded for this session (e.g. a certificate-only failure has no failed app).",
+  "explanation": "This enrollment was reported as **failed** because the Enrollment Status Page gave up while the blocking app **{{appName}}** was still installing — the agent recorded no per-app error code, only that the app never finished inside the ESP window (the profile's configured limit is `{{espSyncFailureTimeoutMinutes}} min`; the ESP may have stopped earlier than that). The ESP profile, however, allows **'Continue anyway'** — so the user most likely dismissed the error screen and reached the desktop with a working, though not fully provisioned, device.\n\nThe agent only observes the ESP terminal failure on the device side; it cannot see what the user did after the failure screen. Treat this as a **soft failure**: the device may well be in productive use, while the `{{failedSubcategory}}` subcategory did not complete inside the ESP window.\n\nA cluster of these across a tenant almost always points at one slow blocking app holding the whole fleet at the ESP limit, not at broken devices. This rule deliberately stays silent when the failed app reported a specific error code — a failed installer or a detection mismatch is explained by the rule for that code, and 'Continue anyway' does not make it a timing problem. Any field still shown as a literal `{{…}}` placeholder was simply not recorded for this session.",
   "remediation": [
     {
       "title": "Relieve ESP pressure so enrollments finish inside the window",
       "steps": [
-        "Identify the slow blocking app (`{{appName}}`) and either remove it from the ESP 'block device use until these required apps are installed' list, or raise the ESP installation timeout (currently {{espSyncFailureTimeoutMinutes}} min).",
-        "If the app legitimately needs longer than the ESP allows, make it non-blocking and let it install after the desktop arrives.",
-        "Verify the app's detection rule matches after install — an app that installs but fails detection times out the ESP on every device (see ANALYZE-APP-013).",
-        "If a subcategory such as Certificates is reported under '{{failedSubcategory}}', confirm the certificate/connector actually delivers — 'Continue anyway' hides a missing certificate, it does not fix it."
+        "Look at how long `{{appName}}` takes on a device that completes: if it legitimately needs longer than the ESP allows, make it non-blocking (remove it from 'block device use until these required apps are installed') and let it install after the desktop arrives.",
+        "If the app must stay blocking, raise the ESP setting 'Show error when installation takes longer than' (configured at {{espSyncFailureTimeoutMinutes}} min) — a limit, not a target; it only helps when the app reliably finishes within the new value.",
+        "Check the app's dependencies and install order: a blocking app waiting on a large dependency download (Delivery Optimization, proxy throughput) is the usual reason it never finishes in time.",
+        "If the ESP reported a non-Apps subcategory under '{{failedSubcategory}}', confirm the certificate/connector actually delivers — 'Continue anyway' hides a missing certificate, it does not fix it."
       ]
     }
   ],
