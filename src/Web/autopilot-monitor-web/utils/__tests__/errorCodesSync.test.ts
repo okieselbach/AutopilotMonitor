@@ -31,7 +31,9 @@ describe("error-codes sync", () => {
     const out = sync.transform(catalog);
     expect(catalog.enforcementStates).toBeDefined();
     expect("enforcementStates" in out).toBe(false);
-    expect(out.entries["0x80070005"].source).toBe("msdoc");
+    // "msdoc" and "high" are the omitted defaults (restored by utils/errorCodeMap.ts).
+    expect(out.entries["0x80070005"]).not.toHaveProperty("source");
+    expect(out.entries["0x80070005"]).not.toHaveProperty("confidence");
     expect(out.entries["0x87d30000"].source).toMatch(/^ime:/);
     expect(out.entries["1603"].symbol).toBe("ERROR_INSTALL_FAILURE");
   });

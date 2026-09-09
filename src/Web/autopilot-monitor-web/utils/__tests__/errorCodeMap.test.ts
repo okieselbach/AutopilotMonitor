@@ -31,11 +31,15 @@ describe("errorCodeMap", () => {
     });
 
     it("uses only the catalog vocabulary", () => {
-      for (const [key, entry] of Object.entries(catalogFile.entries)) {
+      // Asserted on the RESOLVED entry: the synced file omits confidence "high" and source
+      // "msdoc" to save bundle bytes, and getErrorCodeEntry restores them.
+      for (const key of Object.keys(catalogFile.entries)) {
         expect(key, key).toMatch(/^(0x[0-9a-f]{8}|\d+)$/);
-        expect(ERROR_CODE_CATEGORIES, `${key} category`).toContain(entry.category);
-        expect(["high", "medium", "low"], `${key} confidence`).toContain(entry.confidence);
-        expect(entry.source, `${key} source`).toMatch(/^(msdoc|ime:\d+(\.\d+)+|winerror\.h|rule:[A-Z]+-[A-Z]+-\d{3}|legacy-catalog-v1)$/);
+        const entry = getErrorCodeEntry(key);
+        expect(entry, key).not.toBeNull();
+        expect(ERROR_CODE_CATEGORIES, `${key} category`).toContain(entry!.category);
+        expect(["high", "medium", "low"], `${key} confidence`).toContain(entry!.confidence);
+        expect(entry!.source, `${key} source`).toMatch(/^(msdoc|ime:\d+(\.\d+)+|winerror\.h|rule:[A-Z]+-[A-Z]+-\d{3}|legacy-catalog-v1)$/);
       }
     });
   });

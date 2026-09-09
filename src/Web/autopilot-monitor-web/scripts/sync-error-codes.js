@@ -64,16 +64,26 @@ function validate(rawText) {
   return catalog;
 }
 
-/** The browser-facing shape: same keys, shortened source, no enforcement states. */
+/**
+ * The browser-facing shape: same keys, shortened source, no enforcement states, and the two
+ * dominant field values omitted.
+ *
+ * `confidence: "high"` holds for 562 of 641 rows and `source: "msdoc"` for about half, so
+ * spelling them out costs ~19 KB of the client bundle to repeat two constants. They are
+ * omitted here and restored on read in `utils/errorCodeMap.ts` — the rendered tooltip is
+ * unchanged. Keep the two defaults in sync with that reader.
+ */
+const DEFAULT_CONFIDENCE = "high";
+const DEFAULT_SOURCE = "msdoc";
+
 function transform(catalog) {
   const entries = {};
   for (const [key, e] of Object.entries(catalog.entries)) {
-    const out = {
-      description: e.description,
-      confidence: e.confidence,
-      source: e.source.startsWith("msdoc:") ? "msdoc" : e.source,
-      category: e.category,
-    };
+    const source = e.source.startsWith("msdoc:") ? "msdoc" : e.source;
+    const out = { description: e.description };
+    if (e.confidence !== DEFAULT_CONFIDENCE) out.confidence = e.confidence;
+    if (source !== DEFAULT_SOURCE) out.source = source;
+    out.category = e.category;
     if (e.symbol) out.symbol = e.symbol;
     if (e.imeRetriesDuringEsp) out.imeRetriesDuringEsp = true;
     entries[key] = out;

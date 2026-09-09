@@ -56,9 +56,14 @@ export interface ErrorCodeLookup {
   derivedFromWin32?: number;
 }
 
+/**
+ * The synced file omits the two dominant field values to keep the client bundle small
+ * (`scripts/sync-error-codes.js`): a missing `confidence` means "high", a missing `source`
+ * means "msdoc". Both are restored below, so every consumer still sees a complete entry.
+ */
 interface CatalogFile {
   schemaVersion: number;
-  entries: Record<string, ErrorCodeEntry>;
+  entries: Record<string, Omit<ErrorCodeEntry, "confidence" | "source"> & Partial<Pick<ErrorCodeEntry, "confidence" | "source">>>;
 }
 
 const typedCatalog = catalogFile as CatalogFile;
@@ -68,7 +73,10 @@ const typedCatalog = catalogFile as CatalogFile;
  * Keys are normalised lowercase hex strings (e.g. "0x80070005") or decimal strings (e.g. "1603").
  */
 const errorCodeMap: Record<string, ErrorCodeEntry> = Object.fromEntries(
-  Object.entries(typedCatalog.entries).map(([k, v]) => [k.toLowerCase(), v])
+  Object.entries(typedCatalog.entries).map(([k, v]) => [
+    k.toLowerCase(),
+    { ...v, confidence: v.confidence ?? "high", source: v.source ?? "msdoc" },
+  ])
 );
 
 /** Look up a structured entry for a raw code; null when no mapping is found. */
