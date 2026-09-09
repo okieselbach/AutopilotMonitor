@@ -82,7 +82,7 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
       : []),
     'Searching events: use search_events (hybrid keyword+semantic ranking; depth="fast" then "deep" for exhaustive recall) for ranked hits, or get_session_events / query_raw_events for the raw unranked stream.',
     'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
-    'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated.',
+    'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated: a page above a tool\'s response cap is refused with an overflow error that names the pageSize that fits — re-send the same call with it.',
     'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
     'Error codes: lookup_error_code explains one HRESULT / MSI exit code / symbol / IME enforcement state from the shared catalog; search_knowledge finds the rules that name a code.',
     scopeLine,

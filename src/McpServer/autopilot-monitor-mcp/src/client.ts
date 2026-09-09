@@ -116,6 +116,13 @@ interface CallerContext {
    * wire's gzip does not remove from a model's context.
    */
   prettyJson?: boolean;
+  /**
+   * Fires when the client closes the HTTP request before the response is written — the transport's
+   * cancellation signal (spec 2026-07-28: closing the response stream cancels the request). apiFetch
+   * folds it into every backend call so an abandoned tool call stops its backend work instead of
+   * running to its own deadline; the timeout-fallback retry and the telemetry read it too.
+   */
+  signal?: AbortSignal;
 }
 
 const callerStore = new AsyncLocalStorage<CallerContext>();
@@ -143,6 +150,11 @@ export function runWithCaller<T>(ctx: CallerContext, fn: () => T): T {
 
 export function getCurrentToken(): string | undefined {
   return callerStore.getStore()?.token;
+}
+
+/** The current request's cancellation signal (see CallerContext.signal), or undefined without a context. */
+export function getCallerSignal(): AbortSignal | undefined {
+  return callerStore.getStore()?.signal;
 }
 
 /**
@@ -329,12 +341,30 @@ export interface ToolCallContext {
   correlationId: string;
   /** Automatic 429/503 retries apiFetch performed during this tool call (counted here, logged on the tool_call line). */
   retries: number;
+  /**
+   * How the call's arguments are rendered wherever they are echoed — the `tool_call` log line AND the
+   * "Parameters used" block of an error result (which the log quotes). One declaration at the
+   * withToolTelemetry call site covers both sinks; without it a clear-text config value masked in
+   * the args summary would still reach the log through the error text.
+   */
+  argPolicy?: ArgPolicy;
 }
+
+/**
+ * Per-argument echo policy: 'keys' renders only the property NAMES of an object-valued argument
+ * (update_tenant_config.fields — which fields changed, never their values), 'drop' omits the
+ * argument entirely. Arguments without a policy are rendered verbatim, size-capped.
+ */
+export type ArgPolicy = Record<string, 'keys' | 'drop'>;
 
 const toolCallStore = new AsyncLocalStorage<ToolCallContext>();
 
-export function createToolCallContext(toolName: string, correlationId: string): ToolCallContext {
-  return { toolName, correlationId, retries: 0 };
+export function createToolCallContext(toolName: string, correlationId: string, argPolicy?: ArgPolicy): ToolCallContext {
+  return { toolName, correlationId, retries: 0, argPolicy };
+}
+
+export function getCurrentArgPolicy(): ArgPolicy | undefined {
+  return toolCallStore.getStore()?.argPolicy;
 }
 
 /** Run `fn` inside a tool-call context the caller keeps a reference to (withToolTelemetry reads `retries` afterwards). */
@@ -372,7 +402,27 @@ export interface ApiFetchOptions extends RequestInit {
   retry?: boolean;
 }
 
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Sleeps `ms`, or rejects at once with the signal's reason when the caller cancels meanwhile. */
+const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(signal.reason);
+    return;
+  }
+  const onAbort = () => {
+    clearTimeout(timer);
+    reject(signal?.reason);
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', onAbort);
+    resolve();
+  }, ms);
+  signal?.addEventListener('abort', onAbort, { once: true });
+});
+
+/** The per-attempt signal: the call's own deadline plus, when the request has one, the caller's cancellation. */
+function withCallerSignal(own: AbortSignal, caller: AbortSignal | undefined): AbortSignal {
+  return caller ? AbortSignal.any([own, caller]) : own;
+}
 
 /** Seconds to wait before the one automatic retry, or null when this answer gets none. */
 function autoRetryDelaySeconds(status: number, body: string, retryAfterHeader: string | null): number | null {
@@ -421,8 +471,15 @@ async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise
   const method = (init.method ?? 'GET').toUpperCase();
   const mayRetry = retry ?? (method === 'GET' && !init.signal);
 
-  // Apply timeout to prevent hanging on unresponsive backend; a retry gets a fresh one.
-  const attempt = () => fetch(url, { ...init, headers, signal: init.signal ?? AbortSignal.timeout(API_TIMEOUT_MS) });
+  // Every attempt runs under the call's own deadline (a retry gets a fresh one) AND the caller's
+  // cancellation: when the client has closed the request, the backend work stops here instead of
+  // running to its timeout — pagination scans and the retry wait included.
+  const callerSignal = getCallerSignal();
+  const attempt = () => fetch(url, {
+    ...init,
+    headers,
+    signal: withCallerSignal(init.signal ?? AbortSignal.timeout(API_TIMEOUT_MS), callerSignal),
+  });
 
   let res = await attempt();
   if (!res.ok) {
@@ -433,7 +490,7 @@ async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise
       throw new ApiError(res.status, text, headerOf(res, 'x-correlation-id'), retryAfterHeader);
     }
     if (call) call.retries += 1;
-    await delay(wait * 1000);
+    await delay(wait * 1000, callerSignal);
     res = await attempt();
     if (!res.ok) {
       throw new ApiError(res.status, await res.text(), headerOf(res, 'x-correlation-id'), headerOf(res, 'retry-after'));
@@ -728,7 +785,9 @@ export async function scanWithTimeoutFallback(
   try {
     return await scan(firstPath);
   } catch (error: unknown) {
-    if (!isTimeoutError(error) || pageSize <= MIN_FALLBACK_PAGE_SIZE) throw error;
+    // A caller-cancelled fetch surfaces as the same abort shape as a timeout; never re-fetch for
+    // a client that has already gone away.
+    if (!isTimeoutError(error) || pageSize <= MIN_FALLBACK_PAGE_SIZE || getCallerSignal()?.aborted) throw error;
     const reduced = Math.max(MIN_FALLBACK_PAGE_SIZE, Math.floor(pageSize / 2));
     const page = await scan(withQueryOverrides(firstPath, { pageSize: reduced }));
     return {

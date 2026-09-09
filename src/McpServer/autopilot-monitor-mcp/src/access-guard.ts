@@ -89,6 +89,9 @@ interface AccessCacheEntry {
   // scope and downgrade the caller to home-tenant-only routing.
   delegatedTenantIds?: string[];
   delegatedRole?: string;
+  // The backend refused the TOKEN itself (401) — cached like a deny so a replayed bad token costs
+  // one backend call per TTL, but answered 401 + challenge, never "not enabled".
+  unauthenticated?: boolean;
   expiresAt: number;
 }
 
@@ -109,6 +112,11 @@ interface AccessCheckResult {
   // routing bounded to this set; every delegated tool call must name one of these tenants.
   delegatedTenantIds?: string[];
   delegatedRole?: string;
+  // The backend — the only party holding the JWKS — rejected the token (signature, issuer,
+  // audience, lifetime). That is "invalid token": the spec says it MUST be answered 401 with a
+  // WWW-Authenticate challenge so the client re-authenticates, not 403 ("insufficient
+  // permissions"), which a client reads as final.
+  unauthenticated?: boolean;
   // Distinguishes a genuine authorization denial (the backend reached a verdict
   // and said "no" — e.g. user not on the MCP whitelist) from an infrastructure
   // failure (backend unreachable / malformed response). Both fail closed, but
@@ -161,6 +169,7 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
       isGlobalReader: cached.isGlobalReader,
       delegatedTenantIds: cached.delegatedTenantIds,
       delegatedRole: cached.delegatedRole,
+      unauthenticated: cached.unauthenticated,
       // Only genuine backend verdicts are ever cached (infra errors return early
       // below without caching), so a cache hit is never an infra error.
       infraError: false,
@@ -183,6 +192,22 @@ async function checkAccess(upn: string, token: string, clientIp: string): Promis
     });
 
     const text = await res.text();
+    if (res.status === 401) {
+      // The token itself was refused (see AccessCheckResult.unauthenticated). The envelope's
+      // message names the cause (expired, wrong audience, bad signature) for the log line.
+      let reason = 'The backend rejected the token';
+      try {
+        const parsed = JSON.parse(text) as Partial<ApiErrorResponse>;
+        if (typeof parsed.error === 'string' && parsed.error) reason = parsed.error;
+      } catch {
+        /* not an error envelope */
+      }
+      boundedSet(accessCache, cacheKey, {
+        allowed: false, reason, isGlobalAdmin: false, isGlobalReader: false, unauthenticated: true,
+        expiresAt: Date.now() + ACCESS_CACHE_TTL_MS,
+      }, MAX_ACCESS_CACHE_ENTRIES);
+      return { allowed: false, reason, isGlobalAdmin: false, isGlobalReader: false, infraError: false, unauthenticated: true };
+    }
     if (!text) {
       console.error(`[access-guard] Backend returned empty body for ${upn} (status=${res.status})`);
       return { allowed: false, reason: `Backend returned ${res.status} with empty body`, isGlobalAdmin: false, isGlobalReader: false, infraError: true };
@@ -451,6 +476,14 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
         return;
       }
       if (!result.allowed) {
+        if (result.unauthenticated) {
+          // Spec: an invalid or expired token MUST get 401 with a challenge, so the client
+          // re-authenticates instead of reading a final "forbidden".
+          console.error(`[mcp-auth] 401 backend-rejected-token (method=${rpcMethod}, upn=${upn})`);
+          res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token"`);
+          res.status(401).json({ error: 'Invalid token', reason: result.reason });
+          return;
+        }
         if (result.infraError) {
           // Backend could not reach a verdict (unreachable / malformed). Fail
           // closed, but do NOT tell the user they are "not whitelisted" — it is
@@ -484,12 +517,21 @@ export function accessGuard(req: Request, res: Response, next: NextFunction): vo
         return;
       }
 
+      // Cancellation (Streamable HTTP: closing the response stream cancels the request): the
+      // caller context carries a signal that fires when the client goes away before the
+      // response is written, so the backend work of an abandoned call stops (client.ts apiFetch).
+      const cancellation = new AbortController();
+      res.on('close', () => {
+        if (!res.writableFinished) cancellation.abort();
+      });
+
       // Scope the caller context (token + platform role) to this async context
       // so concurrent sessions cannot overwrite each other on the event loop,
       // and so tools can route based on role without re-checking the JWT.
       runWithCaller(
         {
           token,
+          signal: cancellation.signal,
           isGlobalAdmin: result.isGlobalAdmin,
           isGlobalReader: result.isGlobalReader,
           delegatedTenantIds: result.delegatedTenantIds,

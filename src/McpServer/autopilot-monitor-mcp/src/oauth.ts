@@ -124,16 +124,26 @@ const ENTRA_TOKEN_TIMEOUT_MS = 15_000;
 // binding on every callback, and the client validates its own originalState
 // exactly once. Decision reviewed 2026-08-15.
 //
-// HMAC key: prefer OAuthStateSigningKey from the environment so all replicas
-// agree on the signature; fall back to a per-instance random key when unset
-// (state has a 10 min lifetime, so per-instance is acceptable for single-
-// replica scale=0..1). Format and naming match the backend's
-// PaginationTokenSigningKey for consistency: PascalCase env var, base64-
-// encoded random bytes, ≥32 bytes after decode. Generate on PowerShell:
+// HMAC key: OAuthStateSigningKey from the environment so every replica AND every
+// cold start agree on the signature. The signed client_id (below) is derived from
+// this key and is meant to outlive the process — with a per-boot random key a
+// scale-to-zero restart would invalidate every minted client_id (invalid_client)
+// and every in-flight state. So production refuses to boot without the key; the
+// per-instance random fallback exists for local development and tests only.
+// Format and naming match the backend's PaginationTokenSigningKey: PascalCase env
+// var, base64-encoded random bytes, ≥32 bytes after decode. Generate on PowerShell:
 //   [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-const OAUTH_STATE_SIGNING_KEY: Buffer = (() => {
-  const raw = process.env.OAuthStateSigningKey;
-  if (!raw) return crypto.randomBytes(32);
+export function loadSigningKey(raw: string | undefined, nodeEnv: string | undefined): Buffer {
+  if (!raw) {
+    if (nodeEnv === 'production') {
+      throw new Error(
+        'OAuthStateSigningKey is not set. Production requires it: signed client_ids and OAuth state must ' +
+        'survive restarts and replicas. Generate one with PowerShell: ' +
+        '[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))',
+      );
+    }
+    return crypto.randomBytes(32);
+  }
   // Buffer.from(s, 'base64') silently drops invalid chars — the only useful
   // signal is the resulting byte length. Anything below 32 bytes is either a
   // malformed input or a too-weak key; either way we want to fail loud at
@@ -148,7 +158,9 @@ const OAUTH_STATE_SIGNING_KEY: Buffer = (() => {
     );
   }
   return decoded;
-})();
+}
+
+const OAUTH_STATE_SIGNING_KEY: Buffer = loadSigningKey(process.env.OAuthStateSigningKey, process.env.NODE_ENV);
 const STATE_MAX_AGE_SECONDS = 600;
 
 interface ProxyStatePayload {
@@ -202,6 +214,38 @@ export function sanitizeForLog(value: unknown, maxLength = 200): string {
   // eslint-disable-next-line no-control-regex
   const cleaned = s.replace(/[\x00-\x1f\x7f]/g, '');
   return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}...` : cleaned;
+}
+
+/** OAuth error codes (RFC 6749 §5.2, OIDC Core §3.1.2.6) a client acts on; anything else is relayed as invalid_request. */
+const OAUTH_ERROR_CODES = new Set([
+  'invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type',
+  'invalid_scope', 'access_denied', 'server_error', 'temporarily_unavailable',
+  'interaction_required', 'login_required', 'consent_required',
+]);
+const TOKEN_ERROR_DESCRIPTION_CAP = 300;
+
+/**
+ * The token endpoint's error body as the proxy relays it. Entra's own body is a fingerprinting
+ * surface for an unauthenticated caller — `trace_id`, `correlation_id`, `timestamp`, `error_uri`,
+ * a `claims` challenge, and an `error_description` that repeats the trace ids in prose — so only
+ * what a client acts on passes: the OAuth `error` code, the human message (cut before the
+ * "Trace ID:" tail Entra appends, size-capped) and the numeric AADSTS `error_codes`. The server
+ * log line keeps the correlation id for a Microsoft support case.
+ */
+export function sanitizeTokenErrorBody(data: unknown): Record<string, unknown> {
+  const err = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+  const error = typeof err.error === 'string' && OAUTH_ERROR_CODES.has(err.error) ? err.error : 'invalid_request';
+  const out: Record<string, unknown> = { error };
+  if (typeof err.error_description === 'string' && err.error_description) {
+    const description = err.error_description.split(/\s*Trace ID:/i)[0].trim();
+    out.error_description = description.length > TOKEN_ERROR_DESCRIPTION_CAP
+      ? `${description.slice(0, TOKEN_ERROR_DESCRIPTION_CAP)}...`
+      : description;
+  }
+  if (Array.isArray(err.error_codes)) {
+    out.error_codes = err.error_codes.filter((c): c is number => typeof c === 'number').slice(0, 10);
+  }
+  return out;
 }
 
 // ---- Client-id signing (HMAC) ---------------------------------------------
@@ -909,7 +953,7 @@ export function createOAuthRouter(): Router {
           `correlation_id=${sanitizeForLog(err.correlation_id)}`,
         );
       }
-      res.status(tokenResponse.status).json(data);
+      res.status(tokenResponse.status).json(tokenResponse.status === 200 ? data : sanitizeTokenErrorBody(data));
     } catch (err) {
       // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'
       // (see error-handler.ts) — report that as 504 so a stalled identity

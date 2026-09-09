@@ -1,12 +1,20 @@
 /**
  * Auth module for the remote MCP server.
  *
- * In remote mode, the Claude Code client handles OAuth and sends a Bearer token
- * with each MCP request. This module provides helpers for token validation and
- * extracting user info from the JWT claims.
+ * The MCP client obtains a Bearer token through this server's OAuth proxy (oauth.ts) and sends it
+ * with each MCP request. This module reads the JWT claims; the token itself is validated by the
+ * backend.
  *
- * The user's token is passed through to the backend API (access_as_user scope),
- * so no service principal or separate credentials are needed.
+ * Token model — a DELIBERATE deviation from the MCP authorization spec, recorded as a decision in
+ * the internal decision register: the token's audience is the backend API app (access_as_user),
+ * not this server, and the same token is forwarded to the backend. The spec requires an MCP
+ * server to accept only tokens issued for itself and never to transit them downstream. The
+ * compensations: the backend validates signature, issuer, audience and lifetime on EVERY
+ * forwarded call (this server never treats a token as valid on its own), /api/auth/mcp decides
+ * MCP eligibility per principal, and every tool reaches only its own backend path (followNextLink
+ * basePath pinning). Audience separation would need a second app registration with consent in
+ * every customer tenant plus an on-behalf-of exchange, and would break the app-only
+ * service-principal path — not built until a reviewer requires it.
  */
 
 import { createDecoder } from './jwt-decode.js';
@@ -30,16 +38,12 @@ export interface TokenClaims {
   /** Calling application's client id on a v2.0 token. */
   azp?: string;
   /**
-   * Audience. Parsed for observability/diagnostics but intentionally NOT
-   * validated here — the same Bearer token is passed through to the backend
-   * API, which enforces the audience cryptographically alongside the
-   * signature/issuer/lifetime checks. See
-   * `src/Backend/AutopilotMonitor.Functions/Middleware/AuthenticationMiddleware.cs:200`
-   * (`ValidateAudience = true`, `ValidAudiences = { clientId, api://clientId }`).
-   * Duplicating that gate here would only add a second, drift-prone copy of the
-   * accepted-audience list (RFC 8707 resource indicators are honored by the
-   * backend, not the proxy). This is spec-conformant token pass-through: the
-   * user's token is forwarded to the resource it was issued for.
+   * Audience. Parsed for observability/diagnostics but intentionally NOT validated here — the
+   * backend enforces it cryptographically alongside the signature/issuer/lifetime checks
+   * (`AuthenticationMiddleware.cs`: `ValidateAudience = true`, `ValidAudiences = { clientId,
+   * api://clientId }`); duplicating that gate here would only add a second, drift-prone copy of
+   * the accepted-audience list. The audience is the backend API, not this server — see the
+   * module header for why that deviation from the MCP spec is deliberate.
    */
   aud?: string;
 }

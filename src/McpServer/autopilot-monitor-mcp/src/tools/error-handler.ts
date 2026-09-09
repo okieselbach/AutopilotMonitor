@@ -1,5 +1,6 @@
-import { ApiError, isTimeoutError, type ParsedErrorBody } from '../client.js';
+import { ApiError, getCurrentArgPolicy, isTimeoutError, type ParsedErrorBody } from '../client.js';
 import type { McpQuotaExceededResponse } from '../generated/wire-types.generated.js';
+import { summarizeArgs } from '../telemetry.js';
 
 interface ToolErrorResult {
   [x: string]: unknown;
@@ -153,13 +154,13 @@ export function toolError(
     }
   }
 
-  // Include parameter summary so the AI can see what it sent
-  const argsSummary = Object.entries(args)
-    .filter(([, v]) => v != null && v !== undefined)
-    .map(([k, v]) => `  ${k}: ${JSON.stringify(v)}`)
-    .join('\n');
+  // Parameter summary so the AI can see what it sent — rendered under the SAME per-argument
+  // policy as the tool_call log line (withToolTelemetry): an argument declared 'keys' shows only
+  // its property names here too, so a clear-text config value never travels in an error text
+  // (the log quotes the first lines of this text).
+  const argsSummary = summarizeArgs(args, getCurrentArgPolicy());
   if (argsSummary) {
-    parts.push(`**Parameters used**:\n${argsSummary}`);
+    parts.push(`**Parameters used**:\n${Object.entries(argsSummary).map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
   }
 
   return {

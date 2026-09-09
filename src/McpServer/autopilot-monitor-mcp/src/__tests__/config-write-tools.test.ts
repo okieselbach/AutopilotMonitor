@@ -101,6 +101,7 @@ describe('revert_tenant_config — request shape', () => {
     apiFetchMock.mockResolvedValueOnce({ success: true });
     await captureToolHandlers(true, true).revert_tenant_config({
       tenantId: TENANT,
+      backupId: '20260910T000000Z_abcd1234',
       reason: 'undo bad change',
     });
 
@@ -108,7 +109,7 @@ describe('revert_tenant_config — request shape', () => {
     expect(path).toBe(`/api/config/${TENANT}/revert`);
     expect(options.method).toBe('POST');
     expect(JSON.parse(options.body as string)).toEqual({
-      backupId: undefined,
+      backupId: '20260910T000000Z_abcd1234',
       includeProtectedFields: false,
       reason: 'undo bad change',
     });

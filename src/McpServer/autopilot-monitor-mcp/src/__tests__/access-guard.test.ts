@@ -68,6 +68,10 @@ function mockRes(): CapturedRes {
       captured.body = payload;
       return this as Response;
     },
+    // The guard subscribes to 'close' for the cancellation signal; nothing here ever emits it.
+    on() {
+      return this as Response;
+    },
   };
   captured.res = res as Response;
   return captured;

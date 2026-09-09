@@ -45,6 +45,7 @@ function runGuard(req: Request): Promise<Outcome> {
       setHeader() { return this as Response; },
       status(code: number) { statusCode = code; return this as Response; },
       json() { done({ nextCalled: false, status: statusCode }); return this as Response; },
+      on() { return this as Response; },
     };
     const next: NextFunction = () => done({ nextCalled: true, status: statusCode });
     accessGuard(req, res as Response, next);

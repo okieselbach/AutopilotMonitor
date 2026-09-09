@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { createToolCallContext, runWithToolCallContext, hasGlobalScope, isDelegated, getCallerUpn } from './client.js';
+import {
+  createToolCallContext, runWithToolCallContext, hasGlobalScope, isDelegated, getCallerUpn, getCallerSignal,
+  type ArgPolicy,
+} from './client.js';
+import { OVERFLOW_META_KEY } from './tools/shared.js';
 
 export const toolLoggingEnabled = process.env.MCP_TOOL_LOGGING === 'true';
 
@@ -15,18 +19,16 @@ function cap(s: string, max: number): string {
 }
 
 /**
- * Per-argument logging policy, declared at the tool's withToolTelemetry call
- * site so schema, handler and log policy are reviewed together.
- *  - 'keys': log only the property NAMES of an object-valued argument. For
- *    update_tenant_config.fields this keeps the useful signal (which fields a
- *    Global Admin changes) while the clear-text values (webhook URLs, SAS URLs,
- *    custom headers) never reach the container log stream — the backend keeps
- *    them in the backup snapshot and the audit log, both GA-gated.
- *  - 'drop': omit the argument entirely (for arguments whose key alone reveals
- *    something, e.g. a plain-string secret).
- * Arguments without a policy are rendered verbatim (capped).
+ * Per-argument echo policy (see client.ts ArgPolicy), declared at the tool's
+ * withToolTelemetry call site so schema, handler and policy are reviewed
+ * together. It travels in the tool-call context, so the SAME policy governs the
+ * `tool_call` log line and the "Parameters used" block toolError appends to an
+ * error result. For update_tenant_config.fields this keeps the useful signal
+ * (which fields a Global Admin changes) while the clear-text values (webhook
+ * URLs, SAS URLs, custom headers) never reach the container log stream — the
+ * backend keeps them in the backup snapshot and the audit log, both GA-gated.
  */
-export type ArgPolicy = Record<string, 'keys' | 'drop'>;
+export type { ArgPolicy };
 
 function renderKeysOnly(value: unknown): string {
   if (Array.isArray(value)) return `[array:${value.length}]`;
@@ -98,7 +100,7 @@ export async function withToolTelemetry<T>(
   // One correlation id per tool call — sent on every backend request the call makes and written
   // into the tool_call line below, so an MCP log line and the backend request rows join on it.
   const correlationId = randomUUID();
-  const context = createToolCallContext(toolName, correlationId);
+  const context = createToolCallContext(toolName, correlationId, argPolicy);
   if (!toolLoggingEnabled) {
     return runWithToolCallContext(context, fn) as Promise<T>;
   }
@@ -117,9 +119,16 @@ export async function withToolTelemetry<T>(
   } finally {
     try {
       const r = result as ToolResultShape | undefined;
-      const resultChars = r?.content?.reduce((sum, c) => sum + (c.text?.length ?? 0), 0) ?? 0;
+      // A page the server refused to send (toolResultText overflow) is logged at the size it
+      // WOULD have had, so the size distribution keeps naming the offending calls.
+      const overflow = r?._meta?.[OVERFLOW_META_KEY] as { responseChars?: number } | undefined;
+      const resultChars = overflow?.responseChars
+        ?? (r?.content?.reduce((sum, c) => sum + (c.text?.length ?? 0), 0) ?? 0);
       const capValue = Number(r?._meta?.['anthropic/maxResultSizeChars']);
-      const isError = threw || r?.isError === true;
+      // The client closed the request before the result was written: the call was abandoned,
+      // not failed — it must not count towards the tool's error rate.
+      const cancelled = getCallerSignal()?.aborted === true;
+      const isError = !cancelled && (threw || r?.isError === true);
       // What actually failed — without this every error drilldown ends at
       // guessing from args. Soft errors carry the toolError text (its first
       // lines name the error class: HTTP status / timeout / auth / not found).
@@ -133,10 +142,12 @@ export async function withToolTelemetry<T>(
         durationMs: Date.now() - start,
         isError,
         errorMessage,
+        cancelled: cancelled ? true : undefined,
         resultChars,
-        // Result exceeds the inline-size hint → the host truncates it. A tool
-        // that is frequently overCap needs tighter defaults or projections.
-        overCap: Number.isFinite(capValue) && capValue > 0 ? resultChars > capValue : false,
+        // Result exceeds the tool's size cap: the server answered with an overflow error
+        // instead of the page (marker), or the advisory hint was exceeded and the host
+        // truncates. A tool that is frequently overCap needs tighter defaults or projections.
+        overCap: overflow !== undefined || (Number.isFinite(capValue) && capValue > 0 ? resultChars > capValue : false),
         // Automatic 429/503 retries apiFetch made for this call (absent when none): a tool that
         // retries often is hitting a rate limit its defaults should avoid.
         retries: context.retries > 0 ? context.retries : undefined,

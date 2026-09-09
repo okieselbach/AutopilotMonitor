@@ -15,6 +15,7 @@ import { validatePrecomputedIndex } from './precomputed-index.js';
 import { buildEventTypeSearchDocs } from './resource-catalog.js';
 import { createOAuthRouter } from './oauth.js';
 import { accessGuard } from './access-guard.js';
+import { originGuard } from './origin-guard.js';
 import { toolLoggingEnabled, attachToolCallRejectionSniffer } from './telemetry.js';
 import { API_BASE_URL } from './config.js';
 import { SERVER_VERSION, BUILD_COMMIT, BUILD_UTC, DOCS_COMMIT } from './build-info.js';
@@ -273,6 +274,10 @@ app.get('/health', (_req, res) => {
     docs: { commit: DOCS_COMMIT, chunks: docsIndex?.size ?? 0, sections: docSections(docsDocs) },
   });
 });
+
+// Origin gate for /mcp (spec MUST): a browser Origin other than this server's own is refused
+// before any token work — see origin-guard.ts.
+app.use('/mcp', originGuard);
 
 // Access guard for /mcp — validates JWT, checks backend whitelist, enforces rate limits
 app.use('/mcp', accessGuard);

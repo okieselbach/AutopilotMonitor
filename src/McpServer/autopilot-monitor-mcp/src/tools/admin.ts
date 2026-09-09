@@ -34,6 +34,42 @@ export const GA_STRICT_TOOL_NAMES: ReadonlySet<string> = new Set([
 const FLEET_OVERVIEW_PAGE_SIZE = 25;
 
 /**
+ * query_raw_events rows per page when the projection carries DataJson. Measured over 30 days of
+ * tool telemetry: with the payload a row is p50 0.6 KB, p90 3.3 KB, outliers 21-29 KB, so 100 rows
+ * keep the p90 page (330 KB) under the 500 KB cap and the outliers are the hard cap's job
+ * (toolResultText names the exact pageSize that fits). Without DataJson the schema's 1000 stands.
+ */
+export const RAW_EVENTS_PAYLOAD_PAGE_DEFAULT = 50;
+export const RAW_EVENTS_PAYLOAD_PAGE_MAX = 100;
+
+/**
+ * Whether the EFFECTIVE projection of a query_raw_events call includes DataJson: an explicit
+ * `fields` naming it; a filtered first page without `fields` (full rows by default, see
+ * leanFieldSelection); or a nextLink whose echoed `fields` names it — or carries none, which is
+ * what a filtered page 1 leaves behind and means full rows on the follow-up as well.
+ */
+export function rawEventsPayloadIncluded(explicitFields: string | undefined, continuation: string | undefined, targeted: boolean): boolean {
+  const names = (list: string) => list.split(',').map((f) => f.trim().toLowerCase());
+  if (explicitFields !== undefined) return names(explicitFields).includes('datajson');
+  if (continuation?.startsWith('/api/')) {
+    const q = continuation.indexOf('?');
+    const echoed = q === -1 ? null : new URLSearchParams(continuation.slice(q + 1)).get('fields');
+    return echoed === null || names(echoed).includes('datajson');
+  }
+  return targeted;
+}
+
+function assertPayloadPageSize(pageSize: number): void {
+  if (pageSize <= RAW_EVENTS_PAYLOAD_PAGE_MAX) return;
+  throw new Error(
+    `pageSize ${pageSize} exceeds the maximum of ${RAW_EVENTS_PAYLOAD_PAGE_MAX} for a read that includes DataJson: ` +
+    'the raw payload carries kilobytes per row, so such a page is bounded by rows × payload, not rows. ' +
+    `Re-send with pageSize ≤ ${RAW_EVENTS_PAYLOAD_PAGE_MAX} (an explicit pageSize overrides the value embedded in a ` +
+    'nextLink; the cursor stays valid), or pass a fields= projection without DataJson to keep the larger page.',
+  );
+}
+
+/**
  * Pure: the get_fleet_overview result. The two backend responses each carry their own
  * quotaExcludedTenants (the quota layer decides per request); the union is what the model must know is
  * missing. Absent keys stay absent (WhenWritingNull on the wire; undefined here) so the payload stays lean.
@@ -1510,7 +1546,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'nextLink as "continuation" to keep scanning). ' +
         'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
         'interactive queries; raise it (up to 1000) for forensics-grade exact recall. For broad analysis, use ' +
-        'pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" ' +
+        'pageSize=1000 and follow nextLink repeatedly until absent. EXCEPTION: a page that includes DataJson (named in ' +
+        'fields, or a filtered read without fields) is capped at pageSize=' + RAW_EVENTS_PAYLOAD_PAGE_MAX + ' (default ' +
+        RAW_EVENTS_PAYLOAD_PAGE_DEFAULT + ') — the payload carries kilobytes per row, and a larger value is refused before ' +
+        'any work is done. Pass the whole nextLink string as "continuation" ' +
         'so all backend-echoed query params round-trip correctly. Note: pageSize is the index-scan cadence — a single ' +
         'indexed session can contribute multiple events, so total events per page may exceed pageSize. ' +
         'The server bounds every page by a scan budget: a page that ends early carries "partial": true — nothing is ' +
@@ -1544,9 +1583,16 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     async (args) => withToolTelemetry('query_raw_events', args, async () => {
       try {
         const { tenantId: rawTenantId, sessionId, eventType, severity, source, startedAfter, startedBefore, fields: explicitFields, continuation } = args;
-        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
+        const targeted = Boolean(eventType || severity || source);
+        // A page that carries DataJson is bounded by rows × payload, not rows (measured over 30 d:
+        // p90 3.3 KB, outliers 21-29 KB per row), so 1000 such rows exceed the cap many times over
+        // while 1000 lean rows fit. Default and ceiling therefore follow the effective projection,
+        // and an oversized request is refused BEFORE the backend does the work.
+        const payload = rawEventsPayloadIncluded(explicitFields, continuation, targeted);
+        const pageSize = pageSizeForCall(args.pageSize, continuation, payload ? RAW_EVENTS_PAYLOAD_PAGE_DEFAULT : DEFAULT_FIRST_PAGE_SIZE);
+        if (payload) assertPayloadPageSize(effectivePageSize(pageSize, continuation));
         // Default projection follows intent — see leanFieldSelection (DataJson is the raw payload column).
-        const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, Boolean(eventType || severity || source), LEAN_RAW_EVENT_FIELDS);
+        const { fields, leanDefaultApplied } = leanFieldSelection(explicitFields, continuation, targeted, LEAN_RAW_EVENT_FIELDS);
         const tenantId = enforceDelegatedTenantForPage(rawTenantId, continuation);
         if (eventType) assertKnownEventType(eventType);
         const basePath = pickGlobalOrTenantPath('/api/global/raw/events', '/api/raw/events', tenantId);
@@ -1917,15 +1963,18 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Revert Tenant Configuration',
       description:
-        'Restore a tenant\'s configuration from a pre-write snapshot (latest by default). Global Admin only. ' +
-        'The revert snapshots the CURRENT state first, so a revert is itself revertible. Protected fields ' +
-        '(plan/trial, homedAppClientId, auth provenance, onboarded*) keep their CURRENT values unless ' +
-        'includeProtectedFields is explicitly true — time-traveling those via an old snapshot is almost never ' +
-        'intended. Same transactional verify-and-rollback machinery as update_tenant_config.',
+        'Restore a tenant\'s configuration from a named pre-write snapshot. Global Admin only. ' +
+        'The revert snapshots the CURRENT state first, so a revert is itself revertible — which is exactly why ' +
+        'backupId is required and there is no "latest" default: a repeated revert without an id would restore the ' +
+        'snapshot the previous revert just created and undo it. Reverting the same backupId twice is a no-op. ' +
+        'Protected fields (plan/trial, homedAppClientId, auth provenance, onboarded*) keep their CURRENT values ' +
+        'unless includeProtectedFields is explicitly true — time-traveling those via an old snapshot is almost ' +
+        'never intended. Same transactional verify-and-rollback machinery as update_tenant_config.',
       inputSchema: {
         tenantId: TenantGuidSchema.describe('Tenant ID (GUID) whose configuration to revert.'),
-        backupId: z.string().optional()
-          .describe('Snapshot to restore (from list_tenant_config_backups). Omit for the most recent snapshot.'),
+        backupId: z.string().min(1)
+          .describe('REQUIRED: the snapshot to restore — from list_tenant_config_backups, or the backupId an ' +
+                    'update_tenant_config response returned. Never omitted: see the description.'),
         includeProtectedFields: z.boolean().optional()
           .describe('DANGEROUS, default false: also restore plan/trial, homedAppClientId and auth-provenance fields ' +
                     'from the snapshot. Only set when the snapshot\'s values for those are explicitly wanted.'),

@@ -231,17 +231,91 @@ export function stringifyResult(data: unknown): string {
 }
 
 /**
+ * `_meta` key of an overflow answer (see toolResultText). The telemetry reads it to log the
+ * page at the size it WOULD have had, so the size distribution keeps naming the offending calls.
+ */
+export const OVERFLOW_META_KEY = 'autopilotmonitor.com/overflow';
+
+/** Share of the cap an overflow advice aims at, so the re-sent page lands under it with headroom. */
+const OVERFLOW_TARGET_RATIO = 0.9;
+
+/** Fewest rows a page needs before its per-row size is worth projecting into a pageSize advice. */
+const OVERFLOW_MIN_ROWS_FOR_ADVICE = 2;
+
+export interface ToolResult {
+  // Index signature: the SDK's CallToolResult is indexable, and an interface without one is not
+  // assignable to it (an inline object type would be, implicitly).
+  [x: string]: unknown;
+  isError?: true;
+  content: Array<{ type: 'text'; text: string }>;
+  _meta: Record<string, unknown>;
+}
+
+/**
  * Wraps a tool response payload with the Anthropic <c>maxResultSizeChars</c>
  * annotation and a single text content block. Use in preference to bare
  * <c>{ content: [...] }</c> so the cap travels with every call without
  * client-side configuration.
+ *
+ * The cap is ENFORCED here, not merely advertised: the hint only tells an Anthropic host how
+ * much to accept — other hosts cut the JSON somewhere in the middle, and even that host has a
+ * ceiling. Either way the model would read a page with rows missing and no way to tell which
+ * (the nextLink at the end is usually the first casualty). So a page above the cap is not sent
+ * at all: the answer is an error carrying what the page held and, when the payload is a list,
+ * the exact pageSize that fits — computed from THIS page's measured bytes per row, not guessed.
+ * Nothing is lost because backend pages are re-requestable: the same continuation with the
+ * smaller pageSize returns the first rows plus a nextLink to the rest. The oversized page's
+ * own nextLink is deliberately withheld — following it would skip the rows that were dropped.
  */
-export function toolResultText(
-  data: unknown,
-  maxResultSizeChars: number,
-): { content: Array<{ type: 'text'; text: string }>; _meta: Record<string, unknown> } {
+export function toolResultText(data: unknown, maxResultSizeChars: number): ToolResult {
+  const text = stringifyResult(data);
+  if (text.length <= maxResultSizeChars) {
+    return {
+      content: [{ type: 'text' as const, text }],
+      _meta: { 'anthropic/maxResultSizeChars': maxResultSizeChars },
+    };
+  }
+  return overflowResult(data, text.length, maxResultSizeChars);
+}
+
+/** The top-level list a page carries (its largest array-valued property), if any. */
+function largestTopLevelList(data: unknown): { field: string; rows: number } | undefined {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return undefined;
+  let best: { field: string; rows: number } | undefined;
+  for (const [field, value] of Object.entries(data as Record<string, unknown>)) {
+    if (Array.isArray(value) && (best === undefined || value.length > best.rows)) best = { field, rows: value.length };
+  }
+  return best;
+}
+
+function overflowResult(data: unknown, responseChars: number, maxResultSizeChars: number): ToolResult {
+  const list = largestTopLevelList(data);
+  const rowAdvice = list !== undefined && list.rows >= OVERFLOW_MIN_ROWS_FOR_ADVICE;
+  const rowsThatFit = rowAdvice
+    ? Math.max(1, Math.floor((maxResultSizeChars * OVERFLOW_TARGET_RATIO) / (responseChars / list.rows)))
+    : undefined;
+  const body = {
+    overflow: true,
+    error:
+      `Result too large: ${responseChars} characters exceed this tool's ${maxResultSizeChars}-character response cap. ` +
+      'The page was NOT sent — a cut page would have lost rows without telling you which.',
+    responseChars,
+    maxResultSizeChars,
+    ...(rowAdvice ? { rowsField: list.field, rowsFetched: list.rows, rowsThatFit } : {}),
+    advice: rowAdvice
+      ? `This page held ${list.rows} rows in "${list.field}" at about ${Math.round(responseChars / list.rows)} characters each; ` +
+        `${rowsThatFit} rows fit the cap. If this tool takes pageSize, re-send the SAME call (same filters, same ` +
+        `continuation if any) with pageSize=${rowsThatFit} and follow its nextLink for the rest — nothing is skipped. ` +
+        'Otherwise narrow the query: tighter filters, a fields= projection without the payload column, a smaller date window.'
+      : 'Narrow the query: tighter filters, a fields= projection without the payload column, a smaller date window, ' +
+        'or a smaller pageSize if this tool takes one.',
+  };
   return {
-    content: [{ type: 'text' as const, text: stringifyResult(data) }],
-    _meta: { 'anthropic/maxResultSizeChars': maxResultSizeChars },
+    isError: true,
+    content: [{ type: 'text' as const, text: stringifyResult(body) }],
+    _meta: {
+      'anthropic/maxResultSizeChars': maxResultSizeChars,
+      [OVERFLOW_META_KEY]: { responseChars },
+    },
   };
 }
