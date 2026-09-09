@@ -26,6 +26,8 @@
  *   intune-*              MS "Intune app installation error codes" (iOS + Windows tables)
  *   mdm-enrollment/       MS enrollment troubleshooting + Autopilot known-issues pages (prose:
  *   autopilot/entra-join  one-sentence paraphrase, presence-checked against the page)
+ *   entra-join            MS "Windows Hello errors during PIN creation", 0x801Cxxxx only — the
+ *                         DSREG / device-registration family (runs after prose, which wins)
  *   intune-win32          IME CustomErrorCodes enum (0x87D3xxxx), member name paraphrased
  *   delivery-optimization IME DeliveryOptimizationConstants (0x80D0xxxx), member name paraphrased
  *   legacy                v1 entries without a primary source, kept at confidence "low"
@@ -82,6 +84,7 @@ const URL = {
   intuneApps: "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/app-management/app-install-error-codes",
   enrollErrors: "https://learn.microsoft.com/en-us/troubleshoot/mem/intune/device-enrollment/troubleshoot-windows-enrollment-errors",
   knownIssues: "https://learn.microsoft.com/en-us/autopilot/known-issues",
+  helloErrors: "https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/hello-errors-during-pin-creation",
   winhttp: "https://learn.microsoft.com/en-us/windows/win32/winhttp/error-messages",
   win32: (range) => `https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--${range}-`,
 };
@@ -117,6 +120,10 @@ const ENTITIES = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'",
 /**
  * Cell markup → plain text. Tags are stripped until none remain (a nested "<scr<b>ipt>" cannot
  * survive), and entities are decoded in ONE pass so "&amp;lt;" yields "&lt;", never "<".
+ *
+ * Zero-width and bidi marks are removed before the whitespace collapse: MS Learn tables carry
+ * stray U+200B in hex and description cells, JS `\s` does not match them, and a hex cell that
+ * keeps one fails every `^0x…$` test — the row would then be skipped with no diagnostic.
  */
 const decode = (s) => {
   let text = s.replace(/<br\s*\/?>/gi, " ").replace(/<\/(p|li|div)>/gi, " ");
@@ -127,6 +134,7 @@ const decode = (s) => {
   } while (text !== previous);
   return text
     .replace(/&(nbsp|amp|lt|gt|quot|#39|#x27);/g, (_, name) => ENTITIES[name])
+    .replace(/[​-‏‪-‮⁠﻿]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 };
@@ -407,6 +415,45 @@ async function main() {
       if (!html.includes(e.key.toLowerCase())) throw new Error(`prose: ${e.key} not found on ${e.page}`);
     }
     queue("prose", e.key, { symbol: e.symbol, description: e.description, confidence: e.confidence ?? "high", source: e.source ?? msdoc(e.page), category: e.category });
+  }
+
+  // entra-join — the Windows Hello PIN error page is the only MS table that documents the
+  // 0x801Cxxxx (DSREG / device-registration) family, which an enrollment meets during hybrid
+  // join and the ESP account-setup phase. Two tables: "Hex | Cause | Mitigation" and, for the
+  // codes without a documented fix, "Hex | Cause". The `Cause` column is the description in
+  // both — `Mitigation` is advice, and the catalog describes codes rather than advising.
+  //
+  // Runs AFTER the prose entries on purpose: 0x801c03ea is on both, and the Autopilot-specific
+  // prose ("TPM supports 2.0 but has not been upgraded") is the more useful of the two here,
+  // so the earlier family has to win. Scope stays at 0x801c*: the same page also lists NTE
+  // crypto codes, a plain Win32 code that the win32 family already owns, and two codes whose
+  // categories do not exist — none of them get invented here.
+  {
+    const ENTRA_MIN_KEYS = 30; // 35 on 2026-09-09; a drop means the page changed shape
+    let entraKeys = 0;
+    for (const table of parseTables(await fetchPage(URL.helloErrors))) {
+      for (const [value, cause] of table.slice(1)) {
+        if (!/^0x[0-9a-f]{8}$/i.test(value)) continue;
+        const key = normalizeHex(value);
+        if (!key.startsWith("0x801c")) continue;
+        // "DSREG_NO_DEFAULT_ACCOUNT: NGC provisioning is unable to …" — the cell leads with the
+        // symbol for the codes that have one.
+        const named = /^([A-Z][A-Z0-9_]{2,}):\s+(.*)$/s.exec(cause);
+        queue("entra-join", key, {
+          symbol: named?.[1],
+          description: named ? named[2] : cause,
+          confidence: "high",
+          source: msdoc(URL.helloErrors),
+          category: "entra-join",
+        });
+        entraKeys += 1;
+      }
+    }
+    // parseTables drops a row whose hex cell does not match; without this the page silently
+    // yielding fewer codes would look like a clean run.
+    if (entraKeys < ENTRA_MIN_KEYS) {
+      throw new Error(`entra-join: only ${entraKeys} 0x801c keys parsed from ${URL.helloErrors} (expected >= ${ENTRA_MIN_KEYS}) — the page shape changed`);
+    }
   }
 
   // IME CustomErrorCodes (0x87D3xxxx)
