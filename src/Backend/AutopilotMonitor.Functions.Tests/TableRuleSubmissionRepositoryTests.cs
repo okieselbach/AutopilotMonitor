@@ -26,6 +26,7 @@ public class TableRuleSubmissionRepositoryTests
         Comment = "Fires when the PAC download fails during ESP.",
         SubmittedBy = "alice@contoso.com",
         SubmittedByName = "Alice Admin",
+        ContactEmail = "alice.reply@contoso.com",
         AttributionMode = RuleAttributionModes.Person,
         AttributionName = "Alice A.",
         SubmittedAt = new DateTime(2026, 9, 9, 10, 30, 0, DateTimeKind.Utc),
@@ -62,6 +63,7 @@ public class TableRuleSubmissionRepositoryTests
         Assert.Equal(original.Comment, mapped.Comment);
         Assert.Equal(original.SubmittedBy, mapped.SubmittedBy);
         Assert.Equal(original.SubmittedByName, mapped.SubmittedByName);
+        Assert.Equal(original.ContactEmail, mapped.ContactEmail);
         Assert.Equal(original.AttributionMode, mapped.AttributionMode);
         Assert.Equal(original.AttributionName, mapped.AttributionName);
         Assert.Equal(original.SubmittedAt, mapped.SubmittedAt);
@@ -88,6 +90,7 @@ public class TableRuleSubmissionRepositoryTests
         var original = Full();
         original.Status = RuleSubmissionStatuses.Pending;
         original.Comment = null;
+        original.ContactEmail = null;
         original.SourceFireStats = null;
         original.ValidationFindings = new List<RuleSubmissionFinding>();
         original.ReviewedBy = null;
@@ -101,6 +104,7 @@ public class TableRuleSubmissionRepositoryTests
             TableRuleSubmissionRepository.StoreSubmission(original));
 
         Assert.Null(mapped.Comment);
+        Assert.Null(mapped.ContactEmail);
         Assert.Null(mapped.SourceFireStats);
         Assert.Empty(mapped.ValidationFindings);
         Assert.Null(mapped.ReviewedBy);
@@ -145,6 +149,38 @@ public class TableRuleSubmissionRepositoryTests
 
         Assert.Empty(mapped.ValidationFindings);
         Assert.Null(mapped.SourceFireStats);
+    }
+
+    // ── retention rule (shared by the sweep and this pin) ──
+
+    private static readonly DateTime Now = new(2026, 12, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData("withdrawn", 29, false)]
+    [InlineData("withdrawn", 30, true)]
+    [InlineData("declined", 89, false)]
+    [InlineData("declined", 90, true)]
+    [InlineData("pending", 400, false)]
+    [InlineData("approved", 400, false)]
+    public void Retention_expires_only_closed_rows_at_their_window(string status, int ageDays, bool expired)
+    {
+        var s = Full();
+        s.Status = status;
+        s.SubmittedAt = Now.AddDays(-ageDays);
+        s.ReviewedAt = status == "declined" ? Now.AddDays(-ageDays) : null;
+
+        Assert.Equal(expired, RuleSubmissionRetention.IsExpired(s, Now));
+    }
+
+    [Fact]
+    public void Retention_of_a_declined_row_counts_from_the_decision_not_the_submission()
+    {
+        var s = Full();
+        s.Status = RuleSubmissionStatuses.Declined;
+        s.SubmittedAt = Now.AddDays(-200);
+        s.ReviewedAt = Now.AddDays(-10);
+
+        Assert.False(RuleSubmissionRetention.IsExpired(s, Now));
     }
 
     [Theory]

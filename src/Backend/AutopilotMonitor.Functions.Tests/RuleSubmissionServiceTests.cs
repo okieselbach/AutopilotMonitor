@@ -173,6 +173,22 @@ public class RuleSubmissionServiceTests
     public void AttributionName_rejects_markup_urls_and_control_characters(string name)
         => Assert.Throws<ArgumentException>(() => RuleSubmissionService.ValidateAttributionName(name));
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("  alice@contoso.com  ", "alice@contoso.com")]
+    public void Email_is_trimmed_or_null(string? input, string? expected)
+        => Assert.Equal(expected, RuleSubmissionService.NormalizeEmail(input));
+
+    [Theory]
+    [InlineData("alice")]
+    [InlineData("@contoso.com")]
+    [InlineData("alice@")]
+    [InlineData("a@b@c")]
+    [InlineData("alice @contoso.com")]
+    public void Email_rejects_non_addresses(string input)
+        => Assert.Throws<ArgumentException>(() => RuleSubmissionService.NormalizeEmail(input));
+
     // ── review state machine ────────────────────────────────────────────────
 
     private static (RuleSubmissionService service, Mock<IRuleSubmissionRepository> repo) Build(
@@ -321,6 +337,16 @@ public class RuleSubmissionServiceTests
     }
 
     [Fact]
+    public async Task Operator_delete_passes_through_to_the_repository()
+    {
+        var (service, repo) = Build(PendingRow());
+        repo.Setup(r => r.DeleteAsync("a1b2c3d4e5f6")).ReturnsAsync(true);
+
+        Assert.True(await service.DeleteAsync("a1b2c3d4e5f6"));
+        repo.Verify(r => r.DeleteAsync("a1b2c3d4e5f6"), Times.Once);
+    }
+
+    [Fact]
     public async Task Unknown_decision_is_a_bad_request()
     {
         var (service, _) = Build(PendingRow());
@@ -401,6 +427,7 @@ public class RuleSubmissionServiceTests
         Assert.Equal(12, s.BatchId.Length);
         Assert.Equal(RuleSubmissionStatuses.Pending, s.Status);
         Assert.Equal("Community contribution", s.AttributionName);
+        Assert.Null(s.ContactEmail);
         Assert.Equal("Proxy PAC unreachable", s.Title);
         Assert.Equal("network", s.Category);
         Assert.Equal("ANALYZE-SEC-004", s.DerivedFromTemplateRuleId);
@@ -475,6 +502,17 @@ public class RuleSubmissionServiceTests
 
         var (noConfig, _) = BuildForSubmit(new List<AnalyzeRule> { CustomAnalyzeRule() }, config: null);
         await Assert.ThrowsAsync<ArgumentException>(() => noConfig.SubmitAsync(TenantId, request, "alice@contoso.com", "Alice Admin"));
+    }
+
+    [Fact]
+    public async Task Submit_stores_the_contact_email_when_given()
+    {
+        var (service, _) = BuildForSubmit(new List<AnalyzeRule> { CustomAnalyzeRule() });
+        var request = Request("ANALYZE-CUSTOM-003");
+        request.Email = " alice.reply@contoso.com ";
+
+        var created = await service.SubmitAsync(TenantId, request, "alice@contoso.com", "Alice Admin");
+        Assert.Equal("alice.reply@contoso.com", created[0].ContactEmail);
     }
 
     [Fact]

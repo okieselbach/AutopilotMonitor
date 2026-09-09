@@ -96,6 +96,7 @@ namespace AutopilotMonitor.Functions.Services
                 throw new ArgumentException($"Comment exceeds {SubmitRuleSubmissionsRequest.MaxCommentLength} characters.");
 
             var attributionName = await ResolveAttributionNameAsync(tenantId, request.AttributionMode, request.AttributionName);
+            var contactEmail = NormalizeEmail(request.Email);
 
             var distinct = request.Items
                 .Select(i => (Kind: i.Kind?.Trim().ToLowerInvariant() ?? string.Empty, RuleId: i.RuleId?.Trim() ?? string.Empty))
@@ -141,6 +142,7 @@ namespace AutopilotMonitor.Functions.Services
                     Comment = string.IsNullOrWhiteSpace(request.Comment) ? null : request.Comment!.Trim(),
                     SubmittedBy = submittedBy,
                     SubmittedByName = submittedByName,
+                    ContactEmail = contactEmail,
                     AttributionMode = request.AttributionMode,
                     AttributionName = attributionName,
                     SubmittedAt = now,
@@ -228,6 +230,21 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        /// <summary>Trimmed, or null when empty; the shape check is deliberately loose (exactly one @ with something on both sides, no whitespace, at most 254 characters).</summary>
+        internal static string? NormalizeEmail(string? email)
+        {
+            var trimmed = email?.Trim();
+            if (string.IsNullOrEmpty(trimmed)) return null;
+            var at = trimmed!.IndexOf('@');
+            if (trimmed.Length > SubmitRuleSubmissionsRequest.MaxEmailLength
+                || at <= 0
+                || at != trimmed.LastIndexOf('@')
+                || at == trimmed.Length - 1
+                || trimmed.Any(char.IsWhiteSpace))
+                throw new ArgumentException("email is not a valid address.");
+            return trimmed;
+        }
+
         internal static string ValidateAttributionName(string name)
         {
             if (!AttributionNameShape.IsMatch(name))
@@ -311,6 +328,7 @@ namespace AutopilotMonitor.Functions.Services
             Comment = s.Comment,
             SubmittedBy = s.SubmittedBy,
             SubmittedByName = s.SubmittedByName,
+            ContactEmail = s.ContactEmail,
             AttributionMode = s.AttributionMode,
             AttributionName = s.AttributionName,
             SubmittedAt = s.SubmittedAt,
@@ -438,6 +456,15 @@ namespace AutopilotMonitor.Functions.Services
             s.Status = RuleSubmissionStatuses.Withdrawn;
             return await _submissions.UpdateAsync(s);
         }
+
+        /// <summary>
+        /// Operator hard delete — the row disappears from the operator list and the tenant's list
+        /// alike. Not part of normal operations: for test and demo submissions, or on a tenant's request.
+        /// </summary>
+        public Task<bool> DeleteAsync(string submissionId) => _submissions.DeleteAsync(submissionId);
+
+        /// <summary>Daily retention sweep of closed submissions (see <see cref="RuleSubmissionRetention"/>).</summary>
+        public Task<int> SweepExpiredAsync(DateTime nowUtc) => _submissions.DeleteExpiredAsync(nowUtc);
 
         // ── Id suggestion + repo file ───────────────────────────────────────────
 

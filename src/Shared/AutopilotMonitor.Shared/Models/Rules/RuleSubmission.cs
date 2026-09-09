@@ -35,6 +35,9 @@ namespace AutopilotMonitor.Shared.Models
         public string SubmittedBy { get; set; } = default!;
         public string SubmittedByName { get; set; } = default!;
 
+        /// <summary>Optional reply address the submitter entered — a UPN is not always a mailbox. Never published.</summary>
+        public string? ContactEmail { get; set; }
+
         /// <summary>One of <see cref="RuleAttributionModes.All"/>.</summary>
         public string AttributionMode { get; set; } = RuleAttributionModes.Anonymous;
 
@@ -116,6 +119,31 @@ namespace AutopilotMonitor.Shared.Models
 
         public static bool IsKnown(string? mode)
             => mode == Anonymous || mode == Organization || mode == Person;
+    }
+
+    /// <summary>
+    /// Retention of closed submissions (daily maintenance sweep). Withdrawn rows carry no
+    /// information beyond "taken back"; declined rows keep the reviewer's reason readable long
+    /// enough to improve and resubmit. Pending, approved and published rows are never swept —
+    /// the last two are the provenance of a community rule.
+    /// </summary>
+    public static class RuleSubmissionRetention
+    {
+        public const int WithdrawnDays = 30;
+        public const int DeclinedDays = 90;
+
+        public static bool IsExpired(RuleSubmission s, DateTime nowUtc)
+        {
+            switch (s.Status)
+            {
+                case RuleSubmissionStatuses.Withdrawn:
+                    return s.SubmittedAt <= nowUtc.AddDays(-WithdrawnDays);
+                case RuleSubmissionStatuses.Declined:
+                    return (s.ReviewedAt ?? s.SubmittedAt) <= nowUtc.AddDays(-DeclinedDays);
+                default:
+                    return false;
+            }
+        }
     }
 
     public static class RuleSubmissionDecisions

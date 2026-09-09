@@ -17199,6 +17199,14 @@
           }
         },
         {
+          "name": "contactEmail",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
           "name": "attributionMode",
           "type": {
             "kind": "primitive",
@@ -20383,6 +20391,16 @@
             "nullable": true
           },
           "optional": true
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Optional reply address; stored for the reviewer, never published."
         },
         {
           "name": "attributionMode",

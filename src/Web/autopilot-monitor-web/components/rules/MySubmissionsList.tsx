@@ -31,12 +31,15 @@ export function submissionStatusBadge(status: string): { label: string; cls: str
 }
 
 /**
- * The tenant's own community submissions of one rule kind — a compact, collapsible list that
- * renders nothing while there is nothing to show, so pages without submissions stay unchanged.
+ * The tenant's own community submissions of one rule kind. Pending rows are the ones an admin
+ * wants to see, so they show by default; decided and withdrawn rows sit behind "Show all". Renders
+ * nothing while there is nothing to show, so pages without submissions stay unchanged. Closed rows
+ * leave on their own: withdrawn after 30 days, declined after 90 (server-side retention).
  */
 export function MySubmissionsList({ kind, getAccessToken, refreshKey, overrideTenantId, readOnly, onError }: MySubmissionsListProps) {
   const [items, setItems] = useState<RuleSubmissionItem[]>([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState<string | null>(null);
 
@@ -73,7 +76,10 @@ export function MySubmissionsList({ kind, getAccessToken, refreshKey, overrideTe
 
   if (items.length === 0) return null;
 
-  const pending = items.filter((s) => s.status === "pending").length;
+  const pendingItems = items.filter((s) => s.status === "pending");
+  const pending = pendingItems.length;
+  const visible = showAll ? items : pendingItems;
+  const hidden = items.length - visible.length;
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -88,10 +94,31 @@ export function MySubmissionsList({ kind, getAccessToken, refreshKey, overrideTe
           Community submissions
           <span className="text-xs font-normal text-gray-500">({items.length}{pending > 0 ? `, ${pending} pending` : ""})</span>
         </span>
+        {!collapsed && hidden > 0 && (
+          <span
+            role="button"
+            onClick={(e) => { e.stopPropagation(); setShowAll(true); }}
+            className="text-xs text-indigo-600 hover:text-indigo-800"
+          >
+            Show all ({hidden} more)
+          </span>
+        )}
+        {!collapsed && showAll && items.length > pending && (
+          <span
+            role="button"
+            onClick={(e) => { e.stopPropagation(); setShowAll(false); }}
+            className="text-xs text-indigo-600 hover:text-indigo-800"
+          >
+            Pending only
+          </span>
+        )}
       </button>
-      {!collapsed && (
+      {!collapsed && visible.length === 0 && (
+        <p className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">Nothing pending.</p>
+      )}
+      {!collapsed && visible.length > 0 && (
         <ul className="border-t border-gray-100 divide-y divide-gray-100">
-          {items.map((s) => {
+          {visible.map((s) => {
             const badge = submissionStatusBadge(s.status);
             const open = expandedId === s.submissionId;
             const hasDetail = !!s.reviewComment || s.willBeAdapted || !!s.publishedRuleId;

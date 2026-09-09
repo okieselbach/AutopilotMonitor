@@ -1047,6 +1047,20 @@ namespace AutopilotMonitor.Functions.Services
 
             try
             {
+                // Closed community rule submissions: withdrawn 30d, declined 90d (RuleSubmissionRetention);
+                // pending/approved/published rows are never swept.
+                var deleted = await _ruleSubmissionRepo.DeleteExpiredAsync(now);
+                if (deleted > 0)
+                    _logger.LogInformation("Rule submissions cleanup: deleted {Count} closed rows (withdrawn {WithdrawnDays}d / declined {DeclinedDays}d)",
+                        deleted, RuleSubmissionRetention.WithdrawnDays, RuleSubmissionRetention.DeclinedDays);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cleanup closed rule submissions");
+            }
+
+            try
+            {
                 var deleted = await _hardwareRejectionTracker.DeleteOlderThanAsync(now.AddDays(-hardwareRejectionRetentionDays));
                 if (deleted > 0)
                     _logger.LogInformation("Hardware-rejection tracker cleanup: deleted {Count} rows older than {Days} days", deleted, hardwareRejectionRetentionDays);

@@ -610,7 +610,7 @@ export default function AnalyzeRulesPage() {
           ) : (
             <div className="space-y-6">
               {/* Community contribution: submit own custom rules for the shared pool; the list shows their status. */}
-              <CommunityContributionBox onContribute={!isReadOnly && submittableRules.length > 0 ? () => setShowSubmitModal(true) : undefined} />
+              <CommunityContributionBox onContribute={isReadOnly ? undefined : () => setShowSubmitModal(true)} />
               <MySubmissionsList
                 kind="analyze"
                 getAccessToken={getAccessToken}

@@ -110,6 +110,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // fails — that failure is the deliberate prompt to decide its role placement.
   const GA_FULL = [
     'annotate_session',
+    // Community rule submission write surface (strictGa): operator hard delete.
+    'delete_rule_submission',
     'get_agent_efficiency_metrics',
     'get_api_usage',
     'get_app_install_metrics',
@@ -209,7 +211,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
 
   // Community rule submission write surface: strictGa only — a read-only Global Reader
   // lists and reads submissions but never decides one or triggers the reseed that publishes.
-  const RULE_SUBMISSION_WRITE_GA_STRICT = ['reseed_rules_from_github', 'review_rule_submission'];
+  const RULE_SUBMISSION_WRITE_GA_STRICT = ['delete_rule_submission', 'reseed_rules_from_github', 'review_rule_submission'];
 
   // Platform-only tools: a non-platform caller (tenant or delegated) gets no
   // cross-fleet aggregate surface at all. Superset of RAW_GA_STRICT and
@@ -217,6 +219,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // cross-tenant aggregates.
   const PLATFORM_ONLY = [
     'annotate_session',
+    'delete_rule_submission',
     'get_agent_efficiency_metrics',
     'get_api_usage',
     'get_deployment_state',

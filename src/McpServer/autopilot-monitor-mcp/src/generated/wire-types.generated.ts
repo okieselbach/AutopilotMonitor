@@ -3724,6 +3724,7 @@ export interface RuleSubmissionItem {
   comment?: string;
   submittedBy: string;
   submittedByName: string;
+  contactEmail?: string;
   attributionMode: string;
   attributionName: string;
   submittedAt: string;
@@ -4416,6 +4417,8 @@ export interface SubmitRuleSubmissionsRequest {
   tenantId: string;
   items: RuleSubmissionItemRef[];
   comment?: string | null;
+  /** Optional reply address; stored for the reviewer, never published. */
+  email?: string | null;
   /** One of All. */
   attributionMode: string;
   /** Credit text for the person mode; ignored for the other modes. */

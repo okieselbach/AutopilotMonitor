@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, jsonBody, nullOn404 } from "@/lib/apiClient";
+import { apiErrorText, fetchJson, fetchOk, jsonBody, nullOn404 } from "@/lib/apiClient";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import { extractContinuation } from "@/lib/paginationLink";
 import { isGuid } from "@/utils/inputValidation";
@@ -185,6 +185,11 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
     void openDetail(updated.submissionId);
   };
 
+  const handleDeleted = (submissionId: string) => {
+    setItems((prev) => prev.filter((s) => s.submissionId !== submissionId));
+    setDetail(null);
+  };
+
   return (
     <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-800 border-2 border-indigo-300 dark:border-indigo-700 rounded-lg shadow-lg">
       <SectionCardHeader
@@ -289,6 +294,7 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
           onClose={() => setDetail(null)}
           onReviewed={handleReviewed}
           onReload={(id) => openDetail(id)}
+          onDeleted={handleDeleted}
         />
       )}
     </div>
@@ -298,7 +304,7 @@ function RuleSubmissionsSectionInner({ getAccessToken, setError }: RuleSubmissio
 // ── Detail modal ──────────────────────────────────────────────────────────
 
 function SubmissionDetailModal({
-  detail, loading, canMutate, getAccessToken, onClose, onReviewed, onReload,
+  detail, loading, canMutate, getAccessToken, onClose, onReviewed, onReload, onDeleted,
 }: {
   detail: RuleSubmissionDetailResponse | null;
   loading: boolean;
@@ -307,6 +313,7 @@ function SubmissionDetailModal({
   onClose: () => void;
   onReviewed: (updated: RuleSubmissionItem) => void;
   onReload: (submissionId: string) => void;
+  onDeleted: (submissionId: string) => void;
 }) {
   const s = detail?.submission ?? null;
   const [publishedRuleId, setPublishedRuleId] = useState("");
@@ -315,6 +322,7 @@ function SubmissionDetailModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [showRepoFile, setShowRepoFile] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Seed the decision form from the loaded submission (adjust-during-render on identity change).
   const [seededFor, setSeededFor] = useState<string | null>(null);
@@ -375,6 +383,23 @@ function SubmissionDetailModal({
     }
   };
 
+  // Operator hard delete (test/demo rows, or a tenant's request): two clicks, no dialog.
+  const remove = async () => {
+    if (!s) return;
+    if (!confirmDelete) { setConfirmDelete(true); return; }
+    try {
+      setBusy("delete");
+      await fetchOk(api.ruleSubmissions.remove(s.submissionId), getAccessToken, { method: "DELETE" });
+      trackEvent("rule_submission_deleted", { kind: s.ruleKind, status: s.status });
+      onDeleted(s.submissionId);
+    } catch (err) {
+      setMessage({ kind: "error", text: apiErrorText(err, "Delete failed") });
+      setConfirmDelete(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const downloadRepoFile = () => {
     if (!detail?.repoFile) return;
     const blob = new Blob([detail.repoFile.content], { type: "application/json" });
@@ -423,6 +448,14 @@ function SubmissionDetailModal({
                   <div>
                     <dt className="font-medium text-gray-500 dark:text-gray-400">Submitted by</dt>
                     <dd className="mt-0.5 text-gray-900 dark:text-gray-100">{s.submittedByName} <span className="text-gray-500">({s.submittedBy})</span> · {new Date(s.submittedAt).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">Contact email</dt>
+                    <dd className="mt-0.5 text-gray-900 dark:text-gray-100 flex items-center">
+                      {s.contactEmail
+                        ? <>{s.contactEmail}<CopyButton value={s.contactEmail} /></>
+                        : <span className="text-gray-400 italic">not provided</span>}
+                    </dd>
                   </div>
                   <div>
                     <dt className="font-medium text-gray-500 dark:text-gray-400">Credit in the published rule</dt>
@@ -538,7 +571,17 @@ function SubmissionDetailModal({
                   </div>
                 )}
 
-                <div className="mt-6 flex justify-end">
+                <div className="mt-6 flex items-center justify-between">
+                  {canMutate ? (
+                    <button
+                      onClick={remove}
+                      disabled={!!busy}
+                      className={`px-3 py-2 rounded-md text-xs font-medium transition-colors ${confirmDelete ? "bg-red-600 hover:bg-red-700 text-white" : "text-red-600 hover:bg-red-50"}`}
+                      title="Removes the submission for the operator and the tenant alike; a published rule in the repo stays"
+                    >
+                      {busy === "delete" ? "Deleting..." : confirmDelete ? "Really delete this submission" : "Delete submission"}
+                    </button>
+                  ) : <span />}
                   <button onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors text-sm">Close</button>
                 </div>
               </>

@@ -27,6 +27,7 @@ export const GA_STRICT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'revert_tenant_config',
   'review_rule_submission',
   'reseed_rules_from_github',
+  'delete_rule_submission',
 ]);
 
 /** Default first-page size of get_fleet_overview's session list (a fleet snapshot, not a sweep). */
@@ -102,6 +103,7 @@ import type {
   ReviewRuleSubmissionResponse,
   RuleSubmissionDetailResponse,
   RuleSubmissionListResponse,
+  SuccessMessageResponse,
   RuleStatsResponse,
   RuleStatsRuleAggregate,
   SessionAnnotationListResponse,
@@ -1241,6 +1243,33 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
       } catch (error: unknown) {
         return toolError('review_rule_submission', args, error);
+      }
+    })
+  );
+
+  // Tool 18h: delete_rule_submission — real Global Admin only (write). Test/demo rows, or a tenant's request.
+  if (strictGa) server.registerTool(
+    'delete_rule_submission',
+    {
+      title: 'Delete Rule Submission',
+      description:
+        'Hard-delete one rule submission so it disappears from the operator list and the submitting tenant\'s list ' +
+        'alike. Global Admin only; not part of normal operations — for test and demo submissions, or when a tenant asks ' +
+        'for removal. A rule already published from the submission stays in the repository and the catalog.',
+      inputSchema: {
+        submissionId: z.string().trim().regex(/^[0-9a-f]{12}$/i).describe('The 12-character submission id.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('delete_rule_submission', args, async () => {
+      try {
+        const data = await apiFetch<SuccessMessageResponse>(
+          `/api/global/rule-submissions/${encodeURIComponent(args.submissionId)}`,
+          { method: 'DELETE' },
+        );
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('delete_rule_submission', args, error);
       }
     })
   );

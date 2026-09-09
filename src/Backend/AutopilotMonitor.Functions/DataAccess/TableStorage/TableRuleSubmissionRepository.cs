@@ -137,6 +137,56 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             return ids;
         }
 
+        public async Task<int> DeleteExpiredAsync(DateTime nowUtc)
+        {
+            var deleted = 0;
+            try
+            {
+                // The expiry rule is the shared RuleSubmissionRetention, so the sweep and its
+                // test cannot disagree; only the two closed statuses are scanned.
+                foreach (var status in new[] { RuleSubmissionStatuses.Withdrawn, RuleSubmissionStatuses.Declined })
+                {
+                    var expired = new List<TableEntity>();
+                    await foreach (var entity in _tableClient.QueryAsync<TableEntity>(filter: BuildFilter(tenantId: null, status)))
+                    {
+                        if (RuleSubmissionRetention.IsExpired(MapSubmission(entity), nowUtc)) expired.Add(entity);
+                    }
+                    foreach (var entity in expired)
+                    {
+                        try
+                        {
+                            await _tableClient.DeleteEntityAsync(entity.PartitionKey, entity.RowKey);
+                            deleted++;
+                        }
+                        catch (RequestFailedException ex) when (ex.Status == 404)
+                        {
+                            // Already gone — a parallel sweep or a tenant offboarding won the race.
+                        }
+                    }
+                }
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                _logger.LogDebug("RuleSubmissions table does not exist yet");
+            }
+            return deleted;
+        }
+
+        public async Task<bool> DeleteAsync(string submissionId)
+        {
+            var existing = await FindEntityAsync(submissionId);
+            if (existing == null) return false;
+            try
+            {
+                await _tableClient.DeleteEntityAsync(existing.PartitionKey, existing.RowKey);
+                return true;
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404)
+            {
+                return false;
+            }
+        }
+
         private async Task<TableEntity?> FindEntityAsync(string submissionId)
         {
             try
@@ -182,6 +232,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 ["Comment"] = s.Comment ?? string.Empty,
                 ["SubmittedBy"] = s.SubmittedBy,
                 ["SubmittedByName"] = s.SubmittedByName,
+                ["ContactEmail"] = s.ContactEmail ?? string.Empty,
                 ["AttributionMode"] = s.AttributionMode,
                 ["AttributionName"] = s.AttributionName,
                 ["SubmittedAt"] = s.SubmittedAt,
@@ -209,6 +260,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             Comment = NullIfEmpty(e.GetString("Comment")),
             SubmittedBy = e.GetString("SubmittedBy") ?? string.Empty,
             SubmittedByName = e.GetString("SubmittedByName") ?? string.Empty,
+            ContactEmail = NullIfEmpty(e.GetString("ContactEmail")),
             AttributionMode = e.GetString("AttributionMode") ?? RuleAttributionModes.Anonymous,
             AttributionName = e.GetString("AttributionName") ?? RuleAttributionModes.AnonymousAuthor,
             SubmittedAt = e.GetDateTimeOffset("SubmittedAt")?.UtcDateTime ?? DateTime.MinValue,

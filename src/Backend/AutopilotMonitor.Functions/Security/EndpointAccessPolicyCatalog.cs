@@ -522,6 +522,7 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/rule-submissions",            EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalAdminOnly),
+        new("DELETE", "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalAdminOnly),
         // Flywheel evaluation stream: all annotation lanes across tenants (verdict/rule filters).
         new("GET",    "global/session-annotations", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using AutopilotMonitor.Shared.Models;
@@ -28,5 +29,11 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         /// <summary>The published ids reserved by approved submissions — the third set the id suggestion excludes.</summary>
         Task<HashSet<string>> GetReservedPublishedRuleIdsAsync();
+
+        /// <summary>Deletes withdrawn and declined rows past <see cref="RuleSubmissionRetention"/>; returns the number deleted.</summary>
+        Task<int> DeleteExpiredAsync(DateTime nowUtc);
+
+        /// <summary>Hard delete of one row (operator action); false when the row is gone.</summary>
+        Task<bool> DeleteAsync(string submissionId);
     }
 }

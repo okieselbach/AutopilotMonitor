@@ -444,7 +444,7 @@ export default function GatherRulesPage() {
               )}
 
               {/* Community contribution: submit own custom rules for the shared pool; the list shows their status. */}
-              <CommunityContributionBox onContribute={!isReadOnly && submittableRules.length > 0 ? () => setShowSubmitModal(true) : undefined} />
+              <CommunityContributionBox onContribute={isReadOnly ? undefined : () => setShowSubmitModal(true)} />
               <MySubmissionsList
                 kind="gather"
                 getAccessToken={getAccessToken}

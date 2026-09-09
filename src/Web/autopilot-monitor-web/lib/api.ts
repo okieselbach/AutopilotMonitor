@@ -499,6 +499,8 @@ export const api = {
       `${API_BASE_URL}/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
     review: (submissionId: string) =>
       `${API_BASE_URL}/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
+    remove: (submissionId: string) =>
+      `${API_BASE_URL}/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
   },
 
   // ── Diag Files Reports (no session context) ───────────────────────────────

@@ -18,10 +18,14 @@ namespace AutopilotMonitor.Shared.Models
         public const int MaxItems = 10;
         public const int MaxCommentLength = 4000;
         public const int MaxAttributionNameLength = 64;
+        public const int MaxEmailLength = 254;
 
         public string TenantId { get; set; } = default!;
         public List<RuleSubmissionItemRef> Items { get; set; } = new List<RuleSubmissionItemRef>();
         public string? Comment { get; set; }
+
+        /// <summary>Optional reply address; stored for the reviewer, never published.</summary>
+        public string? Email { get; set; }
 
         /// <summary>One of <see cref="RuleAttributionModes.All"/>.</summary>
         public string AttributionMode { get; set; } = RuleAttributionModes.Anonymous;
@@ -48,6 +52,7 @@ namespace AutopilotMonitor.Shared.Models
         public string? Comment { get; set; }
         public string SubmittedBy { get; set; } = default!;
         public string SubmittedByName { get; set; } = default!;
+        public string? ContactEmail { get; set; }
         public string AttributionMode { get; set; } = default!;
         public string AttributionName { get; set; } = default!;
         public DateTime SubmittedAt { get; set; }
