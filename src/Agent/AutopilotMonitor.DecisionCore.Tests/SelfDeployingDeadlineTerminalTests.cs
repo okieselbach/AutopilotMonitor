@@ -443,8 +443,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
         {
             // Cancel-then-rearm race: old deadline (DueAt=T+8) fires queued; before processing,
             // DeviceSetupProvisioningComplete arrives (signal at T+10) → cancel+rearm to DueAt=T+15.
-            // The queued OLD fire (OccurredAtUtc=T+8) arrives. Guard C must dead-end WITHOUT
-            // cancelling the new deadline.
+            // The queued OLD fire arrives carrying its due time T+8 (no payload key here, so the
+            // helper falls back to the signal time). Guard C must dead-end WITHOUT cancelling the
+            // new deadline.
             var engine = new DecisionEngine();
             var state = PrimeDeviceSetup(engine, DecisionState.CreateInitial("sd-11", "t", T0));
 
@@ -467,7 +468,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
                 firesPayload: new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
             state = rearmedBuilder.Build();
 
-            // OLD queued fire arrives with OccurredAtUtc=T+8 — mismatches new deadline at T+15.
+            // OLD queued fire arrives with due time T+8 — mismatches the new deadline at T+15.
             var step = engine.Reduce(state, MakeSignal(99, DecisionSignalKind.DeadlineFired, T0.AddMinutes(8),
                 new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
 

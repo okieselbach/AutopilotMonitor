@@ -266,12 +266,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         }
 
         [Fact]
-        public void Deadline_fired_late_is_stamped_with_the_firing_clock_and_carries_its_due_time()
+        public void Deadline_fired_late_keeps_the_due_time_as_stamp_and_carries_it_in_the_payload()
         {
             // A deadline that was due while the device slept (or the agent was down) fires only
-            // afterwards. The signal must carry the firing clock as OccurredAtUtc — that time
-            // stamps every effect of the step, and a due time inside the outage would place the
-            // verdict there — while the due time travels in the payload for the stale-fire guards.
+            // afterwards. The signal keeps the due time as OccurredAtUtc (D-238: the outage must not
+            // become session duration) and repeats it in the payload so the stale-fire guards
+            // identify the incarnation independently of the stamp.
             using var rig = new EnrollmentOrchestratorRig(At);
             var sut = rig.Build();
             sut.Start();
@@ -293,7 +293,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
                 if (sig.Kind == DecisionSignalKind.DeadlineFired) { fired = sig; break; }
             }
             Assert.NotNull(fired);
-            Assert.Equal(At, fired!.OccurredAtUtc);
+            Assert.Equal(dueAt, fired!.OccurredAtUtc);
             Assert.NotNull(fired.Payload);
             Assert.Equal("hello_safety", fired.Payload![SignalPayloadKeys.Deadline]);
             Assert.Equal(dueAt.ToString("O"), fired.Payload[SignalPayloadKeys.DeadlineDueAtUtc]);

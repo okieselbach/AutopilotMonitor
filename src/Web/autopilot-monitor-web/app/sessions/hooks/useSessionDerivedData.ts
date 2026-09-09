@@ -5,6 +5,7 @@ import { EnrollmentEvent, Session } from "@/types";
 import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "../utils/phaseConstants";
 import { detectSkipUserStatusPage } from "../utils/espConfig";
 import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
+import type { WhiteGloveDurations } from "../utils/eventHelpers";
 import { sumStandbySeconds } from "@/lib/standby";
 
 interface PhaseGrouping {
@@ -36,11 +37,7 @@ export interface UseSessionDerivedDataReturn {
   whiteGloveSplitSequence: number;
   preProvEvents: EnrollmentEvent[];
   userEnrollEvents: EnrollmentEvent[];
-  whiteGloveDurations: {
-    preProvDuration: string | null;
-    userEnrollDuration: string | null;
-    combinedDuration: string | null;
-  };
+  whiteGloveDurations: WhiteGloveDurations;
   eventsByPhase: Record<string, EnrollmentEvent[]>;
   orderedPhases: string[];
   preProvGrouped: PhaseGrouping;
@@ -177,15 +174,6 @@ export function useSessionDerivedData(
     return max;
   }, [events, sessionLastEventAt]);
 
-  // Sleep/standby seconds inside the enrollment window above (system_sleep_episode ground
-  // truth). The wall-clock duration deliberately keeps the pause — this number tells the story
-  // next to it ("1h 20m, 56m of it standby") and is clipped to the same window so the two agree
-  // with the time-attribution chip; sleep after the verdict is not enrollment time.
-  const standbySeconds = useMemo(
-    () => sumStandbySeconds(events, enrollmentWindow?.startMs ?? null, enrollmentWindow?.endMs ?? null),
-    [events, enrollmentWindow],
-  );
-
   const phaseNamesMap = session?.enrollmentType === "v2" ? V2_PHASE_NAMES : V1_PHASE_NAMES;
   const phaseOrder = session?.enrollmentType === "v2" ? V2_PHASE_ORDER : V1_PHASE_ORDER;
 
@@ -221,12 +209,25 @@ export function useSessionDerivedData(
 
   // Compute per-block durations for WhiteGlove sessions (using unfiltered events for accuracy).
   // Duration 1 = pre-provisioning, Duration 2 = user enrollment, combined = D1 + D2 (pause excluded).
-  const whiteGloveDurations = useMemo(() => {
+  const whiteGloveDurations = useMemo<WhiteGloveDurations>(() => {
     if (!isWhiteGloveSession) {
-      return { preProvDuration: null as string | null, userEnrollDuration: null as string | null, combinedDuration: null as string | null };
+      return { preProvDuration: null, userEnrollDuration: null, combinedDuration: null, preProvWindowMs: null, userEnrollWindowMs: null };
     }
     return computeWhiteGloveDurations(events, whiteGloveSplitSequence, session?.startedAt);
   }, [events, isWhiteGloveSession, whiteGloveSplitSequence, session?.startedAt]);
+
+  // Sleep/standby seconds inside the span(s) the Duration cell is measured over
+  // (system_sleep_episode ground truth): the two WhiteGlove parts when the card shows the
+  // combined WhiteGlove duration (the shelf pause between them contributes nothing), otherwise
+  // the enrollment window above. The wall-clock duration deliberately keeps the pause — this
+  // number tells the story next to it ("1h 20m, 56m of it standby") and, clipped to the same
+  // spans, agrees with the time-attribution chip; sleep after the verdict is not enrollment time.
+  const standbySeconds = useMemo(() => {
+    const windows = isWhiteGloveSession && whiteGloveDurations.combinedDuration
+      ? [whiteGloveDurations.preProvWindowMs, whiteGloveDurations.userEnrollWindowMs].filter((w): w is NonNullable<typeof w> => w !== null)
+      : enrollmentWindow ? [enrollmentWindow] : null;
+    return sumStandbySeconds(events, windows);
+  }, [events, enrollmentWindow, isWhiteGloveSession, whiteGloveDurations]);
 
   // Group events by phase — single timeline for normal sessions, two groups for WhiteGlove
   const { eventsByPhase, orderedPhases } = useMemo(() => {

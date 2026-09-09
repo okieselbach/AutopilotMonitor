@@ -274,3 +274,49 @@ describe('location-gated WiFi payloads', () => {
     expect(withReading?.dataLimitedReason).toBeUndefined();
   });
 });
+
+describe('timeout verdict markers', () => {
+  it('draws a Hello-timeout completion as a hollow timeout marker with a plain-language reason', () => {
+    // ac5660b8 shape: the completion is stamped at the instant the Hello wait ran out — a
+    // policy instant that fell into a sleep episode, not something the device did.
+    const events = [
+      ethernetInfo(1, 0),
+      ev(2, 'system_sleep_episode', 12 * MIN, {
+        kind: 'modern_standby',
+        enteredAt: iso(7 * MIN),
+        exitedAt: iso(12 * MIN),
+        durationSeconds: 300,
+      }),
+      ev(3, 'enrollment_complete', 9 * MIN, { trigger: 'DeadlineFired:finalizing_grace', helloOutcome: 'Timeout' }),
+    ];
+    const model = buildNetworkModel(session, events)!;
+    const marker = model.lifeMarkers.find((m) => m.label.startsWith('Completed'));
+    expect(marker?.label).toBe('Completed (timeout)');
+    expect(marker?.timeout).toBe(true);
+    expect(marker?.detail).toContain('Windows Hello wait ran out');
+    // The sleep block stays one segment — no wake is depicted at the marker.
+    expect(model.segments.filter((s) => s.kind === 'asleep')).toHaveLength(1);
+  });
+
+  it('keeps an observed completion as a plain marker even though the grace deadline delivered it', () => {
+    const events = [
+      ethernetInfo(1, 0),
+      ev(2, 'enrollment_complete', 9 * MIN, { trigger: 'DeadlineFired:finalizing_grace', helloOutcome: 'Success' }),
+    ];
+    const model = buildNetworkModel(session, events)!;
+    const marker = model.lifeMarkers.find((m) => m.label.startsWith('Completed'));
+    expect(marker?.label).toBe('Completed');
+    expect(marker?.timeout).toBeUndefined();
+  });
+
+  it('treats the device-only detection window as a timeout verdict', () => {
+    const events = [
+      ethernetInfo(1, 0),
+      ev(2, 'enrollment_complete', 9 * MIN, { trigger: 'DeadlineFired:device_only_esp_detection' }),
+    ];
+    const model = buildNetworkModel(session, events)!;
+    const marker = model.lifeMarkers.find((m) => m.label.startsWith('Completed'));
+    expect(marker?.label).toBe('Completed (timeout)');
+    expect(marker?.detail).toContain('user phase');
+  });
+});

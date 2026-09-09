@@ -706,7 +706,7 @@ namespace AutopilotMonitor.DecisionCore.Tests
             var deadline = Assert.Single(signalStep.NewState.Deadlines, d => d.Name == DeadlineNames.DeviceOnlyEspDetection);
             Assert.Equal(T0.AddMinutes(7), deadline.DueAtUtc);
 
-            // DeadlineFired (OccurredAtUtc = DueAtUtc per scheduler contract) → terminal.
+            // DeadlineFired at the due time (no payload due key → helper falls back to the signal time) → terminal.
             var step = engine.Reduce(signalStep.NewState, MakeSignal(3, DecisionSignalKind.DeadlineFired, T0.AddMinutes(7),
                 new Dictionary<string, string> { [SignalPayloadKeys.Deadline] = DeadlineNames.DeviceOnlyEspDetection }));
 

@@ -29,6 +29,9 @@ describe("computeWhiteGloveDurations", () => {
     expect(d.preProvDuration).toBe("57m 0s");
     expect(d.userEnrollDuration).toBe("56m 0s");
     expect(d.combinedDuration).toBe("1h 53m"); // pause 09:28→11:00 excluded
+    // The spans the durations are measured over — the standby note clips to exactly these.
+    expect(d.preProvWindowMs).toEqual({ startMs: Date.parse("2026-07-23T08:31:00Z"), endMs: Date.parse("2026-07-23T09:28:00Z") });
+    expect(d.userEnrollWindowMs).toEqual({ startMs: Date.parse("2026-07-23T11:00:00Z"), endMs: Date.parse("2026-07-23T11:56:00Z") });
   });
 
   it("ignores a historical event time re-emitted into the user block (post-resume IME re-parse)", () => {

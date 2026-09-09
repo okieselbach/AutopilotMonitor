@@ -10,14 +10,12 @@ using Xunit;
 namespace AutopilotMonitor.DecisionCore.Tests
 {
     /// <summary>
-    /// A <c>DeadlineFired</c> signal is stamped with the wall-clock firing time, not the due
-    /// time: a deadline due during Modern Standby or a reboot fires only afterwards, and every
-    /// effect of the resulting step (phase_transition, enrollment_complete) inherits the signal
-    /// time — a due-time stamp would date the verdict into the outage (session ac5660b8,
-    /// "Completed" drawn inside the Asleep block). The due time travels in the payload under
-    /// <see cref="SignalPayloadKeys.DeadlineDueAtUtc"/> for the stale-fire guards that identify
-    /// the deadline incarnation; without the key they fall back to the signal time (pre-key
-    /// signal logs, where the two were equal by contract).
+    /// The reducer identifies a deadline incarnation through the due time carried in the
+    /// payload (<see cref="SignalPayloadKeys.DeadlineDueAtUtc"/>), never through the signal
+    /// time: the host stamps <c>DeadlineFired</c> with the due time (D-238), but the guards
+    /// must stay correct for any stamp — a late fire after Modern Standby or a restart, a
+    /// replayed signal, or a future switch to the firing clock. Without the key they fall back
+    /// to the signal time (pre-key signal logs, where the two were equal by contract).
     /// </summary>
     public sealed class DeadlineFireTimeStampTests
     {
@@ -74,8 +72,9 @@ namespace AutopilotMonitor.DecisionCore.Tests
         {
             // Session ac5660b8 shape: ESP exits, the user leaves the device at the Hello prompt, it
             // enters Modern Standby, HelloSafety is due during the sleep and fires ~3 min late after
-            // wake. The Hello timeout fact, the Finalizing step and the FinalizingGrace due time must
-            // all sit at the firing clock — never inside the sleep window.
+            // wake. Fed with the firing clock as signal time, the reducer must stamp the Hello
+            // timeout fact, the Finalizing step and the FinalizingGrace due time from that time —
+            // the stamp policy is the host's choice (D-238), the reducer follows the signal.
             var engine = new DecisionEngine();
             var state = DecisionState.CreateInitial("sess-standby", "tenant", T0);
             state = engine.Reduce(state, MakeSignal(0, DecisionSignalKind.SessionStarted, T0)).NewState;

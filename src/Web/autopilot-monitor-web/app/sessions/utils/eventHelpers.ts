@@ -83,10 +83,18 @@ export function computeWhiteGloveSplitSequence(events: EnrollmentEvent[]): numbe
 // Sequence is the canonical event order, so the block edges by sequence are the robust
 // span anchors. Part 1 additionally starts at session.startedAt (registration) when
 // provided — the same anchor the backend uses for DurationSeconds.
+export interface TimeWindowMs {
+  startMs: number;
+  endMs: number;
+}
+
 export interface WhiteGloveDurations {
   preProvDuration: string | null;
   userEnrollDuration: string | null;
   combinedDuration: string | null;
+  /** The two spans the durations are measured over — the standby note clips to the same spans. */
+  preProvWindowMs: TimeWindowMs | null;
+  userEnrollWindowMs: TimeWindowMs | null;
 }
 
 export function computeWhiteGloveDurations(
@@ -97,8 +105,8 @@ export function computeWhiteGloveDurations(
   const preProvEvts = splitSequence < 0 ? events : events.filter(e => e.sequence <= splitSequence);
   const userEnrollEvts = splitSequence < 0 ? [] : events.filter(e => e.sequence > splitSequence);
 
-  const spanMs = (evts: EnrollmentEvent[], startOverrideMs?: number): number => {
-    if (evts.length === 0) return 0;
+  const span = (evts: EnrollmentEvent[], startOverrideMs?: number): TimeWindowMs | null => {
+    if (evts.length === 0) return null;
     let first = evts[0];
     let last = evts[0];
     for (const e of evts) {
@@ -107,8 +115,9 @@ export function computeWhiteGloveDurations(
     }
     const start = startOverrideMs ?? new Date(first.timestamp).getTime();
     const end = new Date(last.timestamp).getTime();
-    return Math.max(0, end - start);
+    return { startMs: start, endMs: Math.max(start, end) };
   };
+  const spanMs = (w: TimeWindowMs | null): number => (w ? w.endMs - w.startMs : 0);
 
   const fmt = (ms: number): string | null => {
     const sec = Math.round(ms / 1000);
@@ -119,13 +128,17 @@ export function computeWhiteGloveDurations(
   };
 
   const startedAtMs = startedAt ? new Date(startedAt).getTime() : NaN;
-  const preProvMs = spanMs(preProvEvts, Number.isFinite(startedAtMs) ? startedAtMs : undefined);
-  const userEnrollMs = spanMs(userEnrollEvts);
+  const preProvWindowMs = span(preProvEvts, Number.isFinite(startedAtMs) ? startedAtMs : undefined);
+  const userEnrollWindowMs = span(userEnrollEvts);
+  const preProvMs = spanMs(preProvWindowMs);
+  const userEnrollMs = spanMs(userEnrollWindowMs);
 
   return {
     preProvDuration: fmt(preProvMs),
     userEnrollDuration: fmt(userEnrollMs),
     combinedDuration: fmt(preProvMs + userEnrollMs),
+    preProvWindowMs,
+    userEnrollWindowMs,
   };
 }
 

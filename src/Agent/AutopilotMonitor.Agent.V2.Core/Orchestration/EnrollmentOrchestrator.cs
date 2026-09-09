@@ -1181,15 +1181,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
                     payload[SignalPayloadKeys.Deadline] = e.Deadline.Name;
                 }
 
-                // OccurredAtUtc = the firing clock, never DueAtUtc: every effect of the resulting
-                // step (phase_transition, enrollment_complete) is stamped with the signal time, and a
-                // due time that passed during Modern Standby or a reboot would place the verdict
-                // inside the outage. The due time travels in the payload for the stale-fire guards.
+                // OccurredAtUtc = DueAtUtc, not the firing clock (D-238). Every effect of the
+                // resulting step (phase_transition, enrollment_complete) is stamped with the signal
+                // time; a timer that came due during Modern Standby or a reboot fires only afterwards,
+                // and the firing clock would make the verdict — and the session duration — grow by
+                // the whole outage (measured: days for devices closed right after provisioning).
+                // The due time also travels in the payload so the stale-fire guards identify the
+                // deadline incarnation independently of the stamp.
                 payload[SignalPayloadKeys.DeadlineDueAtUtc] = e.Deadline.DueAtUtc.ToString("O", CultureInfo.InvariantCulture);
 
                 _ingress.Post(
                     kind: DecisionSignalKind.DeadlineFired,
-                    occurredAtUtc: e.FiredAtUtc,
+                    occurredAtUtc: e.Deadline.DueAtUtc,
                     sourceOrigin: "DeadlineScheduler",
                     evidence: evidence,
                     payload: payload);

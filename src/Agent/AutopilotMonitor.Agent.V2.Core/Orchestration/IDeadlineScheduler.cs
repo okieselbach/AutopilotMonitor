@@ -39,7 +39,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
         /// <summary>
         /// Wird vom Timer-Thread geraised, wenn ein Deadline fällig wird. Subscriber
         /// ist typischerweise der Orchestrator, der daraus ein synthetisches
-        /// <c>DeadlineFired</c>-Signal mit <c>OccurredAtUtc = deadline.DueAtUtc</c> erzeugt.
+        /// <c>DeadlineFired</c>-Signal mit <c>OccurredAtUtc = deadline.DueAtUtc</c> erzeugt; die
+        /// Fälligkeit reist zusätzlich im Payload (<c>SignalPayloadKeys.DeadlineDueAtUtc</c>).
         /// </summary>
         event EventHandler<DeadlineFiredEventArgs>? Fired;
 

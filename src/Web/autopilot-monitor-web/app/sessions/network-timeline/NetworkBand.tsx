@@ -118,6 +118,14 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
             )}
           </span>
         ))}
+        {lifeMarkers.some((m) => m.timeout) && (
+          <span className="inline-flex items-center gap-1.5 text-gray-500">
+            <svg width="12" height="12" aria-hidden="true">
+              <circle cx="6" cy="6" r="4" fill="white" stroke="#6b7280" strokeWidth="1.5" />
+            </svg>
+            Verdict by timeout (a wait ran out; not an observed event)
+          </span>
+        )}
         <span className="inline-flex items-center gap-1.5 ml-auto text-gray-500">
           <span className="inline-flex w-3.5 h-3.5 rounded-full bg-green-600 text-white items-center justify-center text-[9px] leading-none">
             ✓
@@ -310,7 +318,12 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
                     strokeWidth="1"
                     className="text-gray-400"
                   />
-                  <circle cx={x} cy={PHASE_Y - 1} r="4.5" className="fill-gray-500" />
+                  {m.timeout ? (
+                    // Hollow: a wait expired at this instant — nothing observed on the device.
+                    <circle cx={x} cy={PHASE_Y - 1} r="4.5" fill="white" className="stroke-gray-500" strokeWidth="1.5" />
+                  ) : (
+                    <circle cx={x} cy={PHASE_Y - 1} r="4.5" className="fill-gray-500" />
+                  )}
                   {/* invisible enlarged hit target — the dot alone is hard to hover */}
                   <circle cx={x} cy={PHASE_Y - 1} r="12" fill="transparent" />
                   {showLabel && (

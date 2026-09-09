@@ -79,6 +79,26 @@ export interface LifeMarker {
   label: string;
   /** Optional extra tooltip line (clock markers: old→new time, reason). */
   detail?: string;
+  /**
+   * The verdict came from a wait that ran out (Hello wait, device-only detection), stamped at
+   * the wall-clock instant the wait expired — a policy instant, not something observed on the
+   * device, which may have been asleep. Drawn hollow so it never reads as an event.
+   */
+  timeout?: boolean;
+}
+
+/** Why a terminal verdict is a timeout verdict, in product words — or null when it was observed. */
+export function timeoutVerdictDetail(data: Record<string, unknown> | undefined): string | null {
+  if (!data) return null;
+  const helloOutcome = typeof data.helloOutcome === 'string' ? data.helloOutcome.toLowerCase() : '';
+  const trigger = typeof data.trigger === 'string' ? data.trigger : '';
+  if (helloOutcome === 'timeout') {
+    return 'The Windows Hello wait ran out at this instant; nothing happened on the device here — the enrollment counted as complete from this moment.';
+  }
+  if (trigger === 'DeadlineFired:device_only_esp_detection') {
+    return 'The wait for a user phase after device setup ran out at this instant; nothing happened on the device here — the enrollment counted as complete from this moment.';
+  }
+  return null;
 }
 
 export interface NetworkModel {
@@ -535,17 +555,14 @@ export function buildNetworkModel(session: Session, rawEvents: EnrollmentEvent[]
     .filter((e) =>
       ['system_reboot_detected', 'desktop_arrived', 'enrollment_complete', 'enrollment_failed'].includes(e.eventType),
     )
-    .map((e) => ({
-      t: Date.parse(e.timestamp),
-      label:
-        e.eventType === 'system_reboot_detected'
-          ? 'Reboot'
-          : e.eventType === 'desktop_arrived'
-            ? 'Desktop'
-            : e.eventType === 'enrollment_complete'
-              ? 'Completed'
-              : 'Failed',
-    }))
+    .map((e): LifeMarker => {
+      const t = Date.parse(e.timestamp);
+      if (e.eventType === 'system_reboot_detected') return { t, label: 'Reboot' };
+      if (e.eventType === 'desktop_arrived') return { t, label: 'Desktop' };
+      const base = e.eventType === 'enrollment_complete' ? 'Completed' : 'Failed';
+      const detail = timeoutVerdictDetail(e.data as Record<string, unknown> | undefined);
+      return detail ? { t, label: `${base} (timeout)`, detail, timeout: true } : { t, label: base };
+    })
     .filter((m) => !isNaN(m.t));
 
   // Clock-step markers: live steps sit at their corrected changepoint;
