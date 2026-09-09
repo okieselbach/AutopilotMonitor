@@ -11,8 +11,14 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Exposes the latest published agent/bootstrap versions as read from the
-    /// public <c>version.json</c> blob. Caches the result in memory for 12h
-    /// (short TTL on transient failures). Admin endpoint can force-refresh.
+    /// public <c>version.json</c> blob. The TTL is deliberately short: this number is
+    /// what the portal announces right after a release ("Latest agent version" in the
+    /// What's new panel), so a long cache shows the previous release for hours — and
+    /// because the cache is per Function instance, different instances would announce
+    /// different versions at the same time. The origin is a 200-byte no-cache blob
+    /// behind the download alias, so refetching it every few minutes costs nothing.
+    /// On a fetch failure the last known good value is kept rather than blanking the
+    /// display. Admin endpoint can force-refresh.
     /// </summary>
     public interface ILatestVersionsService
     {
@@ -33,12 +39,18 @@ namespace AutopilotMonitor.Functions.Services
         // it could silently serve a stale version while the release pipeline is green.
         public const string VersionJsonUrl = Constants.AgentDownloadBaseUrl + "/" + Constants.AgentVersionFileName;
         private const string CacheKey = "latest-versions";
-        private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(12);
-        private static readonly TimeSpan FailureCacheDuration = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan FailureCacheDuration = TimeSpan.FromMinutes(1);
 
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IMemoryCache _cache;
         private readonly ILogger<LatestVersionsService> _logger;
+
+        /// <summary>
+        /// Survives cache expiry: served when the blob read fails so a transient hiccup
+        /// hides the version line for at most one request instead of a full failure TTL.
+        /// </summary>
+        private volatile LatestVersions? _lastGood;
 
         public LatestVersionsService(
             IHttpClientFactory httpClientFactory,
@@ -85,15 +97,22 @@ namespace AutopilotMonitor.Functions.Services
                     FromCache: false);
 
                 _cache.Set(CacheKey, result, CacheDuration);
+                _lastGood = result;
                 _logger.LogInformation("LatestVersions refreshed: agent={AgentVersion}, bootstrap={BootstrapVersion}", version, bootstrapVersion);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch {Url}; caching null for {Minutes}m", VersionJsonUrl, FailureCacheDuration.TotalMinutes);
-                // Cache failure briefly to avoid hammering blob on repeated calls
-                _cache.Set(CacheKey, (LatestVersions?)null, FailureCacheDuration);
-                return null;
+                var lastGood = _lastGood;
+                _logger.LogWarning(
+                    ex,
+                    "Failed to fetch {Url}; serving {Fallback} for {Minutes}m",
+                    VersionJsonUrl,
+                    lastGood == null ? "nothing" : $"the value fetched at {lastGood.FetchedAtUtc:O}",
+                    FailureCacheDuration.TotalMinutes);
+                // Cache the outcome briefly to avoid hammering the blob on repeated calls.
+                _cache.Set(CacheKey, lastGood, FailureCacheDuration);
+                return lastGood == null ? null : lastGood with { FromCache = true };
             }
         }
     }

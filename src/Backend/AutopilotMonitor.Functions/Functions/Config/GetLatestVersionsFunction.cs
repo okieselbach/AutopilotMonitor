@@ -13,7 +13,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
 {
     /// <summary>
     /// Returns the latest published agent + bootstrap script versions.
-    /// Cached in-memory for 12h; supports <c>?refresh=true</c> to bypass the cache.
+    /// Cached in-memory for a few minutes; supports <c>?refresh=true</c> to bypass the cache.
     /// Authenticated users only (read-only metadata).
     /// </summary>
     public class GetLatestVersionsFunction
@@ -44,15 +44,18 @@ namespace AutopilotMonitor.Functions.Functions.Config
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
 
-                // Force-refresh responses MUST NOT be browser-cached.
-                // Normal cached responses may be stored for up to 1h (aligns with 12h backend cache).
+                // Force-refresh responses MUST NOT be browser-cached. Normal responses are
+                // held for a minute only: the portal announces this number as "Latest agent
+                // version" right after a release, and a browser cache measured in hours would
+                // keep showing the previous release long after the backend refreshed. The
+                // payload is a few dozen bytes, so revalidating often is free.
                 if (forceRefresh)
                 {
                     response.Headers.Add("Cache-Control", "no-store");
                 }
                 else
                 {
-                    response.Headers.Add("Cache-Control", "public, max-age=3600");
+                    response.Headers.Add("Cache-Control", "public, max-age=60");
                 }
 
                 await response.WriteAsJsonAsync(new GetLatestVersionsResponse

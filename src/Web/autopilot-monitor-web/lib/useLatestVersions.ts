@@ -22,8 +22,9 @@ export interface UseLatestVersionsResult {
 
 /**
  * Fetches latest published agent/bootstrap versions from the backend
- * once per mount. The backend caches the upstream blob for 12h, and
- * the browser Cache-Control allows 1h of HTTP caching, so this is cheap.
+ * once per mount. Backend cache and browser Cache-Control are both minutes,
+ * not hours, so a fresh release shows up almost immediately — the What's new
+ * panel announces this number, and the panel mounts on every open.
  *
  * Silently swallows all errors — on failure, returns nulls so callers
  * can gracefully hide "outdated" badges.

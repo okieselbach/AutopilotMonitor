@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tests for <see cref="LatestVersionsService"/> — the 12h-cached reader for the
+/// Tests for <see cref="LatestVersionsService"/> — the short-TTL reader for the
 /// public <c>version.json</c> blob. Verifies cache hit/miss, forceRefresh bypass,
 /// and failure fallback without hammering the blob on every call.
 /// </summary>
@@ -138,6 +138,28 @@ public class LatestVersionsServiceTests
 
         // Short-TTL null marker prevents repeat blob calls
         Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task GetAsync_HttpFailure_AfterSuccess_ServesLastKnownGood()
+    {
+        var (svc, handler, _) = Create();
+
+        await svc.GetAsync(forceRefresh: false, CancellationToken.None);
+        handler.Responder = _ => new HttpResponseMessage(HttpStatusCode.InternalServerError);
+
+        // The refresh fails, but the version line must not blank out: the last good
+        // value stands until the blob answers again.
+        var afterFailure = await svc.GetAsync(forceRefresh: true, CancellationToken.None);
+
+        Assert.NotNull(afterFailure);
+        Assert.Equal("1.0.706", afterFailure!.AgentVersion);
+        Assert.True(afterFailure.FromCache);
+
+        // ...and it is what the short failure cache serves to the next callers, too.
+        var next = await svc.GetAsync(forceRefresh: false, CancellationToken.None);
+        Assert.Equal("1.0.706", next!.AgentVersion);
+        Assert.Equal(2, handler.CallCount);
     }
 
     [Fact]
