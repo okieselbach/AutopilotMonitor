@@ -8,6 +8,16 @@
     "$schema": { "type": "string" },
     "registryPrefixes": { "$ref": "#/$defs/categorizedList" },
     "filePrefixes": { "$ref": "#/$defs/stringList" },
+    "userProfileFilePrefixes": {
+      "description": "Folders under the signed-in user's profile that file collectors and diagnostics paths may read, RELATIVE to the profile root (e.g. \"AppData\\\\Local\\\\Vendor\"). Resolved against %LOGGED_ON_USER_PROFILE% at match time. Entries outside AppData\\Local / AppData\\Roaming are dropped at load: the C:\\Users hard block never admits them, so this list can only ever narrow what the block's exception already permits.",
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/safeString" },
+          { "pattern": "^AppData\\\\(Local|Roaming)(\\\\|$)" }
+        ]
+      }
+    },
     "wmiQueryPrefixes": { "$ref": "#/$defs/stringList" },
     "eventLogChannels": { "$ref": "#/$defs/categorizedList" },
     "blockedEventLogChannels": { "$ref": "#/$defs/stringList" },

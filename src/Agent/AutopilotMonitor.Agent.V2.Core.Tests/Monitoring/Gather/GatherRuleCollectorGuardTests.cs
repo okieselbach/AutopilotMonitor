@@ -456,5 +456,124 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Gather
 
             SingleSecurityWarning();
         }
+
+        // -------------------------------------------------------------------
+        // %LOGGED_ON_USER_PROFILE% exception (userProfilePath overload)
+        //
+        // The token lifts the C:\Users hard block for AppData\Local and
+        // AppData\Roaming — and nothing more. The allowlist still decides,
+        // which is what the cases below pin down: the exception is a gate the
+        // allowlist has to open, never an allowance of its own.
+        // -------------------------------------------------------------------
+
+        private const string TestProfile = @"C:\Users\TestUser";
+
+        [Fact]
+        public void UserProfile_AppDataPath_WithoutAllowlistEntry_IsStillBlocked()
+        {
+            // The lifted hard block alone admits nothing: without a matching
+            // userProfileFilePrefixes entry the path falls through to the
+            // allowlist and is refused there.
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                TestProfile + @"\AppData\Local\UnlistedVendor\app.log",
+                unrestrictedMode: false, userProfilePath: TestProfile));
+        }
+
+        [Fact]
+        public void UserProfile_OutsideAppData_IsBlockedByTheHardBlock()
+        {
+            foreach (var target in new[] { @"\Desktop\secret.txt", @"\Documents\notes.txt", @"\ntuser.dat" })
+            {
+                Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                    TestProfile + target, unrestrictedMode: false, userProfilePath: TestProfile));
+            }
+        }
+
+        [Fact]
+        public void UserProfile_NullProfile_KeepsTheUsersHardBlock()
+        {
+            // No interactive user detected — the exception cannot apply and the
+            // path stays under the plain C:\Users block.
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                @"C:\Users\TestUser\AppData\Local\UnlistedVendor\app.log",
+                unrestrictedMode: false, userProfilePath: null));
+        }
+
+        [Fact]
+        public void UserProfile_TraversalOutOfAppData_IsBlocked()
+        {
+            // Spelling Documents as a traversal out of AppData must not survive
+            // Path.GetFullPath normalisation.
+            const string traversal = @"C:\Users\TestUser\AppData\Local\..\..\Documents\secret.txt";
+
+            Assert.Equal(@"C:\Users\TestUser\Documents\secret.txt", Path.GetFullPath(traversal));
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                traversal, unrestrictedMode: false, userProfilePath: TestProfile));
+        }
+
+        [Fact]
+        public void UserProfile_ForeignProfile_IsBlockedEvenUnderAppData()
+        {
+            // The exception is scoped to the DETECTED profile — a rule must not
+            // reach a second user's AppData by spelling the path out.
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                @"C:\Users\OtherUser\AppData\Local\UnlistedVendor\app.log",
+                unrestrictedMode: false, userProfilePath: TestProfile));
+        }
+
+        [Fact]
+        public void UserProfile_AllowlistedVendorFolder_IsAllowed()
+        {
+            // AppData\Local\RealmJoin is on userProfileFilePrefixes: the file itself, a
+            // subfolder below it, and the folder itself all pass.
+            foreach (var target in new[] { @"\tray.log", @"\Logs\rj.log", "" })
+            {
+                Assert.True(GatherRuleGuards.IsFilePathAllowed(
+                    TestProfile + @"\AppData\Local\RealmJoin" + target,
+                    unrestrictedMode: false, userProfilePath: TestProfile),
+                    $"expected allowed: ...\\RealmJoin{target}");
+            }
+        }
+
+        [Fact]
+        public void UserProfile_SiblingOfAnAllowlistedVendorFolder_IsBlocked()
+        {
+            // Segment-bounded: "RealmJoin" must not admit "RealmJoinSomethingElse".
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                TestProfile + @"\AppData\Local\RealmJoinSomethingElse\tray.log",
+                unrestrictedMode: false, userProfilePath: TestProfile));
+        }
+
+        [Fact]
+        public void UserProfile_AllowlistedVendorFolder_InAForeignProfile_IsBlocked()
+        {
+            // The allowlist is anchored to the DETECTED profile, not to C:\Users\*.
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                @"C:\Users\OtherUser\AppData\Local\RealmJoin\tray.log",
+                unrestrictedMode: false, userProfilePath: TestProfile));
+        }
+
+        [Fact]
+        public void UserProfile_AllowlistedVendorFolder_WithoutADetectedUser_IsBlocked()
+        {
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                @"C:\Users\TestUser\AppData\Local\RealmJoin\tray.log",
+                unrestrictedMode: false, userProfilePath: null));
+        }
+
+        [Fact]
+        public void UserProfile_AppDataPath_IsAllowedInUnrestrictedMode()
+        {
+            // Where the exception does bite today: unrestricted mode returns
+            // before the allowlist, so the lifted hard block is the whole story.
+            Assert.True(GatherRuleGuards.IsFilePathAllowed(
+                TestProfile + @"\AppData\Local\UnlistedVendor\app.log",
+                unrestrictedMode: true, userProfilePath: TestProfile));
+
+            // ...but only under AppData — Documents stays blocked even there.
+            Assert.False(GatherRuleGuards.IsFilePathAllowed(
+                TestProfile + @"\Documents\secret.txt",
+                unrestrictedMode: true, userProfilePath: TestProfile));
+        }
     }
 }

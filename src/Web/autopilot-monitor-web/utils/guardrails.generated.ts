@@ -263,6 +263,15 @@ export const ALLOWED_FILE_PREFIXES: readonly string[] = [
   "C:\\Windows\\SetupDiag",
   "C:\\ProgramData\\Microsoft\\DiagnosticLogCSP",
   "C:\\Windows\\SoftwareDistribution\\ReportingEvents.log",
+  "C:\\ProgramData\\RealmJoin\\choco\\logs",
+];
+
+// Folders under the signed-in user's profile, RELATIVE to the profile root. The agent
+// resolves %LOGGED_ON_USER_PROFILE% at runtime; the portal validates against a placeholder
+// profile. These cannot live in ALLOWED_FILE_PREFIXES — that list is matched literally
+// against the already-expanded path, where the user name is unknown at authoring time.
+export const USER_PROFILE_FILE_PREFIXES: readonly string[] = [
+  "AppData\\Local\\RealmJoin",
 ];
 
 export const ALLOWED_WMI_QUERY_PREFIXES: readonly string[] = [

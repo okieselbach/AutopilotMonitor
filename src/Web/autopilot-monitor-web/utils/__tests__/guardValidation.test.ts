@@ -143,12 +143,32 @@ describe("validateFileTarget", () => {
     expect(r.allowed).toBe(false);
   });
 
-  it("allows %LOGGED_ON_USER_PROFILE% with AppData\\Local in file target", () => {
+  // The token lifts the C:\Users hard block for AppData — it does not admit the path.
+  // An unlisted vendor folder therefore falls through to the allowlist and is refused,
+  // exactly as GatherRuleGuards.IsFilePathAllowed does on the device.
+  it("blocks an unlisted vendor folder under %LOGGED_ON_USER_PROFILE%\\AppData\\Local", () => {
     const r = validateFileTarget(
       "%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\SomeApp\\data.json",
       false,
     );
+    expect(r.allowed).toBe(false);
+  });
+
+  it("allows a userProfileFilePrefixes folder under %LOGGED_ON_USER_PROFILE%", () => {
+    const r = validateFileTarget(
+      "%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\RealmJoin\\tray.log",
+      false,
+    );
     expect(r.allowed).toBe(true);
+    expect(r.reason).toContain("%LOGGED_ON_USER_PROFILE%");
+  });
+
+  it("blocks a sibling of a userProfileFilePrefixes folder (segment-bounded)", () => {
+    const r = validateFileTarget(
+      "%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\RealmJoinSomethingElse\\tray.log",
+      false,
+    );
+    expect(r.allowed).toBe(false);
   });
 
   it("blocks %LOGGED_ON_USER_PROFILE% with Desktop in file target", () => {
@@ -348,12 +368,14 @@ describe("validateDiagnosticsPath", () => {
     expect(r.reason).toContain("%LOGGED_ON_USER_PROFILE%");
   });
 
-  it("allows %LOGGED_ON_USER_PROFILE% with AppData\\Roaming subpath", () => {
+  it("blocks an unlisted vendor folder under %LOGGED_ON_USER_PROFILE%\\AppData\\Roaming", () => {
+    // AppData\Roaming is inside the hard block's exception, but the folder is not on
+    // userProfileFilePrefixes — the allowlist still has the last word.
     const r = validateDiagnosticsPath(
       "%LOGGED_ON_USER_PROFILE%\\AppData\\Roaming\\SomeApp\\logs\\*.log",
       false,
     );
-    expect(r.allowed).toBe(true);
+    expect(r.allowed).toBe(false);
   });
 
   it("blocks %LOGGED_ON_USER_PROFILE% with non-AppData subpath", () => {

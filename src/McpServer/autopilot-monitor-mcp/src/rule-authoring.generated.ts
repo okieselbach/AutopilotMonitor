@@ -870,7 +870,11 @@ export const RULE_GUARDRAILS = {
     "C:\\Windows\\Panther",
     "C:\\Windows\\SetupDiag",
     "C:\\ProgramData\\Microsoft\\DiagnosticLogCSP",
-    "C:\\Windows\\SoftwareDistribution\\ReportingEvents.log"
+    "C:\\Windows\\SoftwareDistribution\\ReportingEvents.log",
+    "C:\\ProgramData\\RealmJoin\\choco\\logs"
+  ],
+  "userProfileFilePrefixes": [
+    "AppData\\Local\\RealmJoin"
   ],
   "wmiQueryPrefixes": [
     "SELECT * FROM Win32_OperatingSystem",

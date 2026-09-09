@@ -70,12 +70,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             @"C:\Windows\System32\config",  // SAM, SECURITY, SYSTEM hives
         };
 
-        // Allowed subdirectories under a user profile (used with %LOGGED_ON_USER_PROFILE% token)
-        private static readonly string[] AllowedUserProfileSubdirs = new[]
-        {
-            @"AppData\Local",
-            @"AppData\Roaming",
-        };
+        // The allowed user-profile subdirectories and the vendor allowlist under them live in
+        // GatherRuleGuards, which owns the embedded guardrails.json — one copy for both guards.
 
         /// <summary>
         /// Returns true if the given path is allowed for diagnostics collection.
@@ -135,7 +131,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     (normalizedDir.Length == BlockedUsersPrefix.Length ||
                      normalizedDir[BlockedUsersPrefix.Length] == Path.DirectorySeparatorChar))
                 {
-                    if (!IsUserProfileSubpathAllowed(normalizedDir, userProfilePath))
+                    if (!GatherRuleGuards.IsUserProfileSubpathAllowed(normalizedDir, userProfilePath))
                         return false;
                 }
 
@@ -169,45 +165,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                     }
                 }
 
-                return false;
+                // Vendor folders under the signed-in user's profile — same allowlist the file
+                // collectors use, since it answers the same question: which folders below a
+                // profile carry enrollment-relevant logs rather than the user's own data.
+                return GatherRuleGuards.IsUserProfilePathOnAllowlist(normalizedDir, userProfilePath);
             }
             catch
             {
                 // Any path normalization failure → deny
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Returns true if the normalized path falls under one of the allowed subdirectories
-        /// of the detected user profile (AppData\Local, AppData\Roaming).
-        /// Only applies when %LOGGED_ON_USER_PROFILE% was used to resolve the path.
-        /// </summary>
-        internal static bool IsUserProfileSubpathAllowed(string normalizedPath, string userProfilePath)
-        {
-            if (string.IsNullOrEmpty(userProfilePath))
-                return false;
-
-            try
-            {
-                var normalizedProfile = Path.GetFullPath(userProfilePath);
-                foreach (var subdir in AllowedUserProfileSubdirs)
-                {
-                    var allowedPrefix = Path.GetFullPath(Path.Combine(normalizedProfile, subdir));
-                    if (normalizedPath.StartsWith(allowedPrefix, StringComparison.OrdinalIgnoreCase) &&
-                        (normalizedPath.Length == allowedPrefix.Length ||
-                         normalizedPath[allowedPrefix.Length] == Path.DirectorySeparatorChar))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-                // Path normalization failure — deny
-            }
-
-            return false;
         }
 
         /// <summary>

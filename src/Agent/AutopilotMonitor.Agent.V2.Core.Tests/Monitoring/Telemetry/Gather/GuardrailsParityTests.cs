@@ -57,6 +57,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Telemetry.Gather
         }
 
         [Fact]
+        public void User_profile_prefixes_are_all_accepted_by_the_loader()
+        {
+            // The loader drops entries outside AppData\Local / AppData\Roaming (the hard block
+            // would never release them anyway). A dropped entry is invisible at runtime — it
+            // just never matches — so a typo in the JSON must fail here instead.
+            var json = LoadEmbeddedGuardrails()["userProfileFilePrefixes"]?.ToObject<string[]>()
+                       ?? new string[0];
+
+            Assert.Equal(
+                json.Select(p => p.Trim().TrimEnd('\\')).OrderBy(p => p),
+                GatherRuleGuards.AllowedUserProfileFilePrefixes.OrderBy(p => p));
+        }
+
+        [Fact]
+        public void User_profile_prefixes_stay_under_the_hard_blocks_exception()
+        {
+            Assert.All(
+                GatherRuleGuards.AllowedUserProfileFilePrefixes,
+                prefix => Assert.Contains(
+                    GatherRuleGuards.AllowedUserProfileSubdirs,
+                    subdir => prefix.StartsWith(subdir, System.StringComparison.OrdinalIgnoreCase) &&
+                              (prefix.Length == subdir.Length || prefix[subdir.Length] == '\\')));
+        }
+
+        [Fact]
         public void Blocked_event_log_channels_match_code_constants()
         {
             var json = LoadEmbeddedGuardrails()["blockedEventLogChannels"]!.ToObject<string[]>()!;

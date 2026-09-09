@@ -9,6 +9,7 @@
 import {
   ALLOWED_REGISTRY_PREFIXES,
   ALLOWED_FILE_PREFIXES,
+  USER_PROFILE_FILE_PREFIXES,
   ALLOWED_WMI_QUERY_PREFIXES,
   ALLOWED_COMMANDS_LIST,
   ALLOWED_DIAGNOSTICS_PATH_PREFIXES,
@@ -198,6 +199,18 @@ function isUserProfileSubpathAllowed(normalizedDir: string): boolean {
   return false;
 }
 
+/**
+ * Returns the userProfileFilePrefixes entry admitting the path, if any.
+ * Mirrors GatherRuleGuards.IsUserProfilePathOnAllowlist: the entries are relative to
+ * the profile root, so they are matched against the placeholder profile the token
+ * expanded to.
+ */
+function findUserProfilePrefix(normalizedDir: string): string | undefined {
+  return USER_PROFILE_FILE_PREFIXES.find((prefix) =>
+    matchesPrefix(normalizedDir, `${USER_PROFILE_PLACEHOLDER}\\${prefix}`, "\\")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Validation functions
 // ---------------------------------------------------------------------------
@@ -265,11 +278,14 @@ export function validateFileTarget(
     normalizedDir = normalizePath(expanded);
   }
 
-  // Hard block: C:\Users always blocked — except allowed subdirs via %LOGGED_ON_USER_PROFILE% token
-  if (matchesPrefix(normalizedDir, BLOCKED_USERS_PREFIX, "\\")) {
-    if (isUserProfileSubpathAllowed(normalizedDir)) {
-      return { allowed: true, reason: "Allowed via %LOGGED_ON_USER_PROFILE% (AppData only)", unrestricted: false };
-    }
+  // Hard block: C:\Users always blocked. The %LOGGED_ON_USER_PROFILE% token LIFTS it for
+  // AppData\Local and AppData\Roaming — it does not admit the path: the allowlist below
+  // still has to match, exactly as GatherRuleGuards.IsFilePathAllowed does. Returning
+  // "allowed" here would show a target as green that the agent refuses on the device.
+  if (
+    matchesPrefix(normalizedDir, BLOCKED_USERS_PREFIX, "\\") &&
+    !isUserProfileSubpathAllowed(normalizedDir)
+  ) {
     return { allowed: false, reason: "C:\\Users is always blocked (privacy protection)", unrestricted: false };
   }
 
@@ -287,6 +303,15 @@ export function validateFileTarget(
     if (matchesPrefix(normalizedDir, prefix, "\\")) {
       return { allowed: true, reason: `Matches: ${prefix}`, unrestricted: false };
     }
+  }
+
+  const userProfilePrefix = findUserProfilePrefix(normalizedDir);
+  if (userProfilePrefix) {
+    return {
+      allowed: true,
+      reason: `Matches: %LOGGED_ON_USER_PROFILE%\\${userProfilePrefix}`,
+      unrestricted: false,
+    };
   }
 
   return {
@@ -415,11 +440,14 @@ export function validateDiagnosticsPath(
     normalizedDir = normalizePath(expanded);
   }
 
-  // Hard block: C:\Users always blocked — except allowed subdirs via %LOGGED_ON_USER_PROFILE% token
-  if (matchesPrefix(normalizedDir, BLOCKED_USERS_PREFIX, "\\")) {
-    if (isUserProfileSubpathAllowed(normalizedDir)) {
-      return { allowed: true, reason: "Allowed via %LOGGED_ON_USER_PROFILE% (AppData only)", unrestricted: false };
-    }
+  // Hard block: C:\Users always blocked. As in validateFileTarget, the
+  // %LOGGED_ON_USER_PROFILE% token only lifts the block for AppData\Local and
+  // AppData\Roaming — DiagnosticsPathGuards.IsDiagnosticsPathAllowed then still
+  // requires an allowlist match below.
+  if (
+    matchesPrefix(normalizedDir, BLOCKED_USERS_PREFIX, "\\") &&
+    !isUserProfileSubpathAllowed(normalizedDir)
+  ) {
     return { allowed: false, reason: "C:\\Users is always blocked (privacy protection)", unrestricted: false };
   }
 
@@ -437,6 +465,15 @@ export function validateDiagnosticsPath(
     if (matchesPrefix(normalizedDir, prefix, "\\")) {
       return { allowed: true, reason: `Matches: ${prefix}`, unrestricted: false };
     }
+  }
+
+  const userProfilePrefix = findUserProfilePrefix(normalizedDir);
+  if (userProfilePrefix) {
+    return {
+      allowed: true,
+      reason: `Matches: %LOGGED_ON_USER_PROFILE%\\${userProfilePrefix}`,
+      unrestricted: false,
+    };
   }
 
   return {

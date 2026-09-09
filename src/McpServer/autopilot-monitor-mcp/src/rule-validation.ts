@@ -103,6 +103,52 @@ function pathPrefixAllowed(target: string, prefixes: readonly string[]): boolean
   });
 }
 
+// The agent expands environment variables and the custom %LOGGED_ON_USER_PROFILE% token
+// BEFORE it guards a path (FileCollector/LogParserCollector -> UserProfileResolver ->
+// GatherRuleGuards). Judging the raw spelling instead reported targets as blocked that the
+// device happily reads (%ProgramData%\...) and made token targets unjudgeable altogether.
+// The profile name is unknown here, so the token resolves to a placeholder profile — the
+// same device-independent stand-in the portal validator uses.
+const COMMON_ENV_VARS: Record<string, string> = {
+  '%ProgramData%': 'C:\\ProgramData',
+  '%SystemRoot%': 'C:\\Windows',
+  '%windir%': 'C:\\Windows',
+  '%SystemDrive%': 'C:',
+};
+const USER_PROFILE_TOKEN = '%LOGGED_ON_USER_PROFILE%';
+const USER_PROFILE_PLACEHOLDER = 'C:\\Users\\__AGENT_RESOLVED__';
+
+/** The only profile subdirectories the C:\Users hard block ever releases. */
+const ALLOWED_USER_PROFILE_SUBDIRS: readonly string[] = ['AppData\\Local', 'AppData\\Roaming'];
+
+/** Vendor folders below the profile, relative to its root (GatherRuleGuards.AllowedUserProfileFilePrefixes). */
+const USER_PROFILE_FILE_PREFIXES: readonly string[] = RULE_GUARDRAILS.userProfileFilePrefixes ?? [];
+
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function expandPathTokens(target: string): string {
+  let result = target.replace(
+    new RegExp(escapeRegExp(USER_PROFILE_TOKEN), 'gi'), USER_PROFILE_PLACEHOLDER);
+  for (const [envVar, replacement] of Object.entries(COMMON_ENV_VARS)) {
+    result = result.replace(new RegExp(escapeRegExp(envVar), 'gi'), replacement);
+  }
+  return result;
+}
+
+/** True when the expanded path sits in the part of the profile the hard block releases. */
+function isUnderUserProfileException(expanded: string): boolean {
+  return ALLOWED_USER_PROFILE_SUBDIRS.some(
+    (subdir) => pathPrefixAllowed(expanded, [`${USER_PROFILE_PLACEHOLDER}\\${subdir}`]));
+}
+
+/** True when a userProfileFilePrefixes entry admits the expanded path. */
+function userProfilePrefixAllowed(expanded: string): boolean {
+  return USER_PROFILE_FILE_PREFIXES.some(
+    (prefix) => pathPrefixAllowed(expanded, [`${USER_PROFILE_PLACEHOLDER}\\${prefix}`]));
+}
+
 function stripRegistryHive(target: string): string {
   return target.replace(/^(HKLM|HKEY_LOCAL_MACHINE|HKCU|HKEY_CURRENT_USER)\\/i, '');
 }
@@ -127,19 +173,28 @@ function checkGatherTarget(collectorType: string, target: string): ValidationFin
     case 'json':
     case 'xml':
     case 'logparser': {
-      const blocked = HARD_BLOCKED_PATH_PREFIXES.find((p) => pathPrefixAllowed(target, [p]));
-      if (blocked) {
+      const expanded = expandPathTokens(target);
+
+      // C:\Users is hard-blocked; %LOGGED_ON_USER_PROFILE% releases it for AppData\Local
+      // and AppData\Roaming and nothing else. The release is not an allowance — the
+      // allowlist below still decides, exactly as GatherRuleGuards.IsFilePathAllowed does.
+      const blocked = HARD_BLOCKED_PATH_PREFIXES.find((p) => pathPrefixAllowed(expanded, [p]));
+      if (blocked && !isUnderUserProfileException(expanded)) {
         findings.push({ level: 'error', message: `guardrails: "${target}" is under the hard-blocked path ${blocked} — the agent always refuses this, it cannot be allow-listed.` });
         break;
       }
-      const allowed = collectorType === 'logparser'
-        ? [...RULE_GUARDRAILS.filePrefixes, ...RULE_GUARDRAILS.diagnosticsPathPrefixes]
-        : [...RULE_GUARDRAILS.filePrefixes];
-      // logparser targets may carry a glob suffix (*.log) — prefix matching still applies.
-      if (!pathPrefixAllowed(target, allowed) && !allowed.some((p) => target.toLowerCase().startsWith(p.toLowerCase() + '\\'))) {
+      // The agent guards EVERY file collector — logparser included — against
+      // filePrefixes alone (GatherRuleGuards.IsFilePathAllowed). diagnosticsPathPrefixes
+      // governs admin-configured diagnostics paths, a different surface the collectors
+      // never consult; offering it here reported logparser targets as allowed that the
+      // agent refuses on the device (C:\Install\Log, winevt\Logs, WER, ProgramData\AutopilotMonitor).
+      // logparser targets may carry a glob suffix (*.log) — segment-bounded prefix
+      // matching covers that, the glob sits in the last segment.
+      if (!pathPrefixAllowed(expanded, RULE_GUARDRAILS.filePrefixes) &&
+          !userProfilePrefixAllowed(expanded)) {
         findings.push({
           level: 'error',
-          message: `guardrails: ${collectorType} target "${target}" is not under any allowed file prefix (rule_guardrails → filePrefixes${collectorType === 'logparser' ? ' / diagnosticsPathPrefixes' : ''}).`,
+          message: `guardrails: ${collectorType} target "${target}" is not under any allowed file prefix (rule_guardrails → filePrefixes, or userProfileFilePrefixes below %LOGGED_ON_USER_PROFILE%).`,
         });
       }
       break;

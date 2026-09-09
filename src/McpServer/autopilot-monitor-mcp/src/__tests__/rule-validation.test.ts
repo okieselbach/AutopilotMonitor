@@ -113,6 +113,58 @@ describe('gather guardrails (agent matching semantics)', () => {
     expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('hard-blocked'))).toBe(true);
   });
 
+  // %LOGGED_ON_USER_PROFILE% releases the C:\Users hard block for AppData\Local and
+  // AppData\Roaming — and only releases it. The allowlist still decides, which is what
+  // the agent does (GatherRuleGuards.IsFilePathAllowed) and what the portal shows.
+  it('accepts a userProfileFilePrefixes folder below %LOGGED_ON_USER_PROFILE%', () => {
+    const ok = validGather();
+    ok.collectorType = 'logparser';
+    ok.target = '%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\RealmJoin\\tray*.log';
+    ok.parameters = { pattern: '(?<msg>SSO)', format: 'text' };
+    expect(errors(validateRuleDraft(ok).findings).some((m) => m.includes('guardrails'))).toBe(false);
+  });
+
+  it('rejects an unlisted vendor folder below %LOGGED_ON_USER_PROFILE%\\AppData', () => {
+    const bad = validGather();
+    bad.collectorType = 'file';
+    bad.target = '%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\SomeApp\\data.json';
+    expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('not under any allowed file prefix'))).toBe(true);
+  });
+
+  it('rejects %LOGGED_ON_USER_PROFILE% outside AppData as hard-blocked', () => {
+    const bad = validGather();
+    bad.collectorType = 'file';
+    bad.target = '%LOGGED_ON_USER_PROFILE%\\Documents\\secret.txt';
+    expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('hard-blocked'))).toBe(true);
+  });
+
+  it('rejects a sibling of a userProfileFilePrefixes folder (segment boundary)', () => {
+    const bad = validGather();
+    bad.collectorType = 'file';
+    bad.target = '%LOGGED_ON_USER_PROFILE%\\AppData\\Local\\RealmJoinEvil\\tray.log';
+    expect(validateRuleDraft(bad).valid).toBe(false);
+  });
+
+  // The agent expands environment variables before guarding, so a target spelled with
+  // %ProgramData% must not be reported as blocked — there are live rules doing this.
+  it('accepts an allow-listed path spelled with %ProgramData%', () => {
+    const ok = validGather();
+    ok.collectorType = 'logparser';
+    ok.target = '%ProgramData%\\Microsoft\\IntuneManagementExtension\\Logs\\HPReports\\HP Image Assistant.log';
+    ok.parameters = { pattern: '(?<msg>x)', format: 'text' };
+    expect(errors(validateRuleDraft(ok).findings).some((m) => m.includes('guardrails'))).toBe(false);
+  });
+
+  // diagnosticsPathPrefixes governs admin-configured diagnostics paths, not collectors:
+  // the agent guards logparser against filePrefixes alone.
+  it('rejects a logparser target that only diagnosticsPathPrefixes would allow', () => {
+    const bad = validGather();
+    bad.collectorType = 'logparser';
+    bad.target = 'C:\\Install\\Log\\setup.log';
+    bad.parameters = { pattern: '(?<msg>x)', format: 'text' };
+    expect(errors(validateRuleDraft(bad).findings).some((m) => m.includes('not under any allowed file prefix'))).toBe(true);
+  });
+
   it('rejects the registry-hive store path (System32\\config) as hard-blocked', () => {
     const bad = validGather();
     bad.collectorType = 'file';
