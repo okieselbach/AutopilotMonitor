@@ -10,8 +10,8 @@ public static class MetricsMath
     /// <summary>
     /// App-install failure rate over finished installs only: Failed / (Failed + Succeeded), one
     /// decimal, 0 when nothing finished. The same outcome-quota convention as the enrollment
-    /// success rate — "InProgress" rows (still installing, or orphaned by a session that died
-    /// mid-install) never dilute the rate. Shared by the app-metrics payload and the Apps
+    /// success rate — "InProgress" rows (still installing) and "Incomplete" rows (observation
+    /// ended before any outcome) never dilute the rate. Shared by the app-metrics payload and the Apps
     /// dashboard aggregations so the definition can't drift between panes.
     /// </summary>
     public static double TerminalFailureRatePct(int failed, int succeeded)
@@ -94,6 +94,8 @@ public static class MetricsMath
             var installed = succeededAll.Where(s => !IsSkipTerminalState(s)).ToList();
             var measured = installed.Where(HasMeasuredDuration).ToList();
             var failed = g.Where(s => s.Status == "Failed").ToList();
+            // Observation ended before any outcome — disclosed, outside the rate and the durations.
+            var incomplete = g.Count(s => s.Status == "Incomplete");
             var total = g.Count();
 
             // DoAggregator is the single source for the DO rollup: it filters rows that actually
@@ -109,6 +111,7 @@ public static class MetricsMath
                 Skipped = skipped.Count,
                 Unmeasured = installed.Count - measured.Count,
                 Failed = failed.Count,
+                Incomplete = incomplete,
                 // Skips leave the rate (they are not attempts); legacy rows stay in it.
                 FailureRate = TerminalFailureRatePct(failed.Count, installed.Count),
                 AvgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0,
@@ -151,6 +154,7 @@ public static class MetricsMath
             TotalInstalls = summaryList.Count,
             TotalSkipped = appGroups.Sum(a => a.Skipped),
             TotalUnmeasured = appGroups.Sum(a => a.Unmeasured),
+            TotalIncomplete = appGroups.Sum(a => a.Incomplete),
             TotalCollisionExcluded = totalCollisionExcluded,
             SlowestApps = slowestApps,
             TopFailingApps = topFailingApps,

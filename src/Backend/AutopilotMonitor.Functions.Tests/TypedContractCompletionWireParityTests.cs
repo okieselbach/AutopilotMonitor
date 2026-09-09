@@ -184,6 +184,7 @@ public class TypedContractCompletionWireParityTests
                 totalInstalls = 4,
                 totalSkipped = 1,
                 totalUnmeasured = 1,
+                totalIncomplete = 0,
                 totalCollisionExcluded = 0,
                 slowestApps = new[]
                 {
@@ -195,6 +196,7 @@ public class TypedContractCompletionWireParityTests
                         skipped = 1,
                         unmeasured = 1,
                         failed = 1,
+                        incomplete = 0,
                         failureRate = 33.3,
                         avgDurationSeconds = 120.0,
                         maxDurationSeconds = 240,
@@ -225,6 +227,7 @@ public class TypedContractCompletionWireParityTests
                 TotalInstalls = 4,
                 TotalSkipped = 1,
                 TotalUnmeasured = 1,
+                TotalIncomplete = 0,
                 TotalCollisionExcluded = 0,
                 SlowestApps = new[]
                 {
@@ -236,6 +239,7 @@ public class TypedContractCompletionWireParityTests
                         Skipped = 1,
                         Unmeasured = 1,
                         Failed = 1,
+                        Incomplete = 0,
                         FailureRate = 33.3,
                         AvgDurationSeconds = 120.0,
                         MaxDurationSeconds = 240,
@@ -684,6 +688,7 @@ public class TypedContractCompletionWireParityTests
                     skipped = 0,
                     unmeasured = 0,
                     failed = 0,
+                    incomplete = 0,
                     failureRate = 0.0,
                     avgDurationSeconds = 0.0,
                     p95DurationSeconds = 0,
@@ -715,6 +720,7 @@ public class TypedContractCompletionWireParityTests
                     Skipped = 0,
                     Unmeasured = 0,
                     Failed = 0,
+                    Incomplete = 0,
                     FailureRate = 0.0,
                     AvgDurationSeconds = 0.0,
                     P95DurationSeconds = 0,

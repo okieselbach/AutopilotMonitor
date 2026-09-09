@@ -92,6 +92,9 @@ namespace AutopilotMonitor.Functions.Services
                         classification.HasCompletionEvidenceCandidate = true;
                         break;
                     case "agent_shutting_down":
+                        // Every shutdown ends this agent run's observation; the max-lifetime
+                        // flavour additionally carries the verdict mapping below.
+                        classification.AgentShutdownEvent = evt;
                         if (IsMaxLifetimeAgentShutdown(evt))
                             classification.AgentMaxLifetimeShutdownEvent = evt;
                         break;
@@ -704,6 +707,14 @@ namespace AutopilotMonitor.Functions.Services
         public EnrollmentEvent? WhiteGloveResumedEvent { get; set; }
         public EnrollmentEvent? EspFailureEvent { get; set; }
         public EnrollmentEvent? SessionStalledEvent { get; set; }
+
+        /// <summary>
+        /// Any <c>agent_shutting_down</c> in the batch — the agent's last word for this run.
+        /// After the status write, a terminal session closes its still-open app rows on this
+        /// batch: apps that started after the verdict (the agent keeps watching after
+        /// enrollment_complete) got their row only after the terminal seam had already run.
+        /// </summary>
+        public EnrollmentEvent? AgentShutdownEvent { get; set; }
 
         /// <summary>
         /// <c>agent_shutting_down</c> with <c>Data.reason == "max_lifetime"</c> — the V2

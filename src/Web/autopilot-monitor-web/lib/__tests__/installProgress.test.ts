@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInstallItems, isRebootOrRetryClass, type InstallEvent } from "@/lib/installProgress";
+import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent } from "@/lib/installProgress";
 
 function evt(eventType: string, timestamp: string, data: Record<string, unknown>): InstallEvent {
   return { eventType, timestamp, data };
@@ -224,5 +224,43 @@ describe("isRebootOrRetryClass", () => {
     expect(isRebootOrRetryClass("Success")).toBe(false);
     expect(isRebootOrRetryClass("Failed")).toBe(false);
     expect(isRebootOrRetryClass(undefined)).toBe(false);
+  });
+});
+
+describe("applyObservationEnd", () => {
+  // Shape of session ac5660b8: the app started 143 s after enrollment_complete and was still
+  // installing when the agent sent its last event 30 s later — no terminal event ever came.
+  const stillInstalling = evt("app_install_started", "2026-09-09T06:45:18Z", { appName: "Suite", appId: "a1" });
+  const finished = [
+    evt("app_install_started", "2026-09-09T06:40:31Z", { appName: "Teams", appId: "t1" }),
+    evt("app_install_completed", "2026-09-09T06:41:05Z", { appName: "Teams", appId: "t1", state: "Installed" }),
+  ];
+  const lastReport = Date.parse("2026-09-09T06:45:48Z");
+
+  it("leaves every row untouched while the session is still live (null observation end)", () => {
+    const items = buildInstallItems([stillInstalling, ...finished]);
+    expect(applyObservationEnd(items, null)).toBe(items);
+    expect(items.every(i => !i.isIncomplete)).toBe(true);
+  });
+
+  it("marks a row still installing at the observation end as incomplete with the watched span", () => {
+    const [suite] = applyObservationEnd(buildInstallItems([stillInstalling]), lastReport);
+    expect(suite.state).toBe("Installing");
+    expect(suite.isIncomplete).toBe(true);
+    expect(suite.observedMs).toBe(30 * 1000);
+  });
+
+  it("never touches rows that reached a terminal state", () => {
+    const items = applyObservationEnd(buildInstallItems([...finished, stillInstalling]), lastReport);
+    const teams = items.find(i => i.appName === "Teams")!;
+    expect(teams.isIncomplete).toBe(false);
+    expect(teams.observedMs).toBeUndefined();
+    expect(teams.durationMs).toBe(34 * 1000);
+  });
+
+  it("clamps the watched span to zero when the observation end precedes the start (clock skew)", () => {
+    const [suite] = applyObservationEnd(buildInstallItems([stillInstalling]), Date.parse("2026-09-09T06:45:00Z"));
+    expect(suite.isIncomplete).toBe(true);
+    expect(suite.observedMs).toBe(0);
   });
 });

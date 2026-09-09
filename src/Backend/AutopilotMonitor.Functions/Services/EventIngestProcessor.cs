@@ -276,6 +276,21 @@ namespace AutopilotMonitor.Functions.Services
                         updatedSession?.AgentVersion, skewScan);
             }
 
+            // Observation end: the batch carrying agent_shutting_down is the agent's last word.
+            // On a terminal session an app row still InProgress now will never get a terminal
+            // event — close it as Incomplete. The terminal seam already did this on the verdict
+            // batch; this re-run catches rows opened after the verdict (the IME keeps installing
+            // and the agent keeps watching after enrollment_complete). Non-terminal sessions
+            // (reboot shutdown, WhiteGlove part 1) keep their rows open. Idempotent + fail-soft.
+            if (classification.AgentShutdownEvent != null
+                && updatedSession != null
+                && (updatedSession.Status == SessionStatus.Succeeded
+                    || updatedSession.Status == SessionStatus.Failed
+                    || updatedSession.Status == SessionStatus.Incomplete))
+            {
+                await _metricsRepo.CloseOpenAppInstallsForSessionAsync(request.TenantId, request.SessionId);
+            }
+
             // Auto-analyze fan-out: enqueue a queue message instead of running fire-and-forget
             // Task.Run inside the function. The previous in-function approach could be killed
             // mid-flight by Functions scale-in (HTTP 200 returned → worker unloaded → rules

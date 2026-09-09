@@ -156,6 +156,30 @@ public class AppInstallTerminalStateAndReconcileTests
     }
 
     [Fact]
+    public void Reconcile_IncompleteIsSticky_AgainstLateProgressBatch()
+    {
+        // Closed by the observation-end step; a straggling started/progress batch must not reopen it.
+        var existing = new TableEntity("tenant", "session_App") { ["Status"] = "Incomplete" };
+        var summary = new AppInstallSummary { AppName = "App", Status = "InProgress", StartedAt = T0 };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal("Incomplete", summary.Status);
+    }
+
+    [Fact]
+    public void Reconcile_RealTerminalOverridesIncomplete()
+    {
+        // The completion arrived after the close step: real evidence beats the hedge.
+        var existing = new TableEntity("tenant", "session_App") { ["Status"] = "Incomplete" };
+        var summary = new AppInstallSummary { AppName = "App", Status = "Succeeded", StartedAt = T0 };
+
+        TableStorageService.ReconcileAppInstallSummaryWithExisting(summary, existing);
+
+        Assert.Equal("Succeeded", summary.Status);
+    }
+
+    [Fact]
     public void Reconcile_Q4Guard_DoesNotFireWithoutStoredCompletedAt()
     {
         var existing = new TableEntity("tenant", "session_App") { ["Status"] = "InProgress" };

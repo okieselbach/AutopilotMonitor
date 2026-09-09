@@ -328,7 +328,12 @@ namespace AutopilotMonitor.Functions.Services
                         // Idempotent, positive-evidence-only; also heals sessions that went
                         // terminal before the resolution seam existed (hadNoRow backfill).
                         if (eventCountMoved || hadNoRow)
+                        {
                             await _metricsRepo.ResolveEspBlockingForSessionAsync(session.TenantId, session.SessionId);
+                            // Same late-batch reasoning: an app row opened after the agent's
+                            // shutdown batch was never closed — the sweep is its self-heal.
+                            await _metricsRepo.CloseOpenAppInstallsForSessionAsync(session.TenantId, session.SessionId);
+                        }
                     }
 
                     if (breakdown == null)

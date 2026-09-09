@@ -137,6 +137,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<SessionTimeBreakdown?> GetSessionTimeBreakdownAsync(string tenantId, string sessionId);
         /// <summary>Re-joins the session's app rows against its latest esp_config_detected lists (positive evidence only). Idempotent + fail-soft — the terminal seam runs it once; the sweep re-runs it when late events changed the stream.</summary>
         Task ResolveEspBlockingForSessionAsync(string tenantId, string sessionId);
+        /// <summary>Closes the session's app rows that never reached a terminal state (InProgress → Incomplete, outcome unknown). Idempotent + fail-soft — the terminal seam, the agent-shutdown batch and the sweep all call it; a real terminal arriving later still wins. Returns the number of rows closed.</summary>
+        Task<int> CloseOpenAppInstallsForSessionAsync(string tenantId, string sessionId);
         Task<bool> SaveTimeAttributionAggregateAsync(TimeAttributionDailyAggregate aggregate);
         /// <summary>Aggregate rows of one tenant partition ("global" allowed) for an inclusive date range.</summary>
         Task<List<TimeAttributionDailyAggregate>> GetTimeAttributionAggregatesAsync(string tenantId, DateTime startDate, DateTime endDate);

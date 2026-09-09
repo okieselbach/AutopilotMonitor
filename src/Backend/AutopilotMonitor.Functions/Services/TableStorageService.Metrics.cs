@@ -253,9 +253,11 @@ namespace AutopilotMonitor.Functions.Services
                     // Status "InProgress" — a real (non-sentinel) value that Merge-mode would
                     // happily write over a row the terminal batch already closed. Only another
                     // terminal observation may change a terminal status (Failed→Succeeded on a
-                    // successful retry stays legal).
+                    // successful retry stays legal). Incomplete (observation-end close step) is
+                    // terminal for the same purpose: a straggling progress-only batch must not
+                    // reopen it, while a real terminal observation still wins.
                     var existingStatus = existing.GetString("Status");
-                    if ((existingStatus == "Succeeded" || existingStatus == "Failed") &&
+                    if ((existingStatus == "Succeeded" || existingStatus == "Failed" || existingStatus == "Incomplete") &&
                         summary.Status != "Succeeded" && summary.Status != "Failed")
                     {
                         summary.Status = existingStatus;
@@ -523,6 +525,66 @@ namespace AutopilotMonitor.Functions.Services
             if (row.GetBoolean("AppIdCollision") ?? false) return false;
             if (row.GetBoolean("EspBlocking") == true) return false;
             return sets.Contains(appId);
+        }
+
+        /// <summary>
+        /// Closes the session's app rows that never reached a terminal state: Status
+        /// "InProgress" (or missing) with no CompletedAt becomes "Incomplete" — terminal,
+        /// non-failure, outcome unknown. Runs at the terminal seam, again after the batch that
+        /// carries the agent's shutdown (rows opened after the verdict), and from the 30-day
+        /// sweep. Idempotent + fail-soft; a real terminal arriving later still wins through the
+        /// sticky-status reconcile. Returns the number of rows closed.
+        /// </summary>
+        public async Task<int> CloseOpenAppInstallsForSessionAsync(string tenantId, string sessionId)
+        {
+            try
+            {
+                SecurityValidator.EnsureValidGuid(tenantId, nameof(tenantId));
+                SecurityValidator.EnsureValidGuid(sessionId, nameof(sessionId));
+
+                var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.AppInstallSummaries);
+                var filter = $"PartitionKey eq '{tenantId}' and RowKey ge '{sessionId}_' and RowKey lt '{sessionId}`'";
+                var query = tableClient.QueryAsync<TableEntity>(
+                    filter: filter,
+                    select: new[] { "PartitionKey", "RowKey", "Status", "CompletedAt" });
+
+                var closed = 0;
+                await foreach (var row in query)
+                {
+                    if (!ShouldCloseAsIncomplete(row)) continue;
+
+                    var update = new TableEntity(row.PartitionKey, row.RowKey)
+                    {
+                        ["Status"] = "Incomplete"
+                    };
+                    await tableClient.UpsertEntityAsync(update, TableUpdateMode.Merge);
+                    closed++;
+                }
+
+                if (closed > 0)
+                    _logger.LogInformation(
+                        "Session {SessionId}: closed {Count} app rows as Incomplete (no terminal state when observation ended)",
+                        sessionId, closed);
+                return closed;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Closing open app rows failed for session {SessionId} (fail-soft)", sessionId);
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Pure per-row predicate behind <see cref="CloseOpenAppInstallsForSessionAsync"/> —
+        /// internal static so the contract is pinned by unit tests: only a row that is still
+        /// open (Status missing, empty or "InProgress", no CompletedAt) closes; every terminal
+        /// row, including an already-closed Incomplete one, is left alone (idempotency).
+        /// </summary>
+        internal static bool ShouldCloseAsIncomplete(TableEntity row)
+        {
+            if (row.GetDateTimeOffset("CompletedAt").HasValue) return false;
+            var status = row.GetString("Status");
+            return string.IsNullOrEmpty(status) || status == "InProgress";
         }
 
         /// <summary>

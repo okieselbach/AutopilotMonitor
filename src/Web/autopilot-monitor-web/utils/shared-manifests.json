@@ -2846,6 +2846,14 @@
           }
         },
         {
+          "name": "incomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Still installing when the session's observation ended — outcome unknown, outside the rate."
+        },
+        {
           "name": "failureRate",
           "type": {
             "kind": "primitive",
@@ -3233,6 +3241,14 @@
           }
         },
         {
+          "name": "incomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Still installing when the session's observation ended — outcome unknown, outside the rate."
+        },
+        {
           "name": "failureRate",
           "type": {
             "kind": "primitive",
@@ -3397,6 +3413,14 @@
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "totalIncomplete",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Rows still installing when the session's observation ended — outcome unknown, outside the failure rate."
         },
         {
           "name": "totalCollisionExcluded",

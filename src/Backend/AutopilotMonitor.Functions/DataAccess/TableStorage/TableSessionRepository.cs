@@ -101,6 +101,13 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // complete. Positive evidence only (listed ⇒ EspBlocking=true, absent ⇒ stays
                 // unknown). Idempotent + fail-soft like the counter reconcile above.
                 await _storage.ResolveEspBlockingForSessionAsync(tenantId, sessionId);
+                // Observation end: app rows still InProgress on a terminal session never get a
+                // terminal event — close them as Incomplete (outcome unknown, not a failure).
+                // Early for the ingest path (verdict batch, the agent may still be watching),
+                // never wrong in the end state: a real terminal arriving later still wins via
+                // the sticky-status reconcile, and the shutdown batch re-runs the close for rows
+                // opened after the verdict. Idempotent + fail-soft.
+                await _storage.CloseOpenAppInstallsForSessionAsync(tenantId, sessionId);
 
                 // F1 PR2: compute + persist the time-attribution breakdown once, now that the
                 // terminal write stamped CompletedAt/DurationSeconds and the event stream is

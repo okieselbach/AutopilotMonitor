@@ -82,6 +82,8 @@ namespace AutopilotMonitor.Shared.Models
         public int Skipped { get; set; }
         public int Unmeasured { get; set; }
         public int Failed { get; set; }
+        /// <summary>Still installing when the session's observation ended — outcome unknown, outside the rate.</summary>
+        public int Incomplete { get; set; }
         public double FailureRate { get; set; }
         public double AvgDurationSeconds { get; set; }
         public int P95DurationSeconds { get; set; }

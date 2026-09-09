@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
-import { buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
+import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 
@@ -21,6 +21,9 @@ interface SummaryStats {
 interface InstallProgressProps {
   events: InstallEvent[];
   summaryStats?: SummaryStats | null;
+  // Epoch ms of the agent's last report, passed only once the session is terminal. A row still
+  // installing at that point renders as Incomplete instead of ticking against the wall clock.
+  observedUntilMs?: number | null;
 }
 
 // Finals counted by the historic-replay partition — one per hidden install, so the note
@@ -56,7 +59,7 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-export default function InstallProgress({ events, summaryStats }: InstallProgressProps) {
+export default function InstallProgress({ events, summaryStats, observedUntilMs = null }: InstallProgressProps) {
   // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
   // (newer agents suppress them at the source) so week-old installs never render as current.
   // office_*/realmjoin_* events never carry rejectedSourceTimestamp and pass through untouched.
@@ -65,7 +68,10 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
     [events]
   );
 
-  const installs = useMemo(() => buildInstallItems(current), [current]);
+  const installs = useMemo(
+    () => applyObservationEnd(buildInstallItems(current), observedUntilMs),
+    [current, observedUntilMs]
+  );
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
@@ -101,7 +107,10 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
 
   if (installs.length === 0 && historicCount === 0) return null;
 
-  const activeCount = installs.filter(d => d.state === "Installing").length;
+  const activeCount = installs.filter(d => d.state === "Installing" && !d.isIncomplete).length;
+  // Still installing when observation ended — unknown outcome, counted apart from "active"
+  // so a finished session never claims an app is running.
+  const incompleteCount = installs.filter(d => d.isIncomplete).length;
   const completedCount = installs.filter(d => d.state === "Installed").length;
   // Enforced uninstall assignments — counted separately so the completed pill keeps
   // agreeing with the "X of Y installed" header (which buckets by intent agent-side).
@@ -178,6 +187,15 @@ export default function InstallProgress({ events, summaryStats }: InstallProgres
                 {likelyStuckCount} likely stuck
               </span>
             )}
+            {incompleteCount > 0 && (
+              // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
+              <span
+                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+                title="Still installing when the agent stopped observing — the outcome was never seen. Not a failure."
+              >
+                {incompleteCount} incomplete
+              </span>
+            )}
             {postponedCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
                 {postponedCount} postponed
@@ -237,17 +255,17 @@ function InstallItemRow({ item }: { item: InstallItem }) {
   const [liveElapsed, setLiveElapsed] = useState<{ startedAt: string; elapsedMs: number } | null>(null);
 
   useEffect(() => {
-    if (item.state !== "Installing" || !item.startedAt) return;
+    if (item.state !== "Installing" || item.isIncomplete || !item.startedAt) return;
     const startedAt = item.startedAt;
     const startTime = new Date(startedAt).getTime();
     const tick = () => setLiveElapsed({ startedAt, elapsedMs: Date.now() - startTime });
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [item.state, item.startedAt]);
+  }, [item.state, item.isIncomplete, item.startedAt]);
 
   const elapsedMs =
-    item.state === "Installing" && item.startedAt && liveElapsed?.startedAt === item.startedAt
+    item.state === "Installing" && !item.isIncomplete && item.startedAt && liveElapsed?.startedAt === item.startedAt
       ? liveElapsed.elapsedMs
       : null;
 
@@ -294,6 +312,12 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           ) : item.isCompleted ? (
             <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : item.isIncomplete ? (
+            // Same question-mark as "likely stuck" (we don't know), in slate: no pulse — nothing
+            // is running any more.
+            <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           ) : (
             <svg className="w-4 h-4 text-indigo-500 flex-shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -364,6 +388,14 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           {item.state === "Postponed" && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-200 text-amber-700 font-medium">Postponed</span>
           )}
+          {item.isIncomplete && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+              title="Still installing when the agent stopped observing. The outcome is unknown — the install may well have finished after the session ended."
+            >
+              Incomplete
+            </span>
+          )}
           {item.state === "Preinstalled" && (
             <span
               className="text-xs px-2 py-0.5 rounded-full bg-sky-200 text-sky-800 font-medium"
@@ -374,6 +406,15 @@ function InstallItemRow({ item }: { item: InstallItem }) {
           )}
         </div>
         <div className="flex items-center space-x-3 text-xs text-gray-500 flex-shrink-0 ml-2">
+          {item.isIncomplete && item.observedMs != null && (
+            // Lower bound: watched this long, then the agent's reports stopped.
+            <span
+              className="font-medium text-gray-400 tabular-nums"
+              title={`Watched for ${formatDuration(item.observedMs)} until the agent's last report — the total install time is unknown.`}
+            >
+              {`≥ ${formatDuration(item.observedMs)}`}
+            </span>
+          )}
           {elapsedMs != null && elapsedMs > 0 && (
             <span className="font-medium text-indigo-600 tabular-nums">{formatDuration(elapsedMs)}</span>
           )}

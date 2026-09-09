@@ -16,6 +16,8 @@ namespace AutopilotMonitor.Shared.Models
         public int TotalInstalls { get; set; }
         public int TotalSkipped { get; set; }
         public int TotalUnmeasured { get; set; }
+        /// <summary>Rows still installing when the session's observation ended — outcome unknown, outside the failure rate.</summary>
+        public int TotalIncomplete { get; set; }
         /// <summary>Rows excluded from per-app groups because their name-keyed row merged distinct appIds.</summary>
         public int TotalCollisionExcluded { get; set; }
         public IReadOnlyList<AppMetricsAppGroup> SlowestApps { get; set; } = default!;
@@ -32,6 +34,8 @@ namespace AutopilotMonitor.Shared.Models
         public int Skipped { get; set; }
         public int Unmeasured { get; set; }
         public int Failed { get; set; }
+        /// <summary>Still installing when the session's observation ended — outcome unknown, outside the rate.</summary>
+        public int Incomplete { get; set; }
         /// <summary>Failed / (failed + succeeded) as a percentage; skips never count as attempts.</summary>
         public double FailureRate { get; set; }
         /// <summary>Average measured FINAL-attempt duration (whole seconds); 0 with no measured installs.</summary>

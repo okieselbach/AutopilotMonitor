@@ -291,6 +291,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             var measured = installed.Where(MetricsMath.HasMeasuredDuration).ToList();
             var succeeded = installed.Count;
             var failed = summaries.Count(s => s.Status == "Failed");
+            var incomplete = summaries.Count(s => s.Status == "Incomplete");
             var failureRate = MetricsMath.TerminalFailureRatePct(failed, succeeded);
             var avgDurationSeconds = measured.Count > 0 ? Math.Round(measured.Average(s => s.DurationSeconds), 0) : 0;
             var p95DurationSeconds = Percentile(measured.Select(s => s.DurationSeconds).ToList(), 0.95);
@@ -423,6 +424,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     Skipped = skipped,
                     Unmeasured = installed.Count - measured.Count,
                     Failed = failed,
+                    Incomplete = incomplete,
                     FailureRate = failureRate,
                     AvgDurationSeconds = avgDurationSeconds,
                     P95DurationSeconds = p95DurationSeconds,

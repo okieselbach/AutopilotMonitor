@@ -254,6 +254,36 @@ describe('buildSessionCoverage — diagnostics package', () => {
   });
 });
 
+describe('buildSessionCoverage — apps without a terminal state', () => {
+  // The shutdown emit of the termination handler: what was still in flight when the agent left.
+  const shutdownSummary = ev('app_tracking_summary', 900, { installingNames: ['Suite'], downloadingNames: [], pendingNames: ['Other'] });
+
+  it("names the apps still in flight in the agent's last summary on a terminal session", () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'Succeeded' }, [
+      ev('agent_started', 5),
+      ev('app_tracking_summary', 300, { installingNames: ['Early'], downloadingNames: ['Later'] }),
+      shutdownSummary,
+    ]);
+    expect(c.apps).toEqual({ stillInstalling: ['Suite'], stillDownloading: [] });
+    expect(c.gaps).toEqual([expect.stringContaining('1 app(s) still installing when the agent stopped observing (Suite)')]);
+  });
+
+  it('reports nothing while the session is still live, even with apps in flight', () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'InProgress' }, [ev('agent_started', 5), shutdownSummary]);
+    expect(c.apps).toEqual({ stillInstalling: [], stillDownloading: [] });
+    expect(c.gaps).toEqual([]);
+  });
+
+  it("stays silent when the last summary has nothing in flight (apps that never started are the starved rule's finding)", () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'Failed' }, [
+      ev('agent_started', 5),
+      ev('app_tracking_summary', 900, { installingNames: [], pendingNames: ['Other'] }),
+    ]);
+    expect(c.apps).toEqual({ stillInstalling: [], stillDownloading: [] });
+    expect(c.gaps).toEqual([]);
+  });
+});
+
 describe('coverage wiring', () => {
   it('SUMMARY_EVENT_FIELDS carries every coverage slice, as data.<key> entries only', () => {
     const fields = SUMMARY_EVENT_FIELDS.split(',');
@@ -271,6 +301,7 @@ describe('coverage wiring', () => {
       'agent_started', 'agent_late_start', 'historic_ime_replay_detected', 'ime_tracker_degraded', 'ime_pattern_hits',
       'collector_degraded', 'spool_pressure_detected', 'telemetry_upload_poisoned', 'telemetry_upload_blocked',
       'ingress_backpressure', 'disk_space_low', 'diagnostics_collecting', 'diagnostics_uploaded', 'diagnostics_upload_failed',
+      'app_tracking_summary',
     ];
     expect([...COVERAGE_EVENT_TYPES].sort()).toEqual([...consulted].sort());
   });

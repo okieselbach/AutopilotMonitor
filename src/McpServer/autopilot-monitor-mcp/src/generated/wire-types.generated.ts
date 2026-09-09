@@ -470,6 +470,8 @@ export interface AppAnalyticsSummary {
   skipped: number;
   unmeasured: number;
   failed: number;
+  /** Still installing when the session's observation ended — outcome unknown, outside the rate. */
+  incomplete: number;
   failureRate: number;
   avgDurationSeconds: number;
   p95DurationSeconds: number;
@@ -558,6 +560,8 @@ export interface AppMetricsAppGroup {
   skipped: number;
   unmeasured: number;
   failed: number;
+  /** Still installing when the session's observation ended — outcome unknown, outside the rate. */
+  incomplete: number;
   /** Failed / (failed + succeeded) as a percentage; skips never count as attempts. */
   failureRate: number;
   /** Average measured FINAL-attempt duration (whole seconds); 0 with no measured installs. */
@@ -591,6 +595,8 @@ export interface AppMetricsResponse {
   totalInstalls: number;
   totalSkipped: number;
   totalUnmeasured: number;
+  /** Rows still installing when the session's observation ended — outcome unknown, outside the failure rate. */
+  totalIncomplete: number;
   /** Rows excluded from per-app groups because their name-keyed row merged distinct appIds. */
   totalCollisionExcluded: number;
   slowestApps: AppMetricsAppGroup[];

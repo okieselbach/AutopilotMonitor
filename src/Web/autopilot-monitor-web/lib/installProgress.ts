@@ -94,6 +94,11 @@ export interface InstallItem {
   isLikelyStuck: boolean;
   isDetectionFailure: boolean;
   isInstallFailure: boolean;
+  // Set by applyObservationEnd, never by the fold: the row was still installing when the
+  // session's observation ended (agent gone, session terminal). Outcome unknown — neither a
+  // failure nor a success — and `observedMs` is the span actually watched, a lower bound.
+  isIncomplete: boolean;
+  observedMs?: number;
   firstSeenIndex: number;
   eventData?: Record<string, unknown>;
 }
@@ -185,7 +190,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
     const isCompleted = (type === "app_install_completed" && !isSkippedCompletion) || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
     const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
 
-    const base = { key, source, appName, appId, intent: intent ?? existing?.intent };
+    const base = { key, source, appName, appId, intent: intent ?? existing?.intent, isIncomplete: false };
 
     if (isStarted) {
       // Don't reset an app that already completed — later batch re-scans
@@ -333,4 +338,20 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
   }
 
   return Array.from(installMap.values()).sort((a, b) => a.firstSeenIndex - b.firstSeenIndex);
+}
+
+/**
+ * Marks rows that were still installing when observation ended. `observedUntilMs` is the last
+ * moment the agent reported anything (session `lastEventAt`) and must be passed only once the
+ * session is terminal — `null` means "still live", and every row comes back untouched so the
+ * panel keeps its live timer. A start after the observation end (clock skew) clamps to 0.
+ */
+export function applyObservationEnd(items: InstallItem[], observedUntilMs: number | null): InstallItem[] {
+  if (observedUntilMs == null) return items;
+  return items.map(item => {
+    if (item.state !== "Installing" || !item.startedAt) return item;
+    const startedMs = new Date(item.startedAt).getTime();
+    const observedMs = Number.isFinite(startedMs) ? Math.max(0, observedUntilMs - startedMs) : 0;
+    return { ...item, isIncomplete: true, observedMs };
+  });
 }

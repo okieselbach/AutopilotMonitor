@@ -17,6 +17,7 @@ import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
 import { isGuid } from "@/utils/inputValidation";
+import { isTerminalStatus } from "@/utils/sessionStatus";
 import { ApiError, fetchBlob, fetchJson, fetchOk, jsonBody } from "@/lib/apiClient";
 
 import { useSessionAnalysis } from "./hooks/useSessionAnalysis";
@@ -197,6 +198,7 @@ function SessionDetailContent() {
     isGatherRulesSession,
     displayStatus,
     enrollmentDurationFromEvents,
+    lastObservedAtMs,
     standbySeconds,
     isSkipUserStatusPage,
     isWhiteGloveSession,
@@ -208,6 +210,11 @@ function SessionDetailContent() {
     preProvGrouped,
     userEnrollGrouped,
   } = derived;
+
+  // Observation end for the progress panels: only once the session is terminal does a row
+  // without a terminal event stop being "still running" — it becomes incomplete, its timer
+  // bounded by the agent's last report. Live sessions pass null and keep ticking.
+  const observedUntilMs = isTerminalStatus(displayStatus) ? lastObservedAtMs : null;
 
   // All phase keys currently present. For WhiteGlove sessions we use prefixed keys
   // (pre-X, user-X) to avoid collisions.
@@ -679,6 +686,7 @@ function SessionDetailContent() {
                 e => e.eventType === "download_progress" || e.eventType === "app_download_started" || e.eventType === "app_install_skipped"
               )}
               summaryStats={appSummaryStats}
+              observedUntilMs={observedUntilMs}
             />
             </div>
           )}
@@ -697,6 +705,7 @@ function SessionDetailContent() {
                   || e.eventType === "realmjoin_package_started" || e.eventType === "realmjoin_package_completed"
               )}
               summaryStats={appSummaryStats}
+              observedUntilMs={observedUntilMs}
             />
             </div>
           )}

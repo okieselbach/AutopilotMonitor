@@ -26,6 +26,7 @@ export interface UseSessionDerivedDataReturn {
   gatherRulesSucceeded: boolean;
   displayStatus: string;
   enrollmentDurationFromEvents: string | null;
+  lastObservedAtMs: number | null;
   standbySeconds: number | null;
   phaseNamesMap: Record<number, string>;
   phaseOrder: string[];
@@ -152,6 +153,24 @@ export function useSessionDerivedData(
     return `${Math.floor(durationSec / 3600)}h ${Math.floor((durationSec % 3600) / 60)}m`;
   }, [events]);
 
+  // Last moment the agent reported anything — the end of the observation window, in the
+  // device clock frame the event timestamps share. Deliberately NOT the enrollment duration
+  // above: that stops at enrollment_complete, while apps keep installing after the verdict
+  // for as long as the agent still watches. `session.lastEventAt` is the server-tracked
+  // maximum over every event; the loaded events are the fallback for rows predating it.
+  const sessionLastEventAt = session?.lastEventAt ?? null;
+  const lastObservedAtMs = useMemo(() => {
+    const fromSession = sessionLastEventAt ? new Date(sessionLastEventAt).getTime() : NaN;
+    if (Number.isFinite(fromSession)) return fromSession;
+    let max: number | null = null;
+    for (const e of events) {
+      if (e.source === "SystemTimelineWatcher") continue;
+      const t = new Date(e.timestamp).getTime();
+      if (Number.isFinite(t) && (max === null || t > max)) max = t;
+    }
+    return max;
+  }, [events, sessionLastEventAt]);
+
   // Total observed sleep/standby seconds (system_sleep_episode ground truth). The wall-clock
   // duration deliberately keeps the pause — this number tells the story next to it ("1h 20m,
   // 56m of it standby"). Dedup on enteredAt: the same episode can be observed twice (agent
@@ -242,6 +261,7 @@ export function useSessionDerivedData(
     gatherRulesSucceeded: !!gatherRulesSucceeded,
     displayStatus,
     enrollmentDurationFromEvents,
+    lastObservedAtMs,
     standbySeconds,
     phaseNamesMap,
     phaseOrder,

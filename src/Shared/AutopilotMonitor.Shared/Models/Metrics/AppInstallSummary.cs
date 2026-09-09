@@ -43,7 +43,12 @@ namespace AutopilotMonitor.Shared.Models
         public bool AppIdCollision { get; set; }
 
         /// <summary>
-        /// Lifecycle status: Succeeded, Failed, InProgress, or empty.
+        /// Lifecycle status: Succeeded, Failed, InProgress, Incomplete, or empty.
+        /// "Incomplete" is terminal and non-failure: the row was still InProgress when the
+        /// session's observation ended (terminal session, agent gone), so no outcome was ever
+        /// seen. Written only by the observation-end close step, never by an ingest fold;
+        /// CompletedAt and DurationSeconds stay unset (unknown, reported as unmeasured) and a
+        /// real terminal arriving later overrides it.
         /// Empty (default) is a sentinel meaning "no status-relevant event observed in the current
         /// aggregation batch". Aggregators only set a real value when they see started / completed /
         /// failed / skipped. The storage layer omits the column from the upsert when this is empty

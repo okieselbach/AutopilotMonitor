@@ -61,6 +61,9 @@ interface SummaryStats {
 interface DownloadProgressProps {
   events: DownloadEvent[];
   summaryStats?: SummaryStats | null;
+  // Epoch ms of the agent's last report, passed only once the session is terminal. A download
+  // that never finished by then is incomplete, not active.
+  observedUntilMs?: number | null;
 }
 
 interface DoStats {
@@ -96,6 +99,8 @@ interface DownloadItem {
   // progress). Rows without it are phantom "completed" rows from the terminal
   // download_progress event and are dropped after folding.
   hasByteEvidence: boolean;
+  // Still downloading when the session's observation ended — outcome unknown, not active.
+  isIncomplete: boolean;
   firstSeenIndex: number;
   eventData?: Record<string, unknown>;
   doStats?: DoStats | null;
@@ -142,7 +147,7 @@ function effectiveDurationMs(dl: DownloadItem): number {
   return 0;
 }
 
-export default function DownloadProgress({ events, summaryStats }: DownloadProgressProps) {
+export default function DownloadProgress({ events, summaryStats, observedUntilMs = null }: DownloadProgressProps) {
   // Legacy-agent guard: drop download events replayed from a previous enrollment's IME log.
   // Silent (empty finals set) — the InstallProgress panel already reports the hidden count
   // for the same apps; a second note here would double-report them.
@@ -250,18 +255,23 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
         isSkipped: isSkippedEvent || (existing?.isSkipped ?? false),
         isUninstall: (intent?.toLowerCase().includes("uninstall") ?? false) || (existing?.isUninstall ?? false),
         hasByteEvidence: hasByteActivity(filterInput) || (existing?.hasByteEvidence ?? false),
+        isIncomplete: false,
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
         eventData: d,
         doStats,
       });
     }
 
-    return Array.from(downloadMap.values()).sort((a, b) => {
+    const folded = Array.from(downloadMap.values()).sort((a, b) => {
       // Keep stable visual order based on first appearance only.
       // This avoids active items jumping when completion status changes.
       return a.firstSeenIndex - b.firstSeenIndex;
     });
-  }, [current]);
+    // Observation ended (terminal session): a download that never finished stays at its last
+    // observed bytes and is reported as incomplete rather than active.
+    if (observedUntilMs == null) return folded;
+    return folded.map(d => (!d.isComplete && !d.isSkipped && d.hasByteEvidence ? { ...d, isIncomplete: true } : d));
+  }, [current, observedUntilMs]);
 
   const [expanded, setExpanded] = useState(true);
   const [showSkipped, setShowSkipped] = useState(false);
@@ -327,7 +337,8 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
   // Pills stay install-scope (matching the "X of Y downloaded" header, whose summary
   // buckets uninstalls under skipped) — uninstall downloads get their own count, and
   // rows without any observed download activity sit behind the "no download" toggle.
-  const activeCount = downloads.filter(d => !d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence).length;
+  const activeCount = downloads.filter(d => !d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence && !d.isIncomplete).length;
+  const incompleteCount = downloads.filter(d => d.isIncomplete && !d.isUninstall).length;
   const completedCount = downloads.filter(d => d.isComplete && !d.isSkipped && !d.isUninstall && d.hasByteEvidence).length;
   const uninstallCount = downloads.filter(d => d.isUninstall && !d.isSkipped && d.hasByteEvidence).length;
   const noDownloadCount = downloads.filter(d => !d.isSkipped && !d.hasByteEvidence).length;
@@ -387,6 +398,15 @@ export default function DownloadProgress({ events, summaryStats }: DownloadProgr
             {completedCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                 {completedCount} completed
+              </span>
+            )}
+            {incompleteCount > 0 && (
+              // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
+              <span
+                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+                title="Still downloading when the agent stopped observing — the outcome was never seen. Not a failure."
+              >
+                {incompleteCount} incomplete
               </span>
             )}
             {uninstallCount > 0 && (
@@ -481,6 +501,11 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                     <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
+                  ) : dl.isIncomplete ? (
+                    // Question mark in slate, no pulse — nothing is transferring any more.
+                    <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                   ) : (
                     <svg className="w-4 h-4 text-blue-500 flex-shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -500,9 +525,17 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                       Uninstall
                     </span>
                   )}
+                  {dl.isIncomplete && (
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+                      title="Still downloading when the agent stopped observing. The outcome is unknown — the download may well have finished after the session ended."
+                    >
+                      Incomplete
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center space-x-3 text-xs text-gray-500 flex-shrink-0 ml-2">
-                  {!dl.isComplete && !dl.isSkipped && dl.downloadRateBps > 0 && (
+                  {!dl.isComplete && !dl.isSkipped && !dl.isIncomplete && dl.downloadRateBps > 0 && (
                     <span className="font-medium text-blue-600">{formatThroughput(dl.downloadRateBps, "0 B/s")}</span>
                   )}
                   {dl.eventData && Object.keys(dl.eventData).length > 0 && (
@@ -522,7 +555,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                   <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        dl.isComplete ? "bg-green-500" : "bg-blue-500"
+                        dl.isComplete ? "bg-green-500" : dl.isIncomplete ? "bg-slate-400" : "bg-blue-500"
                       }`}
                       style={{ width: `${progressPercent}%` }}
                     />

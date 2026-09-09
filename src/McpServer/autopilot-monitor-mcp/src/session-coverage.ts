@@ -31,6 +31,7 @@ export const COVERAGE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'diagnostics_collecting',
   'diagnostics_uploaded',
   'diagnostics_upload_failed',
+  'app_tracking_summary',
 ]);
 
 /**
@@ -44,7 +45,8 @@ export const COVERAGE_EVENT_FIELDS =
   'data.file,data.firstSkippedPattern,data.lineBudgetBreaks,data.regexTimeouts,data.oversizedLines,data.unanchoredPatterns,data.linesRead,' +
   'data.collector,data.reason,data.errorType,' +
   'data.pendingItemCount,data.pendingBytes,data.kind,data.itemCount,data.disk_free_gb,' +
-  'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind';
+  'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
+  'data.installingNames,data.downloadingNames';
 
 export interface CoverageWindow {
   /** Timestamp of the first `agent_started` — the earliest moment anything was observed live. */
@@ -111,12 +113,20 @@ export interface DiagnosticsCoverage {
   problemsByKind?: Record<string, number>;
 }
 
+export interface AppsCoverage {
+  /** Apps the agent's last summary still listed as installing when observation ended (terminal session only). */
+  stillInstalling: string[];
+  /** Same for downloading. */
+  stillDownloading: string[];
+}
+
 export interface SessionCoverage {
   window: CoverageWindow;
   imeTracker: ImeTrackerCoverage;
   collectors: CollectorDegradation[];
   upload: UploadCoverage;
   diagnostics: DiagnosticsCoverage;
+  apps: AppsCoverage;
   /** One calibrated line per observation gap; empty means nothing reported a gap. */
   gaps: string[];
 }
@@ -165,12 +175,21 @@ function fmtCounts(m: Record<string, number>): string {
   return Object.entries(m).map(([k, n]) => `${k}: ${n}`).join(', ');
 }
 
+function names(v: unknown): string[] {
+  return Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : [];
+}
+
+/** Mirror of the backend SessionStatus terminal set (utils/sessionStatus.ts in the web app). */
+function isTerminalSessionStatus(status: unknown): boolean {
+  return status === 'Succeeded' || status === 'Failed' || status === 'Incomplete';
+}
+
 /**
  * Folds the session's events (already stripped of historic-replay rows by the caller) into the
  * coverage block. Pure: no fetch, no clock.
  */
 export function buildSessionCoverage(
-  session: { startedAt?: string | null },
+  session: { startedAt?: string | null; status?: string | null },
   events: readonly Ev[],
 ): SessionCoverage {
   const byType = new Map<string, Ev[]>();
@@ -366,6 +385,25 @@ export function buildSessionCoverage(
     }
   }
 
+  // ── Apps without a terminal state ───────────────────────────────────────────
+  // The agent's last app_tracking_summary (the shutdown emit) names what was still in flight.
+  // Only a terminal session turns that into a gap — while the session is live those apps are
+  // simply still installing. Apps that never started are the starved rule's finding, not a gap.
+  const apps: AppsCoverage = { stillInstalling: [], stillDownloading: [] };
+  if (isTerminalSessionStatus(session.status)) {
+    const summary = last('app_tracking_summary');
+    apps.stillInstalling = names(summary?.data?.installingNames);
+    apps.stillDownloading = names(summary?.data?.downloadingNames);
+    const inFlight = (verb: string, list: string[]): void => {
+      if (list.length === 0) return;
+      gaps.push(
+        `${list.length} app(s) still ${verb} when the agent stopped observing (${list.join(', ')}): outcome unknown — not observed to fail, not observed to finish.`,
+      );
+    };
+    inFlight('installing', apps.stillInstalling);
+    inFlight('downloading', apps.stillDownloading);
+  }
+
   return {
     window: {
       observedFrom,
@@ -380,6 +418,7 @@ export function buildSessionCoverage(
     collectors,
     upload,
     diagnostics,
+    apps,
     gaps,
   };
 }
