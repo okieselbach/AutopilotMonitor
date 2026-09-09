@@ -24,6 +24,9 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 import { DocsLink } from "@/components/DocsLink";
 import type { TenantFeatureFlagsResponse } from "@/utils/wire-types.generated";
 import { fetchJson } from "@/lib/apiClient";
+import { CommunityContributionBox } from "@/components/rules/CommunityContributionBox";
+import { MySubmissionsList } from "@/components/rules/MySubmissionsList";
+import { SubmitRulesModal } from "@/components/rules/SubmitRulesModal";
 
 export default function GatherRulesPage() {
   const { user, getAccessToken } = useAuth();
@@ -56,6 +59,9 @@ export default function GatherRulesPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newRule, setNewRule] = useState<NewRuleForm>({ ...EMPTY_FORM });
   const [creating, setCreating] = useState(false);
+  // Community submissions: the picker modal and a counter that reloads the status list after a submit.
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submissionsRefreshKey, setSubmissionsRefreshKey] = useState(0);
 
   // JSON mode (create + edit)
   const [jsonModeCreate, setJsonModeCreate] = useState(false);
@@ -339,6 +345,10 @@ export default function GatherRulesPage() {
 
   // Computed values
   const rulesList = rules || [];
+  // Only the tenant's own custom rules can be contributed.
+  const submittableRules = rulesList
+    .filter((r) => !r.isBuiltIn && !r.isCommunity)
+    .map((r) => ({ ruleId: r.ruleId, title: r.title, category: r.category }));
   const filteredRules = rulesList.filter((rule) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase().trim();
@@ -433,18 +443,16 @@ export default function GatherRulesPage() {
                 </div>
               )}
 
-              {/* Community Contribution Hint */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start space-x-3">
-                <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-blue-800">
-                  Missing a rule, found a bug, or have an improvement idea? Help make Autopilot Monitor better —{" "}
-                  <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
-                    open a GitHub issue
-                  </a>.
-                </p>
-              </div>
+              {/* Community contribution: submit own custom rules for the shared pool; the list shows their status. */}
+              <CommunityContributionBox onContribute={!isReadOnly && submittableRules.length > 0 ? () => setShowSubmitModal(true) : undefined} />
+              <MySubmissionsList
+                kind="gather"
+                getAccessToken={getAccessToken}
+                refreshKey={submissionsRefreshKey}
+                overrideTenantId={isGlobalOverride ? effectiveTenantId : undefined}
+                readOnly={isReadOnly}
+                onError={showError}
+              />
 
               {/* Summary Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -669,6 +677,17 @@ export default function GatherRulesPage() {
               )}
             </div>
           )}
+        {/* Community submission picker — custom rules only; the backend freezes the rule itself. */}
+        <SubmitRulesModal
+          show={showSubmitModal}
+          kind="gather"
+          rules={submittableRules}
+          tenantId={effectiveTenantId ?? ""}
+          defaultCreditName={user?.displayName || ""}
+          getAccessToken={getAccessToken}
+          onClose={() => setShowSubmitModal(false)}
+          onSubmitted={() => setSubmissionsRefreshKey((k) => k + 1)}
+        />
         </main>
       </div>
     </ProtectedRoute>

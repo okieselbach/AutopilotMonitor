@@ -31,6 +31,7 @@ export const DOCS_PATHS = {
   // Rules
   analyzeRules: "/rules/analyze-rules",
   gatherRules: "/rules/gather-rules",
+  contributeRule: "/rules/contribute-a-rule",
   imeLogPatterns: "/rules/ime-log-patterns",
   // Portal pages (page-header "Docs" link)
   sessionDetails: "/portal-guide/session-details-and-diagnosis",

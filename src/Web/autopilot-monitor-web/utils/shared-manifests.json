@@ -479,6 +479,26 @@
     "different_problem",
     "inconclusive"
   ],
+  "ruleSubmissionKinds": [
+    "gather",
+    "analyze"
+  ],
+  "ruleSubmissionStatuses": [
+    "pending",
+    "approved",
+    "declined",
+    "withdrawn",
+    "published"
+  ],
+  "ruleAttributionModes": [
+    "anonymous",
+    "organization",
+    "person"
+  ],
+  "ruleSubmissionDecisions": [
+    "approve",
+    "decline"
+  ],
   "opsEventCategories": [
     "Consent",
     "Maintenance",
@@ -15924,6 +15944,76 @@
         }
       ]
     },
+    "ReviewRuleSubmissionRequest": {
+      "kind": "object",
+      "doc": "Body of PATCH global/rule-submissions/{id}.",
+      "fields": [
+        {
+          "name": "decision",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of All."
+        },
+        {
+          "name": "reviewComment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Shown to the submitter. Required for decline."
+        },
+        {
+          "name": "willBeAdapted",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "publishedRuleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Reserved-namespace id the rule ships under. Required for approve."
+        }
+      ]
+    },
+    "ReviewRuleSubmissionResponse": {
+      "kind": "object",
+      "doc": "Success body of PATCH global/rule-submissions/{id}.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "submission",
+          "type": {
+            "kind": "ref",
+            "name": "RuleSubmissionItem"
+          }
+        }
+      ]
+    },
     "RevokeTenantManagerRequest": {
       "kind": "object",
       "fields": [
@@ -16914,6 +17004,373 @@
           "type": {
             "kind": "ref",
             "name": "RuleStatsPeriod"
+          }
+        }
+      ]
+    },
+    "RuleSubmissionDetailResponse": {
+      "kind": "object",
+      "doc": "Success body of GET global/rule-submissions/{id}: the submission, the frozen rule typed by kind (exactly one of the two rule properties is set), live fire stats, the suggested reserved id and the repo file built from the assigned (or suggested) id.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "submission",
+          "type": {
+            "kind": "ref",
+            "name": "RuleSubmissionItem"
+          }
+        },
+        {
+          "name": "analyzeRule",
+          "type": {
+            "kind": "ref",
+            "name": "AnalyzeRule"
+          },
+          "optional": true
+        },
+        {
+          "name": "gatherRule",
+          "type": {
+            "kind": "ref",
+            "name": "GatherRule"
+          },
+          "optional": true
+        },
+        {
+          "name": "liveFireStats",
+          "type": {
+            "kind": "ref",
+            "name": "RuleSubmissionFireStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "suggestedPublishedRuleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "repoFile",
+          "type": {
+            "kind": "ref",
+            "name": "RuleSubmissionRepoFile"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "RuleSubmissionFinding": {
+      "kind": "object",
+      "doc": "A pre-flight finding recorded at submit time. Errors block the submission and are never stored.",
+      "fields": [
+        {
+          "name": "level",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "\"error\" | \"warning\" | \"info\"."
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "RuleSubmissionFireStats": {
+      "kind": "object",
+      "doc": "Fire telemetry of the submitted rule in the submitting tenant over the trailing window.",
+      "fields": [
+        {
+          "name": "days",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "fireCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "sessionsEvaluated",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "evaluationCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        }
+      ]
+    },
+    "RuleSubmissionItem": {
+      "kind": "object",
+      "doc": "Wire shape of one submission (list rows, submit response, detail head). The frozen rule document is not part of it — the detail response carries it typed.",
+      "fields": [
+        {
+          "name": "submissionId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "batchId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "ruleKind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "sourceRuleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "category",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "submittedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "submittedByName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "attributionMode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "attributionName",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "submittedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of All — the effective status, published included."
+        },
+        {
+          "name": "validationFindings",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleSubmissionFinding"
+            }
+          }
+        },
+        {
+          "name": "sourceFireStats",
+          "type": {
+            "kind": "ref",
+            "name": "RuleSubmissionFireStats"
+          },
+          "optional": true
+        },
+        {
+          "name": "reviewedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "reviewedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "reviewComment",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "willBeAdapted",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "publishedRuleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "derivedFromTemplateRuleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
+    "RuleSubmissionItemRef": {
+      "kind": "object",
+      "doc": "One rule reference in a submit request; the server freezes the rule itself.",
+      "fields": [
+        {
+          "name": "kind",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of All."
+        },
+        {
+          "name": "ruleId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ]
+    },
+    "RuleSubmissionListResponse": {
+      "kind": "object",
+      "doc": "Success body of GET rules/submissions and GET global/rule-submissions.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "submissions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleSubmissionItem"
+            }
+          }
+        },
+        {
+          "name": "nextLink",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Absolute-path link to the next page; null/absent on the last page and in non-paged responses."
+        }
+      ]
+    },
+    "RuleSubmissionRepoFile": {
+      "kind": "object",
+      "doc": "The repo-ready file for a submission: where it goes and what it contains.",
+      "fields": [
+        {
+          "name": "path",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Repository-relative path, e.g. rules/analyze/ANALYZE-NET-002.json."
+        },
+        {
+          "name": "content",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]
@@ -19894,6 +20351,93 @@
             "nullable": true
           },
           "optional": true
+        }
+      ]
+    },
+    "SubmitRuleSubmissionsRequest": {
+      "kind": "object",
+      "doc": "Body of POST rules/submissions: up to MaxItems of the caller's own custom rules.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "items",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleSubmissionItemRef"
+            }
+          }
+        },
+        {
+          "name": "comment",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true
+        },
+        {
+          "name": "attributionMode",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "One of All."
+        },
+        {
+          "name": "attributionName",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Credit text for the person mode; ignored for the other modes."
+        }
+      ]
+    },
+    "SubmitRuleSubmissionsResponse": {
+      "kind": "object",
+      "doc": "Success body of POST rules/submissions.",
+      "fields": [
+        {
+          "name": "success",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "batchId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "submissions",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "RuleSubmissionItem"
+            }
+          }
         }
       ]
     },

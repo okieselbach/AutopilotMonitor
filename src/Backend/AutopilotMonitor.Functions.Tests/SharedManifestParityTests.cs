@@ -88,6 +88,12 @@ public sealed class SharedManifestParityTests
             ["webhookProviderTypes"] = EnumMap<WebhookProviderType>(),
             ["annotationLanes"] = AnnotationLanes.All,
             ["annotationVerdicts"] = AnnotationVerdicts.All,
+            // Community rule submissions: kinds, effective statuses (incl. the derived "published"),
+            // attribution modes and reviewer decisions — the MCP tool schemas enumerate these.
+            ["ruleSubmissionKinds"] = RuleSubmissionKinds.All,
+            ["ruleSubmissionStatuses"] = RuleSubmissionStatuses.All,
+            ["ruleAttributionModes"] = RuleAttributionModes.All,
+            ["ruleSubmissionDecisions"] = RuleSubmissionDecisions.All,
             // Ops vocabularies. Declaration order kept for severities — it IS the ladder
             // (Info < Warning < Error < Critical), and the MCP renders it in that order.
             ["opsEventCategories"] = ConstStrings(typeof(OpsEventCategory)),

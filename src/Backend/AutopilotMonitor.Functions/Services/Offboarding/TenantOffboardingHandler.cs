@@ -141,6 +141,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         {
             (Constants.TableNames.BootstrapSessions, "CodeLookup"),
             (Constants.TableNames.SessionReports, "reports"),
+            (Constants.TableNames.RuleSubmissions, "submissions"),
         };
 
         // Plan §6.3.2 — Variant C (TenantId property only).

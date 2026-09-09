@@ -155,6 +155,38 @@ export const ANNOTATION_VERDICTS = [
 ] as const;
 export type AnnotationVerdict = (typeof ANNOTATION_VERDICTS)[number];
 
+/** Community rule submission kinds (C# RuleSubmissionKinds). */
+export const RULE_SUBMISSION_KINDS = [
+  "gather",
+  "analyze",
+] as const;
+export type RuleSubmissionKind = (typeof RULE_SUBMISSION_KINDS)[number];
+
+/** Effective rule submission statuses incl. the derived published (C# RuleSubmissionStatuses). */
+export const RULE_SUBMISSION_STATUSES = [
+  "pending",
+  "approved",
+  "declined",
+  "withdrawn",
+  "published",
+] as const;
+export type RuleSubmissionStatus = (typeof RULE_SUBMISSION_STATUSES)[number];
+
+/** How a contributed rule credits its author (C# RuleAttributionModes). */
+export const RULE_ATTRIBUTION_MODES = [
+  "anonymous",
+  "organization",
+  "person",
+] as const;
+export type RuleAttributionMode = (typeof RULE_ATTRIBUTION_MODES)[number];
+
+/** Reviewer decisions on a rule submission (C# RuleSubmissionDecisions). */
+export const RULE_SUBMISSION_DECISIONS = [
+  "approve",
+  "decline",
+] as const;
+export type RuleSubmissionDecision = (typeof RULE_SUBMISSION_DECISIONS)[number];
+
 /** Telemetry stores behind the operator KQL proxy — query_backend_logs `source` (C# LogQuerySources). */
 export const LOG_SOURCES = [
   "backend",

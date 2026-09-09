@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "2 September 2026";
+const LAST_UPDATED = "9 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -192,7 +192,7 @@ export default function PrivacyPage() {
           </p>
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Product feedback</strong> you submitted — it is not tied to enrollment data and is what improves the product.</li>
-            <li><strong>Custom rules and IME log patterns</strong> you authored are archived rather than deleted. Detection knowledge is what makes this product useful, so contributed rules and patterns are subject to entering the community pool — the next organization hitting the same enrollment failure gets a diagnosis instead of a mystery. A rule is a detection definition, not device data.</li>
+            <li><strong>Custom rules and IME log patterns</strong> you authored are archived rather than deleted. Detection knowledge is what makes this product useful, so contributed rules and patterns are subject to entering the community pool — the next organization hitting the same enrollment failure gets a diagnosis instead of a mystery. A rule is a detection definition, not device data. When you submit a rule from the portal, it is published anonymously unless you choose a credit — your organization name or a name you enter — which then appears as the rule&apos;s author for every tenant.</li>
           </ul>
           <p className="text-gray-700">
             Either can be removed on request.

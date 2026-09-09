@@ -132,6 +132,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_platform_metrics',
     'get_resource',
     'get_rule_stats',
+    // Platform scope (GA + Global Reader): one community rule submission with its frozen rule.
+    'get_rule_submission',
     'get_session',
     'get_session_diagnostics',
     'get_session_events',
@@ -151,6 +153,8 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_verdict_calibration',
     'get_vulnerability_summary',
     'list_blocked_devices',
+    // Platform scope (GA + Global Reader): community rule submissions across tenants.
+    'list_rule_submissions',
     'list_session_annotations',
     'list_session_reports',
     'list_tables',
@@ -162,7 +166,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'query_raw_events',
     'query_raw_sessions',
     'query_table',
+    // Community rule submission write surface (strictGa): the publish step and the decision.
+    'reseed_rules_from_github',
     'revert_tenant_config',
+    'review_rule_submission',
     'search_events',
     'search_knowledge',
     'search_sessions',
@@ -200,6 +207,10 @@ describe('role catalog snapshot — privilege-leak guard', () => {
   // reads annotations (list_session_annotations) but never writes the GA lane.
   const ANNOTATION_WRITE_GA_STRICT = ['annotate_session'];
 
+  // Community rule submission write surface: strictGa only — a read-only Global Reader
+  // lists and reads submissions but never decides one or triggers the reseed that publishes.
+  const RULE_SUBMISSION_WRITE_GA_STRICT = ['reseed_rules_from_github', 'review_rule_submission'];
+
   // Platform-only tools: a non-platform caller (tenant or delegated) gets no
   // cross-fleet aggregate surface at all. Superset of RAW_GA_STRICT and
   // CONFIG_WRITE_GA_STRICT (those are also platform-only) plus the curated
@@ -213,11 +224,13 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'get_ime_pattern_health',
     'get_ops_events',
     'get_platform_metrics',
+    'get_rule_submission',
     'get_session_report_download',
     'get_tenant_config',
     'get_tenant_config_schema',
     'get_verdict_calibration',
     'list_blocked_devices',
+    'list_rule_submissions',
     'list_session_annotations',
     'list_session_reports',
     'list_tables',
@@ -225,7 +238,9 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     'list_tenants',
     'query_backend_logs',
     'query_table',
+    'reseed_rules_from_github',
     'revert_tenant_config',
+    'review_rule_submission',
     'update_tenant_config',
   ];
 
@@ -246,7 +261,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
 
   it('Global Reader = GA minus the secret-bearing raw tools, the config-write surface and the annotation write (strictGa split)', () => {
     expect(registeredToolNames(true, false)).toEqual(
-      without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT]));
+      without(GA_FULL, [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT, ...RULE_SUBMISSION_WRITE_GA_STRICT]));
   });
 
   it('tenant user = GA minus all platform-only tools', () => {
@@ -265,6 +280,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
       ['RAW_GA_STRICT', RAW_GA_STRICT],
       ['CONFIG_WRITE_GA_STRICT', CONFIG_WRITE_GA_STRICT],
       ['ANNOTATION_WRITE_GA_STRICT', ANNOTATION_WRITE_GA_STRICT],
+      ['RULE_SUBMISSION_WRITE_GA_STRICT', RULE_SUBMISSION_WRITE_GA_STRICT],
       ['PLATFORM_ONLY', PLATFORM_ONLY],
       ['DELEGATED_HIDDEN', DELEGATED_HIDDEN],
       ['DELEGATED_ADDED', DELEGATED_ADDED],
@@ -282,7 +298,7 @@ describe('role catalog snapshot — privilege-leak guard', () => {
     const registeredDiff = registeredToolNames(true, true).filter((n) => !readerNames.includes(n)).sort();
     expect([...GA_STRICT_TOOL_NAMES].sort()).toEqual(registeredDiff);
     expect([...GA_STRICT_TOOL_NAMES].sort()).toEqual(
-      [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT].sort());
+      [...RAW_GA_STRICT, ...CONFIG_WRITE_GA_STRICT, ...ANNOTATION_WRITE_GA_STRICT, ...RULE_SUBMISSION_WRITE_GA_STRICT].sort());
   });
 
   it('the secret-bearing raw tools are a subset of the platform-only tools', () => {

@@ -483,6 +483,26 @@ export const SHARED_MANIFEST = {
     "different_problem",
     "inconclusive"
   ],
+  "ruleSubmissionKinds": [
+    "gather",
+    "analyze"
+  ],
+  "ruleSubmissionStatuses": [
+    "pending",
+    "approved",
+    "declined",
+    "withdrawn",
+    "published"
+  ],
+  "ruleAttributionModes": [
+    "anonymous",
+    "organization",
+    "person"
+  ],
+  "ruleSubmissionDecisions": [
+    "approve",
+    "decline"
+  ],
   "opsEventCategories": [
     "Consent",
     "Maintenance",

@@ -270,6 +270,7 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         id: "ga-reports", label: "Reports", icon: <DocumentTextIcon />,
         items: [
           { id: "ga-session-reports", label: "Session Reports", href: route("/admin/reports/session-reports") },
+          { id: "ga-rule-submissions", label: "Rule Submissions", href: route("/admin/reports/rule-submissions") },
           { id: "ga-distress-reports", label: "Distress Reports", href: route("/admin/reports/distress-reports") },
           { id: "ga-user-feedback", label: "User Feedback", href: route("/admin/reports/user-feedback") },
           { id: "ga-session-export", label: "Session Export", href: route("/admin/reports/session-export") },

@@ -1276,6 +1276,12 @@ namespace AutopilotMonitor.Shared
             // Session reports (feedback from Tenant Admins)
             public const string SessionReports = "SessionReports";
 
+            // Custom rules submitted for the community pool. PK = "submissions" for every tenant,
+            // RK = {invertedTicks}_{submissionId} (the SessionReports layout); tenant views and the
+            // point lookup are property filters — a submission is a rare, deliberate act, so the
+            // partition stays small enough that a second key layout would cost more than it saves.
+            public const string RuleSubmissions = "RuleSubmissions";
+
             // Bootstrap sessions (OOBE pre-enrollment agent deployment)
             public const string BootstrapSessions = "BootstrapSessions";
 
@@ -1454,6 +1460,7 @@ namespace AutopilotMonitor.Shared
                 BlockedDevices,
                 BlockedVersions,
                 SessionReports,
+                RuleSubmissions,
                 BootstrapSessions,
                 GlobalNotifications,
                 TenantNotifications,

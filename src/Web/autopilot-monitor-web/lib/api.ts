@@ -480,6 +480,27 @@ export const api = {
       `${API_BASE_URL}/api/global/session-reports/${encodeURIComponent(reportId)}/note`,
   },
 
+  // ── Community rule submissions ─────────────────────────────────────────────
+  ruleSubmissions: {
+    // Tenant side: submit references to own custom rules, list own submissions, withdraw a pending one.
+    submit: () => `${API_BASE_URL}/api/rules/submissions`,
+    mine: () => `${API_BASE_URL}/api/rules/submissions`,
+    withdraw: (submissionId: string) =>
+      `${API_BASE_URL}/api/rules/submissions/${encodeURIComponent(submissionId)}`,
+    // Operator side (Global Admin / Global Reader): cross-tenant list, detail, decision.
+    list: (opts?: { tenantId?: string; status?: string; pageSize?: number; continuation?: string }) =>
+      `${API_BASE_URL}/api/global/rule-submissions${qs({
+        tenantId: opts?.tenantId,
+        status: opts?.status,
+        pageSize: opts?.pageSize?.toString(),
+        continuation: opts?.continuation,
+      })}`,
+    detail: (submissionId: string) =>
+      `${API_BASE_URL}/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
+    review: (submissionId: string) =>
+      `${API_BASE_URL}/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
+  },
+
   // ── Diag Files Reports (no session context) ───────────────────────────────
   diagFilesReports: {
     submit: () => `${API_BASE_URL}/api/diagnostics/files`,

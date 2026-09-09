@@ -5,6 +5,7 @@
   "description": "Detects when a certificate with the configured subject is missing from the local machine personal store (LocalMachine\\My). Requires the gather rule GATHER-ID-002 (machine cert store inventory) to be enabled — the check runs against its gather_machine_cert_store output. A missing certificate may indicate that MDM enrollment certificate provisioning or SCEP certificate deployment failed.",
   "severity": "warning",
   "category": "identity",
+  "author": "Community",
   "isCommunity": true,
   "enabled": false,
   "evaluateOn": [

@@ -25,6 +25,8 @@ export const GA_STRICT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'update_tenant_config',
   'list_tenant_config_backups',
   'revert_tenant_config',
+  'review_rule_submission',
+  'reseed_rules_from_github',
 ]);
 
 /** Default first-page size of get_fleet_overview's session list (a fleet snapshot, not a sweep). */
@@ -94,7 +96,12 @@ import type {
   QueryBackendLogsResponse,
   QueryRawSessionsResponse,
   QueryRawTableResponse,
+  ReseedFromGitHubResponse,
   RevertTenantConfigurationRequest,
+  ReviewRuleSubmissionRequest,
+  ReviewRuleSubmissionResponse,
+  RuleSubmissionDetailResponse,
+  RuleSubmissionListResponse,
   RuleStatsResponse,
   RuleStatsRuleAggregate,
   SessionAnnotationListResponse,
@@ -120,6 +127,9 @@ import {
   LOG_SOURCES,
   OPS_EVENT_CATEGORIES,
   OPS_EVENT_SEVERITIES,
+  RULE_SUBMISSION_DECISIONS,
+  RULE_SUBMISSION_KINDS,
+  RULE_SUBMISSION_STATUSES,
   SESSION_STATUSES,
 } from '../generated/wire-vocabularies.generated.js';
 
@@ -1110,6 +1120,156 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
       } catch (error: unknown) {
         return toolError('list_session_reports', args, error);
+      }
+    })
+  );
+
+  // ── Community rule submissions ────────────────────────────────────────
+  // The submission id (12 hex chars, the session-report shape) is the handle for the whole
+  // review: list → get → validate_rule / test_analyze_rule → review → repo commit → reseed.
+
+  // Tool 18d: list_rule_submissions — platform scope (GA + Global Reader).
+  if (ga) server.registerTool(
+    'list_rule_submissions',
+    {
+      title: 'List Rule Submissions',
+      description:
+        'List custom gather/analyze rules that tenant admins submitted for the community pool, newest first, with ' +
+        'the effective status (pending | approved | declined | withdrawn | published — "published" is derived: the ' +
+        'approved rule\'s published id exists in the global catalog). Platform scope; pass tenantId to filter to one ' +
+        'tenant and status to one status. Each row carries the submission id — pass it to get_rule_submission for the ' +
+        'frozen rule, findings, fire stats and the repo-ready file. Fully paginated; pass the whole nextLink as "continuation".',
+      inputSchema: {
+        tenantId: TenantGuidSchema.optional().describe('Optional — filter to a single tenant. Omit for the cross-tenant view.'),
+        status: z.enum(RULE_SUBMISSION_STATUSES).optional()
+          .describe('Optional — one effective status. "published" lists the approved submissions whose rule is live in the global catalog.'),
+        pageSize: z.coerce.number().int().min(1).max(1000).optional()
+          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Follow nextLink for more.'),
+        continuation: z.string().optional()
+          .describe('The "continuation" value or the full nextLink path of a prior response; the latter is preferred.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('list_rule_submissions', args, async () => {
+      try {
+        const { tenantId, continuation } = args;
+        const pageSize = pageSizeForCall(args.pageSize, continuation, DEFAULT_FIRST_PAGE_SIZE);
+        // "published" is not a stored status: ask the backend for the approved rows and keep the live ones.
+        const wantsPublished = args.status === 'published';
+        const status = wantsPublished ? 'approved' : args.status;
+        const path = followNextLink(
+          '/api/global/rule-submissions',
+          { tenantId, status, pageSize },
+          continuation,
+          { pageSize },
+        );
+        const data = await apiFetch<RuleSubmissionListResponse>(path);
+        if (wantsPublished) {
+          const submissions = data.submissions.filter((s) => s.status === 'published');
+          return toolResultText({ ...data, count: submissions.length, submissions }, MAX_RESULT_SIZE_CHARS.adminStream);
+        }
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.adminStream);
+      } catch (error: unknown) {
+        return toolError('list_rule_submissions', args, error);
+      }
+    })
+  );
+
+  // Tool 18e: get_rule_submission — platform scope (GA + Global Reader).
+  if (ga) server.registerTool(
+    'get_rule_submission',
+    {
+      title: 'Get Rule Submission',
+      description:
+        'Everything a review needs for one submitted rule: the submission (submitter, comment, attribution, ' +
+        'effective status, review fields), the frozen rule typed by kind (analyzeRule or gatherRule — pass it to ' +
+        'validate_rule, and for analyze rules to test_analyze_rule against sessions of the submitting tenant), the ' +
+        'pre-flight findings recorded at submit time, the rule\'s fire stats in the submitting tenant (frozen and live), ' +
+        'the suggested reserved rule id (max+1 in the category, gaps are retired ids) and repoFile: the ready-to-commit ' +
+        'file content plus its path under rules/. After approval, publishing is a repo commit of that file followed by ' +
+        'reseed_rules_from_github; the status turns "published" once the id is in the global catalog.',
+      inputSchema: {
+        submissionId: z.string().trim().regex(/^[0-9a-f]{12}$/i).describe('The 12-character submission id.'),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => withToolTelemetry('get_rule_submission', args, async () => {
+      try {
+        const data = await apiFetch<RuleSubmissionDetailResponse>(`/api/global/rule-submissions/${encodeURIComponent(args.submissionId)}`);
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('get_rule_submission', args, error);
+      }
+    })
+  );
+
+  // Tool 18f: review_rule_submission — real Global Admin only (write).
+  if (strictGa) server.registerTool(
+    'review_rule_submission',
+    {
+      title: 'Review Rule Submission',
+      description:
+        'Record the decision on a submitted rule. Global Admin only. approve needs publishedRuleId — the reserved ' +
+        'built-in id the rule will ship under (ANALYZE-<CAT>-NNN / GATHER-<CAT>-NNN, three digits; take ' +
+        'suggestedPublishedRuleId from get_rule_submission unless you have a reason not to) — and may set ' +
+        'willBeAdapted when the published rule will differ from the submitted one. decline needs reviewComment. ' +
+        'The comment is shown to the submitter in both cases. Transitions: pending → approved | declined; ' +
+        'approved → declined while not yet published; a published submission is final. Approving does NOT publish: ' +
+        'commit the repo file (get_rule_submission → repoFile), push, then reseed_rules_from_github.',
+      inputSchema: {
+        submissionId: z.string().trim().regex(/^[0-9a-f]{12}$/i).describe('The 12-character submission id.'),
+        decision: z.enum(RULE_SUBMISSION_DECISIONS).describe('approve or decline.'),
+        reviewComment: z.string().max(4000).optional()
+          .describe('Shown to the submitter. Required for decline; for approve it explains the adaptation, if any.'),
+        willBeAdapted: z.boolean().optional()
+          .describe('approve only — the published rule will be adapted (generalised) before it ships.'),
+        publishedRuleId: z.string().trim().optional()
+          .describe('approve only — the reserved id the rule ships under; must be free in catalog, global partition and other approvals.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('review_rule_submission', args, async () => {
+      try {
+        const { submissionId, decision, reviewComment, willBeAdapted, publishedRuleId } = args;
+        const data = await apiFetch<ReviewRuleSubmissionResponse>(
+          `/api/global/rule-submissions/${encodeURIComponent(submissionId)}`,
+          {
+            method: 'PATCH',
+            body: jsonBody<ReviewRuleSubmissionRequest>({ decision, reviewComment, willBeAdapted, publishedRuleId }),
+          },
+        );
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('review_rule_submission', args, error);
+      }
+    })
+  );
+
+  // Tool 18g: reseed_rules_from_github — real Global Admin only (write): the publish step.
+  if (strictGa) server.registerTool(
+    'reseed_rules_from_github',
+    {
+      title: 'Reseed Rules From GitHub',
+      description:
+        'Pull the rule catalog of one kind from the public repository\'s main branch (rules/dist) into the global ' +
+        'rule partition — the step that makes a committed and pushed community rule live for every tenant without a ' +
+        'backend deploy. Global Admin only. Also sunsets GitHub-sourced rules the repository no longer ships, so run it ' +
+        'only after the push landed. Returns deleted/written counts; the proof of a publish is get_rule_submission ' +
+        'showing status "published", not this count.',
+      inputSchema: {
+        type: z.enum(RULE_SUBMISSION_KINDS).describe('Which catalog to reseed: analyze or gather.'),
+      },
+      annotations: MUTATING,
+    },
+    async (args) => withToolTelemetry('reseed_rules_from_github', args, async () => {
+      try {
+        const data = await apiFetch<ReseedFromGitHubResponse>(
+          `/api/rules/reseed-from-github?type=${encodeURIComponent(args.type)}`,
+          { method: 'POST' },
+        );
+        return toolResultText(data, MAX_RESULT_SIZE_CHARS.small);
+      } catch (error: unknown) {
+        return toolError('reseed_rules_from_github', args, error);
       }
     })
   );

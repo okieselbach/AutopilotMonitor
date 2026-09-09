@@ -3,12 +3,14 @@
 import { notFound } from "next/navigation";
 import { type ReportsSectionId } from "../reportsNavSections";
 import { SectionSessionReports } from "../sections/SectionSessionReports";
+import { SectionRuleSubmissions } from "../sections/SectionRuleSubmissions";
 import { SectionDistressReports } from "../sections/SectionDistressReports";
 import { SectionUserFeedback } from "../sections/SectionUserFeedback";
 import { SectionSessionExport } from "../sections/SectionSessionExport";
 
 const SECTION_COMPONENTS: Record<ReportsSectionId, React.ComponentType> = {
   "session-reports": SectionSessionReports,
+  "rule-submissions": SectionRuleSubmissions,
   "distress-reports": SectionDistressReports,
   "user-feedback": SectionUserFeedback,
   "session-export": SectionSessionExport,

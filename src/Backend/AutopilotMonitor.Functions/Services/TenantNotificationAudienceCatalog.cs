@@ -35,6 +35,8 @@ public static class TenantNotificationAudienceCatalog
         ["rule_frequency_regression"] = NotificationAudience.Admin,
         // App-version duration regression radar: packaging/rollout is an admin concern.
         ["app_version_duration_regression"] = NotificationAudience.Admin,
+        // Community rule submission decided (approved/declined): only admins submit, only admins act.
+        ["rule_submission_decided"] = NotificationAudience.Admin,
     };
 
     public static NotificationAudience Resolve(string? type)

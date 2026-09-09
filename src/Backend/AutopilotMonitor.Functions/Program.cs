@@ -318,6 +318,7 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.Di
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.DiagnosticsBlobCascadeDeleter>();
 builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Diagnostics.SessionReportDiagnosticsArchiveCopier>();
 builder.Services.AddSingleton<SessionReportService>();
+builder.Services.AddSingleton<RuleSubmissionService>();
 builder.Services.AddSingleton<BootstrapSessionService>();
 
 // Queue producers + handlers. Consumers are [QueueTrigger] functions under Functions/Queue/

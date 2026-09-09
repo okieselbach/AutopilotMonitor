@@ -105,6 +105,42 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Sends a Telegram notification when a tenant admin submits a custom rule for the
+        /// community pool. The submission id comes first — it is the handle for the review.
+        /// Best-effort — silently no-ops if the webhook URL is not configured.
+        /// </summary>
+        public async Task SendRuleSubmissionAsync(string submissionId, string tenantId, string submittedBy, string ruleKind, string ruleId, string title, string comment)
+        {
+            try
+            {
+                var webhookUrl = await GetWebhookUrlAsync();
+                if (string.IsNullOrWhiteSpace(webhookUrl))
+                {
+                    _logger.LogDebug("Telegram webhook URL not configured — skipping rule submission notification");
+                    return;
+                }
+
+                var commentLine = string.IsNullOrWhiteSpace(comment) ? "" : $"\nComment: {comment}";
+                var payload = new
+                {
+                    chat_id = "-1003632442830",
+                    text = $"New Rule Submission {submissionId}\nRule: {ruleId} \"{title}\" ({ruleKind})\nTenantID: {tenantId}\nBy: {submittedBy}{commentLine}"
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _http.PostAsync(webhookUrl, content);
+
+                if (response.IsSuccessStatusCode)
+                    _logger.LogInformation("Telegram rule submission notification sent for {SubmissionId}", submissionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send Telegram rule submission notification for {SubmissionId}", submissionId);
+            }
+        }
+
+        /// <summary>
         /// Sends a Telegram notification when a tenant admin submits a diag-files-only report
         /// (no session context). Best-effort — silently no-ops if the webhook URL is not configured.
         /// </summary>

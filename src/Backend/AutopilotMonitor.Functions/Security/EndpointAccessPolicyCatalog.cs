@@ -354,6 +354,11 @@ public static class EndpointAccessPolicyCatalog
         // troubleshooting action, not a config change — a support-driven Operator may use it.
         // Viewer and the read-only Global Reader stay excluded (the tier admits no Viewer/Reader).
         new("POST",   "diagnostics/files",                  EndpointPolicy.TenantAdminOrOperator),
+        // Community rule submissions: the tenant admin submits references to own custom rules
+        // (frozen server-side), lists and withdraws them for the JWT tenant only.
+        new("POST",   "rules/submissions",                  EndpointPolicy.TenantAdminOrGA),
+        new("GET",    "rules/submissions",                  EndpointPolicy.TenantAdminOrGA),
+        new("DELETE", "rules/submissions/{submissionId}",   EndpointPolicy.TenantAdminOrGA),
         new("DELETE", "sessions/{sessionId}",      EndpointPolicy.TenantAdminOrGA, TenantScoping.QueryParam),
         new("GET",    "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "tenants/{tenantId}/admins",           EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
@@ -513,6 +518,10 @@ public static class EndpointAccessPolicyCatalog
         new("POST",   "global/session-reports/download-ticket", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/session-reports/download-url", EndpointPolicy.GlobalReadOrAdmin),
         new("PATCH",  "global/session-reports/{reportId}/note", EndpointPolicy.GlobalAdminOnly),
+        // Community rule submissions, operator side: cross-tenant read (Global Reader included), decision GA-only.
+        new("GET",    "global/rule-submissions",            EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        new("GET",    "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalReadOrAdmin),
+        new("PATCH",  "global/rule-submissions/{submissionId}", EndpointPolicy.GlobalAdminOnly),
         // Flywheel evaluation stream: all annotation lanes across tenants (verdict/rule filters).
         new("GET",    "global/session-annotations", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/rules/gather",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),

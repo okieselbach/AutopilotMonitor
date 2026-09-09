@@ -55,6 +55,10 @@ namespace AutopilotMonitor.Functions.Functions.Rules
                 return await req.BadRequestAsync("Invalid rule data");
             }
 
+            // Author is stamped from the creator's token, never from the payload
+            // (anti-spoof), and stays immutable through every later update.
+            rule.Author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
+
             try
             {
                 var success = await _ruleService.CreateRuleAsync(tenantId, rule);
@@ -87,6 +91,11 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             var rule = read.Value!;
 
             rule.RuleId = ruleId;
+
+            // Same anti-spoof stamp as CreateRule: on a true update the service replaces
+            // this with the original author (immutable attribution), but a full-payload PUT
+            // that upserts a rule with no existing row must not store the payload's author.
+            rule.Author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
 
             try
             {
@@ -124,7 +133,8 @@ namespace AutopilotMonitor.Functions.Functions.Rules
 
             try
             {
-                var newRule = await _ruleService.CreateFromTemplateAsync(tenantId, ruleId, variables);
+                var author = TenantHelper.GetUserDisplayName(req) ?? "Autopilot Monitor";
+                var newRule = await _ruleService.CreateFromTemplateAsync(tenantId, ruleId, variables, author);
 
                 var response = req.CreateResponse(HttpStatusCode.Created);
                 await response.WriteAsJsonAsync(new CreateAnalyzeRuleFromTemplateResponse { Success = true, Rule = newRule, Message = "Custom rule created from template" });

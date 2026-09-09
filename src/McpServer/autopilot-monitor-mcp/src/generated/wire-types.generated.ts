@@ -3439,6 +3439,24 @@ export interface RevertTenantConfigurationRequest {
   reason?: string | null;
 }
 
+/** Body of PATCH global/rule-submissions/{id}. */
+export interface ReviewRuleSubmissionRequest {
+  /** One of All. */
+  decision: string;
+  /** Shown to the submitter. Required for decline. */
+  reviewComment?: string | null;
+  willBeAdapted?: boolean | null;
+  /** Reserved-namespace id the rule ships under. Required for approve. */
+  publishedRuleId?: string | null;
+}
+
+/** Success body of PATCH global/rule-submissions/{id}. */
+export interface ReviewRuleSubmissionResponse {
+  success: boolean;
+  message: string;
+  submission: RuleSubmissionItem;
+}
+
 export interface RevokeTenantManagerRequest {
   homeTenantId: string;
 }
@@ -3666,6 +3684,82 @@ export interface RuleStatsSummary {
   /** Distinct rule count — set on the global route only (the key is absent on the tenant route, preserving its historical shape). */
   uniqueRules?: number;
   period: RuleStatsPeriod;
+}
+
+/** Success body of GET global/rule-submissions/{id}: the submission, the frozen rule typed by kind (exactly one of the two rule properties is set), live fire stats, the suggested reserved id and the repo file built from the assigned (or suggested) id. */
+export interface RuleSubmissionDetailResponse {
+  success: boolean;
+  submission: RuleSubmissionItem;
+  analyzeRule?: AnalyzeRule;
+  gatherRule?: GatherRule;
+  liveFireStats?: RuleSubmissionFireStats;
+  suggestedPublishedRuleId?: string;
+  repoFile?: RuleSubmissionRepoFile;
+}
+
+/** A pre-flight finding recorded at submit time. Errors block the submission and are never stored. */
+export interface RuleSubmissionFinding {
+  /** "error" | "warning" | "info". */
+  level: string;
+  message: string;
+}
+
+/** Fire telemetry of the submitted rule in the submitting tenant over the trailing window. */
+export interface RuleSubmissionFireStats {
+  days: number;
+  fireCount: number;
+  sessionsEvaluated: number;
+  evaluationCount: number;
+}
+
+/** Wire shape of one submission (list rows, submit response, detail head). The frozen rule document is not part of it — the detail response carries it typed. */
+export interface RuleSubmissionItem {
+  submissionId: string;
+  batchId: string;
+  tenantId: string;
+  ruleKind: string;
+  sourceRuleId: string;
+  title: string;
+  category: string;
+  comment?: string;
+  submittedBy: string;
+  submittedByName: string;
+  attributionMode: string;
+  attributionName: string;
+  submittedAt: string;
+  /** One of All — the effective status, published included. */
+  status: string;
+  validationFindings: RuleSubmissionFinding[];
+  sourceFireStats?: RuleSubmissionFireStats;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewComment?: string;
+  willBeAdapted: boolean;
+  publishedRuleId?: string;
+  derivedFromTemplateRuleId?: string;
+}
+
+/** One rule reference in a submit request; the server freezes the rule itself. */
+export interface RuleSubmissionItemRef {
+  /** One of All. */
+  kind: string;
+  ruleId: string;
+}
+
+/** Success body of GET rules/submissions and GET global/rule-submissions. */
+export interface RuleSubmissionListResponse {
+  success: boolean;
+  count: number;
+  submissions: RuleSubmissionItem[];
+  /** Absolute-path link to the next page; null/absent on the last page and in non-paged responses. */
+  nextLink?: string;
+}
+
+/** The repo-ready file for a submission: where it goes and what it contains. */
+export interface RuleSubmissionRepoFile {
+  /** Repository-relative path, e.g. rules/analyze/ANALYZE-NET-002.json. */
+  path: string;
+  content: string;
 }
 
 /** One day of a rule's trend ("yyyy-MM-dd"). */
@@ -4315,6 +4409,25 @@ export interface SubmitDiagFilesReportRequest {
 /** Body of POST tenants/{tenantId}/offboard/feedback. */
 export interface SubmitOffboardingFeedbackRequest {
   comment?: string | null;
+}
+
+/** Body of POST rules/submissions: up to MaxItems of the caller's own custom rules. */
+export interface SubmitRuleSubmissionsRequest {
+  tenantId: string;
+  items: RuleSubmissionItemRef[];
+  comment?: string | null;
+  /** One of All. */
+  attributionMode: string;
+  /** Credit text for the person mode; ignored for the other modes. */
+  attributionName?: string | null;
+}
+
+/** Success body of POST rules/submissions. */
+export interface SubmitRuleSubmissionsResponse {
+  success: boolean;
+  message: string;
+  batchId: string;
+  submissions: RuleSubmissionItem[];
 }
 
 /** Request to submit a session report for analysis by the Autopilot Monitor team. Sent as JSON from the frontend; the backend creates the ZIP and uploads to central storage. */

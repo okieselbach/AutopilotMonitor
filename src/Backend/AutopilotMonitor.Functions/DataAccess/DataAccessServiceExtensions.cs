@@ -34,6 +34,7 @@ namespace AutopilotMonitor.Functions.DataAccess
             services.AddSingleton<ISessionAnnotationRepository, TableSessionAnnotationRepository>();
             services.AddSingleton<IBootstrapRepository, TableBootstrapRepository>();
             services.AddSingleton<INotificationRepository, TableNotificationRepository>();
+            services.AddSingleton<IRuleSubmissionRepository, TableRuleSubmissionRepository>();
             services.AddSingleton<ITenantNotificationRepository, TableTenantNotificationRepository>();
             services.AddSingleton<ISlaTenantStatusRepository, TableSlaTenantStatusRepository>();
             // What's new notifier watermark (single platform row in the AdminConfiguration table).

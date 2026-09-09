@@ -322,6 +322,16 @@ namespace AutopilotMonitor.Functions.Services
                 rule.Notify = null;
             }
 
+            var existing = (await _ruleRepo.GetAnalyzeRulesAsync(tenantId))
+                .FirstOrDefault(r => r.RuleId == rule.RuleId && !r.IsBuiltIn && !r.IsCommunity);
+            if (existing != null)
+            {
+                rule.CreatedAt = existing.CreatedAt;
+                // Author is stamped from the creator's token at create time and is
+                // immutable afterwards — updates (incl. cross-tenant GA edits) keep it.
+                rule.Author = existing.Author;
+            }
+
             rule.UpdatedAt = DateTime.UtcNow;
             return await _ruleRepo.StoreAnalyzeRuleAsync(rule, tenantId);
         }
@@ -333,7 +343,8 @@ namespace AutopilotMonitor.Functions.Services
         public async Task<AnalyzeRule> CreateFromTemplateAsync(
             string tenantId,
             string templateRuleId,
-            Dictionary<string, string> variableValues)
+            Dictionary<string, string> variableValues,
+            string? author = null)
         {
             var allRules = await GetAllRulesForTenantAsync(tenantId);
             var template = allRules.FirstOrDefault(r => r.RuleId == templateRuleId);
@@ -370,6 +381,8 @@ namespace AutopilotMonitor.Functions.Services
             customRule.RuleId = $"{templateRuleId}-CUSTOM";
             customRule.IsBuiltIn = false;
             customRule.IsCommunity = false;
+            // The copy is the tenant's rule, not the template author's.
+            customRule.Author = string.IsNullOrWhiteSpace(author) ? "Autopilot Monitor" : author!;
             customRule.Enabled = true;
             customRule.DerivedFromTemplateRuleId = templateRuleId;
             customRule.TemplateVariables = new List<TemplateVariable>();
