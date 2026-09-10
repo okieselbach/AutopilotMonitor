@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.SeedPendingPlatformScriptForTesting("dece354a", exitCode: 0, exitObservedAtUtc: observedAt, stdout: "Script start.\nScript end.");
 
             // Well past the grace window — should emit.
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
 
             var script = Assert.Single(emitted);
             Assert.Equal("dece354a", script.PolicyId);
@@ -60,11 +60,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.SeedPendingPlatformScriptForTesting("60b43a2e", exitCode: 0, exitObservedAtUtc: observedAt);
 
             // Inside the grace window — IME might still log its result; do not emit yet.
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(5));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(5));
             Assert.Empty(emitted);
 
             // Past the grace window — emit.
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
             Assert.Single(emitted);
         }
 
@@ -78,7 +78,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.SeedPendingPlatformScriptForTesting("846cea22", exitCode: 0, exitObservedAtUtc: observedAt);
 
             // Shutdown flush right after exit — grace not elapsed, but force emits anyway.
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(1), force: true);
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(1), force: true);
 
             Assert.Single(emitted);
         }
@@ -92,7 +92,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
             tracker.SeedPendingPlatformScriptForTesting("bad5c0de", exitCode: 1, exitObservedAtUtc: observedAt);
 
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
 
             var script = Assert.Single(emitted);
             Assert.Equal(1, script.ExitCode);
@@ -109,7 +109,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             // Started but no exit code yet → still running, must not be emitted even on force flush.
             tracker.SeedPendingPlatformScriptForTesting("running", exitCode: null, exitObservedAtUtc: null);
 
-            tracker.FlushStalePlatformScriptResults(DateTime.UtcNow, force: true);
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
 
             Assert.Empty(emitted);
         }
@@ -122,7 +122,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             var observedAt = new DateTime(2026, 6, 19, 12, 59, 4, DateTimeKind.Utc);
 
             tracker.SeedPendingPlatformScriptForTesting("dece354a", exitCode: 0, exitObservedAtUtc: observedAt);
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
             Assert.Single(emitted);
 
             // IME finally logs its PS-SCRIPT-RESULT line — must NOT produce a second event.
@@ -138,7 +138,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             var observedAt = new DateTime(2026, 6, 19, 12, 59, 4, DateTimeKind.Utc);
 
             tracker.SeedPendingPlatformScriptForTesting("dece354a", exitCode: 0, exitObservedAtUtc: observedAt);
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
 
             // The exit-observed timestamp must travel on the emitted state so the adapter can bind
             // the event to it instead of an unrelated "last matched" line parsed during the grace.
@@ -156,14 +156,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
             // Run 1 of policy X — fallback emits.
             tracker.SeedPendingPlatformScriptForTesting("policyX", exitCode: 0, exitObservedAtUtc: firstRun);
-            tracker.FlushStalePlatformScriptResults(firstRun.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(firstRun.AddSeconds(20));
             Assert.Single(emitted);
 
             // Run 2 of the SAME policy later in the same agent lifetime (IME re-evaluation / retry)
             // must NOT be deduped away — the fresh start clears the prior emitted-marker.
             var secondRun = firstRun.AddMinutes(30);
             tracker.SeedPendingPlatformScriptForTesting("policyX", exitCode: 0, exitObservedAtUtc: secondRun);
-            tracker.FlushStalePlatformScriptResults(secondRun.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(secondRun.AddSeconds(20));
             Assert.Equal(2, emitted.Count);
         }
 
@@ -182,7 +182,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal("ime_policy_result", script.ResultSource);
 
             // Later fallback pass must find nothing pending → no duplicate.
-            tracker.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
             Assert.Single(emitted);
         }
     }

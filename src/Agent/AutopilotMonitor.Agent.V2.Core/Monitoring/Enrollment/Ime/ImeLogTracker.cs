@@ -956,11 +956,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     {
                         await CheckLogFilesAsync(token);
 
-                        // Safety net: emit completions for platform scripts whose AgentExecutor
-                        // exit code we already have but whose authoritative IME PS-SCRIPT-RESULT
-                        // line never arrived within the grace period. Runs on this same loop
+                        // Platform-script completions that wait for the other file: an IME result
+                        // held for its executor end block, and the exit-code fallback for a
+                        // result IME never logged within the grace period. Runs on this same loop
                         // thread (no locking) so it observes the buffer right after parsing.
-                        FlushStalePlatformScriptResults(DateTime.UtcNow);
+                        FlushPendingPlatformScriptResults(UtcNowProvider());
 
                         // Token-failure grace window: fires only when the failure stayed
                         // unresolved (no IME-TOKEN-SUCCESS) for the whole window. Runs after
@@ -988,10 +988,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     try { await Task.Delay(_pollingIntervalMs, token); } catch (OperationCanceledException) { break; }
                 }
 
-                // Final pass: force-flush any platform script that completed within the last grace
-                // window before shutdown (exit code known, IME result still pending). Best-effort —
-                // emits only while callbacks are still wired (i.e. the adapter hasn't been disposed).
-                try { FlushStalePlatformScriptResults(DateTime.UtcNow, force: true); }
+                // Final pass: force-flush any platform script still waiting for the other file
+                // (a held IME result, or an exit code whose IME result is still pending).
+                // Best-effort — emits only while callbacks are still wired (i.e. the adapter
+                // hasn't been disposed).
+                try { FlushPendingPlatformScriptResults(UtcNowProvider(), force: true); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: shutdown script flush failed: {ex.Message}"); }
 
                 // Final state save on shutdown
@@ -1103,10 +1104,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // (the in-memory marker set started empty). Old state files have null here —
             // degrades to the pre-fix behavior, no crash.
             _platformScriptResultEmitted.Clear();
-            if (state.PlatformScriptResultEmitted != null)
+            if (state.PlatformScriptResultEmittedAt != null)
             {
+                foreach (var kv in state.PlatformScriptResultEmittedAt)
+                    _platformScriptResultEmitted[kv.Key] = kv.Value;
+            }
+            else if (state.PlatformScriptResultEmitted != null)
+            {
+                // State files from before the marker carried the run's timestamp: the dedup
+                // works as before, the late-start-line guard never fires for these runs.
                 foreach (var id in state.PlatformScriptResultEmitted)
-                    _platformScriptResultEmitted.Add(id);
+                    _platformScriptResultEmitted[id] = DateTime.MinValue;
             }
 
             _pendingPlatformScripts.Clear();
@@ -1197,7 +1205,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                 // H1 (delta review 2026-07-02): platform-script dedup markers + pending buffer
                 // must survive restarts — see the LoadState comment for the duplicate scenario.
-                PlatformScriptResultEmitted = _platformScriptResultEmitted.ToList(),
+                PlatformScriptResultEmittedAt = new Dictionary<string, DateTime>(_platformScriptResultEmitted, StringComparer.OrdinalIgnoreCase),
                 PendingPlatformScripts = _pendingPlatformScripts.Values.ToList(),
                 ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
             };

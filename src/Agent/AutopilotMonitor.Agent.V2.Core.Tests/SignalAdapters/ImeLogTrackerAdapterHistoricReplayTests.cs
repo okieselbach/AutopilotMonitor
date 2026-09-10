@@ -247,6 +247,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.SignalAdapters
 
             f.Tracker.LastMatchedLogTimestamp = ClockNow;
             f.Tracker.CompletePlatformScriptFromImeResultForTesting("beef7777", "Success", ClockNow);
+            // No end block is seeded — the held result goes out with the shutdown flush.
+            f.Tracker.FlushPendingPlatformScriptResults(f.Clock.UtcNow, force: true);
 
             var info = f.InfoEvent(SharedEventTypes.ScriptCompleted);
             // Without the hardening the slot kept the 7-day-old start: the duration would have

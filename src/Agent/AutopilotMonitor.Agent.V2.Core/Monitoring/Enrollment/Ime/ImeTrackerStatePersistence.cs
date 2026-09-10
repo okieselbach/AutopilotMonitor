@@ -142,7 +142,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // continues its grace window after the restart instead of being silently dropped.
         // ScriptExecutionState is a plain DTO, serialized directly (no mapping layer needed).
         // All three are null on state files from before this fix — LoadState treats null as empty.
+        // Read-only migration input: state files written before the marker carried the run's
+        // source timestamp (agents up to 2.0.1458). Never written any more.
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public List<string> PlatformScriptResultEmitted { get; set; }
+        // Policy id → source timestamp of the emitted run (its result line; the exit line for a
+        // fallback emit): the dedup marker plus the reference that tells a late start line of
+        // that run from the start of the next one.
+        public Dictionary<string, DateTime> PlatformScriptResultEmittedAt { get; set; }
         public List<ScriptExecutionState> PendingPlatformScripts { get; set; }
         public List<string> ScriptTimeoutSuspectedPosted { get; set; }
 

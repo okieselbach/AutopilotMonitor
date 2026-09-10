@@ -61,10 +61,33 @@ public class ScriptExecutionState
     /// <summary>
     /// UTC timestamp at which the AgentExecutor.log exit-code line for this platform script was
     /// observed. Drives the deadline check in
-    /// <see cref="ImeLogTracker.FlushStalePlatformScriptResults"/> — set only on the platform path
+    /// <see cref="ImeLogTracker.FlushPendingPlatformScriptResults"/> — set only on the platform path
     /// (PS-AGENT exit code); null until an exit code is seen.
     /// </summary>
     public System.DateTime? ExitObservedAtUtc { get; set; }
+
+    /// <summary>
+    /// Source (CMTrace) timestamp of the IME <c>PS-SCRIPT-RESULT</c> line that delivered
+    /// <see cref="Result"/> (platform scripts, <c>ime_policy_result</c> only). The emitted event is
+    /// bound to it — the emit may happen passes later (see <see cref="ResultHeldSinceUtc"/>), when
+    /// the tracker's "last matched" line is an unrelated one. Also the reference a later start line
+    /// of the same policy is compared against: a start older than the emitted result is the late
+    /// start line of that run, not a new run.
+    /// </summary>
+    public System.DateTime? ResultObservedAtUtc { get; set; }
+
+    /// <summary>Pattern id of the line that delivered <see cref="Result"/> (surfaced as <c>patternId</c> on the event).</summary>
+    public string ResultPatternId { get; set; }
+
+    /// <summary>
+    /// Wall-clock time (agent UTC) at which the IME result was seen while the executor end block
+    /// (exit code, stdout, stderr) had not been read yet. The tracker holds the emit until the end
+    /// block arrives — an overwritten block surfaces one pass later through the ledger rewind that
+    /// the result itself triggers, and the AgentExecutor.log read can simply lag behind the IME log
+    /// read — or until <c>ImeLogTracker.PlatformScriptEndBlockGrace</c> elapsed. Null when the
+    /// result was not held.
+    /// </summary>
+    public System.DateTime? ResultHeldSinceUtc { get; set; }
 
     /// <summary>"True" or "False" compliance result (remediation detection / post-detection only).</summary>
     public string ComplianceResult { get; set; }

@@ -1254,23 +1254,25 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             if (!string.IsNullOrEmpty(script.Stdout)) data["stdout"] = script.Stdout!;
             if (!string.IsNullOrEmpty(script.Stderr)) data["stderr"] = script.Stderr!;
 
-            // The exit-code fallback emits asynchronously to log parsing, so the tracker's
-            // "last matched" pattern/timestamp belong to an unrelated later line. Bind the event to
-            // the script's own exit-observed timestamp and omit the misleading patternId instead.
+            // A platform-script completion is bound to the script's own line, not to the tracker's
+            // "last matched" one: the exit-code fallback emits a grace period after its exit line,
+            // and an IME result held for its executor end block emits at the end of a later pass —
+            // by then LastMatched* name an unrelated line. The fallback carries no patternId (no
+            // line delivered its result). Health scripts carry neither stamp and stay on the last
+            // matched line, which IS their result line.
             var isFallback = string.Equals(script.ResultSource, "agentexecutor_fallback", StringComparison.Ordinal);
             if (!isFallback)
             {
-                var patternId = _tracker.LastMatchedPatternId;
+                var patternId = script.ResultPatternId ?? _tracker.LastMatchedPatternId;
                 if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
             }
 
             bool derivedFromClock;
             DateTime? rawSourceTs;
-            DateTime now;
-            if (isFallback && script.ExitObservedAtUtc.HasValue)
-                now = ResolveOccurredAt(script.ExitObservedAtUtc, out derivedFromClock, out rawSourceTs);
-            else
-                now = ResolveOccurredAt(out derivedFromClock, out rawSourceTs);
+            var sourceTs = isFallback ? script.ExitObservedAtUtc : script.ResultObservedAtUtc;
+            var now = sourceTs.HasValue
+                ? ResolveOccurredAt(sourceTs, out derivedFromClock, out rawSourceTs)
+                : ResolveOccurredAt(out derivedFromClock, out rawSourceTs);
 
             // Historic replay (a previous enrollment's log) — do not emit at all. The early
             // return also skips MaybeEmitBootstrapDetected / MaybeEmitScriptTimeoutSuspected,

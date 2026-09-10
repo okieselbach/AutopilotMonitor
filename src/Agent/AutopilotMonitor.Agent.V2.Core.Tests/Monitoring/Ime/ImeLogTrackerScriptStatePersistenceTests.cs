@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             // Run 1: exit code seen, shutdown force-flush emits the fallback completion.
             var tracker1 = BuildTracker(tmp, out var emitted1);
             tracker1.SeedPendingPlatformScriptForTesting("policyA", exitCode: 0, exitObservedAtUtc: observedAt);
-            tracker1.FlushStalePlatformScriptResults(observedAt.AddSeconds(1), force: true);
+            tracker1.FlushPendingPlatformScriptResults(observedAt.AddSeconds(1), force: true);
             Assert.Single(emitted1);
             tracker1.SaveStateForTest();
 
@@ -68,7 +68,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             // Restarted tracker continues the grace window instead of dropping the script.
             var tracker2 = BuildTracker(tmp, out var emitted2);
             tracker2.LoadStateForTest();
-            tracker2.FlushStalePlatformScriptResults(observedAt.AddSeconds(20));
+            tracker2.FlushPendingPlatformScriptResults(observedAt.AddSeconds(20));
 
             var script = Assert.Single(emitted2);
             Assert.Equal("policyB", script.PolicyId);
@@ -84,7 +84,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
             var tracker1 = BuildTracker(tmp, out _);
             tracker1.SeedPendingPlatformScriptForTesting("policyC", exitCode: 0, exitObservedAtUtc: observedAt);
-            tracker1.FlushStalePlatformScriptResults(observedAt.AddSeconds(1), force: true);
+            tracker1.FlushPendingPlatformScriptResults(observedAt.AddSeconds(1), force: true);
             tracker1.SaveStateForTest();
 
             // Restart, then a genuine RE-RUN of the same policy (fresh start clears the marker).
@@ -109,8 +109,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             var tracker = BuildTracker(tmp, out var emitted);
             tracker.LoadStateForTest(); // must not throw
 
-            // Degrades to pre-fix behavior: no markers restored, normal emission works.
+            // Degrades to pre-fix behavior: no markers restored, normal emission works (the
+            // result waits for its end block until the shutdown flush).
             tracker.CompletePlatformScriptFromImeResultForTesting("policyD", "Success");
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
             Assert.Single(emitted);
         }
 
@@ -128,8 +130,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.CompletePlatformScriptFromImeResultForTesting("policyE", "Failed", run2Start.AddMinutes(-5));
             Assert.Empty(emitted);
 
-            // Run 2's own result (newer than its start) still emits normally.
+            // Run 2's own result (newer than its start) still emits normally — held for the end
+            // block until the shutdown flush, since none is seeded here.
             tracker.CompletePlatformScriptFromImeResultForTesting("policyE", "Success", run2Start.AddMinutes(2));
+            tracker.FlushPendingPlatformScriptResults(run2Start.AddMinutes(2), force: true);
             var script = Assert.Single(emitted);
             Assert.Equal("Success", script.Result);
             Assert.Equal(run2Start, script.StartedAtUtc);

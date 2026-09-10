@@ -380,9 +380,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (!isClose && policyId != null) _lastPlatformMarker = marker;
         }
 
-        /// <summary>The pending platform script that owns the entry being processed, or null.</summary>
-        private ScriptExecutionState ResolvePlatformScriptForCurrentEntry()
+        /// <summary>
+        /// The pending platform script that owns the entry being processed, or null.
+        /// <paramref name="ownerPolicyId"/> names the owning platform script even when its slot is
+        /// gone (completion already emitted); null when no platform invocation owns the entry.
+        /// </summary>
+        private ScriptExecutionState ResolvePlatformScriptForCurrentEntry(out string ownerPolicyId)
         {
+            ownerPolicyId = null;
             InvocationMarker marker = null;
             List<InvocationMarker> list = null;
             if (_currentSourceFileName != null && _currentEntryOffset >= 0 && _invocationMarkers.TryGetValue(_currentSourceFileName, out list))
@@ -401,6 +406,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (marker == null && (list == null || list.Count == 0)) marker = _lastPlatformMarker;
             if (marker == null || marker.IsClose || marker.PolicyId == null) return null;
 
+            ownerPolicyId = marker.PolicyId;
             ScriptExecutionState state;
             return _pendingPlatformScripts.TryGetValue(marker.PolicyId, out state) ? state : null;
         }

@@ -111,9 +111,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             tracker.ProcessLogMessageForTest("Powershell exit code is 0");
             tracker.ProcessLogMessageForTest("write output done. output = [Compliant] No Classic Teams found, error = ");
 
-            // Authoritative IME result for the PLATFORM script (keyed by policyId).
+            // Authoritative IME result for the PLATFORM script (keyed by policyId). Its own end
+            // block never comes here, so the result is held until the shutdown flush — which must
+            // not pick up the remediation's exit/output either.
             tracker.ProcessLogMessageForTest(
                 $"[PowerShell] User Id = 00000000-0000-0000-0000-000000000000, Policy id = {PlatformId}, policy result = Failed");
+            Assert.Empty(emitted);
+            tracker.FlushPendingPlatformScriptResults(System.DateTime.UtcNow, force: true);
 
             var script = Assert.Single(emitted);
             Assert.Equal(PlatformId, script.PolicyId);

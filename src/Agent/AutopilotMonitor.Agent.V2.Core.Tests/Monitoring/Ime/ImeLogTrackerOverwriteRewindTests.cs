@@ -486,8 +486,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             h.Now = h.Now.AddMilliseconds(100);
             await h.Pass();
 
-            // The platform result arrives without any end block ever becoming visible.
+            // The platform result arrives without any end block ever becoming visible: held for
+            // the grace, then emitted — the detection's exit code 3 must not stand in.
             h.Tracker.ProcessLogMessageForTest(ResultLine);
+            Assert.Empty(h.Completed);
+            h.Now = h.Now.Add(ImeLogTracker.PlatformScriptEndBlockGrace);
+            h.Tracker.FlushPendingPlatformScriptResults(h.Now);
             var script = Assert.Single(h.Completed);
             Assert.Equal("Success", script.Result);
             Assert.Null(script.ExitCode);
@@ -515,13 +519,19 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             await h.Pass();
             h.Now = h.Now.AddMilliseconds(100);
             await h.Pass();
+            Assert.Equal(1, h.Health.OverwriteRewinds);
+
+            // Recovered on the IME side alone (this harness has no AgentExecutor.log): held for
+            // the end block, emitted without an exit code after the grace.
+            Assert.Empty(h.Completed);
+            h.Now = h.Now.Add(ImeLogTracker.PlatformScriptEndBlockGrace);
+            h.Tracker.FlushPendingPlatformScriptResults(h.Now);
 
             var script = Assert.Single(h.Completed);
             Assert.Equal(PlatformId, script.PolicyId);
             Assert.Equal("Success", script.Result);
             Assert.Equal("ime_policy_result", script.ResultSource);
             Assert.Equal("User", script.RunContext);
-            Assert.Equal(1, h.Health.OverwriteRewinds);
         }
     }
 }
