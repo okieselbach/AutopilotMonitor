@@ -46,6 +46,7 @@ export const COVERAGE_EVENT_FIELDS =
   'data.bootToAgentStartSeconds,data.agentUptimeSeconds,data.outcome,data.note,' +
   'data.earliestRejectedSourceTimestamp,' +
   'data.file,data.firstSkippedPattern,data.lineBudgetBreaks,data.regexTimeouts,data.oversizedLines,data.unanchoredPatterns,data.linesRead,' +
+  'data.overwriteRewinds,data.overwriteBytesReprocessed,' +
   'data.collector,data.reason,data.errorType,' +
   'data.pendingItemCount,data.pendingBytes,data.kind,data.itemCount,data.disk_free_gb,' +
   'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
@@ -87,7 +88,15 @@ export interface ImeTrackerCoverage {
     lineBudgetBreaks: number | null;
     regexTimeouts: number | null;
     oversizedLines: number | null;
+    /**
+     * Times the tracker re-read a log block a concurrent IME process had written over bytes
+     * it had already read (agents ≥ 2.0.1458). Recovered data — never a gap and not degradation.
+     */
+    overwriteRewinds: number | null;
+    overwriteBytesReprocessed: number | null;
   };
+  /** Present when overwriteRewinds > 0: says in words that those blocks were recovered, not lost. */
+  note?: string;
 }
 
 export interface CollectorDegradation {
@@ -276,8 +285,20 @@ export function buildSessionCoverage(
         lineBudgetBreaks: num(hits.data?.lineBudgetBreaks),
         regexTimeouts: num(hits.data?.regexTimeouts),
         oversizedLines: num(hits.data?.oversizedLines),
+        overwriteRewinds: num(hits.data?.overwriteRewinds),
+        overwriteBytesReprocessed: num(hits.data?.overwriteBytesReprocessed),
       }
     : undefined;
+  // IME processes append to AgentExecutor.log and IntuneManagementExtension.log with independent
+  // stream positions and overwrite each other; the tracker re-reads what changed. That is
+  // recovered data — it must never read as a gap or as a degraded tracker.
+  const rewinds = sessionTotals?.overwriteRewinds ?? 0;
+  const overwriteNote =
+    rewinds > 0
+      ? `${rewinds} log block(s) a concurrent IME process had overwritten were re-read` +
+        `${sessionTotals?.overwriteBytesReprocessed ? ` (${Math.round(sessionTotals.overwriteBytesReprocessed / 1024)} KB)` : ''}` +
+        ' — script results and exit codes in them are complete, not missing.'
+      : undefined;
   let imeTracker: ImeTrackerCoverage;
   if (degradedEv) {
     imeTracker = {
@@ -309,6 +330,7 @@ export function buildSessionCoverage(
   } else {
     imeTracker = { degraded: false, ...(sessionTotals ? { sessionTotals } : {}) };
   }
+  if (overwriteNote) imeTracker.note = overwriteNote;
 
   // ── Collectors ──────────────────────────────────────────────────────────────
   const collectors: CollectorDegradation[] = [];

@@ -132,7 +132,7 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('ime_tracker_degraded', 50, { file: 'AppWorkload.log', lineBudgetBreaks: 1, regexTimeouts: 0, oversizedLines: 0 }),
       ev('ime_pattern_hits', 900, { linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1 }, { severity: 'Debug' }),
     ]);
-    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1 });
+    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1, overwriteRewinds: null, overwriteBytesReprocessed: null });
     expect(c.gaps[0]).toContain('skipped the remaining patterns on 7 line(s)');
     expect(c.gaps[0]).toContain('gave up on 2 line(s) after a regex timeout');
     expect(c.gaps[0]).toContain('dropped 1 oversized line(s)');
@@ -143,8 +143,29 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('agent_started', 0),
       ev('ime_pattern_hits', 900, { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0 }),
     ]);
-    expect(c.imeTracker).toEqual({ degraded: false, sessionTotals: { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0 } });
+    expect(c.imeTracker).toEqual({ degraded: false, sessionTotals: { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: null, overwriteBytesReprocessed: null } });
     expect(c.gaps).toEqual([]);
+  });
+
+  it('reports re-read overwritten log blocks as recovered data — a note, never a gap or degradation', () => {
+    // Agents ≥ 2.0.1458: IME processes overwrite each other's bytes in AgentExecutor.log and
+    // IntuneManagementExtension.log; the tracker re-reads the changed blocks and counts them.
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('ime_pattern_hits', 900, { linesRead: 8957, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 6, overwriteBytesReprocessed: 5120 }, { severity: 'Debug' }),
+    ]);
+    expect(c.imeTracker.degraded).toBe(false);
+    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 8957, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 6, overwriteBytesReprocessed: 5120 });
+    expect(c.imeTracker.note).toBe('6 log block(s) a concurrent IME process had overwritten were re-read (5 KB) — script results and exit codes in them are complete, not missing.');
+    expect(c.gaps).toEqual([]);
+  });
+
+  it('adds no note when nothing was overwritten or the agent predates the counter', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('ime_pattern_hits', 900, { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 0, overwriteBytesReprocessed: 0 }),
+    ]);
+    expect(c.imeTracker.note).toBeUndefined();
   });
 });
 

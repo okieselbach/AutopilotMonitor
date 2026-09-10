@@ -220,6 +220,10 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
   ];
   const imeSkipParts = imeSkipCounters.filter(([, v]) => Number(v) > 0).map(([k, v]) => `${v} ${k}`);
   const imeSkips = imeSkipParts.length;
+  // Log blocks a concurrent Intune process wrote over after the agent had read them, re-read by
+  // the agent (agents ≥ 2.0.1458). Recovered data — shown apart from "Skipped work" on purpose.
+  const imeOverwriteRewinds = patternHits?.overwriteRewinds ?? imeTracker?.ime_overwrite_rewinds;
+  const imeOverwriteBytes = Number(patternHits?.overwriteBytesReprocessed ?? imeTracker?.ime_overwrite_bytes_reprocessed ?? 0);
   const apiLatencyMs = session?.avgApiLatencyMs ?? 0;
   const hasConnectivity = apiLatencyMs > 0 || bandwidthEstimate || metricsSnapshot;
 
@@ -676,6 +680,17 @@ export default function DeviceDetailsCard({ events, latestAgentVersion, session 
                     ? "Matching was cut short on some log lines — pattern coverage may be incomplete for this session. Nothing to fix on your side; use Report Session if the stats look wrong."
                     : undefined}
                 />
+                {imeOverwriteRewinds !== undefined && (
+                  <DetailRow
+                    label="Overwritten log blocks recovered"
+                    value={Number(imeOverwriteRewinds) > 0
+                      ? `${Number(imeOverwriteRewinds)}${imeOverwriteBytes > 0 ? ` (${formatBytesCompact(imeOverwriteBytes)} re-read)` : ""}`
+                      : "none"}
+                    title={Number(imeOverwriteRewinds) > 0
+                      ? "Intune processes wrote over log lines the agent had already read; the agent re-read them, so script results and exit codes in those blocks are complete. Nothing to fix on your side."
+                      : undefined}
+                  />
+                )}
                 {(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) !== undefined && Number(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns) > 0 && (
                   <DetailRow label="Unanchored patterns" value={String(patternHits?.unanchoredPatterns ?? imeTracker?.ime_unanchored_patterns)} />
                 )}
