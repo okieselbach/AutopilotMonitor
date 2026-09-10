@@ -6,8 +6,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
 import { scopedApi } from "@/lib/scopedApi";
-import { useGlobalAdminScope } from "@/hooks";
-import { TenantScopeSelector } from "@/components/TenantScopeSelector";
+import { useReportingScope } from "../ReportingScopeContext";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import type {
@@ -88,11 +87,11 @@ export function SectionMcpUsage() {
   const { getAccessToken, user } = useAuth();
   const canSeeOrganization = !!(user?.isTenantAdmin || user?.isGlobalAdmin);
 
-  // Global-admin tenant scope (override-only: always a concrete tenant, defaulting to the caller's own).
-  // Only the organization cards follow the selection — the caller's own quota and request history never
-  // do. A delegated (MSP) caller keeps the member path: the organization route never lists a managed
-  // tenant's accounts, so the selector stays hidden for them.
-  const scope = useGlobalAdminScope();
+  // Global-admin tenant scope from the reporting header (override-only: always a concrete tenant,
+  // defaulting to the caller's own). Only the organization cards follow the selection — the caller's own
+  // quota and request history never do. A delegated (MSP) caller keeps the member path: the organization
+  // route never lists a managed tenant's accounts (the header shows them no selector).
+  const scope = useReportingScope();
   const crossTenant = scope.routeGlobal && !scope.isDelegatedScope;
   const { effectiveTenantId, isGlobalOverride } = scope;
 
@@ -212,7 +211,6 @@ export function SectionMcpUsage() {
           {upn && <p className="text-sm text-gray-500">{upn}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {!scope.isDelegatedScope && <TenantScopeSelector scope={scope} />}
           {/* Plan Badge */}
           {usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
