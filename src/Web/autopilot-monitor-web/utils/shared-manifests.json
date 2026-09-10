@@ -9587,6 +9587,17 @@
             "name": "McpOrganizationQuotaNode"
           },
           "doc": "The tenant's organization windows (plan, limits, today / this month) from the same counters."
+        },
+        {
+          "name": "daily",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "McpOrganizationDailyItem"
+            }
+          },
+          "doc": "Requests charged to the tenant per day inside the range, oldest first; days without requests are absent."
         }
       ]
     },
@@ -13330,6 +13341,27 @@
           "type": {
             "kind": "ref",
             "name": "HealthCheck"
+          }
+        }
+      ]
+    },
+    "McpOrganizationDailyItem": {
+      "kind": "object",
+      "doc": "One day of the tenant's organization budget, nested in GetMcpOrganizationUsageResponse.",
+      "fields": [
+        {
+          "name": "date",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "yyyyMMdd."
+        },
+        {
+          "name": "requests",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]

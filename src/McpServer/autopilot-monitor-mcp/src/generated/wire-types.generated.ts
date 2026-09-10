@@ -2023,6 +2023,8 @@ export interface GetMcpOrganizationUsageResponse {
   users: McpOrganizationUsageItem[];
   /** The tenant's organization windows (plan, limits, today / this month) from the same counters. */
   quota: McpOrganizationQuotaNode;
+  /** Requests charged to the tenant per day inside the range, oldest first; days without requests are absent. */
+  daily: McpOrganizationDailyItem[];
 }
 
 /** Per-user MCP/API usage envelope (GetMcpUserUsage). Non-global callers only receive the records attributed to their own tenant; a foreign oid and an unknown oid are indistinguishable (both 200 with empty records). The MCP server paginates over the records key — its name is wire-critical. */
@@ -2822,6 +2824,13 @@ export interface ManagedTenantQuotaUsage {
 export interface McpHealthCheckResponse {
   timestamp: string;
   check: HealthCheck;
+}
+
+/** One day of the tenant's organization budget, nested in GetMcpOrganizationUsageResponse. */
+export interface McpOrganizationDailyItem {
+  /** yyyyMMdd. */
+  date: string;
+  requests: number;
 }
 
 /** The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every account charged to the tenant. */

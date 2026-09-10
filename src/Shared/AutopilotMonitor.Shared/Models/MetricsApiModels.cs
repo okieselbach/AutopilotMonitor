@@ -143,6 +143,17 @@ namespace AutopilotMonitor.Shared.Models
         public IReadOnlyList<McpOrganizationUsageItem> Users { get; set; } = default!;
         /// <summary>The tenant's organization windows (plan, limits, today / this month) from the same counters.</summary>
         public McpOrganizationQuotaNode Quota { get; set; } = default!;
+        /// <summary>Requests charged to the tenant per day inside the range, oldest first; days without requests are absent.</summary>
+        public IReadOnlyList<McpOrganizationDailyItem> Daily { get; set; } = default!;
+    }
+
+    /// <summary>One day of the tenant's organization budget, nested in <see cref="GetMcpOrganizationUsageResponse"/>.</summary>
+    // Declaration order == wire order.
+    public class McpOrganizationDailyItem
+    {
+        /// <summary>yyyyMMdd.</summary>
+        public string Date { get; set; } = default!;
+        public long Requests { get; set; }
     }
 
     /// <summary>

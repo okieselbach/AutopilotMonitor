@@ -160,6 +160,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     DateTo = dateTo,
                     Users = AggregateOrganizationUsage(records, tenantId, dateFrom, dateTo, today, monthStart),
                     Quota = BuildOrganizationQuota(records, limits, today, monthStart),
+                    Daily = BuildOrganizationDaily(records, dateFrom, dateTo),
                 });
                 return response;
             }
@@ -167,6 +168,21 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
+        }
+
+        /// <summary>Pure: requests charged to the tenant per day inside [dateFrom, dateTo], oldest first.</summary>
+        internal static List<McpOrganizationDailyItem> BuildOrganizationDaily(
+            IEnumerable<TenantUsageRecord> records, string dateFrom, string dateTo)
+        {
+            var byDay = new SortedDictionary<string, long>(StringComparer.Ordinal);
+            foreach (var record in records)
+            {
+                if (string.CompareOrdinal(record.Date, dateFrom) < 0 || string.CompareOrdinal(record.Date, dateTo) > 0)
+                    continue;
+                byDay[record.Date] = byDay.TryGetValue(record.Date, out var sum) ? sum + record.RequestCount : record.RequestCount;
+            }
+
+            return byDay.Select(kv => new McpOrganizationDailyItem { Date = kv.Key, Requests = kv.Value }).ToList();
         }
 
         /// <summary>

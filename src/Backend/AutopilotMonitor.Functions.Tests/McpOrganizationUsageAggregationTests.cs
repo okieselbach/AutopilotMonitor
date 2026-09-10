@@ -111,6 +111,23 @@ public class McpOrganizationUsageAggregationTests
     }
 
     [Fact]
+    public void OrganizationDaily_SumsEveryAccountPerDay_InsideTheRange_OldestFirst()
+    {
+        var rows = new[]
+        {
+            Row(Member, "20260815", 100),                 // before the range
+            Row(Member, "20260902", 2),
+            Row(MspAdmin, "20260902", 5, home: MspHome),  // same day, delegated — one bar
+            Row(Member, "20260901", 20),
+            Row(Member, "20260903", 7),                   // after the range (read window)
+        };
+
+        var daily = McpUsageMetricsFunction.BuildOrganizationDaily(rows, "20260901", "20260902");
+
+        Assert.Equal(new[] { ("20260901", 20L), ("20260902", 7L) }, daily.Select(d => (d.Date, d.Requests)));
+    }
+
+    [Fact]
     public void OrganizationQuota_LiftedWindows_StillReportTheCounters()
     {
         var quota = McpUsageMetricsFunction.BuildOrganizationQuota(

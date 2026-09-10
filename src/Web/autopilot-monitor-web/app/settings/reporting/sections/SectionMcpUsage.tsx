@@ -27,10 +27,10 @@ interface UsageRecord {
   lastRequestAt: string;
 }
 
+/** One bar of the daily chart — the caller's own requests, or the selected tenant's charged requests. */
 interface DailyAggregate {
   date: string;
   totalRequests: number;
-  endpoints: number;
 }
 
 // GetMyMcpUsageResponse.quota — the caller's own windows plus the organization-wide windows every
@@ -83,20 +83,33 @@ function getDateTo(): string {
   return new Date().toISOString().slice(0, 10).replace(/-/g, "");
 }
 
+/** The caller's own per-endpoint records folded to one bar per day, newest first. */
+function aggregateOwnRecords(records: UsageRecord[]): DailyAggregate[] {
+  const byDate = new Map<string, number>();
+  for (const r of records) byDate.set(r.date, (byDate.get(r.date) ?? 0) + r.requestCount);
+  return Array.from(byDate.entries())
+    .map(([date, totalRequests]) => ({ date, totalRequests }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
 export function SectionMcpUsage() {
   const { getAccessToken, user } = useAuth();
   const canSeeOrganization = !!(user?.isTenantAdmin || user?.isGlobalAdmin);
 
   // Global-admin tenant scope from the reporting header (override-only: always a concrete tenant,
-  // defaulting to the caller's own). Only the organization cards follow the selection — the caller's own
-  // quota and request history never do. A delegated (MSP) caller keeps the member path: the organization
-  // route never lists a managed tenant's accounts (the header shows them no selector).
+  // defaulting to the caller's own). Viewing ANOTHER tenant is a tenant view: nothing of the caller's
+  // own account is shown — no UPN, no plan badge, no own quota — and the tiles and the daily chart
+  // come from the tenant's organization counters. On the own tenant the page stays the caller's usage
+  // page. A delegated (MSP) caller keeps the member path: the organization route never lists a
+  // managed tenant's accounts (the header shows them no selector).
   const scope = useReportingScope();
   const crossTenant = scope.routeGlobal && !scope.isDelegatedScope;
-  const { effectiveTenantId, isGlobalOverride } = scope;
+  const { effectiveTenantId, isGlobalOverride: tenantView } = scope;
+  const tenantLabel = scope.tenants.find((t) => t.tenantId === effectiveTenantId)?.domainName ?? effectiveTenantId;
 
   const [records, setRecords] = useState<UsageRecord[]>([]);
-  // Organization budget by account + the tenant's windows — tenant admins / GA only; null = not loaded / not permitted.
+  // Organization budget by account, the tenant's windows and its daily series — tenant admins / GA only;
+  // null = not loaded / not permitted.
   const [orgUsage, setOrgUsage] = useState<GetMcpOrganizationUsageResponse | null>(null);
   const [usagePlan, setUsagePlan] = useState<string | null>(null);
   const [effectivePlan, setEffectivePlan] = useState<string | null>(null);
@@ -121,8 +134,11 @@ export function SectionMcpUsage() {
       const dateFrom = getDateFrom(range);
       const dateTo = getDateTo();
       const orgSelection = { routeGlobal: crossTenant, selectedTenantId: effectiveTenantId, effectiveTenantId };
-      const [data, org] = await Promise.all([
-        fetchJson<GetMyMcpUsageResponse>(api.mcpUsage.me(dateFrom, dateTo), getAccessToken),
+      const [own, org] = await Promise.all([
+        // The caller's own usage has no place in another tenant's view.
+        tenantView
+          ? Promise.resolve(null)
+          : fetchJson<GetMyMcpUsageResponse>(api.mcpUsage.me(dateFrom, dateTo), getAccessToken),
         canSeeOrganization
           ? // Every account charged to the tenant's organization budget — including delegated (MSP)
             // administrators reading it. A 403 (role changed mid-session) just hides the card.
@@ -136,11 +152,11 @@ export function SectionMcpUsage() {
           : Promise.resolve(null),
       ]);
       if (!isCurrent()) return;
-      setRecords(data.records || []);
-      setUsagePlan(data.usagePlan || null);
-      setEffectivePlan(data.effectivePlan || null);
-      setQuota(data.quota ?? null);
-      setUpn(data.upn || "");
+      setRecords(own?.records ?? []);
+      setUsagePlan(own?.usagePlan || null);
+      setEffectivePlan(own?.effectivePlan || null);
+      setQuota(own?.quota ?? null);
+      setUpn(own?.upn || "");
       setOrgUsage(org);
     } catch (err) {
       if (!isCurrent()) return;
@@ -148,7 +164,7 @@ export function SectionMcpUsage() {
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [getAccessToken, canSeeOrganization, crossTenant, effectiveTenantId]);
+  }, [getAccessToken, canSeeOrganization, crossTenant, effectiveTenantId, tenantView]);
 
   useEffect(() => {
     const run = async () => {
@@ -176,26 +192,14 @@ export function SectionMcpUsage() {
       : null);
 
   // Wording follows the viewpoint: the caller's own tenant, or the tenant a global admin picked.
-  const tenantNoun = isGlobalOverride ? "this tenant" : "your tenant";
-  const budgetNoun = isGlobalOverride ? "this tenant's organization budget" : "your organization budget";
-  const planNoun = isGlobalOverride ? "its plan" : "your plan";
+  const tenantNoun = tenantView ? "this tenant" : "your tenant";
+  const budgetNoun = tenantView ? "this tenant's organization budget" : "your organization budget";
+  const planNoun = tenantView ? "its plan" : "your plan";
 
-  // Aggregate records by date
-  const dailyAggregates: DailyAggregate[] = (() => {
-    const byDate = new Map<string, { total: number; endpoints: Set<string> }>();
-    for (const r of records) {
-      const existing = byDate.get(r.date);
-      if (existing) {
-        existing.total += r.requestCount;
-        existing.endpoints.add(r.endpoint);
-      } else {
-        byDate.set(r.date, { total: r.requestCount, endpoints: new Set([r.endpoint]) });
-      }
-    }
-    return Array.from(byDate.entries())
-      .map(([date, v]) => ({ date, totalRequests: v.total, endpoints: v.endpoints.size }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  })();
+  // Tiles + chart: the tenant's charged requests per day in the tenant view, else the caller's own.
+  const dailyAggregates: DailyAggregate[] = tenantView
+    ? (orgUsage?.daily ?? []).map((d) => ({ date: d.date, totalRequests: d.requests })).reverse()
+    : aggregateOwnRecords(records);
 
   const totalRequests = dailyAggregates.reduce((sum, d) => sum + d.totalRequests, 0);
   const todayStr = getDateTo();
@@ -208,16 +212,18 @@ export function SectionMcpUsage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">MCP Usage</h2>
-          {upn && <p className="text-sm text-gray-500">{upn}</p>}
+          {tenantView
+            ? <p className="text-sm text-gray-500">Tenant: {tenantLabel}</p>
+            : upn && <p className="text-sm text-gray-500">{upn}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Plan Badge */}
-          {usagePlan && (
+          {/* Plan Badge — the caller's own plan, absent in another tenant's view */}
+          {!tenantView && usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
               Plan: {usagePlan}
             </span>
           )}
-          {!usagePlan && (
+          {!tenantView && !usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
               Plan: {effectivePlan ? `${effectivePlan} (inherited)` : "inherited"}
             </span>
@@ -385,7 +391,7 @@ export function SectionMcpUsage() {
       )}
 
       {/* Empty State */}
-      {!loading && records.length === 0 && !error && (
+      {!loading && dailyAggregates.length === 0 && !error && (
         <div className="bg-white rounded-lg shadow p-12 text-center">
           <p className="text-gray-500">No usage data found for the selected period.</p>
         </div>
