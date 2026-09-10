@@ -37,9 +37,9 @@ public class CertTenantBindingTests
     /// Tenant stamped into <c>device-cert-sample.pem</c> by the Intune MDM Device CA. The sample is
     /// a public-key-only cert from an internal test device; the GUID is the test tenant's own id.
     /// </summary>
-    private static readonly Guid SampleCertTenantId = Guid.Parse("b54dc1af-5320-4f60-b5d4-821e0cf2a359");
+    internal static readonly Guid SampleCertTenantId = Guid.Parse("b54dc1af-5320-4f60-b5d4-821e0cf2a359");
 
-    private static string SampleCertBase64()
+    internal static string SampleCertBase64()
     {
         var assemblyDir = Path.GetDirectoryName(typeof(CertTenantBindingTests).Assembly.Location)!;
         var pem = File.ReadAllText(Path.Combine(assemblyDir, DeviceSamplePem));
@@ -351,7 +351,7 @@ public class CertTenantBindingTests
 
     // ---------------------------------------------------------------- harness
 
-    private static SecurityValidator BuildValidator(ILogger logger)
+    internal static SecurityValidator BuildValidator(ILogger logger)
     {
         var configRepo = Mock.Of<IConfigRepository>();
         var cache = new MemoryCache(new MemoryCacheOptions());
@@ -390,7 +390,7 @@ public class CertTenantBindingTests
             deviceAssociationValidator: null);
     }
 
-    private static HttpRequestData BuildRequestWithCert(
+    internal static HttpRequestData BuildRequestWithCert(
         string certBase64,
         IDictionary<object, object>? items = null)
     {

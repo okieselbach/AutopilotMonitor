@@ -272,6 +272,9 @@ namespace AutopilotMonitor.Functions.Security
                     };
                 }
 
+                RequestRowMarkers.Stamp(req, RequestRowMarkers.ValidatedTenantKey, tenantId);
+                RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey,
+                    RequestRowMarkers.DeviceValidationValue(ValidatorType.Bootstrap));
                 return new SecurityValidationResult
                 {
                     IsValid = true,
@@ -349,6 +352,11 @@ namespace AutopilotMonitor.Functions.Security
                     Details = "The client certificate was issued to a different Microsoft Entra tenant than this request targets."
                 };
             }
+
+            // From here on the tenant is proven (known, not suspended, certificate issued to it).
+            // Register / config / upload-url take the tenant from body or query, not from a
+            // validated header, so this stamp is what gives their request rows a TenantId.
+            RequestRowMarkers.Stamp(req, RequestRowMarkers.ValidatedTenantKey, tenantId);
 
             // 2. Check rate limit (DoS protection)
             // Effective limit = per-tenant override if set, otherwise the global default.
@@ -510,6 +518,7 @@ namespace AutopilotMonitor.Functions.Security
                         "Device validation transient failure for tenant {TenantId}, serial {SerialNumber}. Returning 503 Retry-After.",
                         tenantId, serialNumber);
 
+                    RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey, RequestRowMarkers.DeviceValidation.Transient);
                     return new SecurityValidationResult
                     {
                         IsValid = false,
@@ -523,6 +532,7 @@ namespace AutopilotMonitor.Functions.Security
                 LogRequestRejection("device", tenantId, req, sessionId,
                     extraReason: deviceValidationError,
                     thumbprint: certValidation.Thumbprint);
+                RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey, RequestRowMarkers.DeviceValidation.Rejected);
                 return new SecurityValidationResult
                 {
                     IsValid = false,
@@ -595,7 +605,10 @@ namespace AutopilotMonitor.Functions.Security
                 });
             }
 
-            // All checks passed
+            // All checks passed. The admitting validator rides on the request row: the Sessions
+            // row keeps ValidatedBy per session, this is the per-request counter and timestamp.
+            RequestRowMarkers.Stamp(req, RequestRowMarkers.DeviceValidationKey,
+                RequestRowMarkers.DeviceValidationValue(validatedBy));
             TryGetIntuneDeviceIdFromCertSubject(certValidation.Subject, out var certIntuneDeviceId);
             return new SecurityValidationResult
             {

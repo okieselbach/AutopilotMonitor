@@ -30,6 +30,9 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
     // agent/register-session + agent/upload-url (tenant from body), bootstrap/validate/{code},
     // bootstrap/sessions{,/{code}}, bootstrap/config, bootstrap/register-session — where a client
     // could send X-Tenant-Id:<valid-guid> and pollute tenant attribution in telemetry.
+    // Those routes get their TenantId from RequestRowMarkers.ValidatedTenantKey instead, which
+    // SecurityValidator stamps only once the tenant is proven (see ResolveTenantId). The list
+    // stays for the routes that never reach the validator (distress is pre-auth).
     private static readonly HashSet<string> TenantHeaderTrustedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/agent/telemetry",
@@ -41,6 +44,35 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
     public RequestTelemetryMiddleware(TelemetryClient telemetryClient)
     {
         _telemetryClient = telemetryClient;
+    }
+
+    /// <summary>
+    /// Tenant attribution for the request row, most trusted source first: the policy pipeline's
+    /// tenant (portal / MCP routes), then the tenant <c>SecurityValidator</c> proved for an agent
+    /// request (<see cref="RequestRowMarkers.ValidatedTenantKey"/> — the only source for
+    /// register / config / upload-url, which validate no tenant header), and last the
+    /// <c>X-Tenant-Id</c> header on the exact routes that validate it themselves
+    /// (<see cref="TenantHeaderTrustedPaths"/>), when it is a well-formed GUID. Any other route
+    /// gets no tenant: an anonymous caller must not be able to pollute the attribution.
+    /// </summary>
+    internal static string? ResolveTenantId(
+        string? policyTenantId,
+        IDictionary<object, object> items,
+        string path,
+        string? headerTenantId)
+    {
+        if (!string.IsNullOrEmpty(policyTenantId))
+            return policyTenantId;
+
+        if (items.TryGetValue(RequestRowMarkers.ValidatedTenantKey, out var validated)
+            && validated is string validatedTenantId && !string.IsNullOrEmpty(validatedTenantId))
+            return validatedTenantId;
+
+        if (TenantHeaderTrustedPaths.Contains(path)
+            && !string.IsNullOrEmpty(headerTenantId) && Guid.TryParse(headerTenantId, out _))
+            return headerTenantId;
+
+        return null;
     }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
@@ -154,23 +186,17 @@ public class RequestTelemetryMiddleware : IFunctionsWorkerMiddleware
             if (context.Items.TryGetValue(DeviceIdentityBinding.RequestItemKey, out var identityBinding) && identityBinding is string identityOutcome)
                 requestTelemetry.Properties[DeviceIdentityBinding.RequestItemKey] = identityOutcome;
 
+            // DEVICE-VALIDATION — the admitting validator (or None / Transient / Rejected), set by
+            // SecurityValidator once the device-validation chain has run. Same carrier and reasoning.
+            if (context.Items.TryGetValue(RequestRowMarkers.DeviceValidationKey, out var deviceValidation) && deviceValidation is string deviceValidationOutcome)
+                requestTelemetry.Properties[RequestRowMarkers.DeviceValidationKey] = deviceValidationOutcome;
+
             var reqCtx = context.GetRequestContext();
-            var tenantId = reqCtx.TenantId;
-            if (string.IsNullOrEmpty(tenantId))
-            {
-                // Device ingest endpoints do not run through PolicyEnforcementMiddleware, so
-                // reqCtx.TenantId is empty — but they carry a cert/token-validated tenant in the
-                // X-Tenant-Id header. Only honor the header on the exact routes that actually
-                // validate it (TenantHeaderTrustedPaths) and only when it is a well-formed GUID, so
-                // other/anonymous routes cannot pollute the requests table with arbitrary tenant ids.
-                var path = httpContext.Request.Path.Value ?? string.Empty;
-                if (TenantHeaderTrustedPaths.Contains(path))
-                {
-                    var headerTenant = httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault();
-                    if (!string.IsNullOrEmpty(headerTenant) && Guid.TryParse(headerTenant, out _))
-                        tenantId = headerTenant;
-                }
-            }
+            var tenantId = ResolveTenantId(
+                reqCtx.TenantId,
+                context.Items,
+                httpContext.Request.Path.Value ?? string.Empty,
+                httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault());
             if (!string.IsNullOrEmpty(tenantId))
                 requestTelemetry.Properties["TenantId"] = tenantId;
             if (!string.IsNullOrEmpty(reqCtx.UserPrincipalName))
