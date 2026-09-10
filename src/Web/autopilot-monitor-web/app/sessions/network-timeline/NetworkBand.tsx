@@ -43,9 +43,10 @@ export default function NetworkBand({ model }: { model: NetworkModel }) {
 
   // Headroom above the phase lane for the slanted lifecycle-marker labels
   // (Reboot / Desktop / Completed / Clock ±… ) written directly at their dots —
-  // sized so even a long "Clock −3h 0m" label stays inside the SVG instead of
+  // sized so even the longest label, "Completed (timeout)" at 10 px slanted 30°
+  // (~105 px long → ~52 px tall above its anchor), stays inside the SVG instead of
   // running into the HTML legend above it.
-  const MARKER_LABEL_H = 48;
+  const MARKER_LABEL_H = 64;
   const PHASE_Y = 8 + MARKER_LABEL_H;
   const PHASE_H = 22;
   const BAND_Y = PHASE_Y + 32;
