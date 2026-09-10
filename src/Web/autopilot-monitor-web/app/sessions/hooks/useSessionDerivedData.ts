@@ -6,7 +6,7 @@ import { V1_PHASE_NAMES, V2_PHASE_NAMES, V1_PHASE_ORDER, V2_PHASE_ORDER } from "
 import { detectSkipUserStatusPage } from "../utils/espConfig";
 import { computeWhiteGloveDurations, computeWhiteGloveSplitSequence, groupEventsByPhase } from "../utils/eventHelpers";
 import type { WhiteGloveDurations } from "../utils/eventHelpers";
-import { sumStandbySeconds } from "@/lib/standby";
+import { enrollmentWindowOf, sumStandbySeconds } from "@/lib/standby";
 
 interface PhaseGrouping {
   eventsByPhase: Record<string, EnrollmentEvent[]>;
@@ -136,17 +136,7 @@ export function useSessionDerivedData(
   // agent started — environment observation, not enrollment activity — and would drag the
   // start toward pre-enrollment OOBE idle time (mirrors the backend anchor eligibility;
   // field case d0c5b672).
-  const enrollmentWindow = useMemo(() => {
-    const activityEvents = events.filter(e => e.source !== "SystemTimelineWatcher");
-    if (activityEvents.length === 0) return null;
-    const timestamps = activityEvents.map(e => new Date(e.timestamp).getTime());
-    const firstEventTime = Math.min(...timestamps);
-    const completeEvent = activityEvents.find(e => e.eventType === "enrollment_complete");
-    const endTime = completeEvent
-      ? new Date(completeEvent.timestamp).getTime()
-      : Math.max(...timestamps);
-    return { startMs: firstEventTime, endMs: endTime };
-  }, [events]);
+  const enrollmentWindow = useMemo(() => enrollmentWindowOf(events), [events]);
 
   const enrollmentDurationFromEvents = useMemo(() => {
     if (!enrollmentWindow) return null;

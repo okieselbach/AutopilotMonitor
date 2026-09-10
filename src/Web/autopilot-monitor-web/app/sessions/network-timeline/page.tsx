@@ -22,6 +22,7 @@ import { extractContinuation, MAX_EAGER_PAGES } from '@/lib/paginationLink';
 import { sessionUrl } from '@/lib/routes';
 import NetworkBand from './NetworkBand';
 import { buildNetworkModel, fmtDuration, NetworkModel } from './networkTimelineModel';
+import { enrollmentWindowOf, sumStandbySeconds } from '@/lib/standby';
 import type { EnrollmentEvent, Session } from '@/types';
 import type { GetSessionEventsResponse } from "@/utils/wire-types.generated";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
@@ -119,7 +120,7 @@ function Content() {
           <span className="font-medium">{session.status}</span> ·{' '}
           <Link
             href={sessionUrl(session.sessionId, { tenantId: session.tenantId })}
-            className="text-blue-600 hover:underline"
+            className="text-green-700 hover:text-green-800 hover:underline"
           >
             Open session detail
           </Link>
@@ -131,7 +132,7 @@ function Content() {
 
       {model && session && (
         <>
-          <StatsRow model={model} />
+          <StatsRow model={model} events={events} />
           <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
             <NetworkBand model={model} />
             {model.hotspotDetected && (
@@ -150,14 +151,25 @@ function Content() {
 
 // ── Stats row ────────────────────────────────────────────────────────────────
 
-function StatsRow({ model }: { model: NetworkModel }) {
+function StatsRow({ model, events }: { model: NetworkModel; events: EnrollmentEvent[] }) {
+  // The band and the tiles cover the observed span (until the agent stopped); the session page
+  // measures the enrollment (first activity event → verdict). Where the two differ, the tile
+  // names the enrollment figure so both pages read the same two numbers.
+  const enrollment = enrollmentWindowOf(events);
+  const enrollmentMs = enrollment ? enrollment.endMs - enrollment.startMs : null;
+  const enrollmentAsleepMs = enrollment ? (sumStandbySeconds(events, [enrollment]) ?? 0) * 1000 : null;
+  const differs = (a: number | null, b: number) => a !== null && Math.abs(a - b) >= 1000;
   const wifiSegs = model.segments.filter((s) => s.kind === 'wifi' && s.signalPercent != null);
   const avgSignal = wifiSegs.length
     ? Math.round(wifiSegs.reduce((a, s) => a + (s.signalPercent ?? 0), 0) / wifiSegs.length)
     : null;
   const lastCheck = model.checks[model.checks.length - 1];
-  const items: { label: string; value: string; tone?: 'bad' | 'good' }[] = [
-    { label: 'Duration', value: fmtDuration(model.t1 - model.t0) },
+  const items: { label: string; value: string; tone?: 'bad' | 'good'; hint?: string }[] = [
+    {
+      label: 'Duration',
+      value: fmtDuration(model.t1 - model.t0),
+      hint: differs(enrollmentMs, model.t1 - model.t0) ? `enrollment ${fmtDuration(enrollmentMs!)}` : undefined,
+    },
     { label: 'Networks', value: String(model.distinctNetworks.size) },
     { label: 'Network change events', value: String(model.switchCount) },
     {
@@ -166,7 +178,14 @@ function StatsRow({ model }: { model: NetworkModel }) {
       tone: model.offlineMs > 0 ? 'bad' : undefined,
     },
   ];
-  if (model.asleepMs > 0) items.push({ label: 'Asleep total', value: fmtDuration(model.asleepMs) });
+  if (model.asleepMs > 0)
+    items.push({
+      label: 'Asleep total',
+      value: fmtDuration(model.asleepMs),
+      hint: differs(enrollmentAsleepMs, model.asleepMs)
+        ? `${enrollmentAsleepMs! > 0 ? fmtDuration(enrollmentAsleepMs!) : 'none'} during enrollment`
+        : undefined,
+    });
   if (model.clockChangeCount > 0) items.push({ label: 'Clock changes', value: String(model.clockChangeCount) });
   if (avgSignal != null) {
     items.push({ label: 'Avg WiFi signal', value: `${avgSignal}%` });
@@ -194,6 +213,7 @@ function StatsRow({ model }: { model: NetworkModel }) {
           >
             {it.value}
           </div>
+          {it.hint && <div className="text-[11px] text-gray-500">{it.hint}</div>}
         </div>
       ))}
     </div>

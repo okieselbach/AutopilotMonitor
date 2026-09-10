@@ -6,6 +6,29 @@ export interface StandbyWindow {
 }
 
 /**
+ * The enrollment window as the session page measures its duration: first activity event →
+ * `enrollment_complete`, or the last activity event while no verdict exists. System-timeline
+ * rows (clock steps, sleep episodes) are excluded — they are backfilled from the Windows event
+ * log with timestamps up to 24 h before the agent started and would drag the start into
+ * pre-enrollment idle time. Null when the session has no activity events.
+ */
+export function enrollmentWindowOf(events: EnrollmentEvent[]): StandbyWindow | null {
+  let startMs = Number.POSITIVE_INFINITY;
+  let lastMs = Number.NEGATIVE_INFINITY;
+  let completeMs: number | null = null;
+  for (const e of events) {
+    if (e.source === "SystemTimelineWatcher") continue;
+    const t = new Date(e.timestamp).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (t < startMs) startMs = t;
+    if (t > lastMs) lastMs = t;
+    if (completeMs === null && e.eventType === "enrollment_complete") completeMs = t;
+  }
+  if (!Number.isFinite(startMs)) return null;
+  return { startMs, endMs: completeMs ?? lastMs };
+}
+
+/**
  * Seconds the device spent asleep inside the given windows, from `system_sleep_episode`
  * ground truth.
  *

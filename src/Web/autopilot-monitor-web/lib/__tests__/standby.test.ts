@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnrollmentEvent } from "@/types";
-import { sumStandbySeconds } from "../standby";
+import { enrollmentWindowOf, sumStandbySeconds } from "../standby";
 
 const T = (iso: string) => Date.parse(iso);
 
@@ -69,5 +69,34 @@ describe("sumStandbySeconds", () => {
   it("ignores other events and returns null when nothing slept", () => {
     const other = { ...episode, eventType: "performance_snapshot" } as EnrollmentEvent;
     expect(sumStandbySeconds([other], null)).toBeNull();
+  });
+});
+
+describe("enrollmentWindowOf", () => {
+  const activity = (seq: number, ts: string, eventType = "log_entry", source = "Agent") =>
+    ({ eventType, source, timestamp: ts, sequence: seq, message: "" } as unknown as EnrollmentEvent);
+
+  it("runs from the first activity event to enrollment_complete", () => {
+    const w = enrollmentWindowOf([
+      activity(1, "2026-09-09T06:32:46Z"),
+      activity(2, "2026-09-09T06:40:00Z"),
+      activity(3, "2026-09-09T06:42:55Z", "enrollment_complete"),
+      activity(4, "2026-09-09T06:45:45Z", "agent_shutting_down"),
+    ]);
+    expect(w).toEqual({ startMs: Date.parse("2026-09-09T06:32:46Z"), endMs: Date.parse("2026-09-09T06:42:55Z") });
+  });
+
+  it("ends at the last activity event without a verdict and ignores system-timeline rows", () => {
+    const w = enrollmentWindowOf([
+      activity(1, "2026-09-08T10:00:00Z", "system_sleep_episode", "SystemTimelineWatcher"),
+      activity(2, "2026-09-09T06:32:46Z"),
+      activity(3, "2026-09-09T06:40:00Z"),
+    ]);
+    expect(w).toEqual({ startMs: Date.parse("2026-09-09T06:32:46Z"), endMs: Date.parse("2026-09-09T06:40:00Z") });
+  });
+
+  it("is null without activity events", () => {
+    expect(enrollmentWindowOf([activity(1, "2026-09-09T06:00:00Z", "system_clock_changed", "SystemTimelineWatcher")])).toBeNull();
+    expect(enrollmentWindowOf([])).toBeNull();
   });
 });
