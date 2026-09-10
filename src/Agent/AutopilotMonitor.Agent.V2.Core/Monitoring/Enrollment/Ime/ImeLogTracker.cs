@@ -181,7 +181,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // arrive across multiple log entries and IME may interleave platform scripts).
         private readonly Dictionary<string, ScriptExecutionState> _pendingPlatformScripts =
             new Dictionary<string, ScriptExecutionState>(StringComparer.OrdinalIgnoreCase);
-        private string _lastPlatformScriptPolicyId;
 
         // Health-script (remediation) line-by-line accumulator — single slot because IME
         // executes health scripts SEQUENTIALLY within a session (verified across multiple
@@ -367,6 +366,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     FilesTailed = _filesTailed,
                     BacklogBytes = _backlogBytes,
                     ImeAgentVersion = _imeAgentVersionSeen,
+                    OverwriteRewinds = _overwriteRewinds,
+                    OverwriteBytesReprocessed = _overwriteBytesReprocessed,
+                    VerifyPasses = _verifyPasses,
+                    VerifiedBytes = _verifiedBytes,
                     PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase),
                 };
             }
@@ -1140,6 +1143,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     HealthScriptResultParseFailures = state.Health.HealthScriptResultParseFailures;
                     _imeAgentVersionSeen = state.Health.ImeAgentVersion;
                     _trackerDegradedFired = state.Health.TrackerDegradedFired;
+                    _overwriteRewinds = state.Health.OverwriteRewinds;
+                    _overwriteBytesReprocessed = state.Health.OverwriteBytesReprocessed;
+                    _verifyPasses = state.Health.VerifyPasses;
+                    _verifiedBytes = state.Health.VerifiedBytes;
                 }
                 if (state.PatternHits != null)
                 {
@@ -1209,6 +1216,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     HealthScriptResultParseFailures = HealthScriptResultParseFailures,
                     ImeAgentVersion = _imeAgentVersionSeen,
                     TrackerDegradedFired = _trackerDegradedFired,
+                    OverwriteRewinds = _overwriteRewinds,
+                    OverwriteBytesReprocessed = _overwriteBytesReprocessed,
+                    VerifyPasses = _verifyPasses,
+                    VerifiedBytes = _verifiedBytes,
                 };
                 state.PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase);
             }

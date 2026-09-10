@@ -165,6 +165,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public int HealthScriptResultParseFailures { get; set; }
         public string ImeAgentVersion { get; set; }
         public bool TrackerDegradedFired { get; set; }
+        // Overwrite detection counters (null-defaulting on older state files).
+        public long OverwriteRewinds { get; set; }
+        public long OverwriteBytesReprocessed { get; set; }
+        public long VerifyPasses { get; set; }
+        public long VerifiedBytes { get; set; }
     }
 
     public class PackageStateData

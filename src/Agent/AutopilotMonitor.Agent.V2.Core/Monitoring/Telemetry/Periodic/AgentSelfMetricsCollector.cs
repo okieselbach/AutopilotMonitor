@@ -209,6 +209,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                         data["ime_line_budget_breaks"] = health.BudgetBreaks;
                         data["ime_held_tails"] = health.HeldTails;
                         data["ime_unanchored_patterns"] = health.UnanchoredPatterns;
+                        data["ime_overwrite_rewinds"] = health.OverwriteRewinds;
+                        data["ime_overwrite_bytes_reprocessed"] = health.OverwriteBytesReprocessed;
+                        data["ime_verify_passes"] = health.VerifyPasses;
+                        data["ime_verified_bytes"] = health.VerifiedBytes;
                     }
                 }
                 catch (Exception ex)

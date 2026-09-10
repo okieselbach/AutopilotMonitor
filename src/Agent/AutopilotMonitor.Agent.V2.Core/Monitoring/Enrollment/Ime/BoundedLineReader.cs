@@ -33,6 +33,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private readonly Stream _stream;
         private readonly int _maxLineBytes;
+        private readonly bool _hashLines;
         private readonly byte[] _readBuffer = new byte[ReadBufferSize];
         private int _readPos;
         private int _readLen;
@@ -41,20 +42,31 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         private byte[] _line = new byte[4096];
         private int _lineLen;
+        private ulong _lineHash;
 
         /// <param name="stream">Seekable stream positioned at the first byte to read.</param>
         /// <param name="maxLineBytes">Upper bound of bytes kept per line; the remainder is discarded.</param>
-        public BoundedLineReader(Stream stream, int maxLineBytes)
+        /// <param name="hashLines">Fingerprint the raw bytes of every line (<see cref="LastLineHash"/>) — the
+        /// tracker's byte ledger needs it for multi-writer files only.</param>
+        public BoundedLineReader(Stream stream, int maxLineBytes, bool hashLines = false)
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (maxLineBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxLineBytes));
             _stream = stream;
             _maxLineBytes = maxLineBytes;
+            _hashLines = hashLines;
             _readBufferFileOffset = stream.Position;
         }
 
         /// <summary>Cap in bytes applied to every line.</summary>
         public int MaxLineBytes => _maxLineBytes;
+
+        /// <summary>
+        /// FNV-1a 64 over the bytes the most recently returned line was decoded from (BOM and
+        /// line terminator excluded; the capped prefix of a truncated line). Zero unless the
+        /// reader was created with hashing on.
+        /// </summary>
+        public ulong LastLineHash => _lineHash;
 
         /// <summary>Absolute file offset of the next unread byte (exact — no decoder read-ahead).</summary>
         public long Position => _readBufferFileOffset + _readPos;
@@ -78,6 +90,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             LastLineTerminated = false;
             LastLineTruncated = false;
             _lineLen = 0;
+            _lineHash = _hashLines ? Fnv1a64.OffsetBasis : 0UL;
             var sawAnyByte = false;
 
             while (true)
@@ -154,6 +167,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // tail (and thus any CR) discarded, so the check is skipped there.
             if (LastLineTerminated && !LastLineTruncated && len > 0 && _line[start + len - 1] == (byte)'\r')
                 len--;
+            if (_hashLines)
+            {
+                // Fingerprint exactly the bytes the string is decoded from, so a tail that was
+                // first read unterminated and later gained its CRLF hashes the same.
+                var h = Fnv1a64.OffsetBasis;
+                var end = start + len;
+                for (var i = start; i < end; i++)
+                    h = (h ^ _line[i]) * Fnv1a64.Prime;
+                _lineHash = h;
+            }
             return len == 0 ? string.Empty : Encoding.UTF8.GetString(_line, start, len);
         }
     }

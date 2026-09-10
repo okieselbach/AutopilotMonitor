@@ -46,6 +46,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>IME version as logged by IME itself ("Agent version is: …"), null until seen.</summary>
         public string ImeAgentVersion { get; set; }
 
+        /// <summary>
+        /// Times the bookmark of a multi-writer log (AgentExecutor.log, IntuneManagementExtension.log)
+        /// was moved back because bytes behind it had been overwritten by a concurrent IME
+        /// process. Expected nonzero whenever user-context scripts or detection scripts ran —
+        /// recovered data, not skipped work.
+        /// </summary>
+        public long OverwriteRewinds { get; set; }
+
+        /// <summary>Bytes re-read by those rewinds (only entries that changed are processed again).</summary>
+        public long OverwriteBytesReprocessed { get; set; }
+
+        /// <summary>Full ledger verifications run (cadence while scripts are in flight, end signals, fragments).</summary>
+        public long VerifyPasses { get; set; }
+
+        /// <summary>Bytes re-read for verification, guard-zone checks included — the cost of the overwrite detection.</summary>
+        public long VerifiedBytes { get; set; }
+
         /// <summary>Match count per enabled pattern ID — every enabled pattern is present, zeros included.</summary>
         public IReadOnlyDictionary<string, int> PatternHits { get; set; }
 

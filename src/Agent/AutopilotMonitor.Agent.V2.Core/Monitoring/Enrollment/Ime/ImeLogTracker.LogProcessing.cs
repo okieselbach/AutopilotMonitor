@@ -78,243 +78,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                 try
                 {
-                    var fileInfo = new FileInfo(filePath);
-                    if (!fileInfo.Exists) continue;
-
-                    // Captured BEFORE MarkChecked below stamps this pass. Growth measured
-                    // against a previously observed state is what makes this pass's lines valid
-                    // "written now" anchors — for the per-file measurement AND per-line anchoring.
-                    var hadPreviousObservation = _positionTracker.HasSeen(filePath);
-                    var lastCheckedUtc = _positionTracker.GetLastCheckedUtc(filePath);
-                    var passNowUtc = UtcNowProvider();
-
-                    var startPos = _positionTracker.GetSafePosition(filePath, fileInfo.Length);
-
-                    // Every look counts, including "no new data" and an empty first sight: the
-                    // NEXT pass's freshness window is measured from here. Restored bookmarks
-                    // deliberately carry no LastCheckedUtc — the first pass after a restart reads
-                    // downtime backlog and must never count as fresh.
-                    _positionTracker.MarkChecked(filePath, passNowUtc);
-
-                    if (startPos >= fileInfo.Length)
-                    {
-                        // M2: guard the interpolated string so it isn't built every 100 ms tick
-                        // (per file) when Trace is off — which is the production default (Info).
-                        if (_logger.LogLevel >= AgentLogLevel.Trace)
-                            _logger.Trace($"ImeLogTracker: {Path.GetFileName(filePath)} — no new data (pos={startPos}, size={fileInfo.Length})");
-                        continue;
-                    }
-                    if (_logger.LogLevel >= AgentLogLevel.Trace)
-                        _logger.Trace($"ImeLogTracker: reading {Path.GetFileName(filePath)} from pos {startPos} (size={fileInfo.Length}, delta={fileInfo.Length - startPos})");
-
-                    _currentSourceFileName = Path.GetFileName(filePath);
-                    _currentPassLinesAreFresh = hadPreviousObservation
-                        && lastCheckedUtc > DateTime.MinValue
-                        && (passNowUtc - lastCheckedUtc) <= FreshLineMaxAge;
-
-                    // Newest bias-less line of this pass — the calibration anchor. Bias-carrying
-                    // lines are skipped: they already state the writer's offset, so they need no
-                    // measurement and must not overwrite one.
-                    CmTraceLogEntry calibrationAnchor = null;
-
-                    using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    {
-                        stream.Seek(startPos, SeekOrigin.Begin);
-
-                        var reader = new BoundedLineReader(stream, MaxEntryBytes);
-                        var stats = new PassStats();
-
-                        // Buffer for multiline CMTrace entries (e.g. AgentExecutor.log
-                        // "write output done. output = ..." spans many lines)
-                        StringBuilder multiLineBuffer = null;
-                        int multiLineCount = 0;
-                        // Set after a capped entry is dropped: its remaining physical lines
-                        // are skipped instead of being matched as raw text, until the entry
-                        // closes or a new entry begins (so no real entry is lost).
-                        bool skippingDroppedEntry = false;
-                        // File offset where the entry currently being assembled/processed
-                        // begins — the bookmark to fall back to when that entry is NOT
-                        // consumed (cancellation, or a held-back unterminated tail).
-                        long entryStart = startPos;
-                        // Where the next pass resumes. EOF unless an entry is left unconsumed.
-                        long resumePos;
-
-                        while (true)
-                        {
-                            // CancellationToken.None: cancellation is honoured by the explicit
-                            // check below (exact bookmark) rather than by an exception out of
-                            // the read, which the poll loop would log as an error.
-                            var line = await reader.ReadLineAsync(CancellationToken.None);
-                            if (line == null)
-                            {
-                                // EOF. An in-flight multiline entry here is an entry the writer
-                                // has not finished — hold it back (see HoldBackTail) instead of
-                                // dropping it and raw-matching its remaining lines next pass.
-                                if (multiLineBuffer != null && HoldBackTail(filePath, entryStart, fileInfo.Length, passNowUtc))
-                                {
-                                    _heldTailCount++;
-                                    resumePos = entryStart;
-                                    break;
-                                }
-                                resumePos = reader.Position;
-                                break;
-                            }
-
-                            if (token.IsCancellationRequested)
-                            {
-                                // Exact bookmark: nothing of this line (or of the multiline
-                                // entry it belongs to) has been handled.
-                                resumePos = multiLineBuffer != null ? entryStart : reader.LastLineStart;
-                                break;
-                            }
-
-                            if (multiLineBuffer == null)
-                                entryStart = reader.LastLineStart;
-
-                            _linesRead++;
-
-                            // A physical line over the cap is never matched: its captures would be
-                            // cut and the regexes would run over attacker-sized input. The capped
-                            // prefix is enough to tell whether it opened an entry whose remaining
-                            // lines must be skipped rather than raw-matched.
-                            if (reader.LastLineTruncated)
-                            {
-                                stats.OversizedLines++;
-                                _oversizedLines++;
-                                if (multiLineBuffer != null)
-                                {
-                                    multiLineBuffer = null;
-                                    multiLineCount = 0;
-                                    skippingDroppedEntry = true;
-                                }
-                                else if (line.StartsWith("<![LOG[") && !line.Contains("]LOG]!>"))
-                                {
-                                    skippingDroppedEntry = true;
-                                }
-                                continue;
-                            }
-
-                            if (!reader.LastLineTerminated && multiLineBuffer == null
-                                && HoldBackTail(filePath, reader.LastLineStart, fileInfo.Length, passNowUtc))
-                            {
-                                // Unterminated single line at EOF: the writer is mid-line.
-                                _heldTailCount++;
-                                resumePos = reader.LastLineStart;
-                                break;
-                            }
-
-                            if (skippingDroppedEntry)
-                            {
-                                // A line opening a new entry ends the skip and is processed
-                                // itself — checked BEFORE the close-tag test, because a complete
-                                // single-line entry contains both and must not be consumed as
-                                // the dropped entry's close.
-                                if (line.StartsWith("<![LOG["))
-                                    skippingDroppedEntry = false;
-                                else
-                                {
-                                    if (line.Contains("]LOG]!>")) skippingDroppedEntry = false;
-                                    continue;
-                                }
-                            }
-
-                            // --- Multiline CMTrace buffering ---
-                            // CMTrace entries: <![LOG[message]LOG]!><time=...>
-                            // When message contains newlines, the entry spans multiple lines.
-                            // We buffer until we find the closing ]LOG]!> tag.
-                            if (multiLineBuffer != null)
-                            {
-                                // Continuing a multiline entry
-                                multiLineBuffer.Append('\n').Append(line);
-                                multiLineCount++;
-
-                                if (line.Contains("]LOG]!>"))
-                                {
-                                    // Entry complete — use the assembled line
-                                    line = multiLineBuffer.ToString();
-                                    multiLineBuffer = null;
-                                    multiLineCount = 0;
-                                }
-                                else if (multiLineCount >= MaxMultiLineBufferLines || multiLineBuffer.Length >= MaxEntryBytes)
-                                {
-                                    // Safety limit — discard to bound memory and parser work. Warning
-                                    // (not Debug) so a capped entry is visible in the client log at the
-                                    // default level: a real IME entry this large would be news.
-                                    _logger.Warning($"ImeLogTracker: discarding multiline CMTrace buffer in {Path.GetFileName(filePath)} after {multiLineCount} lines / {multiLineBuffer.Length} chars (cap {MaxMultiLineBufferLines} lines / {MaxEntryBytes} chars) — entry dropped");
-                                    multiLineBuffer = null;
-                                    multiLineCount = 0;
-                                    skippingDroppedEntry = true;
-                                    continue;
-                                }
-                                else
-                                {
-                                    // Still accumulating — read next line
-                                    continue;
-                                }
-                            }
-                            else if (line.StartsWith("<![LOG[") && !line.Contains("]LOG]!>"))
-                            {
-                                // Start of a multiline CMTrace entry
-                                multiLineBuffer = new StringBuilder(line);
-                                multiLineCount = 1;
-                                continue;
-                            }
-
-                            // --- Normal processing (single-line or completed multiline) ---
-                            CmTraceLogEntry entry;
-                            string messageToMatch;
-                            _currentEntryOffset = entryStart;
-                            if (CmTraceLogParser.TryParseLine(line, out entry))
-                            {
-                                messageToMatch = entry.Message;
-                                if (entry.HasTimestamp && !entry.BiasMinutes.HasValue)
-                                    calibrationAnchor = entry;
-                            }
-                            else
-                            {
-                                // Non-CMTrace line - match raw
-                                messageToMatch = line;
-                                entry = null;
-                            }
-
-                            if (string.IsNullOrEmpty(messageToMatch)) continue;
-
-                            // Simulation mode delay
-                            if (SimulationMode && entry != null)
-                            {
-                                await ApplySimulationDelay(ResolveEntryUtc(entry), token);
-                            }
-
-                            MatchLine(filePath, line, messageToMatch, entry, stats);
-                        }
-
-                        ClearHeldTailIfConsumed(filePath, resumePos);
-                        _positionTracker.SetPosition(filePath, resumePos);
-                        _stateDirty = true;
-                        backlogBytes += Math.Max(0, fileInfo.Length - resumePos);
-
-                        // One line per pass and file, never per hostile line: the counters are
-                        // the operator's only trace that matching was skipped or cut short.
-                        if (stats.RegexTimeouts > 0 || stats.BudgetBreaks > 0 || stats.OversizedLines > 0)
-                        {
-                            _logger.Warning(
-                                $"ImeLogTracker: {Path.GetFileName(filePath)} pass skipped work — " +
-                                $"oversizedLines={stats.OversizedLines} (cap {MaxEntryBytes} bytes), " +
-                                $"regexTimeouts={stats.RegexTimeouts}, lineBudgetBreaks={stats.BudgetBreaks}" +
-                                (stats.FirstSkippedPatternId != null ? $", firstSkippedPattern={stats.FirstSkippedPatternId}" : string.Empty));
-                            RaiseTrackerDegradedOnce(Path.GetFileName(filePath), stats.FirstSkippedPatternId);
-                        }
-
-                        // Calibrate AFTER the pass: this pass's lines were resolved with the
-                        // offset established previously, at most one poll (100 ms) old. Buffering
-                        // the pass to calibrate first is not an option — the first pass of
-                        // AppWorkload.log can be hundreds of MB. The cost is a warm-up of one
-                        // growing pass, during which lines fall back to the reader zone and are
-                        // flagged as such.
-                        if (hadPreviousObservation && calibrationAnchor != null)
-                            CalibrateFrom(_currentSourceFileName, Path.GetFileName(filePath), calibrationAnchor);
-                        _currentEntryOffset = -1;
-                    }
+                    backlogBytes += await ProcessFileAsync(filePath, token);
                 }
                 catch (FileNotFoundException) { }
                 catch (IOException ex)
@@ -327,6 +91,246 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 _filesTailed = files.Count;
                 _backlogBytes = backlogBytes;
+            }
+        }
+
+        /// <summary>
+        /// One pass over one file: the bytes behind the bookmark, on a multi-writer file preceded
+        /// by the overwrite check that may move the bookmark back first (see
+        /// <c>ImeLogTracker.Overwrite.cs</c>). Returns the file's remaining backlog in bytes.
+        /// </summary>
+        private async Task<long> ProcessFileAsync(string filePath, CancellationToken token)
+        {
+            var fileInfo = new FileInfo(filePath);
+            if (!fileInfo.Exists) return 0;
+
+            // Captured BEFORE MarkChecked below stamps this pass. Growth measured
+            // against a previously observed state is what makes this pass's lines valid
+            // "written now" anchors — for the per-file measurement AND per-line anchoring.
+            var hadPreviousObservation = _positionTracker.HasSeen(filePath);
+            var lastCheckedUtc = _positionTracker.GetLastCheckedUtc(filePath);
+            var passNowUtc = UtcNowProvider();
+
+            var startPos = _positionTracker.GetSafePosition(filePath, fileInfo.Length);
+
+            // Every look counts, including "no new data" and an empty first sight: the
+            // NEXT pass's freshness window is measured from here. Restored bookmarks
+            // deliberately carry no LastCheckedUtc — the first pass after a restart reads
+            // downtime backlog and must never count as fresh.
+            _positionTracker.MarkChecked(filePath, passNowUtc);
+
+            var fileName = Path.GetFileName(filePath);
+            var ledger = IsMultiWriterLogFile(fileName) ? GetLedger(fileName) : null;
+
+            // Set by a rewind: entries that still read unchanged behind the old bookmark are
+            // skipped, and nothing below the old bookmark is fresh or a calibration anchor.
+            HashSet<LedgerEntry> rewoundEntries = null;
+            long oldBookmark = -1;
+
+            if (ledger != null)
+            {
+                var rewindTo = await PrepareLedgerAsync(filePath, fileName, ledger, startPos, passNowUtc, token);
+                if (rewindTo >= 0)
+                {
+                    rewoundEntries = ApplyRewind(filePath, fileName, ledger, rewindTo, startPos);
+                    oldBookmark = startPos;
+                    startPos = rewindTo;
+                }
+            }
+
+            if (startPos >= fileInfo.Length)
+            {
+                // M2: guard the interpolated string so it isn't built every 100 ms tick
+                // (per file) when Trace is off — which is the production default (Info).
+                if (_logger.LogLevel >= AgentLogLevel.Trace)
+                    _logger.Trace($"ImeLogTracker: {fileName} — no new data (pos={startPos}, size={fileInfo.Length})");
+                return 0;
+            }
+            if (_logger.LogLevel >= AgentLogLevel.Trace)
+                _logger.Trace($"ImeLogTracker: reading {fileName} from pos {startPos} (size={fileInfo.Length}, delta={fileInfo.Length - startPos})");
+
+            _currentSourceFileName = fileName;
+            var passLinesAreFresh = hadPreviousObservation
+                && lastCheckedUtc > DateTime.MinValue
+                && (passNowUtc - lastCheckedUtc) <= FreshLineMaxAge;
+            _currentPassLinesAreFresh = passLinesAreFresh;
+
+            // Newest bias-less line of this pass — the calibration anchor. Bias-carrying
+            // lines are skipped: they already state the writer's offset, so they need no
+            // measurement and must not overwrite one.
+            CmTraceLogEntry calibrationAnchor = null;
+
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                // Guard zone: the file grew and is open anyway — re-check the entries just behind
+                // the bookmark, where a stale writer's block lands when it is short.
+                if (ledger != null && rewoundEntries == null && ledger.Entries.Count > 0)
+                {
+                    var guardFrom = ledger.OffsetOfEntryAtOrAfter(startPos - OverwriteGuardBytes);
+                    if (guardFrom >= 0 && guardFrom < startPos)
+                    {
+                        var divergence = await FindOverwriteAsync(stream, ledger, guardFrom, startPos, token);
+                        _verifiedBytes += startPos - guardFrom;
+                        if (divergence >= 0)
+                        {
+                            // The guard saw only the tail of the ledger; the block may start earlier.
+                            var earliest = await FindOverwriteAsync(stream, ledger, ledger.StartOffset, startPos, token);
+                            _verifiedBytes += startPos - ledger.StartOffset;
+                            _verifyPasses++;
+                            if (earliest >= 0) divergence = earliest;
+                            rewoundEntries = ApplyRewind(filePath, fileName, ledger, divergence, startPos);
+                            oldBookmark = startPos;
+                            startPos = divergence;
+                        }
+                    }
+                }
+
+                stream.Seek(startPos, SeekOrigin.Begin);
+
+                var reader = new BoundedLineReader(stream, MaxEntryBytes, hashLines: ledger != null);
+                var assembler = new CmTraceEntryAssembler(MaxMultiLineBufferLines, MaxEntryBytes);
+                var stats = new PassStats();
+                var firstEntry = true;
+                // Where the next pass resumes. EOF unless an entry is left unconsumed.
+                long resumePos;
+
+                while (true)
+                {
+                    // CancellationToken.None: cancellation is honoured by the explicit
+                    // check below (exact bookmark) rather than by an exception out of
+                    // the read, which the poll loop would log as an error.
+                    var line = await reader.ReadLineAsync(CancellationToken.None);
+                    if (line == null)
+                    {
+                        // EOF. An in-flight multiline entry here is an entry the writer
+                        // has not finished — hold it back (see HoldBackTail) instead of
+                        // dropping it and raw-matching its remaining lines next pass.
+                        if (assembler.HasOpenEntry && HoldBackTail(filePath, assembler.OpenEntryStart, fileInfo.Length, passNowUtc))
+                        {
+                            _heldTailCount++;
+                            resumePos = assembler.OpenEntryStart;
+                            break;
+                        }
+                        resumePos = reader.Position;
+                        break;
+                    }
+
+                    if (token.IsCancellationRequested)
+                    {
+                        // Exact bookmark: nothing of this line (or of the multiline
+                        // entry it belongs to) has been handled.
+                        resumePos = assembler.HasOpenEntry ? assembler.OpenEntryStart : reader.LastLineStart;
+                        break;
+                    }
+
+                    _linesRead++;
+
+                    if (!reader.LastLineTruncated && !reader.LastLineTerminated && !assembler.HasOpenEntry
+                        && HoldBackTail(filePath, reader.LastLineStart, fileInfo.Length, passNowUtc))
+                    {
+                        // Unterminated single line at EOF: the writer is mid-line.
+                        _heldTailCount++;
+                        resumePos = reader.LastLineStart;
+                        break;
+                    }
+
+                    AssembledEntry entry;
+                    var outcome = assembler.Feed(line, reader.LastLineStart, reader.Position, reader.LastLineTruncated, reader.LastLineHash, out entry);
+                    if (outcome == CmTraceEntryAssembler.Outcome.OversizedDropped)
+                    {
+                        // A physical line over the cap is never matched: its captures would be
+                        // cut and the regexes would run over attacker-sized input.
+                        stats.OversizedLines++;
+                        _oversizedLines++;
+                        continue;
+                    }
+                    if (outcome == CmTraceEntryAssembler.Outcome.CapDropped)
+                    {
+                        // Warning (not Debug) so a capped entry is visible in the client log at the
+                        // default level: a real IME entry this large would be news.
+                        _logger.Warning($"ImeLogTracker: discarding multiline CMTrace buffer in {fileName} after {assembler.DroppedLines} lines / {assembler.DroppedChars} chars (cap {MaxMultiLineBufferLines} lines / {MaxEntryBytes} chars) — entry dropped");
+                        continue;
+                    }
+                    if (outcome != CmTraceEntryAssembler.Outcome.Entry) continue;
+
+                    if (firstEntry)
+                    {
+                        firstEntry = false;
+                        // A fragment right at the bookmark of a multi-writer file (the previous
+                        // entry ended exactly here, this one does not open an entry) is the tail of
+                        // a block a stale writer laid over already-read bytes: verify before reading on.
+                        if (ledger != null && rewoundEntries == null && entry.Offset == ledger.EndOffset
+                            && ledger.LastFragmentOffset != entry.Offset && !entry.Text.StartsWith("<![LOG["))
+                        {
+                            ledger.VerifyRequested = true;
+                            ledger.LastFragmentOffset = entry.Offset;
+                            resumePos = entry.Offset;
+                            break;
+                        }
+                    }
+
+                    if (ledger != null) ledger.Record(entry);
+                    if (rewoundEntries != null && rewoundEntries.Contains(new LedgerEntry { Offset = entry.Offset, Hash = entry.Hash }))
+                        continue; // unchanged behind the old bookmark — processed before the rewind
+
+                    _currentPassLinesAreFresh = passLinesAreFresh && entry.Offset >= oldBookmark;
+
+                    // --- Normal processing (single-line or completed multiline) ---
+                    CmTraceLogEntry parsed;
+                    string messageToMatch;
+                    _currentEntryOffset = entry.Offset;
+                    if (CmTraceLogParser.TryParseLine(entry.Text, out parsed))
+                    {
+                        messageToMatch = parsed.Message;
+                        if (parsed.HasTimestamp && !parsed.BiasMinutes.HasValue && entry.Offset >= oldBookmark)
+                            calibrationAnchor = parsed;
+                    }
+                    else
+                    {
+                        // Non-CMTrace line - match raw
+                        messageToMatch = entry.Text;
+                        parsed = null;
+                    }
+
+                    if (string.IsNullOrEmpty(messageToMatch)) continue;
+
+                    // Simulation mode delay
+                    if (SimulationMode && parsed != null)
+                    {
+                        await ApplySimulationDelay(ResolveEntryUtc(parsed), token);
+                    }
+
+                    MatchLine(filePath, entry.Text, messageToMatch, parsed, stats);
+                }
+
+                ClearHeldTailIfConsumed(filePath, resumePos);
+                _positionTracker.SetPosition(filePath, resumePos);
+                _stateDirty = true;
+                if (ledger != null) ledger.TrimBelow(RetentionFloor(fileName, resumePos));
+
+                // One line per pass and file, never per hostile line: the counters are
+                // the operator's only trace that matching was skipped or cut short.
+                if (stats.RegexTimeouts > 0 || stats.BudgetBreaks > 0 || stats.OversizedLines > 0)
+                {
+                    _logger.Warning(
+                        $"ImeLogTracker: {fileName} pass skipped work — " +
+                        $"oversizedLines={stats.OversizedLines} (cap {MaxEntryBytes} bytes), " +
+                        $"regexTimeouts={stats.RegexTimeouts}, lineBudgetBreaks={stats.BudgetBreaks}" +
+                        (stats.FirstSkippedPatternId != null ? $", firstSkippedPattern={stats.FirstSkippedPatternId}" : string.Empty));
+                    RaiseTrackerDegradedOnce(fileName, stats.FirstSkippedPatternId);
+                }
+
+                // Calibrate AFTER the pass: this pass's lines were resolved with the
+                // offset established previously, at most one poll (100 ms) old. Buffering
+                // the pass to calibrate first is not an option — the first pass of
+                // AppWorkload.log can be hundreds of MB. The cost is a warm-up of one
+                // growing pass, during which lines fall back to the reader zone and are
+                // flagged as such.
+                if (hadPreviousObservation && calibrationAnchor != null)
+                    CalibrateFrom(_currentSourceFileName, fileName, calibrationAnchor);
+                _currentEntryOffset = -1;
+
+                return Math.Max(0, fileInfo.Length - resumePos);
             }
         }
 
@@ -828,10 +832,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                         break;
 
                     case "resetplatformscriptcontext":
-                        // Session 6b4993e5 fix: a fresh AgentExecutor invocation banner
-                        // ("ExecutorLog AgentExecutor gets invoked") ends the previous
-                        // invocation's line-capture context. See HandleAgentExecutorInvocationBoundary.
-                        HandleAgentExecutorInvocationBoundary();
+                        // "ExecutorLog AgentExecutor gets invoked": a new process — the executor
+                        // lines that follow belong to its own argument line, never to the
+                        // previous invocation (session 6b4993e5).
+                        HandleAgentExecutorInvocation();
+                        break;
+
+                    case "agentinvocationargument":
+                        HandleAgentInvocationArgument(match.Groups["kind"]?.Value);
+                        break;
+
+                    case "agentexecutorcompleted":
+                        HandleAgentExecutorCompleted();
                         break;
 
                     case "healthscriptresult":
@@ -864,6 +876,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         internal void ProcessLogMessageForTest(string message, DateTime? sourceTimestampUtc = null)
         {
             if (string.IsNullOrEmpty(message)) return;
+            NextTestEntry();
             // The test seam hands in an already-resolved UTC instant, so it takes the same route a
             // writer-declared bias does: TimestampUtc set, no zone left to guess.
             var entry = sourceTimestampUtc.HasValue

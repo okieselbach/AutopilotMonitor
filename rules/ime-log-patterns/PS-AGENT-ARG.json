@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "PS-AGENT-ARG",
+  "category": "always",
+  "pattern": "^Adding argument (?<kind>[A-Za-z0-9]+) with value ",
+  "action": "agentInvocationArgument",
+  "description": "The first argument line of every AgentExecutor.exe invocation (powershell, remediationScript, detectionScript, requirementScript, ...). Opens the invocation that owns the policyId-less exit/output lines following it in AgentExecutor.log; PS-AGENT-SCRIPT-START upgrades a powershell invocation to its platform script. Also keeps the tracker's overwrite check active while the invocation runs.",
+  "enabled": true
+}

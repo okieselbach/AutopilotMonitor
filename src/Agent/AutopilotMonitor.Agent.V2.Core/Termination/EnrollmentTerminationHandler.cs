@@ -584,6 +584,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     ["heldTails"] = health.HeldTails,
                     ["unanchoredPatterns"] = health.UnanchoredPatterns,
                     ["hsParseFailures"] = health.HealthScriptResultParseFailures,
+                    ["overwriteRewinds"] = health.OverwriteRewinds,
+                    ["overwriteBytesReprocessed"] = health.OverwriteBytesReprocessed,
+                    ["verifyPasses"] = health.VerifyPasses,
+                    ["verifiedBytes"] = health.VerifiedBytes,
                     ["agentVersion"] = _agentVersion ?? string.Empty,
                 };
                 if (!string.IsNullOrEmpty(health.ImeAgentVersion))

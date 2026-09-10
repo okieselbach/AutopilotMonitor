@@ -71,6 +71,8 @@
             "scriptOutput",
             "scriptCompleted",
             "resetPlatformScriptContext",
+            "agentInvocationArgument",
+            "agentExecutorCompleted",
             "healthScriptResult",
             "healthScriptDetectionResult",
             "captureExitCode",

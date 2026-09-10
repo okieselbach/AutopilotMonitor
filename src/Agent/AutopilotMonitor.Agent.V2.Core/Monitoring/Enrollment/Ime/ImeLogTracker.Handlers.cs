@@ -222,19 +222,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // PowerShell script tracking handlers
         // -----------------------------------------------------------------------
 
-        // Returns the current platform-script accumulator, or null when no platform script is active.
+        // Returns the platform-script accumulator that owns the entry being processed, or null.
         // Health-script (remediation) state is no longer tracked line-by-line — the HS-NEW-RESULT
         // pattern delivers the full pre-detection / remediation / post-detection JSON in one shot
         // via HandleHealthScriptResult. The platform branch keeps its line-by-line accumulator
         // because PS-* patterns (PS-SCRIPT-CONTEXT / PS-SCRIPT-EXITCODE / PS-AGENT-OUTPUT / …) still
-        // arrive across multiple log lines.
-        private ScriptExecutionState GetCurrentPlatformScript()
-        {
-            if (!string.IsNullOrEmpty(_lastPlatformScriptPolicyId) &&
-                _pendingPlatformScripts.TryGetValue(_lastPlatformScriptPolicyId, out var state))
-                return state;
-            return null;
-        }
+        // arrive across multiple log lines; ownership is by file position (see
+        // ImeLogTracker.Overwrite.cs), never by which script happened to start last.
+        private ScriptExecutionState GetCurrentPlatformScript() => ResolvePlatformScriptForCurrentEntry();
 
         private void HandleScriptStarted(Match match, Dictionary<string, string> parameters)
         {
@@ -320,7 +315,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "platform" }); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
             }
-            _lastPlatformScriptPolicyId = id;
+            RecordInvocationMarker(id, isClose: false);
+            NoteInvocationActivity();
             // Started lines fire twice per script (agentexecutor + ime source) and carry no
             // outcome — the matching `platform script completed` line below carries result+exit
             // and stays on Info. Keep starts on Debug so Info reflects script outcomes only.
@@ -338,33 +334,34 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 : GetCurrentPlatformScript();
         }
 
-        // Session 6b4993e5 fix — platform-script stdout/exit cross-contamination.
-        //
-        // AgentExecutor.exe hosts BOTH platform scripts (…\Policies\Scripts\<id>.ps1) and
-        // proactive-remediation scripts (…\IMECache\HealthScripts\<id>\detect.ps1), and writes
-        // their lines interleaved into the shared AgentExecutor.log. The policyId-less
-        // PS-AGENT-EXITCODE ("Powershell exit code is N") and PS-AGENT-OUTPUT ("write output
-        // done. output = …") lines are routed to whichever platform script
-        // _lastPlatformScriptPolicyId points at. A remediation invocation's start
-        // ("Adding argument remediationScript …") does NOT match PS-AGENT-SCRIPT-START, so it
-        // never moves the pointer — its exit/output then bleed into the last-started PLATFORM
-        // script's slot (observed: platform c3e0124c emitted result=Failed but with exit 0 +
-        // stdout "[Compliant] No Classic Teams found" — the Teams remediation's output).
-        //
-        // Each AgentExecutor process logs "ExecutorLog AgentExecutor gets invoked" first, so a
-        // new banner means the previous invocation's line-capture context is over. Clearing the
-        // pointer here scopes line-capture to a single invocation: the immediately following
-        // "Adding argument powershell …\Policies\Scripts\<id>.ps1" (PS-AGENT-SCRIPT-START)
-        // re-establishes it for a platform invocation, while a remediation invocation leaves it
-        // null so its exit/output are dropped (the remediation's authoritative data still
-        // arrives via HS-NEW-RESULT). The platform script's final result is unaffected — it is
-        // keyed by policyId via PS-SCRIPT-RESULT, not by this pointer.
-        private void HandleAgentExecutorInvocationBoundary()
+        // AgentExecutor.exe hosts platform scripts (…\Policies\Scripts\<id>.ps1) as well as
+        // detection, requirement and proactive-remediation scripts, and its policyId-less
+        // PS-AGENT-EXITCODE / PS-AGENT-OUTPUT lines belong to whichever invocation owns that
+        // file position. The banner closes the previous invocation; the argument line that
+        // follows opens the next one — as a platform script when PS-AGENT-SCRIPT-START matched
+        // it, otherwise as an invocation whose exit/output are not captured (a remediation's
+        // authoritative data arrives via HS-NEW-RESULT; session 6b4993e5 saw its output bleed
+        // into a platform slot). "Agent executor completed" closes the invocation again.
+        private void HandleAgentExecutorInvocation()
         {
-            if (_lastPlatformScriptPolicyId == null) return;
-            _logger.Debug(
-                $"ImeLogTracker: AgentExecutor invocation boundary — clearing platform-script line-capture pointer (was {_lastPlatformScriptPolicyId}).");
-            _lastPlatformScriptPolicyId = null;
+            RecordInvocationMarker(null, isClose: true);
+            NoteInvocationActivity();
+        }
+
+        private void HandleAgentInvocationArgument(string kind)
+        {
+            RecordInvocationMarker(null, isClose: false);
+            NoteInvocationActivity();
+            if (!string.IsNullOrEmpty(kind) && !string.Equals(kind, "powershell", StringComparison.OrdinalIgnoreCase))
+                _logger.Debug($"ImeLogTracker: AgentExecutor invocation of kind '{kind}' — exit/output lines not captured as a platform script");
+        }
+
+        private void HandleAgentExecutorCompleted()
+        {
+            RecordInvocationMarker(null, isClose: true);
+            // The end block was written at the executor's own stream position — if that lay
+            // behind the bookmark, the ledger check on the next pass finds it.
+            RequestOverwriteCheck();
         }
 
         private void HandleScriptContext(Match match, Dictionary<string, string> parameters)
@@ -372,6 +369,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             var context = match.Groups["context"]?.Value;
             if (string.IsNullOrEmpty(context)) return;
 
+            NoteInvocationActivity();
             var runContext = string.Equals(context, "machine", StringComparison.OrdinalIgnoreCase) ? "System" : "User";
             var script = GetCurrentScriptForLineUpdate(parameters);
             if (script != null)
@@ -398,6 +396,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     script.ExitObservedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow;
                 _logger.Debug($"ImeLogTracker: script exit code {exitCode} for {script.PolicyId}");
             }
+            // An exit code means the executor just wrote its end block and IME is about to
+            // write the result — both land at a stale stream position when another process
+            // appended meanwhile. Check the ledgers on the next pass.
+            RequestOverwriteCheck();
         }
 
         private void HandleScriptOutput(Match match, Dictionary<string, string> parameters)
@@ -455,8 +457,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             {
                 _logger.Debug($"ImeLogTracker: platform script {id} PS-SCRIPT-RESULT arrived after fallback emit — skipping duplicate");
                 _pendingPlatformScripts.Remove(id);
-                if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
-                    _lastPlatformScriptPolicyId = null;
                 return;
             }
 
@@ -496,17 +496,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             _platformScriptResultEmitted.Add(id);
             _pendingPlatformScripts.Remove(id);
             _stateDirty = true;
-            if (string.Equals(_lastPlatformScriptPolicyId, id, StringComparison.OrdinalIgnoreCase))
-                _lastPlatformScriptPolicyId = null;
+            // The result block is IME's first write after the script wait — the executor's end
+            // block in the other file may have landed behind the bookmark at the same time.
+            RequestOverwriteCheck();
         }
 
         /// <summary>
         /// Grace period after a platform script's AgentExecutor exit code is observed before
         /// <see cref="FlushStalePlatformScriptResults"/> emits a completion from that exit code.
-        /// IME logs its authoritative <c>PS-SCRIPT-RESULT</c> line within ~1 s of exit on healthy
-        /// reporting cycles, so 15 s lets the normal path win virtually always — the fallback is a
-        /// true safety net for the case where IME has not flushed its batch-send to the Microsoft
-        /// service before the (often short) Autopilot enrollment ends and the agent terminates.
+        /// IME logs its authoritative <c>PS-SCRIPT-RESULT</c> line within ~1 s of exit; when it
+        /// is missing after 15 s it was hidden by a concurrent writer (the ledger check in
+        /// <c>ImeLogTracker.Overwrite.cs</c> recovers that line) or the enrollment ended before
+        /// IME wrote it — this fallback is the safety net for the remaining cases.
         /// </summary>
         private static readonly TimeSpan PlatformScriptResultGrace = TimeSpan.FromSeconds(15);
 
@@ -578,11 +579,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // the state file before a restart or the restarted tracker re-emits (H1).
                 _stateDirty = true;
                 foreach (var key in toRemove)
-                {
                     _pendingPlatformScripts.Remove(key);
-                    if (string.Equals(_lastPlatformScriptPolicyId, key, StringComparison.OrdinalIgnoreCase))
-                        _lastPlatformScriptPolicyId = null;
-                }
+                RequestOverwriteCheck();
             }
         }
 
@@ -602,7 +600,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 Stdout = stdout,
                 StartedAtUtc = startedAtUtc,
             };
-            _lastPlatformScriptPolicyId = policyId;
+            NextTestEntry();
+            RecordInvocationMarker(policyId, isClose: false);
         }
 
         /// <summary>Test seam: simulate the authoritative IME PS-SCRIPT-RESULT path for a platform
@@ -616,8 +615,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (_platformScriptResultEmitted.Contains(policyId))
             {
                 _pendingPlatformScripts.Remove(policyId);
-                if (string.Equals(_lastPlatformScriptPolicyId, policyId, StringComparison.OrdinalIgnoreCase))
-                    _lastPlatformScriptPolicyId = null;
                 return;
             }
 
@@ -642,8 +639,6 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             EmitScriptEvent(script);
             _platformScriptResultEmitted.Add(policyId);
             _pendingPlatformScripts.Remove(policyId);
-            if (string.Equals(_lastPlatformScriptPolicyId, policyId, StringComparison.OrdinalIgnoreCase))
-                _lastPlatformScriptPolicyId = null;
             _stateDirty = true;
         }
 
@@ -794,6 +789,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 return;
             }
             HandleHealthScriptResultJson(json);
+            // A remediation executor just ended too — its end block may sit behind the bookmark.
+            RequestOverwriteCheck();
         }
 
         /// <summary>

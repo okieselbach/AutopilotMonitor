@@ -175,7 +175,7 @@ public class BuiltInRulesTests
             "cancelStuckAndSetCurrent", "imeSessionChange", "imeImpersonation", "imeTokenFailure",
             "enrollmentCompleted", "userSessionZeroApps", "updateDoTelemetry", "scriptStarted",
             "scriptContext", "scriptExitCode", "scriptOutput", "scriptCompleted",
-            "resetPlatformScriptContext",
+            "resetPlatformScriptContext", "agentInvocationArgument", "agentExecutorCompleted",
             "healthScriptResult", "healthScriptDetectionResult",
             "captureExitCode", "captureHResult",
             "captureAppVersion", "captureAppTypeWinGet", "captureAppTypeMsi",

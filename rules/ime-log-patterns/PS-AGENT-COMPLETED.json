@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "PS-AGENT-COMPLETED",
+  "category": "always",
+  "pattern": "^Agent executor completed\\.",
+  "action": "agentExecutorCompleted",
+  "description": "Last line of an AgentExecutor.exe invocation. Closes the invocation's ownership of the exit/output lines in AgentExecutor.log and triggers the tracker's overwrite check: the executor wrote its end block at its own stream position, which may lie behind the tracker's bookmark when another process appended meanwhile.",
+  "enabled": true
+}

@@ -647,6 +647,22 @@
       "enabled": true
     },
     {
+      "patternId": "PS-AGENT-ARG",
+      "category": "always",
+      "pattern": "^Adding argument (?<kind>[A-Za-z0-9]+) with value ",
+      "action": "agentInvocationArgument",
+      "description": "The first argument line of every AgentExecutor.exe invocation (powershell, remediationScript, detectionScript, requirementScript, ...). Opens the invocation that owns the policyId-less exit/output lines following it in AgentExecutor.log; PS-AGENT-SCRIPT-START upgrades a powershell invocation to its platform script. Also keeps the tracker's overwrite check active while the invocation runs.",
+      "enabled": true
+    },
+    {
+      "patternId": "PS-AGENT-COMPLETED",
+      "category": "always",
+      "pattern": "^Agent executor completed\\.",
+      "action": "agentExecutorCompleted",
+      "description": "Last line of an AgentExecutor.exe invocation. Closes the invocation's ownership of the exit/output lines in AgentExecutor.log and triggers the tracker's overwrite check: the executor wrote its end block at its own stream position, which may lie behind the tracker's bookmark when another process appended meanwhile.",
+      "enabled": true
+    },
+    {
       "patternId": "PS-AGENT-ERROR",
       "category": "always",
       "pattern": "^error from script =(?<output>[\\s\\S]*)",
