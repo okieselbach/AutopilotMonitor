@@ -35,8 +35,10 @@ const FLEET_OVERVIEW_PAGE_SIZE = 25;
 
 /**
  * query_raw_events rows per page when the projection carries DataJson. Measured over 30 days of
- * tool telemetry: with the payload a row is p50 0.6 KB, p90 3.3 KB, outliers 21-29 KB, so 100 rows
- * keep the p90 page (330 KB) under the 500 KB cap and the outliers are the hard cap's job
+ * tool telemetry: with the payload a row is p50 0.6 KB, p90 3.3 KB, outliers 21-29 KB. Against the
+ * tool's 250 KB cap (MAX_RESULT_SIZE_CHARS.events) the default keeps a p90 page (165 KB) under it
+ * and the ceiling keeps a p50 page (60 KB; live 2026-09-10: 100 app_install_failed rows = 193 KB)
+ * under it; a p90 page at the ceiling (330 KB) and the outliers are the hard cap's job
  * (toolResultText names the exact pageSize that fits). Without DataJson the schema's 1000 stands.
  */
 export const RAW_EVENTS_PAYLOAD_PAGE_DEFAULT = 50;
