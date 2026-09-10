@@ -1,12 +1,14 @@
 using AutopilotMonitor.Functions.Functions.Metrics;
+using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.DataAccess;
 using Xunit;
 
 namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
-/// Tests for the pure fold behind GET metrics/mcp-usage/organization: one item per account, the
-/// delegated (MSP) marker from the row's home tenant, and the three windows (today / month / range).
+/// Tests for the pure folds behind GET metrics/mcp-usage/organization (and its global twin): one item per
+/// account, the delegated (MSP) marker from the row's home tenant, the three windows (today / month / range),
+/// and the tenant's organization windows over every account.
 /// </summary>
 public class McpOrganizationUsageAggregationTests
 {
@@ -84,6 +86,40 @@ public class McpOrganizationUsageAggregationTests
 
         Assert.Equal(new[] { MspAdmin, Member }, items.Select(i => i.UserId));
         Assert.Equal(newer, items[1].LastRequestAt);
+    }
+
+    [Fact]
+    public void OrganizationQuota_SumsTodayAndMonthOverEveryAccount_AndCarriesTheTenantLimits()
+    {
+        var rows = new[]
+        {
+            Row(Member, "20260815", 100),                 // last month: neither window
+            Row(Member, "20260901", 20),                  // month
+            Row(Member, "20260902", 2),                   // today + month
+            Row(MspAdmin, "20260902", 5, home: MspHome),  // delegated reads count against the same windows
+            Row(Member, "20260903", 7),                   // read window past today (range only)
+        };
+
+        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+            rows, new McpQuotaService.TenantPlanLimits("pro", 1500, 15000), "20260902", "20260901");
+
+        Assert.Equal("pro", quota.TenantPlan);
+        Assert.Equal(1500, quota.DailyLimit);
+        Assert.Equal(15000, quota.MonthlyLimit);
+        Assert.Equal(7, quota.DailyUsed);
+        Assert.Equal(27, quota.MonthlyUsed);
+    }
+
+    [Fact]
+    public void OrganizationQuota_LiftedWindows_StillReportTheCounters()
+    {
+        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+            new[] { Row(Member, "20260902", 3) }, new McpQuotaService.TenantPlanLimits("pro", 0, 0), "20260902", "20260901");
+
+        Assert.Equal(0, quota.DailyLimit);
+        Assert.Equal(0, quota.MonthlyLimit);
+        Assert.Equal(3, quota.DailyUsed);
+        Assert.Equal(3, quota.MonthlyUsed);
     }
 
     [Theory]

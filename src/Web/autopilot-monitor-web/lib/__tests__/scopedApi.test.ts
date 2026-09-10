@@ -65,6 +65,21 @@ describe("scopedApi routing", () => {
     expect(scopedApi.appMetrics(corrupt, 30)).not.toContain("tenantId=");
   });
 
+  it("mcpOrganizationUsage routes by scope and never aggregates", () => {
+    const t = scopedApi.mcpOrganizationUsage(tenantMode, "20260901", "20260910");
+    expect(t).toContain("/api/metrics/mcp-usage/organization");
+    expect(t).not.toContain("tenantId=");
+    expect(t).toContain("dateFrom=20260901");
+    const g = scopedApi.mcpOrganizationUsage(override, "20260901", "20260910");
+    expect(g).toContain("/api/global/metrics/mcp-usage/organization");
+    expect(g).toContain(`tenantId=${OTHER}`);
+    expect(g).toContain("dateTo=20260910");
+    // No aggregate path: an empty selection sends no tenantId (backend 400), never the member URL.
+    const a = scopedApi.mcpOrganizationUsage(aggregated, "20260901", "20260910");
+    expect(a).toContain("/global/");
+    expect(a).not.toContain("tenantId=");
+  });
+
   it("appSessions places every positional argument on both variants", () => {
     const t = scopedApi.appSessions(tenantMode, "My App", 7, "failed", 20, 10);
     const g = scopedApi.appSessions(override, "My App", 7, "failed", 20, 10);

@@ -2013,7 +2013,7 @@ export interface GetLatestVersionsResponse {
   source: string;
 }
 
-/** Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters. */
+/** Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's organization counters. */
 export interface GetMcpOrganizationUsageResponse {
   tenantId: string;
   /** Effective range start (yyyyMMdd). */
@@ -2021,6 +2021,8 @@ export interface GetMcpOrganizationUsageResponse {
   /** Effective range end (yyyyMMdd, inclusive). */
   dateTo: string;
   users: McpOrganizationUsageItem[];
+  /** The tenant's organization windows (plan, limits, today / this month) from the same counters. */
+  quota: McpOrganizationQuotaNode;
 }
 
 /** Per-user MCP/API usage envelope (GetMcpUserUsage). Non-global callers only receive the records attributed to their own tenant; a foreign oid and an unknown oid are indistinguishable (both 200 with empty records). The MCP server paginates over the records key — its name is wire-critical. */
@@ -2820,6 +2822,15 @@ export interface ManagedTenantQuotaUsage {
 export interface McpHealthCheckResponse {
   timestamp: string;
   check: HealthCheck;
+}
+
+/** The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every account charged to the tenant. */
+export interface McpOrganizationQuotaNode {
+  tenantPlan: string;
+  dailyLimit: number;
+  monthlyLimit: number;
+  dailyUsed: number;
+  monthlyUsed: number;
 }
 
 /** One account's share of the organization budget, nested in GetMcpOrganizationUsageResponse. */

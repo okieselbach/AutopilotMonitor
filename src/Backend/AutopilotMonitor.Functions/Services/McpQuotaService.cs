@@ -204,6 +204,13 @@ namespace AutopilotMonitor.Functions.Services
             return Compose(userLimits, await ResolveTenantLimitsAsync(chargeTenantId, definitions));
         }
 
+        /// <summary>
+        /// One charged tenant's organization windows alone (plan name + tenant limits; no counters, no per-user
+        /// part) — for the organization usage report.
+        /// </summary>
+        public virtual async Task<TenantPlanLimits> ResolveTenantPlanAsync(string chargeTenantId)
+            => await ResolveTenantLimitsAsync(chargeTenantId, await LoadDefinitionsAsync());
+
         private async Task<(UserPlanLimits Limits, List<PlanTierDefinition> Definitions)> ResolveUserLimitsAsync(
             AdminIdentity? identity, string? homeTenantId)
         {
@@ -227,7 +234,7 @@ namespace AutopilotMonitor.Functions.Services
             var planName = overridePlan ?? await _entitlementService.GetMcpUsagePlanNameAsync(homeTenantId);
 
             // 3. Limits: admin-edited SectionUsagePlans definitions, else catalog fallbacks.
-            var definitions = await LoadDefinitionsAsync(planName);
+            var definitions = await LoadDefinitionsAsync();
 
             // User limits: the definition for the (possibly overridden) plan name, else the catalog fallback
             // for the edition plans, else Community (fail-closed for overrides naming a plan that exists nowhere).
@@ -257,7 +264,7 @@ namespace AutopilotMonitor.Functions.Services
                 tenantDefinition?.TenantMonthlyRequestLimit ?? entitlements.McpTenantMonthlyRequestLimit);
         }
 
-        private async Task<List<PlanTierDefinition>> LoadDefinitionsAsync(string planName)
+        private async Task<List<PlanTierDefinition>> LoadDefinitionsAsync()
         {
             try
             {
@@ -266,7 +273,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[McpQuota] Plan definitions unavailable — using catalog fallback for plan {Plan}", planName);
+                _logger.LogWarning(ex, "[McpQuota] Plan definitions unavailable — using catalog fallback");
                 return new List<PlanTierDefinition>();
             }
         }
@@ -393,7 +400,9 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         private sealed record UserPlanLimits(string PlanName, int DailyLimit, int MonthlyLimit);
-        private sealed record TenantPlanLimits(string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit);
+
+        /// <summary>The charged tenant's plan name and organization-wide windows (0 = unlimited).</summary>
+        public sealed record TenantPlanLimits(string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit);
     }
 
     /// <summary>

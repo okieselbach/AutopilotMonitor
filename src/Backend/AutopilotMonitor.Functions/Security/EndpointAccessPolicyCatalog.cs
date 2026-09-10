@@ -512,6 +512,9 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/metrics/vulnerability", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/mcp-usage",       EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         new("GET",    "global/metrics/mcp-usage/daily", EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
+        // One tenant's organization usage by account (?tenantId= read by the handler): deliberately None, not
+        // QueryParam — the route enumerates accounts (UPNs), which the delegated path must never reach.
+        new("GET",    "global/metrics/mcp-usage/organization", EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/distress-reports",    EndpointPolicy.GlobalReadOrAdmin),
         new("GET",    "global/session-reports",     EndpointPolicy.GlobalReadOrAdmin, TenantScoping.QueryParam),
         // Mints the HMAC ticket for the anonymous proxied stream above (the MCP's report download).

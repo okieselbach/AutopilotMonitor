@@ -1,13 +1,21 @@
 "use client";
 
 import { SegmentedControl, TIME_RANGE_OPTIONS } from "@/components/SegmentedControl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { ApiError, apiErrorText, fetchJson } from "@/lib/apiClient";
 import { api } from "@/lib/api";
+import { scopedApi } from "@/lib/scopedApi";
+import { useGlobalAdminScope } from "@/hooks";
+import { TenantScopeSelector } from "@/components/TenantScopeSelector";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
-import type { GetMcpOrganizationUsageResponse, GetMyMcpUsageResponse, McpOrganizationUsageItem, McpUsageQuotaNode } from "@/utils/wire-types.generated";
+import type {
+  GetMcpOrganizationUsageResponse,
+  GetMyMcpUsageResponse,
+  McpOrganizationQuotaNode,
+  McpUsageQuotaNode,
+} from "@/utils/wire-types.generated";
 import { isApplicationKey, principalLabel } from "@/utils/principalKeys";
 
 interface UsageRecord {
@@ -79,9 +87,18 @@ function getDateTo(): string {
 export function SectionMcpUsage() {
   const { getAccessToken, user } = useAuth();
   const canSeeOrganization = !!(user?.isTenantAdmin || user?.isGlobalAdmin);
+
+  // Global-admin tenant scope (override-only: always a concrete tenant, defaulting to the caller's own).
+  // Only the organization cards follow the selection — the caller's own quota and request history never
+  // do. A delegated (MSP) caller keeps the member path: the organization route never lists a managed
+  // tenant's accounts, so the selector stays hidden for them.
+  const scope = useGlobalAdminScope();
+  const crossTenant = scope.routeGlobal && !scope.isDelegatedScope;
+  const { effectiveTenantId, isGlobalOverride } = scope;
+
   const [records, setRecords] = useState<UsageRecord[]>([]);
-  // Organization budget by account — tenant admins only; null = not loaded / not permitted.
-  const [orgUsers, setOrgUsers] = useState<McpOrganizationUsageItem[] | null>(null);
+  // Organization budget by account + the tenant's windows — tenant admins / GA only; null = not loaded / not permitted.
+  const [orgUsage, setOrgUsage] = useState<GetMcpOrganizationUsageResponse | null>(null);
   const [usagePlan, setUsagePlan] = useState<string | null>(null);
   const [effectivePlan, setEffectivePlan] = useState<string | null>(null);
   const [quota, setQuota] = useState<QuotaState | null>(null);
@@ -90,38 +107,49 @@ export function SectionMcpUsage() {
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("30d");
 
+  // Latest-wins guard: a tenant switch starts a new fetch while an older one may still be in flight;
+  // only the most recently started request may write state.
+  const fetchSeqRef = useRef(0);
+
   const fetchUsage = useCallback(async (range: DateRange) => {
+    // The cross-tenant path needs the selected tenant; the member path is JWT-bound.
+    if (crossTenant && !effectiveTenantId) return;
+    const seq = ++fetchSeqRef.current;
+    const isCurrent = () => fetchSeqRef.current === seq;
     setLoading(true);
     setError(null);
     try {
       const dateFrom = getDateFrom(range);
       const dateTo = getDateTo();
-      const data = await fetchJson<GetMyMcpUsageResponse>(
-        api.mcpUsage.me(dateFrom, dateTo),
-        getAccessToken
-      );
+      const orgSelection = { routeGlobal: crossTenant, selectedTenantId: effectiveTenantId, effectiveTenantId };
+      const [data, org] = await Promise.all([
+        fetchJson<GetMyMcpUsageResponse>(api.mcpUsage.me(dateFrom, dateTo), getAccessToken),
+        canSeeOrganization
+          ? // Every account charged to the tenant's organization budget — including delegated (MSP)
+            // administrators reading it. A 403 (role changed mid-session) just hides the card.
+            fetchJson<GetMcpOrganizationUsageResponse>(
+              scopedApi.mcpOrganizationUsage(orgSelection, dateFrom, dateTo),
+              getAccessToken
+            ).catch((err: unknown) => {
+              if (err instanceof ApiError) return null;
+              throw err;
+            })
+          : Promise.resolve(null),
+      ]);
+      if (!isCurrent()) return;
       setRecords(data.records || []);
       setUsagePlan(data.usagePlan || null);
       setEffectivePlan(data.effectivePlan || null);
       setQuota(data.quota ?? null);
       setUpn(data.upn || "");
-
-      if (canSeeOrganization) {
-        // Every account charged to this tenant's organization budget — including delegated (MSP)
-        // administrators reading the tenant. A 403 (role changed mid-session) just hides the card.
-        const org = await fetchJson<GetMcpOrganizationUsageResponse>(api.mcpUsage.organization(dateFrom, dateTo), getAccessToken)
-          .catch((err: unknown) => {
-            if (err instanceof ApiError) return null;
-            throw err;
-          });
-        setOrgUsers(org ? org.users ?? [] : null);
-      }
+      setOrgUsage(org);
     } catch (err) {
+      if (!isCurrent()) return;
       setError(apiErrorText(err, "Failed to fetch usage data"));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [getAccessToken, canSeeOrganization]);
+  }, [getAccessToken, canSeeOrganization, crossTenant, effectiveTenantId]);
 
   useEffect(() => {
     const run = async () => {
@@ -130,7 +158,28 @@ export function SectionMcpUsage() {
     void run();
   }, [fetchUsage, dateRange]);
 
+  const orgUsers = orgUsage?.users ?? null;
   const delegatedReaders = orgUsers?.filter((u) => u.delegated).length ?? 0;
+
+  // Organization windows: from the organization response when the caller may read it; otherwise
+  // (members without an admin role) from the caller's own quota node — but only on the own tenant,
+  // because under a tenant override that node describes the CALLER's tenant, not the selected one.
+  const orgQuota: McpOrganizationQuotaNode | null =
+    orgUsage?.quota ??
+    (!crossTenant && quota
+      ? {
+          tenantPlan: quota.tenantPlan,
+          dailyLimit: quota.tenantDailyLimit,
+          monthlyLimit: quota.tenantMonthlyLimit,
+          dailyUsed: quota.tenantDailyUsed,
+          monthlyUsed: quota.tenantMonthlyUsed,
+        }
+      : null);
+
+  // Wording follows the viewpoint: the caller's own tenant, or the tenant a global admin picked.
+  const tenantNoun = isGlobalOverride ? "this tenant" : "your tenant";
+  const budgetNoun = isGlobalOverride ? "this tenant's organization budget" : "your organization budget";
+  const planNoun = isGlobalOverride ? "its plan" : "your plan";
 
   // Aggregate records by date
   const dailyAggregates: DailyAggregate[] = (() => {
@@ -163,6 +212,7 @@ export function SectionMcpUsage() {
           {upn && <p className="text-sm text-gray-500">{upn}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {!scope.isDelegatedScope && <TenantScopeSelector scope={scope} />}
           {/* Plan Badge */}
           {usagePlan && (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
@@ -198,33 +248,37 @@ export function SectionMcpUsage() {
       )}
 
       {/* Quota: the caller's own windows and the organization-wide windows shared by every member */}
-      {quota && (
+      {(quota || orgQuota) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-900">Your quota</h3>
-              <span className="text-xs text-gray-500">plan {effectivePlan ?? "—"}</span>
+          {quota && (
+            <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-900">Your quota</h3>
+                <span className="text-xs text-gray-500">plan {effectivePlan ?? "—"}</span>
+              </div>
+              <QuotaBar label="Today" used={quota.dailyUsed} limit={quota.dailyLimit} />
+              <QuotaBar label="This month" used={quota.monthlyUsed} limit={quota.monthlyLimit} />
             </div>
-            <QuotaBar label="Today" used={quota.dailyUsed} limit={quota.dailyLimit} />
-            <QuotaBar label="This month" used={quota.monthlyUsed} limit={quota.monthlyLimit} />
-          </div>
-          <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
-              <span className="text-xs text-gray-500">tenant plan {quota.tenantPlan}</span>
-            </div>
-            <QuotaBar label="Today (all members)" used={quota.tenantDailyUsed} limit={quota.tenantDailyLimit} />
-            <QuotaBar label="This month (all members)" used={quota.tenantMonthlyUsed} limit={quota.tenantMonthlyLimit} />
-            <p className="text-xs text-gray-500">
-              Shared by every account in your tenant and by delegated (MSP) administrators reading it. A personal
-              plan override widens only the account&apos;s own windows, never these.
-            </p>
-            {user?.isDelegated && (
+          )}
+          {orgQuota && (
+            <div className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
+                <span className="text-xs text-gray-500">tenant plan {orgQuota.tenantPlan}</span>
+              </div>
+              <QuotaBar label="Today (all members)" used={orgQuota.dailyUsed} limit={orgQuota.dailyLimit} />
+              <QuotaBar label="This month (all members)" used={orgQuota.monthlyUsed} limit={orgQuota.monthlyLimit} />
               <p className="text-xs text-gray-500">
-                Your reads into tenants you manage are charged to that tenant&apos;s own plan, not to these windows.
+                Shared by every account in {tenantNoun} and by delegated (MSP) administrators reading it. A personal
+                plan override widens only the account&apos;s own windows, never these.
               </p>
-            )}
-          </div>
+              {user?.isDelegated && (
+                <p className="text-xs text-gray-500">
+                  Your reads into tenants you manage are charged to that tenant&apos;s own plan, not to these windows.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -239,7 +293,7 @@ export function SectionMcpUsage() {
             </span>
           </div>
           {orgUsers.length === 0 ? (
-            <p className="text-sm text-gray-500">No requests have been charged to your organization budget yet.</p>
+            <p className="text-sm text-gray-500">No requests have been charged to {budgetNoun} yet.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -286,7 +340,7 @@ export function SectionMcpUsage() {
           )}
           <p className="text-xs text-gray-500">
             Every request counted against the organization windows above, by the account that made it. Delegated
-            (MSP) administrators reading your tenant appear here too — their reads draw on your plan.
+            (MSP) administrators reading {tenantNoun} appear here too — their reads draw on {planNoun}.
           </p>
         </div>
       )}

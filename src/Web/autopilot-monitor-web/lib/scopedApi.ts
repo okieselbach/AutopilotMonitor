@@ -92,4 +92,14 @@ export const scopedApi = {
     sel.routeGlobal
       ? api.audit.globalLogs({ ...opts, tenantId: globalTenantParam(sel) })
       : api.audit.logs(opts),
+
+  /**
+   * Organization MCP usage (accounts + tenant windows). The global variant has no aggregate — a
+   * missing/corrupt tenant selection sends no tenantId and the backend answers 400 rather than
+   * silently falling back to the caller's own tenant.
+   */
+  mcpOrganizationUsage: (sel: TenantScopeSelection, dateFrom: string, dateTo: string) =>
+    sel.routeGlobal
+      ? api.mcpUsage.globalOrganization(globalTenantParam(sel) ?? "", dateFrom, dateTo)
+      : api.mcpUsage.organization(dateFrom, dateTo),
 };

@@ -126,9 +126,11 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every
-    /// account whose requests were charged to this tenant's organization budget — its own members and any
-    /// delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters.
+    /// Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the
+    /// tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests
+    /// were charged to this tenant's organization budget — its own members and any delegated (MSP)
+    /// administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's
+    /// organization counters.
     /// </summary>
     // Declaration order == wire order.
     public class GetMcpOrganizationUsageResponse : IApiResponse
@@ -139,6 +141,23 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>Effective range end (yyyyMMdd, inclusive).</summary>
         public string DateTo { get; set; } = default!;
         public IReadOnlyList<McpOrganizationUsageItem> Users { get; set; } = default!;
+        /// <summary>The tenant's organization windows (plan, limits, today / this month) from the same counters.</summary>
+        public McpOrganizationQuotaNode Quota { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// The organization-wide windows of the tenant in <see cref="GetMcpOrganizationUsageResponse"/>: its tenant
+    /// plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every
+    /// account charged to the tenant.
+    /// </summary>
+    // Declaration order == wire order.
+    public class McpOrganizationQuotaNode
+    {
+        public string TenantPlan { get; set; } = default!;
+        public int DailyLimit { get; set; }
+        public int MonthlyLimit { get; set; }
+        public long DailyUsed { get; set; }
+        public long MonthlyUsed { get; set; }
     }
 
     /// <summary>One account's share of the organization budget, nested in <see cref="GetMcpOrganizationUsageResponse"/>.</summary>

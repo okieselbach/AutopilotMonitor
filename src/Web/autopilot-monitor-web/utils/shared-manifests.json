@@ -9545,7 +9545,7 @@
     },
     "GetMcpOrganizationUsageResponse": {
       "kind": "object",
-      "doc": "Organization-wide MCP usage by user for the caller's OWN tenant (GetMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant. Built from the tenant's organization counters.",
+      "doc": "Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's organization counters.",
       "fields": [
         {
           "name": "tenantId",
@@ -9579,6 +9579,14 @@
               "name": "McpOrganizationUsageItem"
             }
           }
+        },
+        {
+          "name": "quota",
+          "type": {
+            "kind": "ref",
+            "name": "McpOrganizationQuotaNode"
+          },
+          "doc": "The tenant's organization windows (plan, limits, today / this month) from the same counters."
         }
       ]
     },
@@ -13322,6 +13330,47 @@
           "type": {
             "kind": "ref",
             "name": "HealthCheck"
+          }
+        }
+      ]
+    },
+    "McpOrganizationQuotaNode": {
+      "kind": "object",
+      "doc": "The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every account charged to the tenant.",
+      "fields": [
+        {
+          "name": "tenantPlan",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "dailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "monthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "dailyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "monthlyUsed",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]

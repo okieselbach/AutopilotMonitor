@@ -115,6 +115,29 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 return await req.UnauthorizedAsync("Unable to determine tenant identity");
             }
 
+            return await OrganizationUsageResponseAsync(req, tenantId);
+        }
+
+        /// <summary>
+        /// GET /api/global/metrics/mcp-usage/organization?tenantId=&amp;dateFrom=&amp;dateTo= — the same organization
+        /// breakdown for ONE tenant named by a Global Admin / Global Reader (the tenant MCP Usage page under a tenant
+        /// override). There is no aggregate path: tenantId is required. Catalogued with TenantScoping.None on
+        /// purpose — the route enumerates a tenant's accounts, which a delegated (MSP) caller must never reach.
+        /// </summary>
+        [Function("GetGlobalMcpOrganizationUsage")]
+        public async Task<HttpResponseData> GetGlobalOrganizationUsage(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/metrics/mcp-usage/organization")] HttpRequestData req)
+        {
+            if (!Guid.TryParse(req.Query["tenantId"], out var tenantGuid))
+            {
+                return await req.BadRequestAsync("tenantId is required");
+            }
+
+            return await OrganizationUsageResponseAsync(req, tenantGuid.ToString());
+        }
+
+        private async Task<HttpResponseData> OrganizationUsageResponseAsync(HttpRequestData req, string tenantId)
+        {
             try
             {
                 var nowUtc = DateTime.UtcNow;
@@ -127,6 +150,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var readFrom = string.CompareOrdinal(dateFrom, monthStart) < 0 ? dateFrom : monthStart;
                 var readTo = string.CompareOrdinal(dateTo, today) > 0 ? dateTo : today;
                 var records = await _userUsageRepo.GetTenantUsageAsync(tenantId, readFrom, readTo);
+                var limits = await _quotaService.ResolveTenantPlanAsync(tenantId);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
                 await response.WriteAsJsonAsync(new GetMcpOrganizationUsageResponse
@@ -135,6 +159,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     DateFrom = dateFrom,
                     DateTo = dateTo,
                     Users = AggregateOrganizationUsage(records, tenantId, dateFrom, dateTo, today, monthStart),
+                    Quota = BuildOrganizationQuota(records, limits, today, monthStart),
                 });
                 return response;
             }
@@ -142,6 +167,31 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 return await req.InternalServerErrorAsync(_logger, ex, "McpUsageMetrics");
             }
+        }
+
+        /// <summary>
+        /// Pure: the tenant's organization windows from the same counter rows — today's and this month's total over
+        /// every account charged to the tenant, against the tenant plan's limits (0 = unlimited).
+        /// </summary>
+        internal static McpOrganizationQuotaNode BuildOrganizationQuota(
+            IEnumerable<TenantUsageRecord> records, McpQuotaService.TenantPlanLimits limits, string today, string monthStart)
+        {
+            long dailyUsed = 0, monthlyUsed = 0;
+            foreach (var record in records)
+            {
+                if (record.Date == today) dailyUsed += record.RequestCount;
+                if (string.CompareOrdinal(record.Date, monthStart) >= 0 && string.CompareOrdinal(record.Date, today) <= 0)
+                    monthlyUsed += record.RequestCount;
+            }
+
+            return new McpOrganizationQuotaNode
+            {
+                TenantPlan = limits.TenantPlan,
+                DailyLimit = limits.TenantDailyLimit,
+                MonthlyLimit = limits.TenantMonthlyLimit,
+                DailyUsed = dailyUsed,
+                MonthlyUsed = monthlyUsed,
+            };
         }
 
         /// <summary>
