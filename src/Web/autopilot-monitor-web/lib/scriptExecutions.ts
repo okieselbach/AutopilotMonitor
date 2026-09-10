@@ -64,6 +64,13 @@ export interface ScriptItem {
   state: "Running" | "Success" | "Failed";
   timestamp: string;
   bootstrapVersion?: string | null;
+  /**
+   * Set by applyObservationEnd, never by the fold: the script was still running when the
+   * session's observation ended. Terminal, neither a failure nor a success — the outcome was
+   * never seen — and `observedMs` is the span actually watched, a lower bound on the run time.
+   */
+  isIncomplete: boolean;
+  observedMs?: number;
 }
 
 /**
@@ -112,8 +119,11 @@ export interface ScriptCard {
   phases: ScriptItem[];
   /** Header outcome label, e.g. "Compliant", "Remediated successfully", "Remediation failed". */
   headerLabel: string;
-  /** Overall card state — drives the container colour. */
-  headerState: "Running" | "Success" | "Failed" | "NonCompliant";
+  /**
+   * Overall card state — drives the container colour. `Incomplete`: still running when the
+   * session's observation ended (see ScriptItem.isIncomplete).
+   */
+  headerState: "Running" | "Success" | "Failed" | "NonCompliant" | "Incomplete";
   /** True when the card represents a multi-phase remediation cycle (header expandable). */
   isCycle: boolean;
   /** First-phase timestamp; used for sorting cards chronologically in the UI. */
@@ -128,9 +138,12 @@ export interface ScriptCard {
   durationSeconds?: number;
 }
 
-/** Stable React key for a ScriptCard. */
+/**
+ * Stable React key for a ScriptCard. An Incomplete card shares the Running slot: it is the same
+ * placeholder after the session turned terminal, so the flip must not remount it.
+ */
 export function scriptCardKey(card: Pick<ScriptCard, "policyId" | "scriptType" | "headerState">): string {
-  const idPart = card.headerState === "Running" ? "_running" : "_card";
+  const idPart = card.headerState === "Running" || card.headerState === "Incomplete" ? "_running" : "_card";
   return `${card.policyId || "_noid"}-${card.scriptType}-${idPart}`;
 }
 
@@ -213,11 +226,15 @@ export function mapRemediationStatus(status?: number): string | null {
  * phase (detection / remediation / post-detection) of the cycle this row represents.
  * The phase is conveyed via the badge next to the title, not the title itself.
  */
-export function buildScriptItemLabel(item: Pick<ScriptItem, "scriptType" | "scriptPart" | "state" | "remediationStatus">): string {
+export function buildScriptItemLabel(
+  item: Pick<ScriptItem, "scriptType" | "scriptPart" | "state" | "remediationStatus"> & Partial<Pick<ScriptItem, "isIncomplete">>
+): string {
+  // "(running)" belongs to a live placeholder only — an incomplete row is not running any more.
+  const running = item.state === "Running" && !item.isIncomplete;
   if (item.scriptType === "remediation") {
-    return item.state === "Running" ? "Remediation (running)" : "Remediation";
+    return running ? "Remediation (running)" : "Remediation";
   }
-  return item.state === "Running" ? "Platform Script (running)" : "Platform Script";
+  return running ? "Platform Script (running)" : "Platform Script";
 }
 
 /**
@@ -358,6 +375,7 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       state: isFailureSignal ? "Failed" : "Success",
       timestamp: evt.timestamp,
       bootstrapVersion: scriptType === "platform" ? extractBootstrapVersion(stdout) : null,
+      isIncomplete: false,
     };
 
     // Keep the most-complete entry, but merge the duration fields across both: the
@@ -422,10 +440,28 @@ export function reduceScriptEvents(events: ScriptInputEvent[]): ScriptItem[] {
       state: "Running",
       timestamp: evt.timestamp,
       bootstrapVersion: null,
+      isIncomplete: false,
     });
   }
 
   return items;
+}
+
+/**
+ * Marks placeholders that were still running when observation ended. `observedUntilMs` is the
+ * last moment the agent reported anything (the session's lastEventAt) and is only passed once
+ * the session is terminal; null (live session) leaves every row untouched. Mirrors the install
+ * panel's applyObservationEnd: no timer runs on such a row, and `observedMs` is the watched
+ * span from the start line — a lower bound, never the run time.
+ */
+export function applyObservationEnd(items: ScriptItem[], observedUntilMs: number | null): ScriptItem[] {
+  if (observedUntilMs == null) return items;
+  return items.map(item => {
+    if (item.state !== "Running") return item;
+    const startedMs = new Date(item.timestamp).getTime();
+    const observedMs = Number.isFinite(startedMs) ? Math.max(0, observedUntilMs - startedMs) : 0;
+    return { ...item, isIncomplete: true, observedMs };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -447,7 +483,8 @@ function phaseSortKey(part?: string): number {
  * Derive the human-readable header label + state for a remediation card based on its
  * phases and the cycle-level RemediationStatus. The label communicates the cycle
  * outcome at a glance; the state drives the card colour. Priority (highest wins):
- *   1. Any phase Running       → state=Running, label="Running"
+ *   1. Any phase live Running  → state=Running, label="Running"; a Running phase cut off by
+ *      the observation end (isIncomplete) → state=Incomplete, label="Incomplete"
  *   2. Any phase Failed (real script crash, e.g. remediation phase exit != 0 or stderr)
  *                               → state=Failed,  label="Remediation script failed"
  *   3. Has post-detection AND post-detection compliance=False
@@ -464,8 +501,12 @@ function phaseSortKey(part?: string): number {
 function deriveRemediationHeader(
   phases: ScriptItem[]
 ): { label: string; state: ScriptCard["headerState"] } {
-  if (phases.some(p => p.state === "Running")) {
+  if (phases.some(p => p.state === "Running" && !p.isIncomplete)) {
     return { label: "Running", state: "Running" };
+  }
+  // Every running phase was cut off by the observation end: the cycle never finished in view.
+  if (phases.some(p => p.isIncomplete)) {
+    return { label: "Incomplete", state: "Incomplete" };
   }
 
   const detection = phases.find(p => p.scriptPart === "detection");
@@ -569,9 +610,11 @@ export function groupScriptItems(items: ScriptItem[]): ScriptCard[] {
       headerState = derived.state;
     } else {
       // Platform scripts: header mirrors the single phase.
-      headerState = first.state === "Running" ? "Running" : (first.state === "Failed" ? "Failed" : "Success");
+      headerState = first.state === "Running"
+        ? (first.isIncomplete ? "Incomplete" : "Running")
+        : (first.state === "Failed" ? "Failed" : "Success");
       headerLabel = first.state === "Running"
-        ? "Running"
+        ? (first.isIncomplete ? "Incomplete" : "Running")
         : (first.result ?? (first.state === "Failed" ? "Failed" : "Success"));
     }
 

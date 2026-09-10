@@ -32,6 +32,9 @@ export const COVERAGE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'diagnostics_uploaded',
   'diagnostics_upload_failed',
   'app_tracking_summary',
+  'script_started',
+  'script_completed',
+  'script_failed',
 ]);
 
 /**
@@ -46,7 +49,9 @@ export const COVERAGE_EVENT_FIELDS =
   'data.collector,data.reason,data.errorType,' +
   'data.pendingItemCount,data.pendingBytes,data.kind,data.itemCount,data.disk_free_gb,' +
   'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
-  'data.installingNames,data.downloadingNames';
+  'data.installingNames,data.downloadingNames,' +
+  // Scripts block; scriptType/script_type already ride in SUMMARY_EVENT_FIELDS' own list.
+  'data.policyId,data.policy_id';
 
 export interface CoverageWindow {
   /** Timestamp of the first `agent_started` — the earliest moment anything was observed live. */
@@ -120,6 +125,11 @@ export interface AppsCoverage {
   stillDownloading: string[];
 }
 
+export interface ScriptsCoverage {
+  /** Scripts whose start line was seen but no result before observation ended (terminal session only). */
+  stillRunning: { policyId: string; scriptType: string }[];
+}
+
 export interface SessionCoverage {
   window: CoverageWindow;
   imeTracker: ImeTrackerCoverage;
@@ -127,6 +137,7 @@ export interface SessionCoverage {
   upload: UploadCoverage;
   diagnostics: DiagnosticsCoverage;
   apps: AppsCoverage;
+  scripts: ScriptsCoverage;
   /** One calibrated line per observation gap; empty means nothing reported a gap. */
   gaps: string[];
 }
@@ -404,6 +415,44 @@ export function buildSessionCoverage(
     inFlight('downloading', apps.stillDownloading);
   }
 
+  // ── Scripts without a terminal state ────────────────────────────────────────
+  // The agent has no shutdown summary for scripts, so the stream itself is the evidence — the
+  // same rule as the web panel's running placeholder: a script_started with no
+  // script_completed/script_failed for the same policy (and type) at or after it.
+  const scripts: ScriptsCoverage = { stillRunning: [] };
+  if (isTerminalSessionStatus(session.status)) {
+    const identity = (e: Ev): { key: string; policyId: string; scriptType: string } | null => {
+      const policyId = str(e.data?.policyId) ?? str(e.data?.policy_id);
+      if (!policyId) return null;
+      const scriptType = str(e.data?.scriptType) ?? str(e.data?.script_type) ?? 'platform';
+      return { key: `${policyId}-${scriptType}`, policyId, scriptType };
+    };
+    const finalsByKey = new Map<string, number[]>();
+    for (const e of [...of('script_completed'), ...of('script_failed')]) {
+      const id = identity(e);
+      const t = ms(e.timestamp);
+      if (!id || t === null) continue;
+      const list = finalsByKey.get(id.key);
+      if (list) list.push(t);
+      else finalsByKey.set(id.key, [t]);
+    }
+    const listed = new Set<string>();
+    for (const e of of('script_started')) {
+      const id = identity(e);
+      const t = ms(e.timestamp);
+      if (!id || t === null || listed.has(id.key)) continue;
+      if ((finalsByKey.get(id.key) ?? []).some((f) => f >= t)) continue;
+      listed.add(id.key);
+      scripts.stillRunning.push({ policyId: id.policyId, scriptType: id.scriptType });
+    }
+    if (scripts.stillRunning.length > 0) {
+      const names = scripts.stillRunning.map((s) => `${s.scriptType} ${s.policyId}`).join(', ');
+      gaps.push(
+        `${scripts.stillRunning.length} script(s) still running when the agent stopped observing (${names}): outcome unknown — not observed to fail, not observed to finish.`,
+      );
+    }
+  }
+
   return {
     window: {
       observedFrom,
@@ -419,6 +468,7 @@ export function buildSessionCoverage(
     upload,
     diagnostics,
     apps,
+    scripts,
     gaps,
   };
 }

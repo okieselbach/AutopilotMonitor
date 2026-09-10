@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { compareVersions } from "@/utils/bootstrapVersion";
 import {
+  applyObservationEnd,
   buildScriptItemLabel,
   formatScriptDuration,
   getPhaseBadge,
@@ -37,14 +38,20 @@ interface ScriptExecutionsProps {
    * stay distinct (rare in practice but never silently collide).
    */
   displayNamesByRefKey?: DisplayNamesByRefKey;
+  // Epoch ms of the agent's last report, passed only once the session is terminal. A script
+  // still running at that point renders as Incomplete instead of ticking against the wall clock.
+  observedUntilMs?: number | null;
 }
 
-export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey }: ScriptExecutionsProps) {
+export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, observedUntilMs = null }: ScriptExecutionsProps) {
   // Legacy-agent guard: split off script events replayed from a previous enrollment's IME
   // log (newer agents suppress them at the source) so week-old runs never render as current
   // executions. The muted note below keeps the gap explainable.
   const { current, historicCount } = useMemo(() => partitionHistoricScriptEvents(events), [events]);
-  const cards = useMemo(() => groupScriptItems(reduceScriptEvents(current)), [current]);
+  const cards = useMemo(
+    () => groupScriptItems(applyObservationEnd(reduceScriptEvents(current), observedUntilMs)),
+    [current, observedUntilMs]
+  );
 
   const [expanded, setExpanded] = useState(true);
 
@@ -54,6 +61,9 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
   // "1 succeeded" rather than "1 succeeded + 2 non-compliant" when its detection /
   // post-detection were non-compliant en route.
   const runningCount = cards.filter(c => c.headerState === "Running").length;
+  // Still running when observation ended — unknown outcome, counted apart from "running"
+  // so a finished session never claims a script is executing.
+  const incompleteCount = cards.filter(c => c.headerState === "Incomplete").length;
   const successCount = cards.filter(c => c.headerState === "Success").length;
   const nonCompliantCount = cards.filter(c => c.headerState === "NonCompliant").length;
   const failedCount = cards.filter(c => c.headerState === "Failed").length;
@@ -75,6 +85,15 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
             {runningCount > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">
                 {runningCount} running
+              </span>
+            )}
+            {incompleteCount > 0 && (
+              // Slate like the session-level Incomplete badge: unknown outcome, not a failure.
+              <span
+                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium"
+                title="Still running when the agent stopped observing — the outcome was never seen. Not a failure."
+              >
+                {incompleteCount} incomplete
               </span>
             )}
             {successCount > 0 && (
@@ -144,7 +163,8 @@ function getIntuneScriptUrl(policyId: string, scriptType: string): string | null
 function cardContainerClass(state: ScriptCard["headerState"]): string {
   switch (state) {
     case "Failed": return "bg-red-50 border border-red-200";
-    case "Running": return "bg-gray-50 border border-gray-200";
+    case "Running":
+    case "Incomplete": return "bg-gray-50 border border-gray-200";
     case "NonCompliant": return "bg-amber-50 border border-amber-200";
     default: return "bg-green-50 border border-green-200";
   }
@@ -154,6 +174,7 @@ function cardIconColor(state: ScriptCard["headerState"]): string {
   switch (state) {
     case "Failed": return "text-red-500";
     case "Running": return "text-gray-500";
+    case "Incomplete": return "text-slate-400";
     case "NonCompliant": return "text-amber-500";
     default: return "text-green-500";
   }
@@ -163,6 +184,7 @@ function cardStatusTextColor(state: ScriptCard["headerState"]): string {
   switch (state) {
     case "Failed": return "text-red-600";
     case "Running": return "text-gray-600";
+    case "Incomplete": return "text-slate-600 dark:text-slate-300";
     case "NonCompliant": return "text-amber-700";
     default: return "text-green-600";
   }
@@ -283,6 +305,14 @@ function CardIcon({ state, className }: { state: ScriptCard["headerState"]; clas
       </svg>
     );
   }
+  if (state === "Incomplete") {
+    // Question-mark in a circle — "we don't know", the glyph the install panel uses; no spin.
+    return (
+      <svg className={`w-4 h-4 flex-shrink-0 ${className}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+  }
   if (state === "Failed") {
     return (
       <svg className={`w-4 h-4 flex-shrink-0 ${className}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -306,17 +336,22 @@ function CardIcon({ state, className }: { state: ScriptCard["headerState"]; clas
 
 function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested, displayName }: { item: ScriptItem; showScriptOutput?: boolean; latestBootstrapVersion?: string | null; nested?: boolean; displayName?: string | null }) {
   const [showDetails, setShowDetails] = useState(false);
-  // Re-render every 5s while in Running state so elapsed-time updates live.
+  // Re-render every 5s while live in Running state so the elapsed time updates; an incomplete
+  // placeholder is frozen at the observation end and never ticks.
+  const isLiveRunning = item.state === "Running" && !item.isIncomplete;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (item.state !== "Running") return;
+    if (!isLiveRunning) return;
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
-  }, [item.state]);
+  }, [isLiveRunning]);
 
-  const elapsedSeconds = item.state === "Running"
+  const elapsedSeconds = isLiveRunning
     ? Math.max(0, Math.floor((now - new Date(item.timestamp).getTime()) / 1000))
     : null;
+  // Lower bound for an incomplete row: watched this long after the start line, then the
+  // agent's reports stopped. Never the run time.
+  const observedLabel = item.isIncomplete && item.observedMs != null ? formatScriptDuration(item.observedMs / 1000) : null;
   const isStale = elapsedSeconds !== null && elapsedSeconds > STALE_RUNNING_THRESHOLD_SECONDS;
 
   const label = buildScriptItemLabel(item);
@@ -343,7 +378,9 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
 
   // Status text for the right-hand summary cell
   let statusText: string;
-  if (item.state === "Running") {
+  if (item.isIncomplete) {
+    statusText = "Incomplete";
+  } else if (item.state === "Running") {
     statusText = isStale ? `Running (${elapsedSeconds}s — stuck?)` : `Running (${elapsedSeconds}s)`;
   } else if (item.scriptType === "remediation" && item.complianceResult) {
     statusText = item.complianceResult === "True" ? "Compliant" : "Non-compliant";
@@ -372,7 +409,12 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
     <div className={`rounded-lg p-3 ${containerClass}`}>
       <div className="flex flex-wrap items-center justify-between gap-y-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-          {item.state === "Running" ? (
+          {item.isIncomplete ? (
+            // Same question-mark as the install panel's Incomplete row: no spinner, nothing runs any more.
+            <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : item.state === "Running" ? (
             <svg className={`w-4 h-4 text-gray-500 flex-shrink-0 ${isStale ? "" : "animate-spin"}`} fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -443,14 +485,26 @@ function ScriptItemRow({ item, showScriptOutput, latestBootstrapVersion, nested,
           )}
         </div>
         <div className="flex items-center space-x-3 text-xs text-gray-500 flex-shrink-0 ml-2">
-          <span className={`font-medium ${
-            item.state === "Failed" ? "text-red-600"
-            : item.state === "Running" ? (isStale ? "text-amber-600" : "text-gray-600")
-            : isNonCompliant ? "text-amber-700"
-            : "text-green-600"
-          }`}>
+          <span
+            className={`font-medium ${
+              item.isIncomplete ? "text-slate-600 dark:text-slate-300"
+              : item.state === "Failed" ? "text-red-600"
+              : item.state === "Running" ? (isStale ? "text-amber-600" : "text-gray-600")
+              : isNonCompliant ? "text-amber-700"
+              : "text-green-600"
+            }`}
+            title={item.isIncomplete ? "Still running when the agent stopped observing. The outcome is unknown — the script may well have finished after the session ended." : undefined}
+          >
             {statusText}
           </span>
+          {observedLabel && (
+            <span
+              className="font-mono text-gray-400 tabular-nums"
+              title={`Watched for ${observedLabel} until the agent's last report — the run time is unknown.`}
+            >
+              {`≥ ${observedLabel}`}
+            </span>
+          )}
           {item.exitCode != null && (
             <span className={`font-mono ${
               item.state === "Failed" && item.exitCode !== 0 ? "text-red-600"

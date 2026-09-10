@@ -674,6 +674,7 @@ function SessionDetailContent() {
               showScriptOutput={showScriptOutput}
               latestBootstrapVersion={latestBootstrapVersion}
               displayNamesByRefKey={scriptDisplayNamesByRefKey}
+              observedUntilMs={observedUntilMs}
             />
             </div>
           )}

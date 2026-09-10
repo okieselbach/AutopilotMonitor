@@ -284,6 +284,40 @@ describe('buildSessionCoverage — apps without a terminal state', () => {
   });
 });
 
+describe('buildSessionCoverage — scripts without a terminal state', () => {
+  // Shape of session 2ebcd480: the session's last event was a platform script's start line.
+  // There is no shutdown summary for scripts — the stream itself is the evidence.
+  const started = (policyId: string, at: number, scriptType = 'platform') => ev('script_started', at, { policyId, scriptType });
+  const finished = (policyId: string, at: number, scriptType = 'platform') => ev('script_completed', at, { policyId, scriptType, exitCode: '0' });
+
+  it('names the scripts whose start line never got a result on a terminal session', () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'Succeeded' }, [
+      ev('agent_started', 5),
+      started('p-a', 900), finished('p-a', 903),
+      started('p-b', 904), ev('script_failed', 907, { policyId: 'p-b', scriptType: 'platform' }),
+      started('p-last', 910),
+    ]);
+    expect(c.scripts).toEqual({ stillRunning: [{ policyId: 'p-last', scriptType: 'platform' }] });
+    expect(c.gaps).toEqual([expect.stringContaining('1 script(s) still running when the agent stopped observing (platform p-last)')]);
+  });
+
+  it('reports nothing while the session is still live, even with a script in flight', () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'InProgress' }, [ev('agent_started', 5), started('p-last', 910)]);
+    expect(c.scripts).toEqual({ stillRunning: [] });
+    expect(c.gaps).toEqual([]);
+  });
+
+  it('a start after its own earlier result is a second run and counts as still running; snake_case keys are read too', () => {
+    const c = buildSessionCoverage({ startedAt: at(0), status: 'Failed' }, [
+      ev('agent_started', 5),
+      finished('r1', 100, 'remediation'),
+      ev('script_started', 200, { policy_id: 'r1', script_type: 'remediation' }),
+    ]);
+    expect(c.scripts).toEqual({ stillRunning: [{ policyId: 'r1', scriptType: 'remediation' }] });
+    expect(c.gaps).toHaveLength(1);
+  });
+});
+
 describe('coverage wiring', () => {
   it('SUMMARY_EVENT_FIELDS carries every coverage slice, as data.<key> entries only', () => {
     const fields = SUMMARY_EVENT_FIELDS.split(',');
@@ -291,6 +325,10 @@ describe('coverage wiring', () => {
       expect(f.startsWith('data.')).toBe(true);
       expect(fields).toContain(f);
     }
+    // The scripts block also reads scriptType/script_type — they ride in the summary's own
+    // list for the benign-detection guard, so pin them here rather than duplicating them.
+    expect(fields).toContain('data.scriptType');
+    expect(fields).toContain('data.script_type');
     expect(fields).not.toContain('data');
   });
 
@@ -302,6 +340,7 @@ describe('coverage wiring', () => {
       'collector_degraded', 'spool_pressure_detected', 'telemetry_upload_poisoned', 'telemetry_upload_blocked',
       'ingress_backpressure', 'disk_space_low', 'diagnostics_collecting', 'diagnostics_uploaded', 'diagnostics_upload_failed',
       'app_tracking_summary',
+      'script_started', 'script_completed', 'script_failed',
     ];
     expect([...COVERAGE_EVENT_TYPES].sort()).toEqual([...consulted].sort());
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyObservationEnd,
   buildScriptItemLabel,
   formatScriptDuration,
   getPhaseBadge,
@@ -9,6 +10,7 @@ import {
   mapRemediationStatus,
   partitionHistoricScriptEvents,
   reduceScriptEvents,
+  scriptCardKey,
   scriptItemKey,
   toNumber,
   type ScriptInputEvent,
@@ -606,6 +608,7 @@ describe("groupScriptItems", () => {
     scriptType: "remediation",
     state: "Success",
     timestamp: ts(0),
+    isIncomplete: false,
     ...overrides,
   });
 
@@ -883,6 +886,7 @@ describe("groupScriptItems — card durationSeconds is the max phase run time", 
     scriptType: "remediation",
     state: "Success",
     timestamp: ts(0),
+    isIncomplete: false,
     ...overrides,
   });
 
@@ -983,5 +987,85 @@ describe("reduceScriptEvents — implausible duration blanking", () => {
     ]);
     expect(items[0].durationSeconds).toBe(86400);
     expect(items[1].reportedAfterSeconds).toBeUndefined();
+  });
+});
+
+describe("applyObservationEnd", () => {
+  // Shape of session 2ebcd480: six platform scripts ran in the account-setup tail after
+  // enrollment_complete; the sixth started with the agent's very last event and never got a
+  // final — the observation ended on its start line.
+  const started = (id: string, at: number): ScriptInputEvent =>
+    finalEvent({ eventType: "script_started", ts: at, data: { policyId: id, scriptType: "platform" } });
+  const finished = (id: string, at: number, eventType = "script_completed"): ScriptInputEvent =>
+    finalEvent({ eventType, ts: at, data: { policyId: id, scriptType: "platform", exitCode: 0, result: "Success" } });
+  const events: ScriptInputEvent[] = [
+    started("p-a", 0), finished("p-a", 5, "script_failed"),
+    started("p-b", 6), finished("p-b", 9),
+    started("p-c", 9), finished("p-c", 12),
+    started("p-d", 13), finished("p-d", 16),
+    started("p-e", 16), finished("p-e", 23),
+    started("p-last", 24),
+  ];
+  const lastReport = Date.parse(ts(24));
+
+  it("leaves every row untouched while the session is still live (null observation end)", () => {
+    const items = reduceScriptEvents(events);
+    expect(applyObservationEnd(items, null)).toBe(items);
+    expect(items.every(i => !i.isIncomplete)).toBe(true);
+    expect(items.find(i => i.state === "Running")?.policyId).toBe("p-last");
+  });
+
+  it("marks the placeholder still running at the observation end as incomplete with the watched span", () => {
+    const items = applyObservationEnd(reduceScriptEvents([started("p-x", 0)]), Date.parse(ts(30)));
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("Running");
+    expect(items[0].isIncomplete).toBe(true);
+    expect(items[0].observedMs).toBe(30 * 1000);
+  });
+
+  it("never touches rows that reached a final", () => {
+    const items = applyObservationEnd(reduceScriptEvents(events), lastReport);
+    const finals = items.filter(i => i.state !== "Running");
+    expect(finals).toHaveLength(5);
+    expect(finals.every(i => !i.isIncomplete && i.observedMs === undefined)).toBe(true);
+  });
+
+  it("clamps the watched span at zero when the start line was the last event seen", () => {
+    const items = applyObservationEnd(reduceScriptEvents(events), lastReport);
+    const last = items.find(i => i.policyId === "p-last")!;
+    expect(last.isIncomplete).toBe(true);
+    expect(last.observedMs).toBe(0);
+    expect(applyObservationEnd(reduceScriptEvents([started("p-y", 10)]), Date.parse(ts(5)))[0].observedMs).toBe(0);
+  });
+
+  it("folds into cards as Incomplete — outside running, succeeded and failed", () => {
+    const cards = groupScriptItems(applyObservationEnd(reduceScriptEvents(events), lastReport));
+    const states = cards.map(c => c.headerState);
+    expect(states.filter(s => s === "Success")).toHaveLength(4);
+    expect(states.filter(s => s === "Failed")).toHaveLength(1);
+    expect(states.filter(s => s === "Running")).toHaveLength(0);
+    const incomplete = cards.find(c => c.headerState === "Incomplete")!;
+    expect(incomplete.policyId).toBe("p-last");
+    expect(incomplete.headerLabel).toBe("Incomplete");
+    expect(buildScriptItemLabel(incomplete.phases[0])).toBe("Platform Script");
+  });
+
+  it("keeps the card identity across the live → terminal flip so the row is not remounted", () => {
+    const live = groupScriptItems(reduceScriptEvents([started("p-x", 0)]))[0];
+    const ended = groupScriptItems(applyObservationEnd(reduceScriptEvents([started("p-x", 0)]), Date.parse(ts(30))))[0];
+    expect(live.headerState).toBe("Running");
+    expect(ended.headerState).toBe("Incomplete");
+    expect(scriptCardKey(ended)).toBe(scriptCardKey(live));
+  });
+
+  it("a remediation cycle whose running phase was cut off reads Incomplete, a live one Running", () => {
+    const cycle = [
+      finalEvent({ eventType: "script_completed", ts: 0, data: { policyId: "r1", scriptType: "remediation", scriptPart: "detection", complianceResult: "False", exitCode: 1 } }),
+      finalEvent({ eventType: "script_started", ts: 10, data: { policyId: "r1", scriptType: "remediation" } }),
+    ];
+    expect(groupScriptItems(reduceScriptEvents(cycle))[0].headerState).toBe("Running");
+    const ended = groupScriptItems(applyObservationEnd(reduceScriptEvents(cycle), Date.parse(ts(40))))[0];
+    expect(ended.headerState).toBe("Incomplete");
+    expect(ended.headerLabel).toBe("Incomplete");
   });
 });
