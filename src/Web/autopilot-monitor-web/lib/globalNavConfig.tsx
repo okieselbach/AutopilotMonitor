@@ -291,11 +291,11 @@ export const EXPANDABLE_NAV_GROUPS: ExpandableNavGroup[] = [
         items: [
           { id: "ga-global", label: "Global Settings", href: route("/admin/settings/global") },
           { id: "ga-diag-paths", label: "Diagnostics Log Paths", href: route("/admin/settings/diagnostics-log-paths") },
+          { id: "ga-config-reseed", label: "Config Reseed", href: route("/admin/settings/config-reseed") },
+          { id: "ga-usage-plans", label: "Usage Plans", href: route("/admin/settings/usage-plans") },
           { id: "ga-mcp-users", label: "MCP Users", href: route("/admin/settings/mcp-users") },
           { id: "ga-delegated-admins", label: "Delegated Admins", href: route("/admin/settings/delegated-admins") },
           { id: "ga-tenant-groups", label: "Tenant Groups", href: route("/admin/settings/tenant-groups") },
-          { id: "ga-config-reseed", label: "Config Reseed", href: route("/admin/settings/config-reseed") },
-          { id: "ga-usage-plans", label: "Usage Plans", href: route("/admin/settings/usage-plans") },
           { id: "ga-email-templates", label: "Email Templates", href: route("/admin/settings/email-templates") },
         ],
       },
