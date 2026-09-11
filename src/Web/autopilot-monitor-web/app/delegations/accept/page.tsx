@@ -116,7 +116,7 @@ function AcceptDelegationInner() {
             </p>
             <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
               <li>Their assigned users can view your enrollment sessions, events and analytics — no configuration changes, no device actions, configuration secrets redacted.</li>
-              <li>Their AI (MCP) requests into your tenant count against your organization&rsquo;s MCP budget and are listed on your MCP Usage page.</li>
+              <li>Their AI (MCP) requests into your tenant count against their organization&rsquo;s budget, never yours.</li>
               <li>Every grant and revoke is written to your audit log. You can revoke the access at any time under Settings → Tenant → Delegated Access.</li>
             </ul>
             <p className="text-xs text-gray-500">

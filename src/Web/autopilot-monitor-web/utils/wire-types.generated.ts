@@ -2013,7 +2013,7 @@ export interface GetLatestVersionsResponse {
   source: string;
 }
 
-/** Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's organization counters. */
+/** Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account of the tenant whose requests were charged to its organization budget (a member's reads into managed tenants included), plus the tenant's organization windows. Built from the tenant's organization counters. */
 export interface GetMcpOrganizationUsageResponse {
   tenantId: string;
   /** Effective range start (yyyyMMdd). */
@@ -2811,8 +2811,6 @@ export interface ManagedTenantItem {
   source: string;
   sinceUtc?: string;
   removable: boolean;
-  /** Absent when not resolved (cap reached or read failure). */
-  usage?: ManagedTenantQuotaUsage;
 }
 
 /** Response of GET delegations/managed. */
@@ -2820,15 +2818,6 @@ export interface ManagedTenantListResponse {
   homeTenantId: string;
   slots: DelegatedSlotUsageResponse;
   tenants: ManagedTenantItem[];
-}
-
-/** MCP organization budget of a managed tenant, nested in ManagedTenantItem. */
-export interface ManagedTenantQuotaUsage {
-  tenantPlan: string;
-  tenantDailyLimit: number;
-  tenantMonthlyLimit: number;
-  tenantDailyUsed: number;
-  tenantMonthlyUsed: number;
 }
 
 /** Response of GET health/mcp: the standalone MCP-server reachability probe. */
@@ -2844,13 +2833,18 @@ export interface McpOrganizationDailyItem {
   requests: number;
 }
 
-/** The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every account charged to the tenant. */
+/** The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited; purchased-slot growth included) and the counters over every account charged to the tenant. The slot fields carry the breakdown and are absent when the tenant has no purchased delegation slot. */
 export interface McpOrganizationQuotaNode {
   tenantPlan: string;
   dailyLimit: number;
   monthlyLimit: number;
   dailyUsed: number;
   monthlyUsed: number;
+  /** Delegation slots bought beyond the edition's included ones; absent when zero. */
+  purchasedDelegatedSlots?: number;
+  /** Organization daily growth per purchased slot; absent when no slot was purchased. */
+  slotDailyLimit?: number;
+  slotMonthlyLimit?: number;
 }
 
 /** One account's share of the organization budget, nested in GetMcpOrganizationUsageResponse. */
@@ -2858,10 +2852,6 @@ export interface McpOrganizationUsageItem {
   userId: string;
   /** Absent for rows written before the UPN was recorded. */
   userPrincipalName?: string;
-  /** True when the account is a delegated (MSP) administrator homed in another tenant. */
-  delegated: boolean;
-  /** The delegated administrator's home tenant; absent for the tenant's own members. */
-  homeTenantId?: string;
   requestsToday: number;
   requestsThisMonth: number;
   requestsInRange: number;
@@ -2869,7 +2859,7 @@ export interface McpOrganizationUsageItem {
   lastRequestAt?: string;
 }
 
-/** 429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted. Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on. */
+/** 429 body written by McpQuotaEnforcementMiddleware when the caller's own or their organization's MCP daily/monthly window is exhausted (both windows belong to the caller's HOME tenant — a delegated read never draws on a managed tenant). Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on. */
 export interface McpQuotaExceededResponse {
   /** The full quota message (whose window, which plan, when it resets). */
   error: string;
@@ -2887,11 +2877,9 @@ export interface McpQuotaExceededResponse {
   used: number;
   /** Reset time of the exceeded window, pre-formatted "yyyy-MM-ddTHH:mm:ssZ". */
   resetUtc: string;
-  /** The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the all-managed-tenants-exhausted aggregate block. */
-  targetTenantId?: string;
 }
 
-/** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed tenants are charged to the managed tenant per request and never appear here. */
+/** Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their HOME tenant (shared by every member; 0 = unlimited). Every MCP request the caller makes — reads into managed tenants included — draws on these windows. The limits already contain the growth from purchased delegation slots; the slot fields let a client show the breakdown (base = limit − slots × slot value) and are absent when the tenant has no purchased slot. */
 export interface McpUsageQuotaNode {
   dailyLimit: number;
   monthlyLimit: number;
@@ -2903,6 +2891,14 @@ export interface McpUsageQuotaNode {
   tenantMonthlyLimit: number;
   tenantDailyUsed: number;
   tenantMonthlyUsed: number;
+  /** Delegation slots bought beyond the edition's included ones; absent when zero. */
+  purchasedDelegatedSlots?: number;
+  /** Per-user daily growth per purchased slot; absent when no slot was purchased. */
+  slotDailyLimit?: number;
+  slotMonthlyLimit?: number;
+  /** Organization daily growth per purchased slot; absent when no slot was purchased. */
+  slotTenantDailyLimit?: number;
+  slotTenantMonthlyLimit?: number;
 }
 
 export interface McpUserEntry {
@@ -3033,7 +3029,7 @@ export interface PerformanceMetrics {
   clampedSessionCount: number;
 }
 
-/** Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, and the organization-wide TENANT windows all members of a tenant on this plan share. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for that window. */
+/** Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, the organization-wide TENANT windows all members of a tenant on this plan share, and the per-SLOT growth of both — what every purchased delegation slot beyond the edition's included ones adds. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for a window, 0 = no growth for a slot value; null (not set) = the edition's catalog value. */
 export interface PlanTierDefinition {
   name: string;
   dailyRequestLimit: number;
@@ -3043,11 +3039,21 @@ export interface PlanTierDefinition {
   tenantDailyRequestLimit?: number;
   /** Tenant-wide monthly limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited. */
   tenantMonthlyRequestLimit?: number;
+  /** Per-user daily requests added per purchased delegation slot; null = catalog value, 0 = none. */
+  slotDailyRequestLimit?: number;
+  /** Per-user monthly requests added per purchased delegation slot; null = catalog value, 0 = none. */
+  slotMonthlyRequestLimit?: number;
+  /** Tenant-wide daily requests added per purchased delegation slot; null = catalog value, 0 = none. */
+  slotTenantDailyRequestLimit?: number;
+  /** Tenant-wide monthly requests added per purchased delegation slot; null = catalog value, 0 = none. */
+  slotTenantMonthlyRequestLimit?: number;
 }
 
-/** Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions. */
+/** Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions plus the built-in catalog values every unset definition field falls back to. */
 export interface PlanTierDefinitionsResponse {
   tiers: PlanTierDefinition[];
+  /** One entry per edition (community, pro): the fallback for every blank definition field. */
+  catalog: UsagePlanCatalogDefaults[];
 }
 
 /** Response of GET global/metrics/platform (GetGlobalPlatformMetrics). */
@@ -3988,8 +3994,6 @@ export interface SessionListResponse {
   sessions: SessionSummary[];
   /** Absent when there is no further page. */
   nextLink?: string;
-  /** Managed tenants dropped from a delegated (MSP) MCP fleet aggregate because their organization MCP budget is exhausted (each managed tenant's own plan governs it). Absent unless at least one tenant was excluded; only GetAllSessions ever sets it. */
-  quotaExcludedTenants?: string[];
 }
 
 export interface SessionMetrics {
@@ -4136,8 +4140,6 @@ export interface SessionStats {
 export interface SessionStatsResponse {
   success: boolean;
   stats: SessionStats;
-  /** See QuotaExcludedTenants; only GetAllSessionStats ever sets it. */
-  quotaExcludedTenants?: string[];
 }
 
 /** Status of an enrollment session */
@@ -4930,8 +4932,6 @@ export interface TenantGroup {
   assigneeCount: number;
   /** The UPNs assigned to this group (for the management UI). */
   assignees: TenantGroupAssignment[];
-  /** Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose customers must never pay (or be blocked) for the operator's own analysis. Off by default. */
-  chargeHomeTenantQuota: boolean;
   /** The managing tenant that owns this self-service group (msp-{tenantId}); null for operator-created groups. */
   ownerTenantId?: string;
 }
@@ -5255,12 +5255,10 @@ export interface UpdateTenantConfigurationResponse {
   config: TenantConfiguration;
 }
 
-/** Body of PATCH global/tenant-groups/{groupId} — at least one field. */
+/** Body of PATCH global/tenant-groups/{groupId} — a rename. */
 export interface UpdateTenantGroupRequest {
-  /** New display name; omitted/blank = unchanged. */
+  /** New display name. */
   name?: string | null;
-  /** See ChargeHomeTenantQuota; omitted = unchanged. */
-  chargeHomeTenantQuota?: boolean | null;
 }
 
 /** Response of PUT sessions/{sessionId}/annotations/{lane} when both verdict and note were empty and the lane was cleared. */
@@ -5279,6 +5277,22 @@ export interface UpsertSessionAnnotationRequest {
 export interface UpsertSessionAnnotationResponse {
   success: boolean;
   annotation: SessionAnnotationItem;
+}
+
+/** The built-in (code) values of one edition's MCP windows and slot growth — what a blank field of the same-named plan definition means. Read-only; the definitions are the operator's knob. */
+export interface UsagePlanCatalogDefaults {
+  /** community | pro. */
+  edition: string;
+  dailyRequestLimit: number;
+  monthlyRequestLimit: number;
+  tenantDailyRequestLimit: number;
+  tenantMonthlyRequestLimit: number;
+  /** Delegation slots the edition includes; only slots bought beyond them grow the windows. */
+  includedDelegatedSlots: number;
+  slotDailyRequestLimit: number;
+  slotMonthlyRequestLimit: number;
+  slotTenantDailyRequestLimit: number;
+  slotTenantMonthlyRequestLimit: number;
 }
 
 export interface UserMetrics {

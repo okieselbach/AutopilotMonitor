@@ -726,7 +726,7 @@ export const api = {
   tenantGroups: {
     list: () => `${API_BASE_URL}/api/global/tenant-groups`,
     create: () => `${API_BASE_URL}/api/global/tenant-groups`,
-    /** PATCH — update group metadata: { name?, chargeHomeTenantQuota? } (at least one). */
+    /** PATCH — rename the group: { name }. */
     update: (groupId: string) =>
       `${API_BASE_URL}/api/global/tenant-groups/${encodeURIComponent(groupId)}`,
     remove: (groupId: string) =>
@@ -762,7 +762,7 @@ export const api = {
       `${API_BASE_URL}/api/metrics/mcp-usage/me${qs({ dateFrom, dateTo })}`,
     user: (userId: string, dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/metrics/mcp-usage/user/${encodeURIComponent(userId)}${qs({ dateFrom, dateTo })}`,
-    /** Own tenant's organization budget by account (members + delegated MSP admins). Tenant Admin / Global Reader. */
+    /** Own tenant's organization budget by account (its members and service principals; delegated reads into it are charged to the reader's home tenant). Tenant Admin / Global Reader. */
     organization: (dateFrom?: string, dateTo?: string) =>
       `${API_BASE_URL}/api/metrics/mcp-usage/organization${qs({ dateFrom, dateTo })}`,
     /** One tenant's organization budget by account for a GA / Global Reader; tenantId is required (no aggregate). */

@@ -11,7 +11,8 @@ namespace AutopilotMonitor.Functions.Tests;
 /// <summary>
 /// Tests for <see cref="McpQuotaService"/>: window math (daily/monthly, reset times), plan
 /// precedence (per-user override → tenant edition; SectionUsagePlans definition → catalog
-/// fallback), and the fail-open contract on counter errors.
+/// fallback), the growth of both windows by purchased delegation slots, and the fail-open
+/// contract on counter errors.
 /// </summary>
 public class McpQuotaServiceTests
 {
@@ -127,7 +128,9 @@ public class McpQuotaServiceTests
         IMemoryCache? cache = null,
         bool bound = true,
         Func<string?, TenantEdition>? editionResolver = null,
-        Func<string?, string?>? tenantPlanOverrideResolver = null)
+        Func<string?, string?>? tenantPlanOverrideResolver = null,
+        Func<string?, int>? purchasedSlotsResolver = null,
+        Func<string?, EditionResolution>? resolutionResolver = null)
     {
         var adminRepo = new Mock<IAdminRepository>();
         adminRepo.Setup(r => r.GetMcpUserAsync(It.IsAny<string>()))
@@ -150,11 +153,15 @@ public class McpQuotaServiceTests
         var adminConfigService = new AdminConfigurationService(
             configRepo.Object, NullLogger<AdminConfigurationService>.Instance, cache);
 
+        var entitlements = resolutionResolver != null
+            ? new StubTenantEntitlementService(resolutionResolver, tenantPlanOverrideResolver, purchasedSlotsResolver)
+            : new StubTenantEntitlementService(editionResolver ?? (_ => edition), tenantPlanOverrideResolver, purchasedSlotsResolver);
+
         return new McpQuotaService(
             usageRepo.Object,
             mcpUserService,
             adminConfigService,
-            new StubTenantEntitlementService(editionResolver ?? (_ => edition), tenantPlanOverrideResolver),
+            entitlements,
             cache,
             NullLogger<McpQuotaService>.Instance,
             new TestTimeProvider(Now));
@@ -338,25 +345,18 @@ public class McpQuotaServiceTests
     }
 
     [Fact]
-    public async Task Check_DelegatedTarget_MspHomeOverride_LiftsTheCallerNotTheCustomer()
+    public async Task Check_TenantOverride_ComposesWithPurchasedSlots()
     {
-        // The MSP's home tenant carries the "msp" override; the managed Community customer does not.
-        // The caller's own windows are lifted, the customer's organization window still bites.
-        var repo = UsageRepo(("20260707", 1200));
-        TenantRows(repo, Target, ("20260707", 300));
-        var svc = Build(repo, planDefinitionsJson: MspPlanJson,
-            editionResolver: HomeProTargetsCommunity,
-            tenantPlanOverrideResolver: t => t == TenantId ? "msp" : null);
+        // The "msp" definition carries no slot fields → the Pro catalog slot values grow its windows.
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: MspPlanJson,
+            edition: TenantEdition.Pro, tenantPlanOverrideResolver: _ => "msp", purchasedSlotsResolver: _ => 2);
 
-        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
 
-        Assert.False(d.Allowed);
-        Assert.Equal("tenant", d.Level);
         Assert.Equal("msp", d.Plan);
-        Assert.Equal(1500, d.DailyLimit);
-        Assert.Equal("community", d.TenantPlan);
-        Assert.Equal(300, d.TenantDailyLimit);
-        Assert.Equal(Target, d.TargetTenantId);
+        Assert.Equal(2100, d.DailyLimit);          // 1500 + 2 × 300
+        Assert.Equal("msp", d.TenantPlan);
+        Assert.Equal(6800, d.TenantDailyLimit);    // 5000 + 2 × 900
     }
 
     [Fact]
@@ -560,155 +560,176 @@ public class McpQuotaServiceTests
         repo.Verify(r => r.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
     }
 
-    // ── Delegated (MSP) reads: the budget follows the data ───────────────────────
-    // The CHARGED tenant (the managed customer) supplies the organization windows and counters; the
-    // caller's own windows still follow their HOME tenant's plan (and their per-user override).
+    // ── Purchased delegation slots grow both windows ─────────────────────────────
+    // The home tenant's windows (user AND organization) grow by purchased slots × per-slot value; the slot
+    // values come from the governing plan definition, else the home edition's catalog. Community and
+    // conferred Pro carry catalog slot values of 0, so a stray slot count grows nothing there.
 
-    private const string Target = "22222222-2222-2222-2222-222222222222";
-    private const string Target2 = "33333333-3333-3333-3333-333333333333";
     private const string OtherOid = "00000000-0000-0000-0000-000000000002";
 
-    private static void TenantRows(Mock<IUserUsageRepository> repo, string tenantId, params (string Date, long Count)[] rows)
-        => repo.Setup(r => r.GetTenantUsageAsync(tenantId, It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(rows.Select(r => new TenantUsageRecord
-            {
-                TenantId = tenantId,
-                UserId = "some-member-or-msp",
-                Date = r.Date,
-                RequestCount = r.Count
-            }).ToList());
+    [Fact]
+    public async Task Check_PurchasedSlots_GrowBothWindows()
+    {
+        // Pro home with 3 purchased slots: 1000 + 3 × 300 per account, 3000 + 3 × 900 for the organization.
+        var svc = Build(UsageRepo(("20260707", 1)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 3);
 
-    private static TenantEdition HomeProTargetsCommunity(string? tenantId)
-        => tenantId == TenantId ? TenantEdition.Pro : TenantEdition.Community;
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.Equal(1900, d.DailyLimit);
+        Assert.Equal(38000, d.MonthlyLimit);
+        Assert.Equal(5700, d.TenantDailyLimit);
+        Assert.Equal(114000, d.TenantMonthlyLimit);
+        Assert.Equal(3, d.PurchasedDelegatedSlots);
+        Assert.Equal(300, d.SlotDailyLimit);
+        Assert.Equal(6000, d.SlotMonthlyLimit);
+        Assert.Equal(900, d.SlotTenantDailyLimit);
+        Assert.Equal(18000, d.SlotTenantMonthlyLimit);
+    }
 
     [Fact]
-    public async Task Check_DelegatedTarget_ChargesTheManagedTenantsPlanAndCounters()
+    public async Task Check_IncludedSlotsOnly_NoGrowth()
     {
-        // Pro MSP reads a Community customer whose organization window (300/day) other readers burned.
-        var repo = UsageRepo(("20260707", 5));
-        TenantRows(repo, Target, ("20260707", 300));
-        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
+        // A Pro tenant on its two included slots (purchased = 0) keeps the plain Pro windows.
+        var svc = Build(UsageRepo(("20260707", 1)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 0);
 
-        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
 
-        Assert.False(d.Allowed);
-        Assert.Equal("tenant", d.Level);
-        Assert.Equal("daily", d.Scope);
-        Assert.Equal("community", d.TenantPlan);
-        Assert.Equal(300, d.TenantDailyLimit);
-        Assert.Equal(Target, d.TargetTenantId);
-        // The caller's OWN windows still come from the Pro home tenant.
+        Assert.Equal(1000, d.DailyLimit);
+        Assert.Equal(3000, d.TenantDailyLimit);
+        Assert.Equal(0, d.PurchasedDelegatedSlots);
+    }
+
+    [Fact]
+    public async Task Check_ConferredProHome_GrowsNothing_EvenWithASlotCount()
+    {
+        // Conferred Pro (managed by a Pro MSP, not Pro itself): the catalog slot values are 0, so even a slot
+        // count leaking through (the entitlement service gates it to 0 anyway) grows neither window.
+        var conferred = new EditionResolution(TenantEdition.Pro, EditionSource.Msp, OwnPro: false);
+        var svc = Build(UsageRepo(("20260707", 1)), resolutionResolver: _ => conferred, purchasedSlotsResolver: _ => 3);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
         Assert.Equal("pro", d.Plan);
         Assert.Equal(1000, d.DailyLimit);
-        repo.Verify(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        Assert.Equal(3000, d.TenantDailyLimit);
+        Assert.Equal(0, d.SlotDailyLimit);
+        Assert.Equal(0, d.SlotTenantDailyLimit);
     }
 
     [Fact]
-    public async Task Check_DelegatedTarget_UserBudgetStillFollowsHome()
+    public async Task Check_UserOverridePlan_StillGrowsWithTheHomeSlots()
     {
-        // Community home (100/day) reading a Pro customer: the caller's own daily window bites first.
-        var repo = UsageRepo(("20260707", 100));
-        TenantRows(repo, Target, ("20260707", 1));
-        var svc = Build(repo, editionResolver: t => t == Target ? TenantEdition.Pro : TenantEdition.Community);
+        // The per-user "power" plan carries no slot fields → the HOME edition's catalog slot values apply,
+        // so the override account grows with the tenant's purchased slots like everyone else.
+        var json = """[{"name":"power","dailyRequestLimit":10000,"monthlyRequestLimit":100000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro,
+            mcpUserPlanOverride: "power", purchasedSlotsResolver: _ => 2);
 
-        var d = await svc.CheckAsync(Oid, Upn, homeTenantId: TenantId, chargeTenantId: Target);
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
 
+        Assert.Equal("power", d.Plan);
+        Assert.Equal(10600, d.DailyLimit);
+        Assert.Equal(112000, d.MonthlyLimit);
+        Assert.Equal(4800, d.TenantDailyLimit); // 3000 + 2 × 900 — the organization follows the tenant plan
+    }
+
+    [Fact]
+    public async Task Check_SlotValues_DefinitionZero_DisablesTheGrowth()
+    {
+        var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"slotDailyRequestLimit":0,"slotMonthlyRequestLimit":0,"slotTenantDailyRequestLimit":0,"slotTenantMonthlyRequestLimit":0,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 5);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.Equal(1000, d.DailyLimit);
+        Assert.Equal(3000, d.TenantDailyLimit);
+        Assert.Equal(5, d.PurchasedDelegatedSlots);
+        Assert.Equal(0, d.SlotDailyLimit);
+    }
+
+    [Fact]
+    public async Task Check_SlotValues_DefinitionSet_OverridesTheCatalog()
+    {
+        var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"slotDailyRequestLimit":50,"slotMonthlyRequestLimit":500,"slotTenantDailyRequestLimit":100,"slotTenantMonthlyRequestLimit":1000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 2);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.Equal(1100, d.DailyLimit);
+        Assert.Equal(21000, d.MonthlyLimit);
+        Assert.Equal(3200, d.TenantDailyLimit);
+        Assert.Equal(62000, d.TenantMonthlyLimit);
+    }
+
+    [Fact]
+    public async Task Check_SlotValues_DefinitionNull_UsesTheCatalog()
+    {
+        // A pre-existing definition without slot fields → the edition's catalog slot values.
+        var json = """[{"name":"pro","dailyRequestLimit":1000,"monthlyRequestLimit":20000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 1)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.Equal(1300, d.DailyLimit);
+        Assert.Equal(3900, d.TenantDailyLimit);
+    }
+
+    [Fact]
+    public async Task Check_LiftedWindow_StaysUnlimited_DespiteSlots()
+    {
+        // 0 = unlimited must never turn into "0 + slots × value" — a limit again. 30 000 requests today would
+        // exceed any grown daily window (and the plain 20 000 monthly one) but stay under 20 000 + 4 × 6 000.
+        var json = """[{"name":"pro","dailyRequestLimit":0,"monthlyRequestLimit":20000,"tenantDailyRequestLimit":0,"tenantMonthlyRequestLimit":60000,"description":""}]""";
+        var svc = Build(UsageRepo(("20260707", 30000)), planDefinitionsJson: json, edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 4);
+
+        var d = await svc.CheckAsync(Oid, Upn, TenantId);
+
+        Assert.True(d.Allowed);
+        Assert.Equal(0, d.DailyLimit);
+        Assert.Equal(0, d.TenantDailyLimit);
+        Assert.Equal(44000, d.MonthlyLimit);
+        Assert.Equal(30000, d.MonthlyUsed);
+    }
+
+    [Theory]
+    [InlineData(1000, 3, 300, 1900)]
+    [InlineData(1000, 0, 300, 1000)]
+    [InlineData(1000, 3, 0, 1000)]
+    [InlineData(0, 3, 300, 0)]
+    [InlineData(-1, 3, 300, -1)]
+    public void Grow_AddsSlotsTimesValue_AndKeepsALiftedWindowLifted(int baseLimit, int slots, int perSlot, int expected)
+        => Assert.Equal(expected, McpQuotaService.Grow(baseLimit, slots, perSlot));
+
+    [Fact]
+    public async Task Check_GrownWindow_IsTheEnforcedOne()
+    {
+        // Pro 1000 + 1 × 300 = 1300: the 1300th request of the day is the first blocked one.
+        var below = Build(UsageRepo(("20260707", 1299)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
+        Assert.True((await below.CheckAsync(Oid, Upn, TenantId)).Allowed);
+
+        var at = Build(UsageRepo(("20260707", 1300)), edition: TenantEdition.Pro, purchasedSlotsResolver: _ => 1);
+        var d = await at.CheckAsync(Oid, Upn, TenantId);
         Assert.False(d.Allowed);
+        Assert.Equal("daily", d.Scope);
         Assert.Equal("user", d.Level);
-        Assert.Equal("community", d.Plan);
-        Assert.Equal("pro", d.TenantPlan);
-        Assert.Equal(Target, d.TargetTenantId);
+        Assert.Equal(1300, d.ExceededLimit);
     }
 
-    [Fact]
-    public async Task Check_OwnTenant_NamesNoTarget()
-    {
-        var svc = Build(UsageRepo(("20260707", 1)));
-        var legacy = await svc.CheckAsync(Oid, Upn, TenantId);
-        var explicitHome = await svc.CheckAsync(Oid, Upn, TenantId, TenantId);
-        Assert.Null(legacy.TargetTenantId);
-        Assert.Null(explicitHome.TargetTenantId);
-    }
+    // ── One tenant, many callers ─────────────────────────────────────────────────
 
     [Fact]
-    public async Task Check_TenantSnapshot_IsSharedAcrossCallersOfTheSameTenant()
+    public async Task Check_TenantSnapshot_IsSharedAcrossMembersOfTheSameTenant()
     {
-        // Two different callers charged to the same customer read its organization counters ONCE per TTL.
-        var repo = UsageRepo(("20260707", 1));
+        // Two members of one tenant read its organization counters ONCE per TTL.
+        var repo = UsageRepo(new[] { ("20260707", 1L) }, tenantRows: new[] { ("20260707", 10L) });
         repo.Setup(r => r.GetUsageByUserAsync(OtherOid, It.IsAny<string?>(), It.IsAny<string?>()))
             .ReturnsAsync(new List<UserUsageRecord>());
-        TenantRows(repo, Target, ("20260707", 10));
-        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
-
-        await svc.CheckAsync(Oid, Upn, TenantId, Target);
-        await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId, Target);
-
-        repo.Verify(r => r.GetTenantUsageAsync(Target, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
-        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
-    }
-
-    [Fact]
-    public async Task CheckMany_ExcludesExhaustedTenants_AdmitsTheRest()
-    {
-        var repo = UsageRepo(("20260707", 1));
-        TenantRows(repo, Target, ("20260707", 300));
-        TenantRows(repo, Target2, ("20260707", 10));
-        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
-
-        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
-
-        Assert.True(r.Allowed);
-        Assert.Null(r.BlockingDecision);
-        Assert.True(r.UserDecision.Allowed);
-        Assert.Equal(new[] { Target2 }, r.AdmittedTenantIds);
-        Assert.Equal(new[] { Target }, r.ExcludedTenantIds);
-    }
-
-    [Fact]
-    public async Task CheckMany_AllExhausted_BlocksWithTheEarliestReset()
-    {
-        var repo = UsageRepo(("20260707", 1));
-        TenantRows(repo, Target, ("20260707", 300));                       // daily window → resets tomorrow
-        TenantRows(repo, Target2, ("20260701", 9000), ("20260707", 1));   // monthly window → resets on the 1st
-        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
-
-        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
-
-        Assert.False(r.Allowed);
-        Assert.Empty(r.AdmittedTenantIds);
-        Assert.Equal(2, r.ExcludedTenantIds.Count);
-        Assert.Equal("tenant", r.BlockingDecision!.Level);
-        Assert.Equal("daily", r.BlockingDecision.Scope);
-        Assert.Equal(new DateTime(2026, 7, 8, 0, 0, 0, DateTimeKind.Utc), r.BlockingDecision.ResetUtc);
-    }
-
-    [Fact]
-    public async Task CheckMany_UserExhausted_SkipsEveryTenantRead()
-    {
-        var repo = UsageRepo(("20260707", 100)); // Community home: 100/day
         var svc = Build(repo);
 
-        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
+        await svc.CheckAsync(Oid, Upn, TenantId);
+        await svc.CheckAsync(OtherOid, "bob@contoso.com", TenantId);
 
-        Assert.False(r.Allowed);
-        Assert.Equal("user", r.BlockingDecision!.Level);
-        Assert.Equal(2, r.ExcludedTenantIds.Count);
-        repo.Verify(r2 => r2.GetTenantUsageAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task CheckMany_TenantReadFails_AdmitsThatTenant_FailOpen()
-    {
-        var repo = UsageRepo(("20260707", 1));
-        repo.Setup(r => r.GetTenantUsageAsync(Target, It.IsAny<string?>(), It.IsAny<string?>()))
-            .ThrowsAsync(new InvalidOperationException("storage down"));
-        TenantRows(repo, Target2, ("20260707", 10));
-        var svc = Build(repo, editionResolver: HomeProTargetsCommunity);
-
-        var r = await svc.CheckManyAsync(Oid, Upn, TenantId, new[] { Target, Target2 });
-
-        Assert.True(r.Allowed);
-        Assert.Equal(new[] { Target, Target2 }, r.AdmittedTenantIds.OrderBy(t => t));
-        Assert.Empty(r.ExcludedTenantIds);
+        repo.Verify(r => r.GetTenantUsageAsync(TenantId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+        repo.Verify(r => r.GetUsageByUserAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Exactly(2));
     }
 }

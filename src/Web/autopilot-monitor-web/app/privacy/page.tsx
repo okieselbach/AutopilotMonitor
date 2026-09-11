@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "9 September 2026";
+const LAST_UPDATED = "11 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 
@@ -132,7 +132,7 @@ export default function PrivacyPage() {
           <ul className="list-disc list-inside space-y-2 text-gray-700 ml-4">
             <li><strong>Authenticated users in your own tenant</strong>, according to their role — Admin, Operator, Viewer, or a role-less Member limited to the Progress Portal</li>
             <li><strong>Platform operators</strong> — Global Admin for operations and support, and Global Reader for read-only support with configuration secrets redacted</li>
-            <li><strong>Delegated (MSP) administrators you or your provider have been granted</strong> — read-only, limited to exactly the tenants in scope, with configuration secrets redacted, with every grant and revocation written to <em>your</em> tenant&apos;s audit log so you can always see who was given access to your data, and with their AI (MCP) requests into your tenant counted against your organization&apos;s MCP budget and listed, marked as delegated, on your MCP Usage page</li>
+            <li><strong>Delegated (MSP) administrators you or your provider have been granted</strong> — read-only, limited to exactly the tenants in scope, with configuration secrets redacted, with every grant and revocation written to <em>your</em> tenant&apos;s audit log so you can always see who was given access to your data, and with their AI (MCP) requests into your tenant counted against the managing organization&apos;s own MCP budget, never against yours</li>
           </ul>
           <p className="text-gray-700">
             Delegated administration is a Pro capability and is off unless explicitly granted. Full detail on the

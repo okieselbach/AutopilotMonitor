@@ -38,7 +38,7 @@ function formatDay(iso: string | undefined | null): string {
 /**
  * Settings → Tenant → Delegated Access. Two cards: (1) who can read THIS tenant through a delegation (every
  * tenant, with a customer-side revoke for self-service delegations), (2) for a Pro tenant, the tenants it
- * manages as an MSP: slots, managed tenants with their MCP budget, invitation links (single-use, copy-only),
+ * manages as an MSP: slots, managed tenants, invitation links (single-use, copy-only),
  * and which of its own users hold the delegated access. Every mutation is audited under both tenants by
  * the backend; removing a customer holds its slot for 24 hours.
  */
@@ -258,7 +258,7 @@ export function SectionDelegatedAccess() {
           tone="purple"
           iconPath="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
           title="Tenants you manage"
-          subtitle="Invite customer tenants with a single-use link; their admin accepts it and your assigned users get read-only access. Tenants you manage are on Pro for as long as you manage them, and each managed tenant's AI (MCP) usage draws on that tenant's own plan."
+          subtitle="Invite customer tenants with a single-use link; their admin accepts it and your assigned users get read-only access. Tenants you manage are on Pro for as long as you manage them. Reads into managed tenants draw on your own AI (MCP) budgets; every purchased slot beyond the two included extends them."
           docsPath={DOCS_PATHS.delegatedAccess}
           trailing={slots && (
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
@@ -300,11 +300,6 @@ export function SectionDelegatedAccess() {
                           <span className="font-medium text-gray-900">{t.domain || t.tenantId}</span>
                           {t.source === "operator" && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">provisioned by operators</span>
-                          )}
-                          {t.usage && (
-                            <span className="text-xs text-gray-500 font-mono" title={`MCP organization budget of this tenant (plan ${t.usage.tenantPlan})`}>
-                              MCP {t.usage.tenantDailyUsed}/{t.usage.tenantDailyLimit || "∞"} today · {t.usage.tenantMonthlyUsed}/{t.usage.tenantMonthlyLimit || "∞"} month
-                            </span>
                           )}
                           {t.sinceUtc && <span className="text-xs text-gray-500">since {formatDay(t.sinceUtc)}</span>}
                           <span className="ml-auto flex items-center gap-2">

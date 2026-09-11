@@ -93,9 +93,10 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Effective quota state nested in <see cref="GetMyMcpUsageResponse"/>: the caller's own windows and
-    /// the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a
-    /// delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed
-    /// tenants are charged to the managed tenant per request and never appear here.
+    /// the organization-wide windows of their HOME tenant (shared by every member; 0 = unlimited). Every
+    /// MCP request the caller makes — reads into managed tenants included — draws on these windows. The
+    /// limits already contain the growth from purchased delegation slots; the slot fields let a client show
+    /// the breakdown (base = limit − slots × slot value) and are absent when the tenant has no purchased slot.
     /// </summary>
     // Declaration order == wire order.
     public class McpUsageQuotaNode
@@ -110,6 +111,14 @@ namespace AutopilotMonitor.Shared.Models
         public int TenantMonthlyLimit { get; set; }
         public long TenantDailyUsed { get; set; }
         public long TenantMonthlyUsed { get; set; }
+        /// <summary>Delegation slots bought beyond the edition's included ones; absent when zero.</summary>
+        public int? PurchasedDelegatedSlots { get; set; }
+        /// <summary>Per-user daily growth per purchased slot; absent when no slot was purchased.</summary>
+        public int? SlotDailyLimit { get; set; }
+        public int? SlotMonthlyLimit { get; set; }
+        /// <summary>Organization daily growth per purchased slot; absent when no slot was purchased.</summary>
+        public int? SlotTenantDailyLimit { get; set; }
+        public int? SlotTenantMonthlyLimit { get; set; }
     }
 
     /// <summary>
@@ -127,10 +136,9 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the
-    /// tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests
-    /// were charged to this tenant's organization budget — its own members and any delegated (MSP)
-    /// administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's
-    /// organization counters.
+    /// tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account of the
+    /// tenant whose requests were charged to its organization budget (a member's reads into managed tenants
+    /// included), plus the tenant's organization windows. Built from the tenant's organization counters.
     /// </summary>
     // Declaration order == wire order.
     public class GetMcpOrganizationUsageResponse : IApiResponse
@@ -158,8 +166,9 @@ namespace AutopilotMonitor.Shared.Models
 
     /// <summary>
     /// The organization-wide windows of the tenant in <see cref="GetMcpOrganizationUsageResponse"/>: its tenant
-    /// plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every
-    /// account charged to the tenant.
+    /// plan (tenant-wide override, else edition) with the limits (0 = unlimited; purchased-slot growth included)
+    /// and the counters over every account charged to the tenant. The slot fields carry the breakdown and are
+    /// absent when the tenant has no purchased delegation slot.
     /// </summary>
     // Declaration order == wire order.
     public class McpOrganizationQuotaNode
@@ -169,6 +178,11 @@ namespace AutopilotMonitor.Shared.Models
         public int MonthlyLimit { get; set; }
         public long DailyUsed { get; set; }
         public long MonthlyUsed { get; set; }
+        /// <summary>Delegation slots bought beyond the edition's included ones; absent when zero.</summary>
+        public int? PurchasedDelegatedSlots { get; set; }
+        /// <summary>Organization daily growth per purchased slot; absent when no slot was purchased.</summary>
+        public int? SlotDailyLimit { get; set; }
+        public int? SlotMonthlyLimit { get; set; }
     }
 
     /// <summary>One account's share of the organization budget, nested in <see cref="GetMcpOrganizationUsageResponse"/>.</summary>
@@ -178,10 +192,6 @@ namespace AutopilotMonitor.Shared.Models
         public string UserId { get; set; } = default!;
         /// <summary>Absent for rows written before the UPN was recorded.</summary>
         public string? UserPrincipalName { get; set; }
-        /// <summary>True when the account is a delegated (MSP) administrator homed in another tenant.</summary>
-        public bool Delegated { get; set; }
-        /// <summary>The delegated administrator's home tenant; absent for the tenant's own members.</summary>
-        public string? HomeTenantId { get; set; }
         public long RequestsToday { get; set; }
         public long RequestsThisMonth { get; set; }
         public long RequestsInRange { get; set; }

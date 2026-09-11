@@ -67,8 +67,6 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 {
                     Success = true,
                     Stats = stats,
-                    // MCP fleet aggregate only: managed tenants the quota layer dropped (see GetAllSessions).
-                    QuotaExcludedTenants = req.GetRequestContext().QuotaExcludedTenantIds?.ToArray(),
                 });
             }
             catch (Exception ex)

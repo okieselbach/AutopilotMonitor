@@ -332,6 +332,54 @@ public class TenantEntitlementServiceTests
         Assert.Equal(7, await svc.GetMaxDelegatedTenantsAsync(TenantId));
     }
 
+    // ── Purchased delegation slots (beyond the edition's included ones) ──────────
+
+    [Theory]
+    [InlineData("pro", null, 0)]       // the two included slots earn nothing
+    [InlineData("pro", 2, 0)]
+    [InlineData("pro", 5, 3)]
+    [InlineData("pro", 0, 0)]          // a lowered limit never goes negative
+    [InlineData("community", null, 0)]
+    [InlineData("community", 4, 0)]    // pre-provisioned override without the delegation right: no growth
+    public void GetPurchasedDelegatedSlots_CountsOnlySlotsBeyondTheIncludedOnes(string tier, int? overrideLimit, int expected)
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = tier, MaxDelegatedTenantsOverride = overrideLimit };
+        Assert.Equal(expected, TenantEntitlementService.GetPurchasedDelegatedSlots(config, Now));
+    }
+
+    [Fact]
+    public void GetPurchasedDelegatedSlots_ConferredPro_IsZero_DespiteAnOverride()
+    {
+        // Pro by conferral only: no delegation right, so no slot can have been bought — nothing grows.
+        var config = new TenantConfiguration
+        {
+            TenantId = TenantId, PlanTier = "community", ManagedByProTenantId = "99999999-9999-9999-9999-999999999999", MaxDelegatedTenantsOverride = 3,
+        };
+        Assert.Equal(0, TenantEntitlementService.GetPurchasedDelegatedSlots(config, Now));
+    }
+
+    [Fact]
+    public void GetPurchasedDelegatedSlots_ActiveTrial_CountsLikePro()
+    {
+        var config = new TenantConfiguration { TenantId = TenantId, PlanTier = "free", TrialExpiresUtc = Now.AddDays(3), MaxDelegatedTenantsOverride = 3 };
+        Assert.Equal(1, TenantEntitlementService.GetPurchasedDelegatedSlots(config, Now));
+    }
+
+    [Fact]
+    public async Task GetPurchasedDelegatedSlotsAsync_NoRow_FailsClosedToZero()
+    {
+        var (svc, _) = Build(config: null);
+        Assert.Equal(0, await svc.GetPurchasedDelegatedSlotsAsync(TenantId));
+        Assert.Equal(0, await svc.GetPurchasedDelegatedSlotsAsync(null));
+    }
+
+    [Fact]
+    public async Task GetPurchasedDelegatedSlotsAsync_ReadsTheOverride()
+    {
+        var (svc, _) = Build(new TenantConfiguration { TenantId = TenantId, PlanTier = "pro", MaxDelegatedTenantsOverride = 7 });
+        Assert.Equal(5, await svc.GetPurchasedDelegatedSlotsAsync(TenantId));
+    }
+
     // ── MCP usage plan (tenant-wide override) ────────────────────────────────────
 
     [Theory]

@@ -13,6 +13,7 @@ internal sealed class StubTenantEntitlementService : TenantEntitlementService
 {
     private readonly Func<string?, EditionResolution> _resolver;
     private readonly Func<string?, string?> _planOverrideResolver;
+    private readonly Func<string?, int> _purchasedSlotsResolver;
 
     public StubTenantEntitlementService(TenantEdition edition) : this(_ => edition)
     {
@@ -23,18 +24,27 @@ internal sealed class StubTenantEntitlementService : TenantEntitlementService
     /// The tenant-wide MCP usage-plan override (TenantConfiguration.McpUsagePlanOverride) per tenant id;
     /// null = no override (the edition's plan name applies). Defaults to "no override anywhere".
     /// </param>
-    public StubTenantEntitlementService(Func<string?, TenantEdition> resolver, Func<string?, string?>? planOverrideResolver = null)
-        : this(tenantId => AsOwnResolution(resolver(tenantId)), planOverrideResolver)
+    /// <param name="purchasedSlotsResolver">Purchased delegation slots per tenant id; defaults to 0 everywhere.</param>
+    public StubTenantEntitlementService(
+        Func<string?, TenantEdition> resolver,
+        Func<string?, string?>? planOverrideResolver = null,
+        Func<string?, int>? purchasedSlotsResolver = null)
+        : this(tenantId => AsOwnResolution(resolver(tenantId)), planOverrideResolver, purchasedSlotsResolver)
     {
     }
 
     /// <param name="resolver">Full resolution per tenant id (edition, source, own standing) — for conferred-Pro cases.</param>
     /// <param name="planOverrideResolver">See the edition-based constructor.</param>
-    public StubTenantEntitlementService(Func<string?, EditionResolution> resolver, Func<string?, string?>? planOverrideResolver)
+    /// <param name="purchasedSlotsResolver">See the edition-based constructor.</param>
+    public StubTenantEntitlementService(
+        Func<string?, EditionResolution> resolver,
+        Func<string?, string?>? planOverrideResolver,
+        Func<string?, int>? purchasedSlotsResolver = null)
         : base(configService: null!, logger: NullLogger<TenantEntitlementService>.Instance)
     {
         _resolver = resolver;
         _planOverrideResolver = planOverrideResolver ?? (_ => null);
+        _purchasedSlotsResolver = purchasedSlotsResolver ?? (_ => 0);
     }
 
     private static EditionResolution AsOwnResolution(TenantEdition edition) => edition == TenantEdition.Pro
@@ -49,4 +59,7 @@ internal sealed class StubTenantEntitlementService : TenantEntitlementService
         => Task.FromResult(
             NormalizePlanName(_planOverrideResolver(tenantId))
             ?? FeatureEntitlementCatalog.Get(_resolver(tenantId)).McpUsagePlanName);
+
+    public override Task<int> GetPurchasedDelegatedSlotsAsync(string? tenantId)
+        => Task.FromResult(_purchasedSlotsResolver(tenantId));
 }

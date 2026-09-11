@@ -529,8 +529,30 @@ namespace AutopilotMonitor.Functions.Functions.Config
         }
 
         /// <summary>
+        /// The built-in catalog values per edition — what a blank field of the same-named plan definition
+        /// falls back to (McpQuotaService). Sent with the definitions so the operator sees what "unset" means.
+        /// </summary>
+        internal static IReadOnlyList<UsagePlanCatalogDefaults> BuildUsagePlanCatalog()
+            => new[] { TenantEdition.Community, TenantEdition.Pro }
+                .Select(FeatureEntitlementCatalog.Get)
+                .Select(e => new UsagePlanCatalogDefaults
+                {
+                    Edition = e.McpUsagePlanName,
+                    DailyRequestLimit = e.McpDailyRequestLimit,
+                    MonthlyRequestLimit = e.McpMonthlyRequestLimit,
+                    TenantDailyRequestLimit = e.McpTenantDailyRequestLimit,
+                    TenantMonthlyRequestLimit = e.McpTenantMonthlyRequestLimit,
+                    IncludedDelegatedSlots = e.MaxDelegatedTenants,
+                    SlotDailyRequestLimit = e.McpSlotDailyRequestLimit,
+                    SlotMonthlyRequestLimit = e.McpSlotMonthlyRequestLimit,
+                    SlotTenantDailyRequestLimit = e.McpSlotTenantDailyRequestLimit,
+                    SlotTenantMonthlyRequestLimit = e.McpSlotTenantMonthlyRequestLimit,
+                })
+                .ToList();
+
+        /// <summary>
         /// GET /api/global/config/plan-tiers
-        /// Returns plan tier definitions from AdminConfiguration.PlanTierDefinitionsJson.
+        /// Returns plan tier definitions from AdminConfiguration.PlanTierDefinitionsJson plus the catalog fallbacks.
         /// </summary>
         [Function("GetPlanTierDefinitions")]
         public async Task<HttpResponseData> GetPlanTierDefinitions(
@@ -542,7 +564,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 var tiers = PlanTierDefinitionParser.Parse(config.PlanTierDefinitionsJson);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = tiers });
+                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = tiers, Catalog = BuildUsagePlanCatalog() });
                 return response;
             }
             catch (Exception ex)
@@ -585,7 +607,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 await _adminConfigService.SaveConfigurationAsync(config);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = body.Tiers });
+                await response.WriteAsJsonAsync(new PlanTierDefinitionsResponse { Tiers = body.Tiers, Catalog = BuildUsagePlanCatalog() });
                 return response;
             }
             catch (Exception ex)

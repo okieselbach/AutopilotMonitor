@@ -158,6 +158,11 @@ public class FeatureEntitlementCatalogTests
         Assert.Equal(pro.McpMonthlyRequestLimit, conferred.McpMonthlyRequestLimit);
         Assert.Equal(pro.McpTenantDailyRequestLimit, conferred.McpTenantDailyRequestLimit);
         Assert.Equal(pro.McpTenantMonthlyRequestLimit, conferred.McpTenantMonthlyRequestLimit);
+        // …except the slot growth, which follows the delegation right.
+        Assert.Equal(0, conferred.McpSlotDailyRequestLimit);
+        Assert.Equal(0, conferred.McpSlotMonthlyRequestLimit);
+        Assert.Equal(0, conferred.McpSlotTenantDailyRequestLimit);
+        Assert.Equal(0, conferred.McpSlotTenantMonthlyRequestLimit);
     }
 
     [Fact]
@@ -207,6 +212,10 @@ public class FeatureEntitlementCatalogTests
         Assert.Equal(3000, e.McpMonthlyRequestLimit);
         Assert.Equal(300, e.McpTenantDailyRequestLimit);
         Assert.Equal(9000, e.McpTenantMonthlyRequestLimit);
+        Assert.Equal(0, e.McpSlotDailyRequestLimit);
+        Assert.Equal(0, e.McpSlotMonthlyRequestLimit);
+        Assert.Equal(0, e.McpSlotTenantDailyRequestLimit);
+        Assert.Equal(0, e.McpSlotTenantMonthlyRequestLimit);
     }
 
     [Fact]
@@ -224,6 +233,11 @@ public class FeatureEntitlementCatalogTests
         Assert.Equal(20000, e.McpMonthlyRequestLimit);
         Assert.Equal(3000, e.McpTenantDailyRequestLimit);
         Assert.Equal(60000, e.McpTenantMonthlyRequestLimit);
+        // Per purchased delegation slot: 30 % of the Pro windows (an additional slot costs 30 % of Pro).
+        Assert.Equal(300, e.McpSlotDailyRequestLimit);
+        Assert.Equal(6000, e.McpSlotMonthlyRequestLimit);
+        Assert.Equal(900, e.McpSlotTenantDailyRequestLimit);
+        Assert.Equal(18000, e.McpSlotTenantMonthlyRequestLimit);
     }
 
     [Fact]

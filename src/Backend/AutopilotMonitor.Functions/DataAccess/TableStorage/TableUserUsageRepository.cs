@@ -204,7 +204,7 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         // ---- McpTenantUsage (organization-wide quota counters) ----
 
-        public Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName, string? homeTenantId)
+        public Task IncrementTenantUsageAsync(string tenantId, string userId, string? userPrincipalName)
         {
             if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(userId))
                 return Task.CompletedTask;
@@ -220,10 +220,10 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     {
                         ["RequestCount"] = ReadCount(read) + 1,
                         ["LastRequestAt"] = DateTimeOffset.UtcNow,
-                        // Attribution columns (added 2026-09): the UPN as last seen, and the caller's home
-                        // tenant when this row was charged by a delegated (MSP) read. Refreshed on every
-                        // increment so a row created before the columns existed heals on its next hit.
-                        ["HomeTenantId"] = homeTenantId ?? string.Empty,
+                        // Attribution column (added 2026-09): the UPN as last seen, refreshed on every increment
+                        // so a row created before the column existed heals on its next hit. Rows written before
+                        // 2026-09-11 may carry a HomeTenantId column (delegated reads used to be charged to the
+                        // managed tenant); it is neither written nor read any more and ages out with retention.
                     };
                     if (!string.IsNullOrEmpty(userPrincipalName))
                         patch["UserPrincipalName"] = userPrincipalName;
@@ -234,7 +234,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     ["Date"] = date,
                     ["UserId"] = userId,
                     ["UserPrincipalName"] = userPrincipalName ?? string.Empty,
-                    ["HomeTenantId"] = homeTenantId ?? string.Empty,
                     ["RequestCount"] = 1L,
                     ["LastRequestAt"] = DateTimeOffset.UtcNow,
                 },
@@ -258,7 +257,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                     TenantId = entity.PartitionKey,
                     UserId = entity.GetString("UserId") ?? string.Empty,
                     UserPrincipalName = entity.GetString("UserPrincipalName") ?? string.Empty,
-                    HomeTenantId = entity.GetString("HomeTenantId") ?? string.Empty,
                     Date = entity.GetString("Date") ?? entity.RowKey.Split('_')[0],
                     RequestCount = entity.TryGetValue("RequestCount", out var rc) ? Convert.ToInt64(rc) : 0L,
                     LastRequestAt = entity.GetDateTimeOffset("LastRequestAt")?.UtcDateTime,

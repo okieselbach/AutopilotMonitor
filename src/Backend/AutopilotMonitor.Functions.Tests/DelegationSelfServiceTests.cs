@@ -45,7 +45,10 @@ public class DelegationSelfServiceTests
         public required Mock<ProConferralService> ProConferral { get; init; }
     }
 
-    private static Harness Build(TenantEdition homeEdition = TenantEdition.Pro, int? slotOverride = null)
+    /// <summary>Pro by conferral only (managed by a Pro MSP): the shape that must never delegate onward.</summary>
+    private static readonly EditionResolution ConferredPro = new(TenantEdition.Pro, EditionSource.Msp, OwnPro: false);
+
+    private static Harness Build(TenantEdition homeEdition = TenantEdition.Pro, int? slotOverride = null, EditionResolution? homeResolution = null)
     {
         var rows = new List<DelegationInvitation>();
         var groupTenants = new List<string>();
@@ -104,7 +107,9 @@ public class DelegationSelfServiceTests
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var time = new TestTimeProvider(Now);
-        var entitlements = new StubTenantEntitlementService(t => t == Home ? homeEdition : TenantEdition.Community);
+        var entitlements = homeResolution is EditionResolution resolution
+            ? new StubTenantEntitlementService(t => t == Home ? resolution : new EditionResolution(TenantEdition.Community, EditionSource.Community, OwnPro: false), null)
+            : new StubTenantEntitlementService(t => t == Home ? homeEdition : TenantEdition.Community);
         var delegatedAdmins = new DelegatedAdminService(repo.Object, new StubAdminIdentityBindingService(bound: true), entitlements, cache, NullLogger<DelegatedAdminService>.Instance);
         var slots = new DelegatedSlotService(repo.Object, configRepo.Object, invitations.Object, cache, NullLogger<DelegatedSlotService>.Instance, time);
         var audit = new Mock<IMaintenanceRepository>();
@@ -192,6 +197,18 @@ public class DelegationSelfServiceTests
     public async Task CreateInvitation_CommunityHome_403()
     {
         var h = Build(homeEdition: TenantEdition.Community);
+        var r = await h.Svc.CreateInvitationAsync(Home, MspAdmin);
+        Assert.False(r.Ok);
+        Assert.Equal(403, r.Failure!.Status);
+        Assert.Equal(Constants.DelegationCodes.DelegatedAdminNotAllowed, r.Failure.Code);
+        Assert.Empty(h.Rows);
+    }
+
+    [Fact]
+    public async Task CreateInvitation_ConferredProHome_403_NoTransitiveDelegation()
+    {
+        // The would-be manager is Pro only because a Pro MSP manages IT — conferred Pro carries no delegation right.
+        var h = Build(homeResolution: ConferredPro);
         var r = await h.Svc.CreateInvitationAsync(Home, MspAdmin);
         Assert.False(r.Ok);
         Assert.Equal(403, r.Failure!.Status);
@@ -323,6 +340,17 @@ public class DelegationSelfServiceTests
     }
 
     [Fact]
+    public async Task Accept_ManagerConferredProOnly_409()
+    {
+        // The inviting tenant lost its own Pro and is now Pro by conferral: its pending link is not redeemable.
+        var h = Build(homeResolution: ConferredPro);
+        h.Rows.Add(Pending());
+        var r = await h.Svc.AcceptAsync(Token(), Customer, CustomerAdmin);
+        Assert.Equal(Constants.DelegationCodes.ManagerNotEntitled, r.Failure!.Code);
+        Assert.Equal(Constants.DelegationInvitationStatus.Pending, h.Rows[0].Status); // untouched
+    }
+
+    [Fact]
     public async Task Accept_LimitLoweredSinceInvitation_409_SlotViolation()
     {
         // 1 slot, already used by another customer; the pending row was sent when there were 2.
@@ -451,6 +479,16 @@ public class DelegationSelfServiceTests
         Assert.Equal(MspUser, ok.Value!.Upn);
         h.Repo.Verify(x => x.AssignGroupAsync(MspUser, GroupId, Constants.DelegatedRoles.DelegatedReader, true, MspAdmin), Times.Once);
         h.Repo.Verify(x => x.EnsureOwnedTenantGroupAsync(GroupId, It.IsAny<string>(), Home), Times.Once);
+    }
+
+    [Fact]
+    public async Task Assign_ConferredProHome_403()
+    {
+        var h = Build(homeResolution: ConferredPro);
+        var r = await h.Svc.AssignAsync(Home, "Analyst@Partner.Example", MspAdmin);
+        Assert.Equal(403, r.Failure!.Status);
+        Assert.Equal(Constants.DelegationCodes.DelegatedAdminNotAllowed, r.Failure.Code);
+        h.Repo.Verify(x => x.AssignGroupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

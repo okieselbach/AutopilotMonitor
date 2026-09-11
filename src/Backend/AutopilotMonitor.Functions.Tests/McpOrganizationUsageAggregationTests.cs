@@ -7,47 +7,43 @@ namespace AutopilotMonitor.Functions.Tests;
 
 /// <summary>
 /// Tests for the pure folds behind GET metrics/mcp-usage/organization (and its global twin): one item per
-/// account, the delegated (MSP) marker from the row's home tenant, the three windows (today / month / range),
-/// and the tenant's organization windows over every account.
+/// account, the three windows (today / month / range), and the tenant's organization windows over every
+/// account including the purchased-slot breakdown.
 /// </summary>
 public class McpOrganizationUsageAggregationTests
 {
     private const string Tenant = "11111111-1111-1111-1111-111111111111";
-    private const string MspHome = "99999999-9999-9999-9999-999999999999";
     private const string Member = "aaaaaaaa-0000-0000-0000-000000000001";
-    private const string MspAdmin = "bbbbbbbb-0000-0000-0000-000000000002";
+    private const string OtherMember = "bbbbbbbb-0000-0000-0000-000000000002";
 
-    private static TenantUsageRecord Row(string user, string date, long count, string upn = "", string home = "", DateTime? last = null)
-        => new() { TenantId = Tenant, UserId = user, Date = date, RequestCount = count, UserPrincipalName = upn, HomeTenantId = home, LastRequestAt = last };
+    private static TenantUsageRecord Row(string user, string date, long count, string upn = "", DateTime? last = null)
+        => new() { TenantId = Tenant, UserId = user, Date = date, RequestCount = count, UserPrincipalName = upn, LastRequestAt = last };
 
     [Fact]
-    public void Aggregate_MarksDelegatedAccounts_ByForeignHomeTenant()
+    public void Aggregate_OneItemPerAccount_KeepsTheLatestUpn()
     {
         var rows = new[]
         {
-            Row(Member, "20260902", 10, "alice@contoso.com"),
-            Row(MspAdmin, "20260902", 40, "msp@partner.example", MspHome),
+            Row(Member, "20260901", 10),                       // written before the UPN column existed
+            Row(Member, "20260902", 5, "alice@contoso.com"),
+            Row(OtherMember, "20260902", 40, "bob@contoso.com"),
         };
 
-        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, Tenant, "20260901", "20260902", "20260902", "20260901");
+        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, "20260901", "20260902", "20260902", "20260901");
 
-        var msp = Assert.Single(items, i => i.UserId == MspAdmin);
-        Assert.True(msp.Delegated);
-        Assert.Equal(MspHome, msp.HomeTenantId);
-        Assert.Equal("msp@partner.example", msp.UserPrincipalName);
-        var member = Assert.Single(items, i => i.UserId == Member);
-        Assert.False(member.Delegated);
-        Assert.Null(member.HomeTenantId);
+        Assert.Equal(2, items.Count);
+        var alice = Assert.Single(items, i => i.UserId == Member);
+        Assert.Equal("alice@contoso.com", alice.UserPrincipalName);
+        Assert.Equal(15, alice.RequestsThisMonth);
+        var bob = Assert.Single(items, i => i.UserId == OtherMember);
+        Assert.Equal("bob@contoso.com", bob.UserPrincipalName);
     }
 
     [Fact]
-    public void Aggregate_OwnTenantAsHome_IsNotDelegated()
+    public void Aggregate_RowsWithoutUpn_LeaveItNull()
     {
-        // Legacy/own rows may carry the tenant itself (or nothing) as home — both mean "own member".
-        var rows = new[] { Row(Member, "20260902", 1, home: Tenant), Row(Member, "20260901", 1) };
-        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, Tenant, "20260901", "20260902", "20260902", "20260901");
-        var item = Assert.Single(items);
-        Assert.False(item.Delegated);
+        var rows = new[] { Row(Member, "20260902", 1), Row(Member, "20260901", 1) };
+        var item = Assert.Single(McpUsageMetricsFunction.AggregateOrganizationUsage(rows, "20260901", "20260902", "20260902", "20260901"));
         Assert.Null(item.UserPrincipalName);
     }
 
@@ -62,7 +58,7 @@ public class McpOrganizationUsageAggregationTests
             Row(Member, "20260903", 7),   // read window past the range end (never counted in range)
         };
 
-        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, Tenant, "20260815", "20260902", "20260902", "20260901");
+        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, "20260815", "20260902", "20260902", "20260901");
 
         var item = Assert.Single(items);
         Assert.Equal(5, item.RequestsToday);
@@ -79,12 +75,12 @@ public class McpOrganizationUsageAggregationTests
         {
             Row(Member, "20260901", 3, last: newer),
             Row(Member, "20260902", 1, last: older),
-            Row(MspAdmin, "20260902", 50, home: MspHome, last: older),
+            Row(OtherMember, "20260902", 50, last: older),
         };
 
-        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, Tenant, "20260901", "20260902", "20260902", "20260901");
+        var items = McpUsageMetricsFunction.AggregateOrganizationUsage(rows, "20260901", "20260902", "20260902", "20260901");
 
-        Assert.Equal(new[] { MspAdmin, Member }, items.Select(i => i.UserId));
+        Assert.Equal(new[] { OtherMember, Member }, items.Select(i => i.UserId));
         Assert.Equal(newer, items[1].LastRequestAt);
     }
 
@@ -93,11 +89,11 @@ public class McpOrganizationUsageAggregationTests
     {
         var rows = new[]
         {
-            Row(Member, "20260815", 100),                 // last month: neither window
-            Row(Member, "20260901", 20),                  // month
-            Row(Member, "20260902", 2),                   // today + month
-            Row(MspAdmin, "20260902", 5, home: MspHome),  // delegated reads count against the same windows
-            Row(Member, "20260903", 7),                   // read window past today (range only)
+            Row(Member, "20260815", 100),       // last month: neither window
+            Row(Member, "20260901", 20),        // month
+            Row(Member, "20260902", 2),         // today + month
+            Row(OtherMember, "20260902", 5),    // another account counts against the same windows
+            Row(Member, "20260903", 7),         // read window past today (range only)
         };
 
         var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
@@ -108,6 +104,25 @@ public class McpOrganizationUsageAggregationTests
         Assert.Equal(15000, quota.MonthlyLimit);
         Assert.Equal(7, quota.DailyUsed);
         Assert.Equal(27, quota.MonthlyUsed);
+        // No purchased slot: the breakdown stays off the wire.
+        Assert.Null(quota.PurchasedDelegatedSlots);
+        Assert.Null(quota.SlotDailyLimit);
+        Assert.Null(quota.SlotMonthlyLimit);
+    }
+
+    [Fact]
+    public void OrganizationQuota_PurchasedSlots_CarryTheBreakdown()
+    {
+        // 3 000 + 3 × 900 = 5 700 — the limits arrive grown; the slot fields let the page show the sum.
+        var quota = McpUsageMetricsFunction.BuildOrganizationQuota(
+            new[] { Row(Member, "20260902", 3) },
+            new McpQuotaService.TenantPlanLimits("pro", 5700, 114000, PurchasedDelegatedSlots: 3, SlotTenantDailyLimit: 900, SlotTenantMonthlyLimit: 18000),
+            "20260902", "20260901");
+
+        Assert.Equal(5700, quota.DailyLimit);
+        Assert.Equal(3, quota.PurchasedDelegatedSlots);
+        Assert.Equal(900, quota.SlotDailyLimit);
+        Assert.Equal(18000, quota.SlotMonthlyLimit);
     }
 
     [Fact]
@@ -115,11 +130,11 @@ public class McpOrganizationUsageAggregationTests
     {
         var rows = new[]
         {
-            Row(Member, "20260815", 100),                 // before the range
+            Row(Member, "20260815", 100),       // before the range
             Row(Member, "20260902", 2),
-            Row(MspAdmin, "20260902", 5, home: MspHome),  // same day, delegated — one bar
+            Row(OtherMember, "20260902", 5),    // same day, another account — one bar
             Row(Member, "20260901", 20),
-            Row(Member, "20260903", 7),                   // after the range (read window)
+            Row(Member, "20260903", 7),         // after the range (read window)
         };
 
         var daily = McpUsageMetricsFunction.BuildOrganizationDaily(rows, "20260901", "20260902");

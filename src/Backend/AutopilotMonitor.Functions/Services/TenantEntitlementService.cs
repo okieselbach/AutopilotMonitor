@@ -127,6 +127,38 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
+        /// Delegation slots the tenant has BOUGHT beyond the ones its edition includes: the effective slot limit
+        /// (<see cref="GetMaxDelegatedTenants"/>) minus the catalog count of the tenant's own standing, floored
+        /// at 0 — and 0 whenever the tenant holds no delegation right at all (Community, conferred Pro), even
+        /// with a pre-provisioned override. Every purchased slot grows the tenant's MCP windows (McpQuotaService);
+        /// the included slots are part of the edition's base windows.
+        /// </summary>
+        public static int GetPurchasedDelegatedSlots(TenantConfiguration config, DateTime nowUtc)
+        {
+            var entitlements = FeatureEntitlementCatalog.Get(Resolve(config, nowUtc));
+            if (!entitlements.DelegatedAdminAllowed)
+                return 0;
+            return Math.Max(0, GetMaxDelegatedTenants(config, nowUtc) - entitlements.MaxDelegatedTenants);
+        }
+
+        /// <summary>Cached read-time variant of <see cref="GetPurchasedDelegatedSlots"/>. No row / any error ⇒ 0 (fail-closed).</summary>
+        public virtual async Task<int> GetPurchasedDelegatedSlotsAsync(string? tenantId)
+        {
+            if (string.IsNullOrWhiteSpace(tenantId))
+                return 0;
+            try
+            {
+                var config = await _configService.GetConfigurationIfExistsAsync(tenantId);
+                return config == null ? 0 : GetPurchasedDelegatedSlots(config, _time.GetUtcNow().UtcDateTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Entitlement] Purchased slot resolution failed for tenant {TenantId} — treating as 0 (fail-closed)", tenantId);
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// The tenant's effective MCP usage plan NAME: the Global Admin override
         /// (<see cref="TenantConfiguration.McpUsagePlanOverride"/>, a SectionUsagePlans plan name — applies
         /// to the WHOLE tenant: every member's default user plan AND the organization windows) when set,

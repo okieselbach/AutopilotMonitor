@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Shared.DataAccess;
@@ -14,35 +12,40 @@ namespace AutopilotMonitor.Functions.Services
 {
     /// <summary>
     /// Resolves and enforces the MCP request quota: a per-USER budget (daily + monthly) AND a per-TENANT
-    /// budget (daily + monthly) that every request charged to that tenant counts against. Both must be free
-    /// for a request to pass; the tenant budget is what makes "just create ten more accounts" pointless.
+    /// budget (daily + monthly) that every request of that tenant's accounts counts against. Both must be
+    /// free for a request to pass; the tenant budget is what makes "just create ten more accounts" pointless.
+    ///
+    /// Both budgets belong to the caller's HOME tenant (the token's tid) — "the budget follows the
+    /// delegating tenant": a delegated (MSP) read into a managed tenant draws on the MSP's own windows, never
+    /// on the managed tenant's, so a managed tenant is neither charged nor blocked by its manager's reads.
     ///
     /// User plan precedence: explicit per-user override (McpUsers.UsagePlan — honoured only for the identity
-    /// the UPN is bound to, tid + oid, see McpUserService.GetBoundMcpUserAsync) → the caller's HOME-tenant
-    /// edition default (FeatureEntitlementCatalog.McpUsagePlanName). Limits come from the admin-editable
-    /// SectionUsagePlans definitions (AdminConfiguration.PlanTierDefinitionsJson); when no definition matches
-    /// the plan name, the static catalog fallbacks apply. An override naming a plan that exists nowhere
-    /// resolves to the Community fallback (fail-closed).
+    /// the UPN is bound to, tid + oid, see McpUserService.GetBoundMcpUserAsync) → the home tenant's usage plan
+    /// (TenantConfiguration.McpUsagePlanOverride, else the edition's catalog plan name). Limits come from the
+    /// admin-editable SectionUsagePlans definitions (AdminConfiguration.PlanTierDefinitionsJson); when no
+    /// definition matches the plan name, the static catalog fallbacks apply. An override naming a plan that
+    /// exists nowhere resolves to the Community fallback (fail-closed).
     ///
-    /// Tenant plan: ALWAYS the CHARGED tenant's edition plan — a per-user override lifts that person's own
-    /// budget, never an organization's. The charged tenant is the caller's own tenant, or, for a delegated
-    /// (MSP) read, the MANAGED tenant whose data is read ("the budget follows the data": a Community customer
-    /// is read with Community windows even by a Pro MSP). A definition without tenant limits falls back to
-    /// the edition's catalog tenant limits; an explicit 0 lifts that window.
+    /// Tenant plan: the home tenant's usage plan — a per-user override lifts that person's own budget, never
+    /// the organization's. A definition without tenant limits falls back to the edition's catalog tenant
+    /// limits; an explicit 0 lifts that window.
+    ///
+    /// Purchased delegation slots grow BOTH budgets: every slot beyond the edition's included ones
+    /// (TenantEntitlementService.GetPurchasedDelegatedSlots — entitlement-gated, so a Community or a
+    /// conferred-Pro tenant earns nothing) adds the plan definition's slot values (else the edition's catalog
+    /// slot values) to each window. A window lifted to 0 (unlimited) stays unlimited.
     ///
     /// Counters: user counters ride on the UserUsageLog table (PK = oid), tenant counters on the
-    /// McpTenantUsage table (PK = charged tenantId, RK = {yyyyMMdd}_{oid} — one partition read per check, no
+    /// McpTenantUsage table (PK = home tenantId, RK = {yyyyMMdd}_{oid} — one partition read per check, no
     /// hot row); both are written fire-and-forget by McpQuotaEnforcementMiddleware for X-Client-Source: mcp
     /// requests. Daily = today's rows, monthly = the sum over the month. The usage SNAPSHOTS are cached for
-    /// 60 seconds — per user (oid) and per charged tenant — so the worst-case overshoot is bounded
+    /// 60 seconds — per user (oid) and per tenant — so the worst-case overshoot is bounded
     /// (limit + 60s × request-rate) — the same posture as the sliding-window rate limiter. Limits are
     /// re-resolved per check from services that carry their own caches, so a plan change applies at once.
     /// </summary>
     public class McpQuotaService
     {
         private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
-        /// <summary>Concurrent tenant-snapshot reads for one bounded (fleet) aggregate check.</summary>
-        private const int AggregateParallelism = 8;
 
         internal static string UserCacheKey(string oid) => $"mcp-quota:user:{oid}";
         internal static string TenantCacheKey(string tenantId) => $"mcp-quota:tenant:{tenantId.ToLowerInvariant()}";
@@ -86,133 +89,60 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Checks the caller against their own budget and their OWN tenant's organization budget
-        /// (<paramref name="tenantId"/> = the token's tid, charged and homed alike). The self-service usage
-        /// endpoint and every non-delegated MCP request use this shape.
+        /// Resolves the caller's effective plans + limits and checks the current user AND tenant usage against
+        /// them. <paramref name="tenantId"/> is the token's tid — the identity the per-user override is bound to
+        /// and the tenant whose organization budget every request of this caller draws on, a delegated read
+        /// included. Fail-open on counter/storage errors (a broken quota check must not take down MCP);
+        /// fail-closed on plan resolution (unknown plan → Community).
         /// </summary>
-        public virtual Task<McpQuotaDecision> CheckAsync(string oid, string? upn, string? tenantId)
-            => CheckAsync(oid, upn, tenantId, tenantId);
-
-        /// <summary>
-        /// Resolves the caller's effective plans + limits and checks the current user AND charged-tenant usage
-        /// against them. <paramref name="homeTenantId"/> is the token's tid (the identity the per-user override
-        /// is bound to, and the edition the user's own plan follows); <paramref name="chargeTenantId"/> is the
-        /// tenant whose organization budget this request draws on — the home tenant, or the MANAGED tenant of a
-        /// delegated (MSP) read. Fail-open on counter/storage errors (a broken quota check must not take down
-        /// MCP); fail-closed on plan resolution (unknown plan → Community).
-        /// </summary>
-        public virtual async Task<McpQuotaDecision> CheckAsync(string oid, string? upn, string? homeTenantId, string? chargeTenantId)
+        public virtual async Task<McpQuotaDecision> CheckAsync(string oid, string? upn, string? tenantId)
         {
             var nowUtc = _time.GetUtcNow().UtcDateTime;
-            var limits = await ResolvePlanAsync(AdminIdentity.Create(upn, homeTenantId, oid), homeTenantId, chargeTenantId);
-            var targetTenantId = TargetOf(homeTenantId, chargeTenantId);
+            var limits = await ResolvePlanAsync(AdminIdentity.Create(upn, tenantId, oid), tenantId);
 
             var user = await ReadUserUsageAsync(oid, nowUtc);
             if (user == null)
-                return McpQuotaDecision.FailOpen(limits, targetTenantId);
+                return McpQuotaDecision.FailOpen(limits);
 
-            var tenant = await ReadTenantUsageAsync(chargeTenantId, limits, nowUtc);
+            var tenant = await ReadTenantUsageAsync(tenantId, limits, nowUtc);
             if (tenant == null)
-                return McpQuotaDecision.FailOpen(limits, targetTenantId);
+                return McpQuotaDecision.FailOpen(limits);
 
-            return BuildDecision(limits, user.DailyUsed, user.MonthlyUsed, tenant.DailyUsed, tenant.MonthlyUsed, nowUtc, targetTenantId);
+            return BuildDecision(limits, user.DailyUsed, user.MonthlyUsed, tenant.DailyUsed, tenant.MonthlyUsed, nowUtc);
         }
-
-        /// <summary>
-        /// Bounded (fleet) aggregate check for a delegated (MSP) caller: the caller's own budget once, then
-        /// every charged tenant's organization budget. A tenant whose budget is exhausted is EXCLUDED (soft —
-        /// the aggregate proceeds over the rest); the result is blocked only when the caller's own budget is
-        /// exhausted or when every charged tenant is. A tenant whose counters cannot be read is admitted
-        /// (fail-open per tenant, nothing cached). Reads run with bounded parallelism.
-        /// </summary>
-        public virtual async Task<McpAggregateQuotaResult> CheckManyAsync(
-            string oid, string? upn, string? homeTenantId, IReadOnlyCollection<string> chargeTenantIds)
-        {
-            var nowUtc = _time.GetUtcNow().UtcDateTime;
-            var identity = AdminIdentity.Create(upn, homeTenantId, oid);
-            var (userLimits, definitions) = await ResolveUserLimitsAsync(identity, homeTenantId);
-            var userOnly = Compose(userLimits, new TenantPlanLimits(userLimits.PlanName, 0, 0));
-
-            var user = await ReadUserUsageAsync(oid, nowUtc);
-            var userDecision = user == null
-                ? McpQuotaDecision.FailOpen(userOnly)
-                : BuildDecision(userOnly, user.DailyUsed, user.MonthlyUsed, 0, 0, nowUtc);
-            if (!userDecision.Allowed)
-            {
-                return new McpAggregateQuotaResult
-                {
-                    Allowed = false,
-                    UserDecision = userDecision,
-                    BlockingDecision = userDecision,
-                    ExcludedTenantIds = chargeTenantIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                };
-            }
-
-            var decisions = new ConcurrentDictionary<string, McpQuotaDecision>(StringComparer.OrdinalIgnoreCase);
-            using var gate = new SemaphoreSlim(AggregateParallelism);
-            await Task.WhenAll(chargeTenantIds.Distinct(StringComparer.OrdinalIgnoreCase).Select(async tenantId =>
-            {
-                await gate.WaitAsync();
-                try
-                {
-                    var limits = Compose(userLimits, await ResolveTenantLimitsAsync(tenantId, definitions));
-                    var targetTenantId = TargetOf(homeTenantId, tenantId);
-                    var tenant = await ReadTenantUsageAsync(tenantId, limits, nowUtc);
-                    decisions[tenantId] = tenant == null
-                        ? McpQuotaDecision.FailOpen(limits, targetTenantId)
-                        : BuildDecision(limits, user?.DailyUsed ?? -1, user?.MonthlyUsed ?? -1,
-                            tenant.DailyUsed, tenant.MonthlyUsed, nowUtc, targetTenantId);
-                }
-                finally
-                {
-                    gate.Release();
-                }
-            }));
-
-            var admitted = decisions.Where(kv => kv.Value.Allowed).Select(kv => kv.Key).ToList();
-            var excluded = decisions.Where(kv => !kv.Value.Allowed).Select(kv => kv.Key).ToList();
-            var allExhausted = admitted.Count == 0 && excluded.Count > 0;
-
-            return new McpAggregateQuotaResult
-            {
-                Allowed = !allExhausted,
-                UserDecision = userDecision,
-                // Retry-After for "everything is exhausted" is the moment at least ONE tenant becomes usable again.
-                BlockingDecision = allExhausted ? excluded.Select(t => decisions[t]).MinBy(d => d.ResetUtc) : null,
-                AdmittedTenantIds = admitted,
-                ExcludedTenantIds = excluded,
-            };
-        }
-
-        /// <summary>
-        /// Plan resolution only (no counter read) for a caller whose charged tenant IS their home tenant —
-        /// used by the self-service usage endpoint. See the four-argument overload.
-        /// </summary>
-        public virtual Task<McpPlanLimits> ResolvePlanAsync(AdminIdentity? identity, string? tenantId)
-            => ResolvePlanAsync(identity, tenantId, tenantId);
 
         /// <summary>
         /// Plan resolution only (no counter read). <paramref name="identity"/> is the caller's validated
         /// (upn, tid, oid); the per-user override applies only when that identity IS the one the McpUsers UPN
-        /// is bound to — a null / unbound identity gets the home tenant's edition default. The user windows
-        /// follow <paramref name="homeTenantId"/>'s edition; the tenant windows ALWAYS follow the CHARGED
-        /// tenant's edition plan (<paramref name="chargeTenantId"/>).
+        /// is bound to — a null / unbound identity gets the home tenant's plan. Both window sets follow
+        /// <paramref name="tenantId"/>, the caller's home tenant.
         /// </summary>
-        public virtual async Task<McpPlanLimits> ResolvePlanAsync(AdminIdentity? identity, string? homeTenantId, string? chargeTenantId)
+        public virtual async Task<McpPlanLimits> ResolvePlanAsync(AdminIdentity? identity, string? tenantId)
         {
-            var (userLimits, definitions) = await ResolveUserLimitsAsync(identity, homeTenantId);
-            return Compose(userLimits, await ResolveTenantLimitsAsync(chargeTenantId, definitions));
+            var home = await ResolveHomeAsync(tenantId);
+            return Compose(await ResolveUserLimitsAsync(identity, home), ResolveTenantLimits(home));
         }
 
         /// <summary>
-        /// One charged tenant's organization windows alone (plan name + tenant limits; no counters, no per-user
-        /// part) — for the organization usage report.
+        /// One tenant's organization windows alone (plan name + tenant limits with the slot growth applied; no
+        /// counters, no per-user part) — for the organization usage report.
         /// </summary>
-        public virtual async Task<TenantPlanLimits> ResolveTenantPlanAsync(string chargeTenantId)
-            => await ResolveTenantLimitsAsync(chargeTenantId, await LoadDefinitionsAsync());
+        public virtual async Task<TenantPlanLimits> ResolveTenantPlanAsync(string tenantId)
+            => ResolveTenantLimits(await ResolveHomeAsync(tenantId));
 
-        private async Task<(UserPlanLimits Limits, List<PlanTierDefinition> Definitions)> ResolveUserLimitsAsync(
-            AdminIdentity? identity, string? homeTenantId)
+        /// <summary>
+        /// Everything about the home tenant a resolution needs, read once per check (each entitlement read is
+        /// served from the tenant-config cache): the plan definitions, the entitlement set, the usage plan name
+        /// and the purchased delegation slots.
+        /// </summary>
+        private async Task<HomeTenantPlan> ResolveHomeAsync(string? tenantId)
+            => new(
+                await LoadDefinitionsAsync(),
+                await _entitlementService.GetEntitlementsAsync(tenantId),
+                await _entitlementService.GetMcpUsagePlanNameAsync(tenantId),
+                await _entitlementService.GetPurchasedDelegatedSlotsAsync(tenantId));
+
+        private async Task<UserPlanLimits> ResolveUserLimitsAsync(AdminIdentity? identity, HomeTenantPlan home)
         {
             // 1. Per-user override wins when set — for the BOUND identity only.
             string? overridePlan = null;
@@ -229,40 +159,54 @@ namespace AutopilotMonitor.Functions.Services
                 }
             }
 
-            // 2. Home-tenant plan: the tenant-wide GA override (TenantConfiguration.McpUsagePlanOverride) when
-            //    set, else the edition default (fail-closed → Community inside the entitlement service).
-            var planName = overridePlan ?? await _entitlementService.GetMcpUsagePlanNameAsync(homeTenantId);
+            // 2. Else the home tenant's usage plan (the tenant-wide GA override, else the edition default).
+            var planName = overridePlan ?? home.PlanName;
 
-            // 3. Limits: admin-edited SectionUsagePlans definitions, else catalog fallbacks.
-            var definitions = await LoadDefinitionsAsync();
-
-            // User limits: the definition for the (possibly overridden) plan name, else the catalog fallback
-            // for the edition plans, else Community (fail-closed for overrides naming a plan that exists nowhere).
-            var userDefinition = Find(definitions, planName);
-            var userFallback = FeatureEntitlementCatalog.IsPermanentProTier(planName)
+            // 3. User limits: the definition for the (possibly overridden) plan name, else the catalog fallback
+            //    for the edition plans, else Community (fail-closed for overrides naming a plan that exists nowhere).
+            var definition = Find(home.Definitions, planName);
+            var fallback = FeatureEntitlementCatalog.IsPermanentProTier(planName)
                 ? FeatureEntitlementCatalog.Get(TenantEdition.Pro)
                 : FeatureEntitlementCatalog.Get(TenantEdition.Community);
-            var dailyLimit = userDefinition?.DailyRequestLimit ?? userFallback.McpDailyRequestLimit;
-            var monthlyLimit = userDefinition?.MonthlyRequestLimit ?? userFallback.McpMonthlyRequestLimit;
 
-            return (new UserPlanLimits(planName, dailyLimit, monthlyLimit), definitions);
+            // 4. Slot growth: the definition's slot values, else the HOME tenant's catalog values — a per-user
+            //    override plan without slot fields still grows with the home tenant's purchased slots.
+            var slotDaily = definition?.SlotDailyRequestLimit ?? home.Entitlements.McpSlotDailyRequestLimit;
+            var slotMonthly = definition?.SlotMonthlyRequestLimit ?? home.Entitlements.McpSlotMonthlyRequestLimit;
+
+            return new UserPlanLimits(
+                planName,
+                Grow(definition?.DailyRequestLimit ?? fallback.McpDailyRequestLimit, home.PurchasedSlots, slotDaily),
+                Grow(definition?.MonthlyRequestLimit ?? fallback.McpMonthlyRequestLimit, home.PurchasedSlots, slotMonthly),
+                home.PurchasedSlots, slotDaily, slotMonthly);
         }
 
         /// <summary>
-        /// The CHARGED tenant's organization windows: its tenant plan (the tenant-wide GA override, else the
-        /// edition plan) definition when that carries tenant limits (null = not set → the edition's catalog
-        /// tenant limits; an explicit 0 lifts the window), never a per-user override.
+        /// The home tenant's organization windows: its usage plan definition when that carries tenant limits
+        /// (null = not set → the edition's catalog tenant limits; an explicit 0 lifts the window), never a
+        /// per-user override, plus the slot growth (definition's slot values, else the catalog's).
         /// </summary>
-        private async Task<TenantPlanLimits> ResolveTenantLimitsAsync(string? chargeTenantId, List<PlanTierDefinition> definitions)
+        private static TenantPlanLimits ResolveTenantLimits(HomeTenantPlan home)
         {
-            var entitlements = await _entitlementService.GetEntitlementsAsync(chargeTenantId);
-            var tenantPlan = await _entitlementService.GetMcpUsagePlanNameAsync(chargeTenantId);
-            var tenantDefinition = Find(definitions, tenantPlan);
+            var definition = Find(home.Definitions, home.PlanName);
+            var slotDaily = definition?.SlotTenantDailyRequestLimit ?? home.Entitlements.McpSlotTenantDailyRequestLimit;
+            var slotMonthly = definition?.SlotTenantMonthlyRequestLimit ?? home.Entitlements.McpSlotTenantMonthlyRequestLimit;
+
             return new TenantPlanLimits(
-                tenantPlan,
-                tenantDefinition?.TenantDailyRequestLimit ?? entitlements.McpTenantDailyRequestLimit,
-                tenantDefinition?.TenantMonthlyRequestLimit ?? entitlements.McpTenantMonthlyRequestLimit);
+                home.PlanName,
+                Grow(definition?.TenantDailyRequestLimit ?? home.Entitlements.McpTenantDailyRequestLimit, home.PurchasedSlots, slotDaily),
+                Grow(definition?.TenantMonthlyRequestLimit ?? home.Entitlements.McpTenantMonthlyRequestLimit, home.PurchasedSlots, slotMonthly),
+                home.PurchasedSlots, slotDaily, slotMonthly);
         }
+
+        /// <summary>
+        /// Pure: a window grows by purchased slots × per-slot value. A lifted window (0 = unlimited) stays
+        /// lifted — growth must never turn "unlimited" into a limit.
+        /// </summary>
+        internal static int Grow(int baseLimit, int purchasedSlots, int perSlot)
+            => baseLimit <= 0 || purchasedSlots <= 0 || perSlot <= 0
+                ? baseLimit
+                : baseLimit + purchasedSlots * perSlot;
 
         private async Task<List<PlanTierDefinition>> LoadDefinitionsAsync()
         {
@@ -304,23 +248,23 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// The charged tenant's organization counters (cached snapshot, shared by every caller charged to that
-        /// tenant). Skipped — zero counters, no read, nothing cached — when nothing could ever block on it (no
-        /// tenant, or both windows lifted). Null = read failed (fail-open, nothing cached).
+        /// The tenant's organization counters (cached snapshot, shared by every member of that tenant).
+        /// Skipped — zero counters, no read, nothing cached — when nothing could ever block on it (no tenant,
+        /// or both windows lifted). Null = read failed (fail-open, nothing cached).
         /// </summary>
-        private async Task<UsageSnapshot?> ReadTenantUsageAsync(string? chargeTenantId, McpPlanLimits limits, DateTime nowUtc)
+        private async Task<UsageSnapshot?> ReadTenantUsageAsync(string? tenantId, McpPlanLimits limits, DateTime nowUtc)
         {
-            if (string.IsNullOrWhiteSpace(chargeTenantId) || (limits.TenantDailyLimit <= 0 && limits.TenantMonthlyLimit <= 0))
+            if (string.IsNullOrWhiteSpace(tenantId) || (limits.TenantDailyLimit <= 0 && limits.TenantMonthlyLimit <= 0))
                 return UsageSnapshot.Zero;
 
-            var cacheKey = TenantCacheKey(chargeTenantId);
+            var cacheKey = TenantCacheKey(tenantId);
             if (_cache.TryGetValue<UsageSnapshot>(cacheKey, out var cached) && cached != null)
                 return cached;
 
             try
             {
                 var (monthStart, today) = Window(nowUtc);
-                var records = await _usageRepo.GetTenantUsageAsync(chargeTenantId, monthStart, today);
+                var records = await _usageRepo.GetTenantUsageAsync(tenantId, monthStart, today);
                 var snapshot = new UsageSnapshot(
                     records.Where(r => r.Date == today).Sum(r => r.RequestCount),
                     records.Sum(r => r.RequestCount));
@@ -329,7 +273,7 @@ namespace AutopilotMonitor.Functions.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[McpQuota] Tenant usage lookup failed for tenant={TenantId} — allowing (fail-open)", chargeTenantId);
+                _logger.LogWarning(ex, "[McpQuota] Tenant usage lookup failed for tenant={TenantId} — allowing (fail-open)", tenantId);
                 return null;
             }
         }
@@ -338,15 +282,9 @@ namespace AutopilotMonitor.Functions.Services
             => (new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc).ToString("yyyyMMdd"),
                 nowUtc.ToString("yyyyMMdd"));
 
-        /// <summary>The managed tenant a decision names — null when the charged tenant IS the home tenant.</summary>
-        private static string? TargetOf(string? homeTenantId, string? chargeTenantId)
-            => !string.IsNullOrWhiteSpace(chargeTenantId)
-               && !string.Equals(chargeTenantId, homeTenantId, StringComparison.OrdinalIgnoreCase)
-                ? chargeTenantId
-                : null;
-
         private static McpPlanLimits Compose(UserPlanLimits user, TenantPlanLimits tenant)
-            => new(user.PlanName, user.DailyLimit, user.MonthlyLimit, tenant.TenantPlan, tenant.TenantDailyLimit, tenant.TenantMonthlyLimit);
+            => new(user.PlanName, user.DailyLimit, user.MonthlyLimit, tenant.TenantPlan, tenant.TenantDailyLimit, tenant.TenantMonthlyLimit,
+                user.PurchasedDelegatedSlots, user.SlotDailyLimit, user.SlotMonthlyLimit, tenant.SlotTenantDailyLimit, tenant.SlotTenantMonthlyLimit);
 
         private static PlanTierDefinition? Find(List<PlanTierDefinition> definitions, string planName)
             => definitions.FirstOrDefault(t => string.Equals(t.Name, planName, StringComparison.OrdinalIgnoreCase));
@@ -354,8 +292,7 @@ namespace AutopilotMonitor.Functions.Services
         internal static McpQuotaDecision BuildDecision(
             McpPlanLimits limits,
             long dailyUsed, long monthlyUsed, long tenantDailyUsed, long tenantMonthlyUsed,
-            DateTime nowUtc,
-            string? targetTenantId = null)
+            DateTime nowUtc)
         {
             // Daily windows reset at midnight UTC; monthly on the 1st. 0/negative limit = unlimited
             // for that window (an operator can deliberately lift a window via SectionUsagePlans).
@@ -387,32 +324,50 @@ namespace AutopilotMonitor.Functions.Services
                 TenantDailyUsed = tenantDailyUsed,
                 TenantMonthlyUsed = tenantMonthlyUsed,
                 ResetUtc = resetUtc,
-                TargetTenantId = targetTenantId,
+                PurchasedDelegatedSlots = limits.PurchasedDelegatedSlots,
+                SlotDailyLimit = limits.SlotDailyLimit,
+                SlotMonthlyLimit = limits.SlotMonthlyLimit,
+                SlotTenantDailyLimit = limits.SlotTenantDailyLimit,
+                SlotTenantMonthlyLimit = limits.SlotTenantMonthlyLimit,
             };
         }
 
         private static bool Exceeded(int limit, long used) => limit > 0 && used >= limit;
 
-        /// <summary>Cached counter pair (today / this month) for one user or one charged tenant.</summary>
+        /// <summary>Cached counter pair (today / this month) for one user or one tenant.</summary>
         private sealed record UsageSnapshot(long DailyUsed, long MonthlyUsed)
         {
             public static readonly UsageSnapshot Zero = new(0, 0);
         }
 
-        private sealed record UserPlanLimits(string PlanName, int DailyLimit, int MonthlyLimit);
+        /// <summary>The home tenant's plan facts a resolution needs, read once per check.</summary>
+        private sealed record HomeTenantPlan(
+            List<PlanTierDefinition> Definitions, EditionEntitlements Entitlements, string PlanName, int PurchasedSlots);
 
-        /// <summary>The charged tenant's plan name and organization-wide windows (0 = unlimited).</summary>
-        public sealed record TenantPlanLimits(string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit);
+        private sealed record UserPlanLimits(
+            string PlanName, int DailyLimit, int MonthlyLimit,
+            int PurchasedDelegatedSlots, int SlotDailyLimit, int SlotMonthlyLimit);
+
+        /// <summary>
+        /// The tenant's plan name and organization-wide windows (0 = unlimited; the slot growth is already
+        /// applied) plus the growth breakdown: purchased slots and the per-slot values.
+        /// </summary>
+        public sealed record TenantPlanLimits(
+            string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit,
+            int PurchasedDelegatedSlots = 0, int SlotTenantDailyLimit = 0, int SlotTenantMonthlyLimit = 0);
     }
 
     /// <summary>
-    /// Resolved plan names and limits for one caller against one charged tenant: the user's plan (override
-    /// or home edition) with the user windows, and the charged tenant's edition plan with the
-    /// organization-wide windows. 0 = unlimited.
+    /// Resolved plan names and limits for one caller: the user's plan (override or home plan) with the user
+    /// windows, and the home tenant's plan with the organization-wide windows. 0 = unlimited. The limits
+    /// already contain the growth from purchased delegation slots; the trailing fields carry the breakdown.
     /// </summary>
     public sealed record McpPlanLimits(
         string PlanName, int DailyLimit, int MonthlyLimit,
-        string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit);
+        string TenantPlan, int TenantDailyLimit, int TenantMonthlyLimit,
+        int PurchasedDelegatedSlots = 0,
+        int SlotDailyLimit = 0, int SlotMonthlyLimit = 0,
+        int SlotTenantDailyLimit = 0, int SlotTenantMonthlyLimit = 0);
 
     /// <summary>Whose budget a blocked decision names — wire vocabulary of <c>level</c>.</summary>
     public static class McpQuotaLevel
@@ -434,7 +389,7 @@ namespace AutopilotMonitor.Functions.Services
         public int MonthlyLimit { get; init; }
         public long DailyUsed { get; init; }
         public long MonthlyUsed { get; init; }
-        /// <summary>The CHARGED tenant's edition plan — the organization-wide windows follow it, never the override.</summary>
+        /// <summary>The home tenant's usage plan — the organization-wide windows follow it, never the override.</summary>
         public string TenantPlan { get; init; } = string.Empty;
         public int TenantDailyLimit { get; init; }
         public int TenantMonthlyLimit { get; init; }
@@ -442,11 +397,12 @@ namespace AutopilotMonitor.Functions.Services
         public long TenantMonthlyUsed { get; init; }
         /// <summary>When the exceeded (or daily, when allowed) window resets.</summary>
         public DateTime ResetUtc { get; init; }
-        /// <summary>
-        /// The MANAGED tenant whose organization windows this decision reflects (a delegated read charged to
-        /// the managed tenant); null when the charged tenant is the caller's own home tenant.
-        /// </summary>
-        public string? TargetTenantId { get; init; }
+        /// <summary>Delegation slots bought beyond the edition's included ones (0 = none; the limits above already grew by them).</summary>
+        public int PurchasedDelegatedSlots { get; init; }
+        public int SlotDailyLimit { get; init; }
+        public int SlotMonthlyLimit { get; init; }
+        public int SlotTenantDailyLimit { get; init; }
+        public int SlotTenantMonthlyLimit { get; init; }
 
         /// <summary>Limit of the exceeded window (0 when allowed).</summary>
         public int ExceededLimit => Level == McpQuotaLevel.Tenant
@@ -458,7 +414,7 @@ namespace AutopilotMonitor.Functions.Services
             ? (Scope == "monthly" ? TenantMonthlyUsed : TenantDailyUsed)
             : (Scope == "monthly" ? MonthlyUsed : DailyUsed);
 
-        public static McpQuotaDecision FailOpen(McpPlanLimits limits, string? targetTenantId = null) => new()
+        public static McpQuotaDecision FailOpen(McpPlanLimits limits) => new()
         {
             Allowed = true,
             Plan = limits.PlanName,
@@ -472,25 +428,11 @@ namespace AutopilotMonitor.Functions.Services
             TenantDailyUsed = -1,
             TenantMonthlyUsed = -1,
             ResetUtc = DateTime.MinValue,
-            TargetTenantId = targetTenantId,
+            PurchasedDelegatedSlots = limits.PurchasedDelegatedSlots,
+            SlotDailyLimit = limits.SlotDailyLimit,
+            SlotMonthlyLimit = limits.SlotMonthlyLimit,
+            SlotTenantDailyLimit = limits.SlotTenantDailyLimit,
+            SlotTenantMonthlyLimit = limits.SlotTenantMonthlyLimit,
         };
-    }
-
-    /// <summary>
-    /// Outcome of a bounded (fleet) aggregate check: which charged tenants may be served and which are
-    /// dropped because their organization budget is exhausted. <see cref="Allowed"/> is false only when the
-    /// caller's own budget is exhausted (then <see cref="BlockingDecision"/> is user-level and every tenant is
-    /// excluded) or when EVERY charged tenant is exhausted (then it is the excluded decision with the earliest
-    /// reset).
-    /// </summary>
-    public sealed class McpAggregateQuotaResult
-    {
-        public bool Allowed { get; init; }
-        /// <summary>The caller's own windows (tenant windows zero) — for the response headers.</summary>
-        public McpQuotaDecision UserDecision { get; init; } = default!;
-        /// <summary>Set when <see cref="Allowed"/> is false.</summary>
-        public McpQuotaDecision? BlockingDecision { get; init; }
-        public IReadOnlyList<string> AdmittedTenantIds { get; init; } = Array.Empty<string>();
-        public IReadOnlyList<string> ExcludedTenantIds { get; init; } = Array.Empty<string>();
     }
 }

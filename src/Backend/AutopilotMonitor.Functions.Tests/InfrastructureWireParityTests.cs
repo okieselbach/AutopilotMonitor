@@ -656,7 +656,8 @@ public class InfrastructureWireParityTests
     // DELIBERATE wire change (error-envelope pass): the body now leads with the envelope prefix
     // error/code/correlationId (error carries the former `message`); quotaExceeded stays as the
     // MCP's discriminator. These literals pin the NEW shape (correlationId is stamped by the writer,
-    // so the builder leaves it empty).
+    // so the builder leaves it empty). Both windows belong to the caller's own tenant since 2026-09-11
+    // (the budget follows the delegating tenant) — there is no managed-tenant shape any more.
 
     [Fact]
     public void McpQuotaExceededResponse_matches_the_daily_blocked_shape()
@@ -743,62 +744,6 @@ public class InfrastructureWireParityTests
                 Used = 200,
                 ResetUtc = "2026-08-31T00:00:00Z",
             });
-    }
-
-    [Fact]
-    public void McpQuotaExceededResponse_matches_the_managed_tenant_blocked_shape()
-    {
-        // A delegated (MSP) read charged to a MANAGED Community tenant whose organization window is spent:
-        // level=tenant, the managed tenant is named (label + targetTenantId) and the upgrade path is spelled out.
-        var decision = McpQuotaService.BuildDecision(
-            new McpPlanLimits("pro", 1000, 20000, "community", 300, 9000),
-            dailyUsed: 12, monthlyUsed: 340, tenantDailyUsed: 300, tenantMonthlyUsed: 2100,
-            new DateTime(2026, 8, 30, 15, 0, 0, DateTimeKind.Utc),
-            targetTenantId: "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002");
-
-        AssertParity(
-            new
-            {
-                error = "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). That tenant is on the Community plan, which is sized for occasional use; its own plan governs this window, not yours. Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-08-31T00:00:00Z.",
-                code = "QuotaExceeded",
-                correlationId = "",
-                quotaExceeded = true,
-                plan = "pro",
-                scope = "daily",
-                level = "tenant",
-                limit = 300,
-                used = 300L,
-                resetUtc = "2026-08-31T00:00:00Z",
-                targetTenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002"
-            },
-            McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, "customer.example"));
-    }
-
-    [Fact]
-    public void McpQuotaExceededResponse_matches_the_all_managed_tenants_exhausted_shape()
-    {
-        // The fleet aggregate where EVERY managed tenant is spent: no single target, the count is named.
-        var decision = McpQuotaService.BuildDecision(
-            new McpPlanLimits("pro", 1000, 20000, "community", 300, 9000),
-            dailyUsed: 12, monthlyUsed: 340, tenantDailyUsed: 300, tenantMonthlyUsed: 2100,
-            new DateTime(2026, 8, 30, 15, 0, 0, DateTimeKind.Utc),
-            targetTenantId: "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002");
-
-        AssertParity(
-            new
-            {
-                error = "MCP request quota exceeded for all 2 managed tenants in scope (each managed tenant's own plan governs its organization windows; upgrading a managed tenant to Pro lifts them). Earliest reset at 2026-08-31T00:00:00Z.",
-                code = "QuotaExceeded",
-                correlationId = "",
-                quotaExceeded = true,
-                plan = "pro",
-                scope = "daily",
-                level = "tenant",
-                limit = 300,
-                used = 300L,
-                resetUtc = "2026-08-31T00:00:00Z"
-            },
-            McpQuotaEnforcementMiddleware.BuildExceededResponse(decision, exhaustedTenantCount: 2));
     }
 
     private static void AssertParity(object anonymousLiteral, IApiResponse typed)

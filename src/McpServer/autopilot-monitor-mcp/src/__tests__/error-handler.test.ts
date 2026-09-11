@@ -169,10 +169,11 @@ describe('toolError', () => {
     expect(text).not.toContain('larger usage plan');
   });
 
-  it("names the MANAGED tenant when a delegated read exhausted that tenant's budget", () => {
-    // "The budget follows the data": the managed Community customer's window blocked the read, so the
-    // hint points at that tenant's plan, not at the caller's organization — and the other managed
-    // tenants stay usable.
+  it("ignores a stray targetTenantId on a tenant-level 429 — the block is always the caller's OWN organization", () => {
+    // "The budget follows the delegating tenant": every request, a delegated (MSP) read into a managed
+    // tenant included, is charged to the caller's home tenant, and the wire body no longer carries
+    // targetTenantId. A body that still does (an older backend) must not turn the hint into a
+    // managed-tenant one, and the stray id must not surface anywhere in the text.
     const err = new ApiError(429, JSON.stringify({
       quotaExceeded: true,
       plan: 'pro',
@@ -181,16 +182,18 @@ describe('toolError', () => {
       limit: 300,
       used: 300,
       resetUtc: '2026-09-03T00:00:00Z',
-      message: "MCP daily request quota of the managed tenant 'customer.example' exceeded (tenant plan 'community', shared by all its members and delegated admins). Upgrading that tenant to Pro lifts its organization windows. Resets at 2026-09-03T00:00:00Z.",
+      message: "MCP daily request quota of your organization exceeded (tenant plan 'pro', shared by all its members). Resets at 2026-09-03T00:00:00Z.",
       targetTenantId: '7aa20c11-0002-4b7c-a1d2-52f3aaaa0002',
     }));
     const res = toolError('search_sessions', {}, err);
     const text = res.content[0].text;
-    expect(text).toContain("managed tenant 'customer.example'");
-    expect(text).toContain('do not retry THIS tenant');
-    expect(text).toContain('upgrading it to Pro');
-    expect(text).toContain('other managed tenants remain available');
-    expect(text).not.toContain('shared by every member of the tenant');
+    expect(text).toContain('of your organization exceeded');
+    expect(text).toContain('300 of 300 requests used');
+    expect(text).toContain('tenant level');
+    expect(text).toContain('**Resets at**: 2026-09-03T00:00:00Z');
+    expect(text).toContain('shared by every member of the tenant');
+    expect(text).not.toContain('7aa20c11-0002-4b7c-a1d2-52f3aaaa0002');
+    expect(text).not.toContain('managed tenant');
     expect(text).not.toContain('larger usage plan');
   });
 });

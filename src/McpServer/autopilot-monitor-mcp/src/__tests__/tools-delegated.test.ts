@@ -334,8 +334,11 @@ describe('get_fleet_overview — the ONE delegated tool without a tenantId (boun
     expect(() => handlerFor('get_fleet_overview', {})).toThrow(/not registered/);
   });
 
-  it('calls the two subset-tier routes WITHOUT a tenantId and merges quotaExcludedTenants', async () => {
+  it('calls the two subset-tier routes WITHOUT a tenantId and merges them; a stray quotaExcludedTenants echo is never forwarded', async () => {
     const handler = handlerFor('get_fleet_overview', { delegated: true });
+    // The call is charged to the caller's own organization ("the budget follows the delegating tenant"), so no
+    // managed tenant is ever skipped for its budget. A body that still carries the retired quotaExcludedTenants
+    // key (an older backend) must not resurrect the exclusion keys in the overview.
     const { urls } = stubFleetFetch({
       '/api/global/stats/sessions': { success: true, stats: { days: 7, activeCount: 1 }, quotaExcludedTenants: ['cccc-3333'] },
       '/api/global/sessions': { success: true, count: 1, sessions: [{ sessionId: 's1' }], nextLink: '/api/global/sessions?days=7&pageSize=25&continuation=x', quotaExcludedTenants: ['cccc-3333', 'dddd-4444'] },
@@ -354,11 +357,11 @@ describe('get_fleet_overview — the ONE delegated tool without a tenantId (boun
     expect(body.sessions).toEqual([{ sessionId: 's1' }]);
     expect(body.nextLink).toContain('/api/global/sessions');
     expect(body.managedTenants).toEqual([MANAGED, 'cccc-3333', 'dddd-4444']);
-    expect(body.quotaExcludedTenants).toEqual(['cccc-3333', 'dddd-4444']);
-    expect(body.quotaNote).toMatch(/2 managed tenant\(s\) skipped/);
+    expect(body).not.toHaveProperty('quotaExcludedTenants');
+    expect(body).not.toHaveProperty('quotaNote');
   });
 
-  it('a follow-up page fetches only the session list (stats are first-page only) and omits the quota keys when nothing was excluded', async () => {
+  it('a follow-up page fetches only the session list (stats are first-page only) and never carries quota-exclusion keys', async () => {
     const handler = handlerFor('get_fleet_overview', { delegated: true });
     const { urls } = stubFleetFetch({
       '/api/global/sessions': { success: true, count: 0, sessions: [] },

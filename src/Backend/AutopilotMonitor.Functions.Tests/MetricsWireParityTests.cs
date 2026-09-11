@@ -407,6 +407,12 @@ public class MetricsWireParityTests
         var tenantMonthlyLimit = 9000;
         long tenantDailyUsed = 120;
         long tenantMonthlyUsed = 4100;
+        // Three purchased delegation slots: the limits above already grew by them; the breakdown rides along.
+        int? purchasedDelegatedSlots = 3;
+        int? slotDailyLimit = 300;
+        int? slotMonthlyLimit = 6000;
+        int? slotTenantDailyLimit = 900;
+        int? slotTenantMonthlyLimit = 18000;
         var records = SampleUsageRecords(userId);
 
         AssertParity(
@@ -427,7 +433,12 @@ public class MetricsWireParityTests
                     tenantDailyLimit,
                     tenantMonthlyLimit,
                     tenantDailyUsed,
-                    tenantMonthlyUsed
+                    tenantMonthlyUsed,
+                    purchasedDelegatedSlots,
+                    slotDailyLimit,
+                    slotMonthlyLimit,
+                    slotTenantDailyLimit,
+                    slotTenantMonthlyLimit
                 },
                 records
             },
@@ -448,7 +459,12 @@ public class MetricsWireParityTests
                     TenantDailyLimit = tenantDailyLimit,
                     TenantMonthlyLimit = tenantMonthlyLimit,
                     TenantDailyUsed = tenantDailyUsed,
-                    TenantMonthlyUsed = tenantMonthlyUsed
+                    TenantMonthlyUsed = tenantMonthlyUsed,
+                    PurchasedDelegatedSlots = purchasedDelegatedSlots,
+                    SlotDailyLimit = slotDailyLimit,
+                    SlotMonthlyLimit = slotMonthlyLimit,
+                    SlotTenantDailyLimit = slotTenantDailyLimit,
+                    SlotTenantMonthlyLimit = slotTenantMonthlyLimit
                 },
                 Records = records
             });
@@ -457,10 +473,16 @@ public class MetricsWireParityTests
     [Fact]
     public void GetMyMcpUsageResponse_omits_null_upn_and_usagePlan()
     {
+        // …and the slot breakdown, which is absent when no delegation slot was purchased.
         var userId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0008";
         string? upn = null;
         string? usagePlan = null;
         var effectivePlan = "free";
+        int? purchasedDelegatedSlots = null;
+        int? slotDailyLimit = null;
+        int? slotMonthlyLimit = null;
+        int? slotTenantDailyLimit = null;
+        int? slotTenantMonthlyLimit = null;
         var records = new List<UserUsageRecord>();
 
         AssertParity(
@@ -481,7 +503,12 @@ public class MetricsWireParityTests
                     tenantDailyLimit = 0,
                     tenantMonthlyLimit = 0,
                     tenantDailyUsed = 0L,
-                    tenantMonthlyUsed = 0L
+                    tenantMonthlyUsed = 0L,
+                    purchasedDelegatedSlots,
+                    slotDailyLimit,
+                    slotMonthlyLimit,
+                    slotTenantDailyLimit,
+                    slotTenantMonthlyLimit
                 },
                 records
             },
@@ -672,7 +699,6 @@ public class MetricsWireParityTests
     {
         var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
         var userId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0009";
-        var homeTenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0002";
         var lastRequestAt = new DateTime(2026, 9, 2, 14, 5, 0, DateTimeKind.Utc);
 
         AssertParity(
@@ -686,9 +712,7 @@ public class MetricsWireParityTests
                     new
                     {
                         userId,
-                        userPrincipalName = "msp@partner.example",
-                        delegated = true,
-                        homeTenantId,
+                        userPrincipalName = "admin@contoso.com",
                         requestsToday = 4L,
                         requestsThisMonth = 120L,
                         requestsInRange = 120L,
@@ -706,9 +730,7 @@ public class MetricsWireParityTests
                     new()
                     {
                         UserId = userId,
-                        UserPrincipalName = "msp@partner.example",
-                        Delegated = true,
-                        HomeTenantId = homeTenantId,
+                        UserPrincipalName = "admin@contoso.com",
                         RequestsToday = 4,
                         RequestsThisMonth = 120,
                         RequestsInRange = 120,
@@ -719,13 +741,12 @@ public class MetricsWireParityTests
     }
 
     [Fact]
-    public void GetMcpOrganizationUsageResponse_omits_null_upn_home_and_lastRequest()
+    public void GetMcpOrganizationUsageResponse_omits_null_upn_and_lastRequest()
     {
-        // A row written before the attribution columns existed: own member, no UPN, no timestamp.
+        // A row written before the attribution columns existed: no UPN, no timestamp.
         var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
         var userId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0009";
         string? userPrincipalName = null;
-        string? homeTenantId = null;
         DateTime? lastRequestAt = null;
 
         AssertParity(
@@ -740,8 +761,6 @@ public class MetricsWireParityTests
                     {
                         userId,
                         userPrincipalName,
-                        delegated = false,
-                        homeTenantId,
                         requestsToday = 0L,
                         requestsThisMonth = 3L,
                         requestsInRange = 3L,
@@ -756,8 +775,60 @@ public class MetricsWireParityTests
                 DateTo = "20260902",
                 Users = new List<McpOrganizationUsageItem>
                 {
-                    new() { UserId = userId, Delegated = false, RequestsToday = 0, RequestsThisMonth = 3, RequestsInRange = 3 },
+                    new() { UserId = userId, RequestsToday = 0, RequestsThisMonth = 3, RequestsInRange = 3 },
                 },
+            });
+    }
+
+    [Fact]
+    public void GetMcpOrganizationUsageResponse_quota_carries_the_slot_breakdown()
+    {
+        // Three purchased slots: 3 000 + 3 × 900 arrive as the grown limit; the breakdown lets the page show the sum.
+        var tenantId = "7aa20c11-0002-4b7c-a1d2-52f3aaaa0001";
+        var daily = new List<McpOrganizationDailyItem>
+        {
+            new() { Date = "20260901", Requests = 12 },
+            new() { Date = "20260902", Requests = 7 },
+        };
+
+        AssertParity(
+            new
+            {
+                tenantId,
+                dateFrom = "20260901",
+                dateTo = "20260902",
+                users = Array.Empty<object>(),
+                quota = new
+                {
+                    tenantPlan = "pro",
+                    dailyLimit = 5700,
+                    monthlyLimit = 114000,
+                    dailyUsed = 7L,
+                    monthlyUsed = 19L,
+                    purchasedDelegatedSlots = 3,
+                    slotDailyLimit = 900,
+                    slotMonthlyLimit = 18000,
+                },
+                daily,
+            },
+            new GetMcpOrganizationUsageResponse
+            {
+                TenantId = tenantId,
+                DateFrom = "20260901",
+                DateTo = "20260902",
+                Users = new List<McpOrganizationUsageItem>(),
+                Quota = new McpOrganizationQuotaNode
+                {
+                    TenantPlan = "pro",
+                    DailyLimit = 5700,
+                    MonthlyLimit = 114000,
+                    DailyUsed = 7,
+                    MonthlyUsed = 19,
+                    PurchasedDelegatedSlots = 3,
+                    SlotDailyLimit = 900,
+                    SlotMonthlyLimit = 18000,
+                },
+                Daily = daily,
             });
     }
 

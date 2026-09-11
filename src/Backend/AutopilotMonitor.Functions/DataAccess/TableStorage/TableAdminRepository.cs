@@ -520,28 +520,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
             }
         }
 
-        public async Task<bool> SetTenantGroupChargeHomeTenantQuotaAsync(string groupId, bool chargeHomeTenantQuota)
-        {
-            if (string.IsNullOrWhiteSpace(groupId))
-                return false;
-
-            try
-            {
-                var result = await _tenantGroupsTableClient.GetEntityAsync<TenantGroupEntity>(
-                    groupId, TenantGroupEntity.MetaRowKey);
-                var entity = result.Value;
-                if (entity == null) return false;
-
-                entity.ChargeHomeTenantQuota = chargeHomeTenantQuota;
-                await _tenantGroupsTableClient.UpdateEntityAsync(entity, ETag.All);
-                return true;
-            }
-            catch (RequestFailedException ex) when (ex.Status == 404)
-            {
-                return false;
-            }
-        }
-
         public async Task<bool> DeleteTenantGroupAsync(string groupId)
         {
             if (string.IsNullOrWhiteSpace(groupId))
@@ -694,7 +672,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 if (entity.RowKey == TenantGroupEntity.MetaRowKey)
                 {
                     metaBacked = true;
-                    membership.ChargeHomeTenantQuota = entity.ChargeHomeTenantQuota ?? false;
                 }
                 else
                 {
@@ -1044,7 +1021,6 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 group.Name = entity.Name;
                 group.CreatedBy = entity.CreatedBy;
                 group.CreatedAt = entity.CreatedDate ?? default;
-                group.ChargeHomeTenantQuota = entity.ChargeHomeTenantQuota ?? false;
                 group.OwnerTenantId = string.IsNullOrEmpty(entity.OwnerTenantId) ? null : entity.OwnerTenantId;
                 return true;
             }

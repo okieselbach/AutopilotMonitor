@@ -53,8 +53,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<string> CreateTenantGroupAsync(string name, string createdBy);
         /// <summary>Renames a group (meta row). Returns false if the group does not exist.</summary>
         Task<bool> RenameTenantGroupAsync(string groupId, string name);
-        /// <summary>Sets the group's <see cref="TenantGroup.ChargeHomeTenantQuota"/> flag (meta row). Returns false if the group does not exist.</summary>
-        Task<bool> SetTenantGroupChargeHomeTenantQuotaAsync(string groupId, bool chargeHomeTenantQuota);
         /// <summary>Deletes a group: all rows in its partition (meta + membership) AND every UPN
         /// assignment referencing it (cross-partition RowKey scan of the assignments table).</summary>
         Task<bool> DeleteTenantGroupAsync(string groupId);
@@ -153,12 +151,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         public int AssigneeCount { get; set; }
         /// <summary>The UPNs assigned to this group (for the management UI).</summary>
         public List<TenantGroupAssignment> Assignees { get; set; } = new();
-        /// <summary>
-        /// Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's
-        /// HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose
-        /// customers must never pay (or be blocked) for the operator's own analysis. Off by default.
-        /// </summary>
-        public bool ChargeHomeTenantQuota { get; set; }
         /// <summary>The managing tenant that owns this self-service group (<c>msp-{tenantId}</c>); null for operator-created groups.</summary>
         public string? OwnerTenantId { get; set; }
     }
@@ -172,8 +164,6 @@ namespace AutopilotMonitor.Shared.DataAccess
         public string GroupId { get; set; } = string.Empty;
         /// <summary>Tenant IDs (lowercase) in this group.</summary>
         public List<string> TenantIds { get; set; } = new();
-        /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>.</summary>
-        public bool ChargeHomeTenantQuota { get; set; }
     }
 
     /// <summary>

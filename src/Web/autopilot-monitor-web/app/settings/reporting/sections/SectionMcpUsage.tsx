@@ -9,6 +9,7 @@ import { scopedApi } from "@/lib/scopedApi";
 import { useReportingScope } from "../ReportingScopeContext";
 import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
+import { slotBreakdown } from "@/lib/delegatedSlots";
 import type {
   GetMcpOrganizationUsageResponse,
   GetMyMcpUsageResponse,
@@ -43,19 +44,30 @@ function formatLastRequest(iso: string | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 }
 
-function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+/** "1,000 + 3 × 300" — the plan base plus the purchased delegation slots behind a grown limit; null when nothing grew. */
+function breakdownLabel(limit: number, slots: number | undefined, perSlot: number | undefined): string | null {
+  const b = slotBreakdown(limit, slots, perSlot);
+  return b && `${b.base.toLocaleString()} + ${b.slots} × ${b.perSlot.toLocaleString()}`;
+}
+
+function QuotaBar({ label, used, limit, breakdown }: { label: string; used: number; limit: number; breakdown?: string | null }) {
   const unavailable = used < 0;
   const unlimited = limit <= 0;
   const pct = unavailable || unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const tone = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-indigo-500";
   return (
     <div>
-      <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+      <div className="flex items-start justify-between text-xs text-gray-600 mb-1">
         <span>{label}</span>
-        <span className="font-mono">
+        <span className="font-mono text-right">
           {unavailable ? "n/a" : used.toLocaleString()}
           {" / "}
           {unlimited ? "unlimited" : limit.toLocaleString()}
+          {breakdown && (
+            <span className="block text-gray-400" title="Plan base + purchased delegation slots × growth per slot">
+              {breakdown}
+            </span>
+          )}
         </span>
       </div>
       <div className="bg-gray-100 rounded-full h-2">
@@ -140,8 +152,9 @@ export function SectionMcpUsage() {
           ? Promise.resolve(null)
           : fetchJson<GetMyMcpUsageResponse>(api.mcpUsage.me(dateFrom, dateTo), getAccessToken),
         canSeeOrganization
-          ? // Every account charged to the tenant's organization budget — including delegated (MSP)
-            // administrators reading it. A 403 (role changed mid-session) just hides the card.
+          ? // Every account charged to the tenant's organization budget — its members and service principals;
+            // delegated (MSP) reads into it are charged to the reader's home tenant and never appear here.
+            // A 403 (role changed mid-session) just hides the card.
             fetchJson<GetMcpOrganizationUsageResponse>(
               scopedApi.mcpOrganizationUsage(orgSelection, dateFrom, dateTo),
               getAccessToken
@@ -174,7 +187,6 @@ export function SectionMcpUsage() {
   }, [fetchUsage, dateRange]);
 
   const orgUsers = orgUsage?.users ?? null;
-  const delegatedReaders = orgUsers?.filter((u) => u.delegated).length ?? 0;
 
   // Organization windows: from the organization response when the caller may read it; otherwise
   // (members without an admin role) from the caller's own quota node — but only on the own tenant,
@@ -188,13 +200,17 @@ export function SectionMcpUsage() {
           monthlyLimit: quota.tenantMonthlyLimit,
           dailyUsed: quota.tenantDailyUsed,
           monthlyUsed: quota.tenantMonthlyUsed,
+          purchasedDelegatedSlots: quota.purchasedDelegatedSlots,
+          slotDailyLimit: quota.slotTenantDailyLimit,
+          slotMonthlyLimit: quota.slotTenantMonthlyLimit,
         }
       : null);
+  // Delegation slots bought beyond the ones the edition includes — each one grew the windows above.
+  const orgSlots = orgQuota?.purchasedDelegatedSlots ?? 0;
 
   // Wording follows the viewpoint: the caller's own tenant, or the tenant a global admin picked.
   const tenantNoun = tenantView ? "this tenant" : "your tenant";
   const budgetNoun = tenantView ? "this tenant's organization budget" : "your organization budget";
-  const planNoun = tenantView ? "its plan" : "your plan";
 
   // Tiles + chart: the tenant's charged requests per day in the tenant view, else the caller's own.
   const dailyAggregates: DailyAggregate[] = tenantView
@@ -260,8 +276,18 @@ export function SectionMcpUsage() {
                 <h3 className="text-sm font-medium text-gray-900">Your quota</h3>
                 <span className="text-xs text-gray-500">plan {effectivePlan ?? "—"}</span>
               </div>
-              <QuotaBar label="Today" used={quota.dailyUsed} limit={quota.dailyLimit} />
-              <QuotaBar label="This month" used={quota.monthlyUsed} limit={quota.monthlyLimit} />
+              <QuotaBar
+                label="Today"
+                used={quota.dailyUsed}
+                limit={quota.dailyLimit}
+                breakdown={breakdownLabel(quota.dailyLimit, quota.purchasedDelegatedSlots, quota.slotDailyLimit)}
+              />
+              <QuotaBar
+                label="This month"
+                used={quota.monthlyUsed}
+                limit={quota.monthlyLimit}
+                breakdown={breakdownLabel(quota.monthlyLimit, quota.purchasedDelegatedSlots, quota.slotMonthlyLimit)}
+              />
             </div>
           )}
           {orgQuota && (
@@ -270,15 +296,26 @@ export function SectionMcpUsage() {
                 <h3 className="text-sm font-medium text-gray-900">Organization quota</h3>
                 <span className="text-xs text-gray-500">tenant plan {orgQuota.tenantPlan}</span>
               </div>
-              <QuotaBar label="Today (all members)" used={orgQuota.dailyUsed} limit={orgQuota.dailyLimit} />
-              <QuotaBar label="This month (all members)" used={orgQuota.monthlyUsed} limit={orgQuota.monthlyLimit} />
+              <QuotaBar
+                label="Today (all members)"
+                used={orgQuota.dailyUsed}
+                limit={orgQuota.dailyLimit}
+                breakdown={breakdownLabel(orgQuota.dailyLimit, orgQuota.purchasedDelegatedSlots, orgQuota.slotDailyLimit)}
+              />
+              <QuotaBar
+                label="This month (all members)"
+                used={orgQuota.monthlyUsed}
+                limit={orgQuota.monthlyLimit}
+                breakdown={breakdownLabel(orgQuota.monthlyLimit, orgQuota.purchasedDelegatedSlots, orgQuota.slotMonthlyLimit)}
+              />
               <p className="text-xs text-gray-500">
-                Shared by every account in {tenantNoun} and by delegated (MSP) administrators reading it. A personal
-                plan override widens only the account&apos;s own windows, never these.
+                Shared by every account in {tenantNoun}. A personal plan override widens only the account&apos;s own
+                windows, never these.
               </p>
-              {user?.isDelegated && (
+              {orgSlots > 0 && (
                 <p className="text-xs text-gray-500">
-                  Your reads into tenants you manage are charged to that tenant&apos;s own plan, not to these windows.
+                  Includes {orgSlots} purchased delegation slot{orgSlots === 1 ? "" : "s"} — every slot beyond the two
+                  included in Pro extends both budgets.
                 </p>
               )}
             </div>
@@ -293,7 +330,6 @@ export function SectionMcpUsage() {
             <h3 className="text-sm font-medium text-gray-900">Organization usage by account</h3>
             <span className="text-xs text-gray-500">
               {orgUsers.length} account{orgUsers.length === 1 ? "" : "s"}
-              {delegatedReaders > 0 && ` · ${delegatedReaders} delegated`}
             </span>
           </div>
           {orgUsers.length === 0 ? (
@@ -323,14 +359,6 @@ export function SectionMcpUsage() {
                             App
                           </span>
                         )}
-                        {u.delegated && (
-                          <span
-                            className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap"
-                            title={u.homeTenantId ? `Home tenant ${u.homeTenantId}` : undefined}
-                          >
-                            Delegated (MSP)
-                          </span>
-                        )}
                       </td>
                       <td className="py-1.5 pr-3 text-right font-mono text-gray-700">{u.requestsToday.toLocaleString()}</td>
                       <td className="py-1.5 pr-3 text-right font-mono text-gray-700">{u.requestsThisMonth.toLocaleString()}</td>
@@ -342,10 +370,6 @@ export function SectionMcpUsage() {
               </table>
             </div>
           )}
-          <p className="text-xs text-gray-500">
-            Every request counted against the organization windows above, by the account that made it. Delegated
-            (MSP) administrators reading {tenantNoun} appear here too — their reads draw on {planNoun}.
-          </p>
         </div>
       )}
 

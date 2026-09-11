@@ -122,16 +122,6 @@ namespace AutopilotMonitor.Shared.Models
         public string ManagedTenantId { get; set; } = default!;
     }
 
-    /// <summary>MCP organization budget of a managed tenant, nested in <see cref="ManagedTenantItem"/>.</summary>
-    public class ManagedTenantQuotaUsage
-    {
-        public string TenantPlan { get; set; } = default!;
-        public int TenantDailyLimit { get; set; }
-        public int TenantMonthlyLimit { get; set; }
-        public long TenantDailyUsed { get; set; }
-        public long TenantMonthlyUsed { get; set; }
-    }
-
     /// <summary>One managed tenant as the managing tenant sees it.</summary>
     public class ManagedTenantItem
     {
@@ -141,8 +131,6 @@ namespace AutopilotMonitor.Shared.Models
         public string Source { get; set; } = default!;
         public DateTime? SinceUtc { get; set; }
         public bool Removable { get; set; }
-        /// <summary>Absent when not resolved (cap reached or read failure).</summary>
-        public ManagedTenantQuotaUsage? Usage { get; set; }
     }
 
     /// <summary>Response of GET delegations/managed.</summary>

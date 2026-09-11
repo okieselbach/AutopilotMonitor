@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DELEGATED_SLOT_LIMIT_REACHED, nextSlotLimit, parseSlotLimitError, slotTenantLabel } from "../delegatedSlots";
+import { DELEGATED_SLOT_LIMIT_REACHED, nextSlotLimit, parseSlotLimitError, slotBreakdown, slotTenantLabel } from "../delegatedSlots";
 
 describe("parseSlotLimitError", () => {
   const body = {
@@ -43,5 +43,22 @@ describe("nextSlotLimit", () => {
     expect(nextSlotLimit({ used: 2, limit: 2, required: 3 })).toBe(5);
     // A stale limit above used+required is never lowered.
     expect(nextSlotLimit({ used: 1, limit: 10, required: 1 })).toBe(10);
+  });
+});
+
+describe("slotBreakdown", () => {
+  it("splits a grown limit into the plan base and the purchased slots", () => {
+    // Pro account window 1,000 + 3 slots × 300; Pro tenant month 60,000 + 1 slot × 18,000.
+    expect(slotBreakdown(1900, 3, 300)).toEqual({ base: 1000, slots: 3, perSlot: 300 });
+    expect(slotBreakdown(78000, 1, 18000)).toEqual({ base: 60000, slots: 1, perSlot: 18000 });
+  });
+
+  it("is null without a purchased slot, without growth per slot, for an unlimited window and when the figures do not add up", () => {
+    expect(slotBreakdown(1000, 0, 300)).toBeNull();
+    expect(slotBreakdown(1000, undefined, 300)).toBeNull();
+    expect(slotBreakdown(1000, 3, 0)).toBeNull();
+    expect(slotBreakdown(1000, 3, undefined)).toBeNull();
+    expect(slotBreakdown(0, 3, 300)).toBeNull();
+    expect(slotBreakdown(500, 3, 300)).toBeNull();
   });
 });

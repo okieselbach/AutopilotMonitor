@@ -937,13 +937,10 @@ public class PolicyEnforcementMiddlewareTests
         Assert.False(rc.IsGlobalReader);
         Assert.NotNull(rc.AllowedTenantIds);
         Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
-        // …and it is the DATA aggregate the MCP quota layer may narrow (charged per managed tenant).
-        Assert.True(rc.IsDelegatedAggregate);
-        Assert.Null(rc.HomeChargedTenantIds);
     }
 
     [Fact]
-    public async Task Delegated_GlobalSessions_WithTenantId_IsADrill_NotAnAggregate()
+    public async Task Delegated_GlobalSessions_WithTenantId_IsADrill()
     {
         const string upn = "msp@partner.example";
         var h = BuildHarness();
@@ -955,15 +952,12 @@ public class PolicyEnforcementMiddlewareTests
         var rc = result.Context!;
         Assert.True(rc.IsDelegatedReader);
         Assert.Equal(TenantB, rc.TargetTenantId);
-        Assert.False(rc.IsDelegatedAggregate);
-        Assert.Null(rc.HomeChargedTenantIds);
     }
 
     [Fact]
-    public async Task Delegated_ConfigAll_IsADirectoryListing_NotAnAggregate()
+    public async Task Delegated_ConfigAll_IsADirectoryListing_AdmittedAndBounded()
     {
-        // Subset tier with TenantScoping.None: admitted + bounded, but no data fan-out — the quota layer
-        // charges it to the caller's home tenant, never to the managed tenants.
+        // Subset tier with TenantScoping.None: admitted + bounded, but no data fan-out.
         const string upn = "msp@partner.example";
         var h = BuildHarness();
         h.AsDelegated(TenantB);
@@ -974,54 +968,6 @@ public class PolicyEnforcementMiddlewareTests
         var rc = result.Context!;
         Assert.True(rc.IsDelegatedReader);
         Assert.NotNull(rc.AllowedTenantIds);
-        Assert.False(rc.IsDelegatedAggregate);
-    }
-
-    private static void AsHomeChargedGroupMember(Harness h, string groupId, string upn, params string[] tenantIds)
-    {
-        h.Repo.Setup(r => r.GetGroupAssignmentsForUpnAsync(It.IsAny<string>()))
-            .ReturnsAsync(new List<TenantGroupAssignment>
-            {
-                new() { Upn = upn, GroupId = groupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true, AssignedBy = "ga@vendor.example" },
-            });
-        h.Repo.Setup(r => r.GetGroupMembershipAsync(groupId))
-            .ReturnsAsync(new TenantGroupMembership
-            {
-                GroupId = groupId,
-                TenantIds = tenantIds.Select(t => t.ToLowerInvariant()).ToList(),
-                ChargeHomeTenantQuota = true,
-            });
-    }
-
-    [Fact]
-    public async Task Delegated_HomeChargedGroup_MarksTheDrillTarget()
-    {
-        const string upn = "ops@vendor.example";
-        var h = BuildHarness();
-        AsHomeChargedGroupMember(h, "grp-managed-service", upn, TenantB);
-
-        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", TenantB, AuthedPrincipal(TenantA, upn));
-
-        Assert.True(result.Allowed);
-        var rc = result.Context!;
-        Assert.True(rc.IsDelegatedReader);
-        Assert.Equal(new[] { TenantB.ToLowerInvariant() }, rc.HomeChargedTenantIds);
-    }
-
-    [Fact]
-    public async Task Delegated_HomeChargedGroup_MarksTheAggregateMembers()
-    {
-        const string upn = "ops@vendor.example";
-        var h = BuildHarness();
-        AsHomeChargedGroupMember(h, "grp-managed-service", upn, TenantB);
-
-        var result = await h.Middleware.DecideAsync("GET", "/api/global/sessions", null, AuthedPrincipal(TenantA, upn));
-
-        Assert.True(result.Allowed);
-        var rc = result.Context!;
-        Assert.True(rc.IsDelegatedAggregate);
-        Assert.Contains(TenantB.ToLowerInvariant(), rc.AllowedTenantIds!);
-        Assert.Equal(new[] { TenantB.ToLowerInvariant() }, rc.HomeChargedTenantIds);
     }
 
     [Fact]
@@ -1769,7 +1715,6 @@ public class PolicyEnforcementMiddlewareTests
         Assert.True(mcp.Allowed);
         Assert.NotNull(mcp.Context!.AllowedTenantIds);
         Assert.Empty(mcp.Context!.AllowedTenantIds!);
-        Assert.True(mcp.Context!.IsDelegatedAggregate);
         Assert.Contains(TenantB.ToLowerInvariant(), portal.Context!.AllowedTenantIds!);
     }
 

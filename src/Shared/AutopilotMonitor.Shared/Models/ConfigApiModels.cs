@@ -270,12 +270,36 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
-    /// Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions.
+    /// Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions plus the
+    /// built-in catalog values every unset definition field falls back to.
     /// </summary>
     // Declaration order == wire order.
     public class PlanTierDefinitionsResponse : IApiResponse
     {
         public IReadOnlyList<PlanTierDefinition> Tiers { get; set; } = default!;
+        /// <summary>One entry per edition (community, pro): the fallback for every blank definition field.</summary>
+        public IReadOnlyList<UsagePlanCatalogDefaults> Catalog { get; set; } = default!;
+    }
+
+    /// <summary>
+    /// The built-in (code) values of one edition's MCP windows and slot growth — what a blank field of the
+    /// same-named plan definition means. Read-only; the definitions are the operator's knob.
+    /// </summary>
+    // Declaration order == wire order.
+    public class UsagePlanCatalogDefaults
+    {
+        /// <summary>community | pro.</summary>
+        public string Edition { get; set; } = default!;
+        public int DailyRequestLimit { get; set; }
+        public int MonthlyRequestLimit { get; set; }
+        public int TenantDailyRequestLimit { get; set; }
+        public int TenantMonthlyRequestLimit { get; set; }
+        /// <summary>Delegation slots the edition includes; only slots bought beyond them grow the windows.</summary>
+        public int IncludedDelegatedSlots { get; set; }
+        public int SlotDailyRequestLimit { get; set; }
+        public int SlotMonthlyRequestLimit { get; set; }
+        public int SlotTenantDailyRequestLimit { get; set; }
+        public int SlotTenantMonthlyRequestLimit { get; set; }
     }
 
     /// <summary>

@@ -127,6 +127,23 @@ namespace AutopilotMonitor.Functions.Security
 
         /// <summary>Organization-wide MCP monthly limit — see <see cref="McpTenantDailyRequestLimit"/>.</summary>
         public int McpTenantMonthlyRequestLimit { get; init; }
+
+        /// <summary>
+        /// Per-user daily MCP requests every purchased delegation slot (beyond <see cref="MaxDelegatedTenants"/>)
+        /// adds to each account of the tenant. Fallback when the plan's SectionUsagePlans row sets no slot value.
+        /// Zero wherever <see cref="DelegatedAdminAllowed"/> is false — a tenant without the delegation right
+        /// earns nothing from a pre-provisioned slot override.
+        /// </summary>
+        public int McpSlotDailyRequestLimit { get; init; }
+
+        /// <summary>Per-user monthly growth per purchased slot — see <see cref="McpSlotDailyRequestLimit"/>.</summary>
+        public int McpSlotMonthlyRequestLimit { get; init; }
+
+        /// <summary>Organization-wide daily growth per purchased slot — see <see cref="McpSlotDailyRequestLimit"/>.</summary>
+        public int McpSlotTenantDailyRequestLimit { get; init; }
+
+        /// <summary>Organization-wide monthly growth per purchased slot — see <see cref="McpSlotDailyRequestLimit"/>.</summary>
+        public int McpSlotTenantMonthlyRequestLimit { get; init; }
     }
 
     /// <summary>
@@ -176,7 +193,11 @@ namespace AutopilotMonitor.Functions.Security
             McpDailyRequestLimit = 100,
             McpMonthlyRequestLimit = 3000,
             McpTenantDailyRequestLimit = 300,
-            McpTenantMonthlyRequestLimit = 9000
+            McpTenantMonthlyRequestLimit = 9000,
+            McpSlotDailyRequestLimit = 0,
+            McpSlotMonthlyRequestLimit = 0,
+            McpSlotTenantDailyRequestLimit = 0,
+            McpSlotTenantMonthlyRequestLimit = 0
         };
 
         private static readonly EditionEntitlements Pro = new()
@@ -193,13 +214,19 @@ namespace AutopilotMonitor.Functions.Security
             McpDailyRequestLimit = 1000,
             McpMonthlyRequestLimit = 20000,
             McpTenantDailyRequestLimit = 3000,
-            McpTenantMonthlyRequestLimit = 60000
+            McpTenantMonthlyRequestLimit = 60000,
+            // Per purchased slot: 30 % of the Pro windows — the share an additional managed tenant costs
+            // relative to Pro itself. Operator-editable per plan in SectionUsagePlans; these are the fallbacks.
+            McpSlotDailyRequestLimit = 300,
+            McpSlotMonthlyRequestLimit = 6000,
+            McpSlotTenantDailyRequestLimit = 900,
+            McpSlotTenantMonthlyRequestLimit = 18000
         };
 
         /// <summary>
-        /// Pro conferred by a managing tenant: every Pro value EXCEPT the delegation right. A managed
-        /// tenant that is not Pro in its own right cannot invite or manage tenants itself — the
-        /// delegation right is what the managing tenant paid for, and conferral must not chain.
+        /// Pro conferred by a managing tenant: every Pro value EXCEPT the delegation right and, following it,
+        /// the slot growth. A managed tenant that is not Pro in its own right cannot invite or manage tenants
+        /// itself — the delegation right is what the managing tenant paid for, and conferral must not chain.
         /// </summary>
         private static readonly EditionEntitlements ProViaMsp = new()
         {
@@ -215,7 +242,11 @@ namespace AutopilotMonitor.Functions.Security
             McpDailyRequestLimit = Pro.McpDailyRequestLimit,
             McpMonthlyRequestLimit = Pro.McpMonthlyRequestLimit,
             McpTenantDailyRequestLimit = Pro.McpTenantDailyRequestLimit,
-            McpTenantMonthlyRequestLimit = Pro.McpTenantMonthlyRequestLimit
+            McpTenantMonthlyRequestLimit = Pro.McpTenantMonthlyRequestLimit,
+            McpSlotDailyRequestLimit = 0,
+            McpSlotMonthlyRequestLimit = 0,
+            McpSlotTenantDailyRequestLimit = 0,
+            McpSlotTenantMonthlyRequestLimit = 0
         };
 
         /// <summary>

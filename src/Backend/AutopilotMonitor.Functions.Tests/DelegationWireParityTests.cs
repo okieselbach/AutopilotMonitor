@@ -106,12 +106,11 @@ public class DelegationWireParityTests
     // ---- Self-service delegation ------------------------------------------------------------
 
     [Fact]
-    public void ManagedTenantListResponse_matches_the_managed_shape_and_omits_null_usage()
+    public void ManagedTenantListResponse_matches_the_managed_shape_and_omits_null_domain_and_since()
     {
         var since = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc);
         var slots = new DelegatedSlotUsageResponse { HomeTenantId = Home, Limit = 2, CatalogLimit = 2, Used = 1, ManagedTenantIds = new[] { TenantA }, PendingInvitations = 0, Holds = Array.Empty<DelegatedSlotHold>() };
         string? domainB = null;
-        ManagedTenantQuotaUsage? usageB = null;
         DateTime? sinceB = null;
 
         AssertParity(
@@ -121,9 +120,8 @@ public class DelegationWireParityTests
                 slots,
                 tenants = new[]
                 {
-                    new { tenantId = TenantA, domain = (string?)"customer.example", source = "self-service", sinceUtc = (DateTime?)since, removable = true,
-                          usage = (ManagedTenantQuotaUsage?)new ManagedTenantQuotaUsage { TenantPlan = "community", TenantDailyLimit = 300, TenantMonthlyLimit = 9000, TenantDailyUsed = 12, TenantMonthlyUsed = 340 } },
-                    new { tenantId = TenantB, domain = domainB, source = "operator", sinceUtc = sinceB, removable = false, usage = usageB },
+                    new { tenantId = TenantA, domain = (string?)"customer.example", source = "self-service", sinceUtc = (DateTime?)since, removable = true },
+                    new { tenantId = TenantB, domain = domainB, source = "operator", sinceUtc = sinceB, removable = false },
                 },
             },
             new ManagedTenantListResponse
@@ -132,8 +130,7 @@ public class DelegationWireParityTests
                 Slots = slots,
                 Tenants = new List<ManagedTenantItem>
                 {
-                    new() { TenantId = TenantA, Domain = "customer.example", Source = "self-service", SinceUtc = since, Removable = true,
-                            Usage = new ManagedTenantQuotaUsage { TenantPlan = "community", TenantDailyLimit = 300, TenantMonthlyLimit = 9000, TenantDailyUsed = 12, TenantMonthlyUsed = 340 } },
+                    new() { TenantId = TenantA, Domain = "customer.example", Source = "self-service", SinceUtc = since, Removable = true },
                     new() { TenantId = TenantB, Source = "operator", Removable = false },
                 },
             });

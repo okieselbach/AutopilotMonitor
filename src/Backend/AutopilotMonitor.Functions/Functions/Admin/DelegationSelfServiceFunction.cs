@@ -2,7 +2,6 @@ using System.Net;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared;
-using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Azure.Functions.Worker;
@@ -19,27 +18,18 @@ namespace AutopilotMonitor.Functions.Functions.Admin;
 /// </summary>
 public class DelegationSelfServiceFunction
 {
-    /// <summary>Managed-tenant MCP usage is resolved for at most this many tenants per listing (Global Admin overrides can be large).</summary>
-    internal const int ManagedUsageCap = 25;
-
     private readonly ILogger<DelegationSelfServiceFunction> _logger;
     private readonly DelegationSelfService _svc;
     private readonly DelegatedSlotService _slots;
-    private readonly McpQuotaService _quota;
-    private readonly IUserUsageRepository _usage;
 
     public DelegationSelfServiceFunction(
         ILogger<DelegationSelfServiceFunction> logger,
         DelegationSelfService svc,
-        DelegatedSlotService slots,
-        McpQuotaService quota,
-        IUserUsageRepository usage)
+        DelegatedSlotService slots)
     {
         _logger = logger;
         _svc = svc;
         _slots = slots;
-        _quota = quota;
-        _usage = usage;
     }
 
     // ── Slots + managed tenants ──────────────────────────────────────────────────
@@ -54,7 +44,7 @@ public class DelegationSelfServiceFunction
         return await OkAsync(req, DelegatedSlotManagementFunction.ToResponse(usage));
     }
 
-    /// <summary>GET /api/delegations/managed — the tenants the caller's tenant manages, with their MCP organization budget.</summary>
+    /// <summary>GET /api/delegations/managed — the tenants the caller's tenant manages.</summary>
     [Function("GetDelegationManagedTenants")]
     [Authorize]
     public async Task<HttpResponseData> GetManaged(
@@ -64,15 +54,8 @@ public class DelegationSelfServiceFunction
         var view = await _svc.ListManagedAsync(home);
 
         var items = new List<ManagedTenantItem>(view.Tenants.Count);
-        var resolved = 0;
         foreach (var t in view.Tenants)
         {
-            ManagedTenantQuotaUsage? usage = null;
-            if (resolved < ManagedUsageCap)
-            {
-                usage = await ReadManagedUsageAsync(t.TenantId);
-                resolved++;
-            }
             items.Add(new ManagedTenantItem
             {
                 TenantId = t.TenantId,
@@ -80,7 +63,6 @@ public class DelegationSelfServiceFunction
                 Source = t.Source,
                 SinceUtc = t.SinceUtc,
                 Removable = t.Removable,
-                Usage = usage,
             });
         }
 
@@ -267,32 +249,6 @@ public class DelegationSelfServiceFunction
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
-
-    /// <summary>The managed tenant's organization MCP budget — its own plan's windows and counters.</summary>
-    private async Task<ManagedTenantQuotaUsage?> ReadManagedUsageAsync(string tenantId)
-    {
-        try
-        {
-            var limits = await _quota.ResolvePlanAsync(null, tenantId);
-            var nowUtc = DateTime.UtcNow;
-            var monthStart = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc).ToString("yyyyMMdd");
-            var today = nowUtc.ToString("yyyyMMdd");
-            var rows = await _usage.GetTenantUsageAsync(tenantId, monthStart, today);
-            return new ManagedTenantQuotaUsage
-            {
-                TenantPlan = limits.TenantPlan,
-                TenantDailyLimit = limits.TenantDailyLimit,
-                TenantMonthlyLimit = limits.TenantMonthlyLimit,
-                TenantDailyUsed = rows.Where(r => r.Date == today).Sum(r => r.RequestCount),
-                TenantMonthlyUsed = rows.Sum(r => r.RequestCount),
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Delegation] Managed tenant usage lookup failed for {TenantId}", tenantId);
-            return null;
-        }
-    }
 
     internal static async Task<HttpResponseData> FailAsync(HttpRequestData req, DelegationFailure failure)
     {

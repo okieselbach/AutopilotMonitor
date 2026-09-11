@@ -72,9 +72,10 @@ function assertPayloadPageSize(pageSize: number): void {
 }
 
 /**
- * Pure: the get_fleet_overview result. The two backend responses each carry their own
- * quotaExcludedTenants (the quota layer decides per request); the union is what the model must know is
- * missing. Absent keys stay absent (WhenWritingNull on the wire; undefined here) so the payload stays lean.
+ * Pure: the get_fleet_overview result — the session page plus (first page only) the stats, merged from the
+ * two backend responses. Absent keys stay absent (WhenWritingNull on the wire; undefined here) so the
+ * payload stays lean. Every managed tenant is always included: the call is charged to the caller's own
+ * organization (the budget follows the delegating tenant), so no managed tenant's budget can drop it.
  */
 export function buildFleetOverview(
   sessions: SessionListResponse,
@@ -82,11 +83,6 @@ export function buildFleetOverview(
   days: number,
   managedTenants: string[] | undefined,
 ): Record<string, unknown> {
-  const excluded = new Set<string>([
-    ...(sessions.quotaExcludedTenants ?? []),
-    ...(stats?.quotaExcludedTenants ?? []),
-  ]);
-  const quotaExcludedTenants = excluded.size > 0 ? [...excluded] : undefined;
   return {
     days,
     ...(managedTenants ? { managedTenants } : {}),
@@ -94,15 +90,6 @@ export function buildFleetOverview(
     count: sessions.count,
     sessions: sessions.sessions,
     ...(sessions.nextLink ? { nextLink: sessions.nextLink } : {}),
-    ...(quotaExcludedTenants
-      ? {
-          quotaExcludedTenants,
-          quotaNote:
-            `${quotaExcludedTenants.length} managed tenant(s) skipped: their organization MCP budget is exhausted, so ` +
-            'their sessions and stats are missing from this overview until their window resets or they upgrade their plan. ' +
-            'Every other managed tenant is included.',
-        }
-      : {}),
   };
 }
 import { shapeVerdictCalibration } from '../verdict-calibration-shape.js';
@@ -780,10 +767,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   // Tool: get_fleet_overview — the bounded fleet aggregate. The ONLY delegated tool that takes no tenantId:
   // it calls the two GlobalReadOrDelegatedSubset routes (global/stats/sessions + global/sessions) whose
   // handlers the backend bounds to the caller's managed set — the same aggregate the delegated web
-  // dashboard uses. Quota: each managed tenant's OWN organization budget is charged once per call;
-  // exhausted tenants are dropped by the backend (never the whole request) and echoed as
-  // quotaExcludedTenants so the model can say what is missing. For a Global Admin / Reader the same routes
-  // return the unbounded platform-wide view. Not registered for normal (single-tenant) users.
+  // dashboard uses. Quota: the call is charged to the caller's own organization (the budget follows the
+  // delegating tenant), so every managed tenant is always included. For a Global Admin / Reader the same
+  // routes return the unbounded platform-wide view. Not registered for normal (single-tenant) users.
   if (ga || delegated) server.registerTool(
     'get_fleet_overview',
     {
@@ -795,11 +781,6 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           : 'Platform-wide enrollment overview across every tenant (Global Admin / Reader). ') +
         'Returns enrollment stats (counts, success rate, durations, today) plus the most recent sessions, merged ' +
         'server-side newest-first' + (delegated ? ' and bounded to your managed tenants' : '') + '. ' +
-        (delegated
-          ? 'Quota: each managed tenant\'s OWN MCP budget is charged once per call; a tenant whose organization budget is ' +
-            'exhausted is SKIPPED (not failed) and listed in "quotaExcludedTenants" — its data is missing until its window ' +
-            'resets or it upgrades its plan. '
-          : '') +
         'For filtered searches or one tenant use search_sessions / get_session_summary with a tenantId. Pagination of the ' +
         'session list: pass the whole nextLink back as "continuation" (stats come with the first page only).',
       inputSchema: {

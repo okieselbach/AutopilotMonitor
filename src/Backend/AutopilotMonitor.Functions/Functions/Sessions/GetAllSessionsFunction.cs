@@ -99,9 +99,6 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     Count = page.Items.Count,
                     Sessions = page.Items,
                     NextLink = nextLink,
-                    // MCP fleet aggregate only: managed tenants the quota layer dropped (exhausted organization
-                    // budget). The bound above is already narrowed; this just tells the caller what is missing.
-                    QuotaExcludedTenants = req.GetRequestContext().QuotaExcludedTenantIds?.ToArray(),
                 });
             }
             catch (Exception ex)

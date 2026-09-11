@@ -85,7 +85,12 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                         TenantDailyLimit = quota.TenantDailyLimit,
                         TenantMonthlyLimit = quota.TenantMonthlyLimit,
                         TenantDailyUsed = quota.TenantDailyUsed,
-                        TenantMonthlyUsed = quota.TenantMonthlyUsed
+                        TenantMonthlyUsed = quota.TenantMonthlyUsed,
+                        PurchasedDelegatedSlots = WithSlots(quota.PurchasedDelegatedSlots, quota.PurchasedDelegatedSlots),
+                        SlotDailyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotDailyLimit),
+                        SlotMonthlyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotMonthlyLimit),
+                        SlotTenantDailyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantDailyLimit),
+                        SlotTenantMonthlyLimit = WithSlots(quota.PurchasedDelegatedSlots, quota.SlotTenantMonthlyLimit),
                     },
                     Records = records
                 });
@@ -99,10 +104,10 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
         /// <summary>
         /// GET /api/metrics/mcp-usage/organization?dateFrom=&amp;dateTo= — the caller's OWN tenant's organization
-        /// budget broken down by account: its members and any delegated (MSP) administrators whose reads were
-        /// charged to this tenant (flagged, with their home tenant). Always the JWT tenant (TenantScoping.None)
-        /// — a delegated caller can never list a managed tenant's accounts through this route. Reads the
-        /// organization counters (McpTenantUsage, one partition range), never the per-user log.
+        /// budget broken down by account (every MCP request of a member is charged here, reads into managed
+        /// tenants included). Always the JWT tenant (TenantScoping.None) — a delegated caller can never list a
+        /// managed tenant's accounts through this route. Reads the organization counters (McpTenantUsage, one
+        /// partition range), never the per-user log.
         /// </summary>
         [Function("GetMcpOrganizationUsage")]
         public async Task<HttpResponseData> GetOrganizationUsage(
@@ -158,7 +163,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                     TenantId = tenantId,
                     DateFrom = dateFrom,
                     DateTo = dateTo,
-                    Users = AggregateOrganizationUsage(records, tenantId, dateFrom, dateTo, today, monthStart),
+                    Users = AggregateOrganizationUsage(records, dateFrom, dateTo, today, monthStart),
                     Quota = BuildOrganizationQuota(records, limits, today, monthStart),
                     Daily = BuildOrganizationDaily(records, dateFrom, dateTo),
                 });
@@ -207,15 +212,20 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 MonthlyLimit = limits.TenantMonthlyLimit,
                 DailyUsed = dailyUsed,
                 MonthlyUsed = monthlyUsed,
+                PurchasedDelegatedSlots = WithSlots(limits.PurchasedDelegatedSlots, limits.PurchasedDelegatedSlots),
+                SlotDailyLimit = WithSlots(limits.PurchasedDelegatedSlots, limits.SlotTenantDailyLimit),
+                SlotMonthlyLimit = WithSlots(limits.PurchasedDelegatedSlots, limits.SlotTenantMonthlyLimit),
             };
         }
 
+        /// <summary>The slot breakdown is only worth sending when a slot was actually purchased.</summary>
+        private static int? WithSlots(int purchasedSlots, int value) => purchasedSlots > 0 ? value : null;
+
         /// <summary>
-        /// Pure: folds the organization counter rows into one item per account. A row whose HomeTenantId is set
-        /// and differs from the tenant was charged by a delegated (MSP) read. Ordered by this month's usage.
+        /// Pure: folds the organization counter rows into one item per account, ordered by this month's usage.
         /// </summary>
         internal static List<McpOrganizationUsageItem> AggregateOrganizationUsage(
-            IEnumerable<TenantUsageRecord> records, string tenantId, string dateFrom, string dateTo, string today, string monthStart)
+            IEnumerable<TenantUsageRecord> records, string dateFrom, string dateTo, string today, string monthStart)
         {
             var byUser = new Dictionary<string, McpOrganizationUsageItem>(StringComparer.OrdinalIgnoreCase);
             foreach (var record in records)
@@ -230,12 +240,6 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 if (!string.IsNullOrEmpty(record.UserPrincipalName))
                     item.UserPrincipalName = record.UserPrincipalName;
-                if (!string.IsNullOrEmpty(record.HomeTenantId)
-                    && !string.Equals(record.HomeTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
-                {
-                    item.Delegated = true;
-                    item.HomeTenantId = record.HomeTenantId;
-                }
                 if (record.LastRequestAt is DateTime last && (item.LastRequestAt == null || last > item.LastRequestAt))
                     item.LastRequestAt = last;
 

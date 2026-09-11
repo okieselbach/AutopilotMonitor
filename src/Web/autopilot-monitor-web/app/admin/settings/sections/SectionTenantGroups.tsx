@@ -160,27 +160,6 @@ export function SectionTenantGroups() {
     [mutate],
   );
 
-  /**
-   * Operator flag: MCP reads an assignee makes into this group's tenants are charged to the assignee's HOME
-   * tenant's quota instead of the managed tenant's — for our own managed-service group, whose customers must
-   * never pay for (or be blocked by) our analysis. Audited under every tenant in the group.
-   */
-  const handleToggleChargeMode = useCallback(
-    async (t: TenantGroup) => {
-      const next = !t.chargeHomeTenantQuota;
-      await mutate(
-        `charge:${t.groupId}`,
-        api.tenantGroups.update(t.groupId),
-        "PATCH",
-        jsonBody<UpdateTenantGroupRequest>({ chargeHomeTenantQuota: next }),
-        next
-          ? `"${t.name}": MCP reads are now charged to the assignee's home tenant.`
-          : `"${t.name}": MCP reads are now charged to the managed tenant.`,
-      );
-    },
-    [mutate],
-  );
-
   const handleDeleteGroup = useCallback(
     async (t: TenantGroup) => {
       const extra = t.assigneeCount > 0 ? ` ${t.assigneeCount} assignee(s) will lose this access.` : "";
@@ -376,14 +355,6 @@ export function SectionTenantGroups() {
                         {t.tenantIds.length} tenant{t.tenantIds.length === 1 ? "" : "s"} · {t.assigneeCount} assignee
                         {t.assigneeCount === 1 ? "" : "s"}
                       </span>
-                      {t.chargeHomeTenantQuota && (
-                        <span
-                          className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap"
-                          title="MCP reads into these tenants are charged to the assignee's home tenant, not the managed tenant."
-                        >
-                          Quota: home tenant
-                        </span>
-                      )}
                       {t.ownerTenantId && (
                         <span
                           className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 whitespace-nowrap"
@@ -412,21 +383,6 @@ export function SectionTenantGroups() {
                       )}
                     </div>
                   </div>
-
-                  {/* Quota attribution (operator-managed groups) */}
-                  <label className="flex items-start gap-2 px-4 py-2 border-b border-gray-100 text-xs text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={t.chargeHomeTenantQuota}
-                      onChange={() => handleToggleChargeMode(t)}
-                      disabled={busyKey === `charge:${t.groupId}`}
-                      className="mt-0.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
-                    />
-                    <span>
-                      Charge MCP quota to the assignee&rsquo;s <strong>home tenant</strong> instead of the managed tenant
-                      (operator-managed group: customers never pay for, or get blocked by, our own analysis).
-                    </span>
-                  </label>
 
                   <div className="p-4 grid gap-4 md:grid-cols-2">
                     {/* Tenants column */}
@@ -560,9 +516,7 @@ export function SectionTenantGroups() {
 
         <p className="text-xs text-gray-500">
           Reader is read-only (secrets redacted). Only onboarded tenants appear in the dropdown. Changes take
-          effect on the assignee&rsquo;s next request. By default an assignee&rsquo;s MCP reads into a managed tenant
-          draw on that tenant&rsquo;s own MCP budget (its plan governs it); the per-group checkbox re-attributes them
-          to the assignee&rsquo;s home tenant.
+          effect on the assignee&rsquo;s next request.
         </p>
       </div>
     </div>

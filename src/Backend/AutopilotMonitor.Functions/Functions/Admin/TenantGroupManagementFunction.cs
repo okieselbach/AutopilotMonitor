@@ -100,10 +100,8 @@ public class TenantGroupManagementFunction
     }
 
     /// <summary>
-    /// PATCH /api/global/tenant-groups/{groupId} — update group metadata. GlobalAdminOnly.
-    /// Body: { "name"?: "...", "chargeHomeTenantQuota"?: true|false } — at least one field. A rename has no
-    /// scope effect; the quota flag re-attributes every assignee's MCP reads into the group's tenants (charged
-    /// to the assignee's home tenant instead of the managed tenant) and is audited under each tenant.
+    /// PATCH /api/global/tenant-groups/{groupId} — rename a group. GlobalAdminOnly.
+    /// Body: { "name": "..." }. A rename has no scope effect.
     /// </summary>
     [Function("UpdateTenantGroup")]
     [Authorize]
@@ -116,50 +114,14 @@ public class TenantGroupManagementFunction
         var read = await req.ReadAsync<UpdateTenantGroupRequest>();
         if (read.Error != null) return read.Error;
         var body = read.Value!;
-        if (string.IsNullOrWhiteSpace(body.Name) && body.ChargeHomeTenantQuota == null)
-            return await Bad(req, "name and/or chargeHomeTenantQuota is required");
+        if (string.IsNullOrWhiteSpace(body.Name))
+            return await Bad(req, "name is required");
 
-        if (!string.IsNullOrWhiteSpace(body.Name))
-        {
-            if (!await _delegatedAdminService.RenameGroupAsync(groupId, body.Name))
-                return await NotFound(req);
-            _logger.LogInformation("Tenant group renamed: {GroupId} -> '{Name}' by {By}", groupId, body.Name, currentUpn);
-        }
-
-        if (body.ChargeHomeTenantQuota is bool chargeHomeTenantQuota
-            && !await SetChargeModeCoreAsync(groupId, chargeHomeTenantQuota, currentUpn))
+        if (!await _delegatedAdminService.RenameGroupAsync(groupId, body.Name))
             return await NotFound(req);
+        _logger.LogInformation("Tenant group renamed: {GroupId} -> '{Name}' by {By}", groupId, body.Name, currentUpn);
 
         return await req.OkAsync(new MessageResponse { Message = "Group updated" });
-    }
-
-    /// <summary>
-    /// Testable core of the quota-charge-mode flip (no HTTP plumbing). Returns false when the group does not
-    /// exist. An unchanged value is a no-op (no audit); a real change is audited under EVERY tenant in the group
-    /// — the customer's trail records whose budget the group's assignees draw on from now on.
-    /// </summary>
-    internal async Task<bool> SetChargeModeCoreAsync(string groupId, bool chargeHomeTenantQuota, string? currentUpn)
-    {
-        var group = await _delegatedAdminService.GetGroupAsync(groupId);
-        if (group == null)
-            return false;
-        if (group.ChargeHomeTenantQuota == chargeHomeTenantQuota)
-            return true;
-
-        if (!await _delegatedAdminService.SetChargeHomeTenantQuotaAsync(groupId, chargeHomeTenantQuota))
-            return false;
-
-        await AuditPerTenantAsync(group.TenantIds, "UPDATE", "*", currentUpn,
-            new Dictionary<string, string>
-            {
-                { "Group", group.Name },
-                { "GroupId", groupId },
-                { "Reason", "quota-charge-mode-changed" },
-                { "ChargeHomeTenantQuota", chargeHomeTenantQuota ? "true" : "false" },
-            });
-
-        _logger.LogInformation("Tenant group {GroupId} chargeHomeTenantQuota={Flag} by {By}", groupId, chargeHomeTenantQuota, currentUpn);
-        return true;
     }
 
     /// <summary>DELETE /api/global/tenant-groups/{groupId} — delete group + all its assignments. GlobalAdminOnly.</summary>

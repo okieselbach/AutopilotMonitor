@@ -9545,7 +9545,7 @@
     },
     "GetMcpOrganizationUsageResponse": {
       "kind": "object",
-      "doc": "Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account whose requests were charged to this tenant's organization budget — its own members and any delegated (MSP) administrators reading the tenant — plus the tenant's organization windows. Built from the tenant's organization counters.",
+      "doc": "Organization-wide MCP usage by user for ONE tenant — the caller's own (GetMcpOrganizationUsage) or the tenant a Global Admin / Global Reader names (GetGlobalMcpOrganizationUsage): every account of the tenant whose requests were charged to its organization budget (a member's reads into managed tenants included), plus the tenant's organization windows. Built from the tenant's organization counters.",
       "fields": [
         {
           "name": "tenantId",
@@ -13280,15 +13280,6 @@
             "kind": "primitive",
             "name": "boolean"
           }
-        },
-        {
-          "name": "usage",
-          "type": {
-            "kind": "ref",
-            "name": "ManagedTenantQuotaUsage"
-          },
-          "optional": true,
-          "doc": "Absent when not resolved (cap reached or read failure)."
         }
       ]
     },
@@ -13318,47 +13309,6 @@
               "kind": "ref",
               "name": "ManagedTenantItem"
             }
-          }
-        }
-      ]
-    },
-    "ManagedTenantQuotaUsage": {
-      "kind": "object",
-      "doc": "MCP organization budget of a managed tenant, nested in ManagedTenantItem.",
-      "fields": [
-        {
-          "name": "tenantPlan",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        {
-          "name": "tenantDailyLimit",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "tenantMonthlyLimit",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "tenantDailyUsed",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "tenantMonthlyUsed",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
           }
         }
       ]
@@ -13406,7 +13356,7 @@
     },
     "McpOrganizationQuotaNode": {
       "kind": "object",
-      "doc": "The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited) and the counters over every account charged to the tenant.",
+      "doc": "The organization-wide windows of the tenant in GetMcpOrganizationUsageResponse: its tenant plan (tenant-wide override, else edition) with the limits (0 = unlimited; purchased-slot growth included) and the counters over every account charged to the tenant. The slot fields carry the breakdown and are absent when the tenant has no purchased delegation slot.",
       "fields": [
         {
           "name": "tenantPlan",
@@ -13442,6 +13392,32 @@
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "purchasedDelegatedSlots",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Delegation slots bought beyond the edition's included ones; absent when zero."
+        },
+        {
+          "name": "slotDailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Organization daily growth per purchased slot; absent when no slot was purchased."
+        },
+        {
+          "name": "slotMonthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
         }
       ]
     },
@@ -13464,23 +13440,6 @@
           },
           "optional": true,
           "doc": "Absent for rows written before the UPN was recorded."
-        },
-        {
-          "name": "delegated",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "True when the account is a delegated (MSP) administrator homed in another tenant."
-        },
-        {
-          "name": "homeTenantId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true,
-          "doc": "The delegated administrator's home tenant; absent for the tenant's own members."
         },
         {
           "name": "requestsToday",
@@ -13516,7 +13475,7 @@
     },
     "McpQuotaExceededResponse": {
       "kind": "object",
-      "doc": "429 body written by McpQuotaEnforcementMiddleware when the per-user MCP daily/monthly quota is exhausted. Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on.",
+      "doc": "429 body written by McpQuotaEnforcementMiddleware when the caller's own or their organization's MCP daily/monthly window is exhausted (both windows belong to the caller's HOME tenant — a delegated read never draws on a managed tenant). Carries the error-envelope prefix (error, code=QuotaExceeded, correlationId); quotaExceeded is the discriminator the MCP error handler keys on.",
       "fields": [
         {
           "name": "error",
@@ -13594,21 +13553,12 @@
             "name": "string"
           },
           "doc": "Reset time of the exceeded window, pre-formatted \"yyyy-MM-ddTHH:mm:ssZ\"."
-        },
-        {
-          "name": "targetTenantId",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true,
-          "doc": "The MANAGED tenant whose organization windows blocked a delegated (MSP) read — its plan governs the budget, not the caller's. Absent when the caller's own tenant/plan was exceeded and on the all-managed-tenants-exhausted aggregate block."
         }
       ]
     },
     "McpUsageQuotaNode": {
       "kind": "object",
-      "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their tenant (shared by every member; 0 = unlimited). For a delegated (MSP) caller the tenant windows are those of their HOME tenant — reads into managed tenants are charged to the managed tenant per request and never appear here.",
+      "doc": "Effective quota state nested in GetMyMcpUsageResponse: the caller's own windows and the organization-wide windows of their HOME tenant (shared by every member; 0 = unlimited). Every MCP request the caller makes — reads into managed tenants included — draws on these windows. The limits already contain the growth from purchased delegation slots; the slot fields let a client show the breakdown (base = limit − slots × slot value) and are absent when the tenant has no purchased slot.",
       "fields": [
         {
           "name": "dailyLimit",
@@ -13679,6 +13629,49 @@
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "purchasedDelegatedSlots",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Delegation slots bought beyond the edition's included ones; absent when zero."
+        },
+        {
+          "name": "slotDailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Per-user daily growth per purchased slot; absent when no slot was purchased."
+        },
+        {
+          "name": "slotMonthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
+        },
+        {
+          "name": "slotTenantDailyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Organization daily growth per purchased slot; absent when no slot was purchased."
+        },
+        {
+          "name": "slotTenantMonthlyLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true
         }
       ]
     },
@@ -14273,7 +14266,7 @@
     },
     "PlanTierDefinition": {
       "kind": "object",
-      "doc": "Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, and the organization-wide TENANT windows all members of a tenant on this plan share. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for that window.",
+      "doc": "Defines a usage plan tier with request limits: the per-USER windows every account on the plan gets, the organization-wide TENANT windows all members of a tenant on this plan share, and the per-SLOT growth of both — what every purchased delegation slot beyond the edition's included ones adds. Stored as JSON array in AdminConfiguration.PlanTierDefinitionsJson. 0 = unlimited for a window, 0 = no growth for a slot value; null (not set) = the edition's catalog value.",
       "fields": [
         {
           "name": "name",
@@ -14320,12 +14313,48 @@
           },
           "optional": true,
           "doc": "Tenant-wide monthly limit; null (not set) = the edition's catalog tenant limit, 0 = unlimited."
+        },
+        {
+          "name": "slotDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Per-user daily requests added per purchased delegation slot; null = catalog value, 0 = none."
+        },
+        {
+          "name": "slotMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Per-user monthly requests added per purchased delegation slot; null = catalog value, 0 = none."
+        },
+        {
+          "name": "slotTenantDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenant-wide daily requests added per purchased delegation slot; null = catalog value, 0 = none."
+        },
+        {
+          "name": "slotTenantMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "optional": true,
+          "doc": "Tenant-wide monthly requests added per purchased delegation slot; null = catalog value, 0 = none."
         }
       ]
     },
     "PlanTierDefinitionsResponse": {
       "kind": "object",
-      "doc": "Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions.",
+      "doc": "Response of GET and PUT global/config/plan-tiers: the global usage-plan tier definitions plus the built-in catalog values every unset definition field falls back to.",
       "fields": [
         {
           "name": "tiers",
@@ -14336,6 +14365,17 @@
               "name": "PlanTierDefinition"
             }
           }
+        },
+        {
+          "name": "catalog",
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "ref",
+              "name": "UsagePlanCatalogDefaults"
+            }
+          },
+          "doc": "One entry per edition (community, pro): the fallback for every blank definition field."
         }
       ]
     },
@@ -18437,18 +18477,6 @@
           },
           "optional": true,
           "doc": "Absent when there is no further page."
-        },
-        {
-          "name": "quotaExcludedTenants",
-          "type": {
-            "kind": "array",
-            "element": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "optional": true,
-          "doc": "Managed tenants dropped from a delegated (MSP) MCP fleet aggregate because their organization MCP budget is exhausted (each managed tenant's own plan governs it). Absent unless at least one tenant was excluded; only GetAllSessions ever sets it."
         }
       ]
     },
@@ -19077,18 +19105,6 @@
             "kind": "ref",
             "name": "SessionStats"
           }
-        },
-        {
-          "name": "quotaExcludedTenants",
-          "type": {
-            "kind": "array",
-            "element": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "optional": true,
-          "doc": "See QuotaExcludedTenants; only GetAllSessionStats ever sets it."
         }
       ]
     },
@@ -22571,14 +22587,6 @@
           "doc": "The UPNs assigned to this group (for the management UI)."
         },
         {
-          "name": "chargeHomeTenantQuota",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          },
-          "doc": "Operator flag: MCP reads an assignee makes INTO this group's tenants are charged to the assignee's HOME tenant's quota instead of the managed tenant's. For operator-run managed-service groups whose customers must never pay (or be blocked) for the operator's own analysis. Off by default."
-        },
-        {
           "name": "ownerTenantId",
           "type": {
             "kind": "primitive",
@@ -23946,7 +23954,7 @@
     },
     "UpdateTenantGroupRequest": {
       "kind": "object",
-      "doc": "Body of PATCH global/tenant-groups/{groupId} — at least one field.",
+      "doc": "Body of PATCH global/tenant-groups/{groupId} — a rename.",
       "fields": [
         {
           "name": "name",
@@ -23956,17 +23964,7 @@
             "nullable": true
           },
           "optional": true,
-          "doc": "New display name; omitted/blank = unchanged."
-        },
-        {
-          "name": "chargeHomeTenantQuota",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean",
-            "nullable": true
-          },
-          "optional": true,
-          "doc": "See ChargeHomeTenantQuota; omitted = unchanged."
+          "doc": "New display name."
         }
       ]
     },
@@ -24030,6 +24028,84 @@
           "type": {
             "kind": "ref",
             "name": "SessionAnnotationItem"
+          }
+        }
+      ]
+    },
+    "UsagePlanCatalogDefaults": {
+      "kind": "object",
+      "doc": "The built-in (code) values of one edition's MCP windows and slot growth — what a blank field of the same-named plan definition means. Read-only; the definitions are the operator's knob.",
+      "fields": [
+        {
+          "name": "edition",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "community | pro."
+        },
+        {
+          "name": "dailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "monthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "tenantMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "includedDelegatedSlots",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Delegation slots the edition includes; only slots bought beyond them grow the windows."
+        },
+        {
+          "name": "slotDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "slotMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "slotTenantDailyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          }
+        },
+        {
+          "name": "slotTenantMonthlyRequestLimit",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
           }
         }
       ]

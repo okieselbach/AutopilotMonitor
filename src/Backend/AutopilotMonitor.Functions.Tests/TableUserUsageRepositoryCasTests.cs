@@ -122,17 +122,18 @@ public class TableUserUsageRepositoryCasTests
     public async Task Tenant_increment_merges_only_the_counter_and_attribution_columns()
     {
         var h = new Harness();
-        h.Tenants.Read = () => TableHarness.Row("tid-customer", "20260906_oid-1", 41, "t1");
+        h.Tenants.Read = () => TableHarness.Row("tid-home", "20260906_oid-1", 41, "t1");
 
-        await h.Repo.IncrementTenantUsageAsync("tid-customer", "oid-1", "msp@example.test", "tid-home");
+        await h.Repo.IncrementTenantUsageAsync("tid-home", "oid-1", "admin@example.test");
 
         var (entity, etag, mode) = Assert.Single(h.Tenants.Updates);
         Assert.Equal(TableUpdateMode.Merge, mode);
         Assert.Equal(new ETag("t1"), etag);
         Assert.Equal(42L, entity.GetInt64("RequestCount"));
-        Assert.Equal("msp@example.test", entity.GetString("UserPrincipalName"));
-        Assert.Equal("tid-home", entity.GetString("HomeTenantId"));
+        Assert.Equal("admin@example.test", entity.GetString("UserPrincipalName"));
         Assert.NotNull(entity["LastRequestAt"]);
+        // The counter is the caller's HOME tenant's; there is no foreign-home attribution any more.
+        Assert.False(entity.ContainsKey("HomeTenantId"));
         // A merge patch never re-sends the identity columns of the row.
         Assert.False(entity.ContainsKey("Date"));
         Assert.False(entity.ContainsKey("UserId"));
@@ -143,8 +144,8 @@ public class TableUserUsageRepositoryCasTests
     {
         var h = new Harness();
 
-        await h.Repo.IncrementTenantUsageAsync("", "oid-1", null, null);
-        await h.Repo.IncrementTenantUsageAsync("tid-customer", " ", null, null);
+        await h.Repo.IncrementTenantUsageAsync("", "oid-1", null);
+        await h.Repo.IncrementTenantUsageAsync("tid-home", " ", null);
 
         Assert.Empty(h.Tenants.Updates);
         Assert.Empty(h.Tenants.Added);

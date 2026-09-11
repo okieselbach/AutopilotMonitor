@@ -1,3 +1,4 @@
+using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Shared.Models.Config;
@@ -619,12 +620,26 @@ public class ConfigWireParityTests
                 // keys omitted on the wire).
                 TenantDailyRequestLimit = 3000,
                 TenantMonthlyRequestLimit = 60000,
+                // Per purchased delegation slot (the community tier leaves these unset too).
+                SlotDailyRequestLimit = 300,
+                SlotMonthlyRequestLimit = 6000,
+                SlotTenantDailyRequestLimit = 900,
+                SlotTenantMonthlyRequestLimit = 18000,
             },
         };
 
         AssertParity(
-            new { tiers },
-            new PlanTierDefinitionsResponse { Tiers = tiers });
+            new
+            {
+                tiers,
+                // The built-in fallbacks per edition — what a blank definition field means.
+                catalog = new[]
+                {
+                    new { edition = "community", dailyRequestLimit = 100, monthlyRequestLimit = 3000, tenantDailyRequestLimit = 300, tenantMonthlyRequestLimit = 9000, includedDelegatedSlots = 0, slotDailyRequestLimit = 0, slotMonthlyRequestLimit = 0, slotTenantDailyRequestLimit = 0, slotTenantMonthlyRequestLimit = 0 },
+                    new { edition = "pro", dailyRequestLimit = 1000, monthlyRequestLimit = 20000, tenantDailyRequestLimit = 3000, tenantMonthlyRequestLimit = 60000, includedDelegatedSlots = 2, slotDailyRequestLimit = 300, slotMonthlyRequestLimit = 6000, slotTenantDailyRequestLimit = 900, slotTenantMonthlyRequestLimit = 18000 },
+                },
+            },
+            new PlanTierDefinitionsResponse { Tiers = tiers, Catalog = PlanManagementFunction.BuildUsagePlanCatalog() });
     }
 
     // ---- TestWebhookNotification (dual-purpose: success carries the delivery verdict) ----

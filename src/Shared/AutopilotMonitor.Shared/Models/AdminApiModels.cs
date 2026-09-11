@@ -572,13 +572,11 @@ namespace AutopilotMonitor.Shared.Models
         public string Name { get; set; } = string.Empty;
     }
 
-    /// <summary>Body of PATCH global/tenant-groups/{groupId} — at least one field.</summary>
+    /// <summary>Body of PATCH global/tenant-groups/{groupId} — a rename.</summary>
     public class UpdateTenantGroupRequest : IApiRequest
     {
-        /// <summary>New display name; omitted/blank = unchanged.</summary>
+        /// <summary>New display name.</summary>
         public string? Name { get; set; }
-        /// <summary>See <see cref="TenantGroup.ChargeHomeTenantQuota"/>; omitted = unchanged.</summary>
-        public bool? ChargeHomeTenantQuota { get; set; }
     }
 
     /// <summary>Body of POST global/tenant-groups/{groupId}/tenants.</summary>

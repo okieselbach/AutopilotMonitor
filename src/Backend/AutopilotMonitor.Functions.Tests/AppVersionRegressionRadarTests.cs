@@ -27,6 +27,13 @@ public class AppVersionRegressionRadarTests
     private const string App = "Contoso VPN";
     private static readonly DateTime Now = new(2026, 8, 13, 12, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>
+    /// For the analytics tests only: AppsAnalyticsHelper windows off the REAL clock (DateTime.UtcNow − days),
+    /// so their rows must be dated relative to it — a row dated off the fixed <see cref="Now"/> falls out of
+    /// the 30-day window once the calendar moves on (it did on 2026-09-11).
+    /// </summary>
+    private static readonly DateTime Recent = DateTime.UtcNow.AddDays(-1);
+
     private static int _sessionCounter;
 
     private static AppInstallSummary Install(
@@ -357,10 +364,10 @@ public class AppVersionRegressionRadarTests
 
         var rows = new List<AppInstallSummary>
         {
-            Install("1.0", 100), Install("1.0", 200), Install("1.0", 300), Install("1.0", 400),
-            Install("1.0", 0),                                  // unmeasured — excluded from stats
-            Install("1.0", 50, terminalState: "Skipped"),       // skip — excluded
-            Install("1.0", 50, status: "Failed"),               // failed — excluded from durations
+            Install("1.0", 100, Recent), Install("1.0", 200, Recent), Install("1.0", 300, Recent), Install("1.0", 400, Recent),
+            Install("1.0", 0, Recent),                                  // unmeasured — excluded from stats
+            Install("1.0", 50, Recent, terminalState: "Skipped"),       // skip — excluded
+            Install("1.0", 50, Recent, status: "Failed"),               // failed — excluded from durations
         };
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
@@ -393,7 +400,7 @@ public class AppVersionRegressionRadarTests
         Assert.Equal(1, emptyRoot.GetProperty("versionRegressions").GetArrayLength());
 
         var root = TestWire.SerializeToElement(await AppsAnalyticsHelper.BuildAnalyticsResponseAsync(
-            new List<AppInstallSummary> { Install("1.0", 100) }, sessionRepo.Object, App, days: 30,
+            new List<AppInstallSummary> { Install("1.0", 100, Recent) }, sessionRepo.Object, App, days: 30,
             new List<AppVersionRegressionAlert> { alert }));
 
         var regression = root.GetProperty("versionRegressions")[0];
