@@ -177,16 +177,18 @@ export default function FleetHealthPage() {
   const slowestModels = data?.slowestModels ?? [];
 
   // Deep-link a model bucket into the dashboard, pre-filtered to Failed sessions of that
-  // model. Manufacturer and model are two session fields, so the search carries them as
-  // two qualified terms (`manufacturer=… model=…`) rather than one phrase that could
-  // never match across the field boundary. Null for the "Unknown" bucket (both blank):
-  // there is nothing to search for. Carry the selected tenant so a global admin scoped
-  // to one tenant lands on that tenant's list rather than their default scope.
+  // model — but only while the bucket has any: a 100 % row would otherwise land on a
+  // list that is empty by definition, so it links to all sessions of the model instead.
+  // Manufacturer and model are two session fields, so the search carries them as two
+  // qualified terms (`manufacturer=… model=…`) rather than one phrase that could never
+  // match across the field boundary. Null for the "Unknown" bucket (both blank): there
+  // is nothing to search for. Carry the selected tenant so a global admin scoped to one
+  // tenant lands on that tenant's list rather than their default scope.
   const dashboardModelHref = (m: FleetModelHealth): Route | null => {
     const search = buildSessionSearchQuery({ manufacturer: m.manufacturer, model: m.model });
     if (!search) return null;
     return dashboardUrl({
-      status: "Failed",
+      status: m.failed > 0 ? "Failed" : undefined,
       search,
       tenant: isGlobalAdmin && selectedTenantId ? selectedTenantId : undefined,
     });
@@ -749,7 +751,7 @@ export default function FleetHealthPage() {
                       key={m.label}
                       href={href}
                       className="block -mx-2 px-2 py-1 rounded-md hover:bg-gray-50 transition-colors group cursor-pointer"
-                      title={`Show failed enrollments for ${m.label}`}
+                      title={m.failed > 0 ? `Show failed enrollments for ${m.label}` : `Show enrollments for ${m.label}`}
                     >
                       {row}
                     </Link>
