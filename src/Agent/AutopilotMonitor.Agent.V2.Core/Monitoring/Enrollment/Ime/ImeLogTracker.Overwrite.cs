@@ -348,6 +348,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private readonly Dictionary<string, List<InvocationMarker>> _invocationMarkers =
             new Dictionary<string, List<InvocationMarker>>(StringComparer.OrdinalIgnoreCase);
         private InvocationMarker _lastPlatformMarker;
+        // Files a platform run has opened in (PS-AGENT-SCRIPT-START in AgentExecutor.log,
+        // PS-SCRIPT-GENERATED in IntuneManagementExtension.log). Survives a rollover of the
+        // file's markers: the fallback below is meant for exactly that file.
+        private readonly HashSet<string> _platformMarkerFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private long _testEntryOrdinal;
 
         private void RecordInvocationMarker(string policyId, bool isClose)
@@ -370,6 +374,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     last.PolicyId = policyId;
                     last.IsClose = false;
                     _lastPlatformMarker = last;
+                    _platformMarkerFiles.Add(file);
                 }
                 return;
             }
@@ -377,7 +382,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             if (list.Count >= MaxInvocationMarkersPerFile) list.RemoveAt(0);
             var marker = new InvocationMarker { Offset = _currentEntryOffset, PolicyId = policyId, IsClose = isClose };
             list.Add(marker);
-            if (!isClose && policyId != null) _lastPlatformMarker = marker;
+            if (!isClose && policyId != null)
+            {
+                _lastPlatformMarker = marker;
+                _platformMarkerFiles.Add(file);
+            }
         }
 
         /// <summary>
@@ -388,9 +397,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private ScriptExecutionState ResolvePlatformScriptForCurrentEntry(out string ownerPolicyId)
         {
             ownerPolicyId = null;
+            var file = _currentSourceFileName ?? TestSourceFileName;
             InvocationMarker marker = null;
             List<InvocationMarker> list = null;
-            if (_currentSourceFileName != null && _currentEntryOffset >= 0 && _invocationMarkers.TryGetValue(_currentSourceFileName, out list))
+            if (_currentEntryOffset >= 0 && _invocationMarkers.TryGetValue(file, out list))
             {
                 for (var i = list.Count - 1; i >= 0; i--)
                 {
@@ -402,8 +412,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 }
             }
 
-            // A file without any marker (a context line after a rotation): the last platform start wins.
-            if (marker == null && (list == null || list.Count == 0)) marker = _lastPlatformMarker;
+            // A file without any marker resolves to the platform run in flight only when platform
+            // runs open in that file at all — IntuneManagementExtension.log right after a rollover
+            // cleared its markers, AgentExecutor.log likewise. HealthScripts.log and the app logs
+            // never carry a platform marker: their launch and exit lines belong to health scripts
+            // and detection scripts, never to the platform script that happens to be pending
+            // (session 24dc69d1: the health-script worker's exit line pre-filled a platform slot's
+            // exit code, its launch line the slot's context).
+            if (marker == null && (list == null || list.Count == 0) && _platformMarkerFiles.Contains(file)) marker = _lastPlatformMarker;
             if (marker == null || marker.IsClose || marker.PolicyId == null) return null;
 
             ownerPolicyId = marker.PolicyId;
@@ -454,6 +470,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
         /// <summary>Same effect as an end signal: both multi-writer ledgers are verified on the next pass.</summary>
         internal void RequestOverwriteCheckForTest() => RequestOverwriteCheck();
+
+        /// <summary>What a rollover of the file does to its invocation markers.</summary>
+        internal void ClearInvocationMarkersForTest(string fileName) => InvalidateInvocationMarkersFrom(fileName, 0);
 
         internal int LedgerEntryCountForTest(string fileName)
         {

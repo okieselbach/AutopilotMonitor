@@ -35,6 +35,14 @@
       "enabled": true
     },
     {
+      "patternId": "HS-INVOCATION",
+      "category": "always",
+      "pattern": "^\"[^\"]{0,260}\\\\agentexecutor\\.exe\"\\s+-(?<kind>remediationScript)\\s",
+      "action": "agentInvocationArgument",
+      "description": "The IME service's command line for a health-script executor, written by the health-script worker to IntuneManagementExtension.log and HealthScripts.log right before 'Launch powershell executor in ... session'. Opens an invocation that owns nothing, so the launch line the same worker writes next never sets the context of the platform script whose run is in flight in the IME log. The platform-script command line ('-powershell') does not match.",
+      "enabled": true
+    },
+    {
       "patternId": "HS-NEW-RESULT",
       "category": "always",
       "pattern": "^\\[HS\\] new result = (?<json>\\{[\\s\\S]*\\})\\s*$",
@@ -722,14 +730,6 @@
       "pattern": "^Launch powershell executor in (?<context>machine|user) session",
       "action": "scriptContext",
       "description": "Captures whether a PowerShell script runs in machine (System) or user session context.",
-      "enabled": true
-    },
-    {
-      "patternId": "PS-SCRIPT-EXITCODE",
-      "category": "always",
-      "pattern": "^Powershell execution is done, exitCode = (?<exitCode>-?\\d+)",
-      "action": "scriptExitCode",
-      "description": "Captures the PowerShell exit code when script execution completes in the IME log.",
       "enabled": true
     },
     {

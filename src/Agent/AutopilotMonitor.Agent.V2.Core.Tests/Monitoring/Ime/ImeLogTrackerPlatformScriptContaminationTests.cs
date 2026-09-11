@@ -36,8 +36,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
         // silently passing against a stale inline copy.
         private static readonly string[] RequiredPatternIds =
         {
-            "PS-AGENT-INVOCATION", "PS-AGENT-SCRIPT-START", "PS-AGENT-EXITCODE",
-            "PS-AGENT-OUTPUT", "PS-SCRIPT-RESULT",
+            "PS-AGENT-INVOCATION", "PS-AGENT-ARG", "PS-AGENT-SCRIPT-START", "PS-AGENT-EXITCODE",
+            "PS-AGENT-OUTPUT", "PS-AGENT-COMPLETED", "PS-SCRIPT-GENERATED", "PS-SCRIPT-CONTEXT",
+            "PS-SCRIPT-RESULT", "HS-INVOCATION",
         };
 
         private static List<ImeLogPattern> ScriptPatterns()
@@ -82,6 +83,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
 
         private const string RemediationStartLine =
             @"Adding argument remediationScript with value C:\Windows\IMECache\HealthScripts\446f0450-d0ee-404c-8dc0-a74123bde31f_1\detect.ps1 to the named argument list.";
+
+        private const string ImeLog = "IntuneManagementExtension.log";
+        private const string HealthLog = "HealthScripts.log";
+        private const string ExecutorLog = "AgentExecutor.log";
+
+        private const string PlatformGeneratedLine =
+            @"Script file C:\Program Files (x86)\Microsoft Intune Management Extension\Policies\Scripts\00000000-0000-0000-0000-000000000000_c3e0124c-4936-4bfd-afcc-c7fe1d84d104.ps1 is generated";
+
+        private static readonly string PlatformResultLine =
+            $"[PowerShell] User Id = 00000000-0000-0000-0000-000000000000, Policy id = {PlatformId}, policy result = Success";
+
+        // The health-script worker (IME AgentCommon ScriptWorker) writes its command line, the launch
+        // line and the exit line to IntuneManagementExtension.log AND HealthScripts.log — session
+        // 24dc69d1 (IME 1.105.152.0), where the exit line pre-filled a pending platform script's exit
+        // code and the launch line its context.
+        private const string HealthScriptCommandLine =
+            @"""C:\Program Files (x86)\Microsoft Intune Management Extension\agentexecutor.exe""  -remediationScript  """"C:\WINDOWS\IMECache\HealthScripts\446f0450-d0ee-404c-8dc0-a74123bde31f_1\detect.ps1"""" ""C:\WINDOWS\IMECache\HealthScripts\446f0450-d0ee-404c-8dc0-a74123bde31f_1\detect.ps1.result"" 60";
+        private const string HealthScriptExitLine = "Powershell execution is done, exitCode = 5";
 
         private static ImeLogTracker BuildTracker(TempDirectory tmp, out List<ScriptExecutionState> emitted)
         {
@@ -148,6 +167,101 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Ime
             Assert.Equal("Success", script.Result);
             Assert.Equal(0, script.ExitCode);
             Assert.Equal("Hello from c3e0124c", script.Stdout);
+        }
+
+        // -----------------------------------------------------------------------
+        // Health-script lines never feed a platform slot (session 24dc69d1)
+        // -----------------------------------------------------------------------
+
+        [Fact]
+        public void No_shipped_pattern_reads_the_health_script_workers_exit_line()
+        {
+            // "Powershell execution is done, exitCode = N" is the health-script worker's line only;
+            // as PS-SCRIPT-EXITCODE (no scriptType) it pre-filled the exit code of whichever platform
+            // script was pending, which then emitted without waiting for its own end block.
+            foreach (var file in Directory.GetFiles(FindRulesPatternDir(), "*.json"))
+            {
+                var pattern = JsonConvert.DeserializeObject<ImeLogPattern>(File.ReadAllText(file))!;
+                Assert.False(System.Text.RegularExpressions.Regex.IsMatch(HealthScriptExitLine, pattern.Pattern),
+                    $"{pattern.PatternId} matches the health-script worker's exit line");
+            }
+        }
+
+        [Fact]
+        public void Health_script_exit_line_in_the_ime_log_never_pre_fills_the_platform_slot()
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp, out var emitted);
+
+            tracker.ProcessLogMessageForTest(PlatformGeneratedLine, sourceFileName: ImeLog);
+            // A health script that ran in parallel finishes: its exit line lands inside the platform
+            // run's window (c81b8053 had "exit code 0" before its executor even started).
+            tracker.ProcessLogMessageForTest(HealthScriptExitLine, sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest(PlatformResultLine, sourceFileName: ImeLog);
+
+            // No exit code of its own → held for the end block, never emitted with the health script's 5.
+            Assert.Empty(emitted);
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
+            var script = Assert.Single(emitted);
+            Assert.Null(script.ExitCode);
+            Assert.Equal("Success", script.Result);
+        }
+
+        [Fact]
+        public void Health_script_launch_line_in_the_ime_log_does_not_flip_the_platform_context()
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp, out var emitted);
+
+            tracker.ProcessLogMessageForTest(PlatformGeneratedLine, sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest("Launch powershell executor in user session", sourceFileName: ImeLog);
+            // The health-script worker launches its executor while the platform script runs: its
+            // command line opens an invocation that owns nothing, so its launch line stays there.
+            tracker.ProcessLogMessageForTest(HealthScriptCommandLine, sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest("Launch powershell executor in machine session", sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest(PlatformResultLine, sourceFileName: ImeLog);
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
+
+            var script = Assert.Single(emitted);
+            Assert.Equal("User", script.RunContext);
+        }
+
+        [Fact]
+        public void Lines_from_the_health_scripts_log_never_resolve_to_a_platform_script()
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp, out var emitted);
+
+            tracker.ProcessLogMessageForTest("ExecutorLog AgentExecutor gets invoked", sourceFileName: ExecutorLog);
+            tracker.ProcessLogMessageForTest(PlatformStartLine, sourceFileName: ExecutorLog);
+            // HealthScripts.log never carries a platform marker — the run in flight is not the
+            // fallback owner of the lines there.
+            tracker.ProcessLogMessageForTest("Launch powershell executor in machine session", sourceFileName: HealthLog);
+            tracker.ProcessLogMessageForTest(PlatformResultLine, sourceFileName: ImeLog);
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
+
+            var script = Assert.Single(emitted);
+            Assert.Null(script.RunContext);
+        }
+
+        [Fact]
+        public void Context_line_after_an_ime_log_rollover_still_finds_the_run_in_flight()
+        {
+            using var tmp = new TempDirectory();
+            var tracker = BuildTracker(tmp, out var emitted);
+
+            tracker.ProcessLogMessageForTest(PlatformGeneratedLine, sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest("ExecutorLog AgentExecutor gets invoked", sourceFileName: ExecutorLog);
+            tracker.ProcessLogMessageForTest(PlatformStartLine, sourceFileName: ExecutorLog);
+            // IME rolls the log over between its two lines: the fresh file has no markers, but
+            // platform runs open there — the run in flight still owns the context line.
+            tracker.ClearInvocationMarkersForTest(ImeLog);
+            tracker.ProcessLogMessageForTest("Launch powershell executor in user session", sourceFileName: ImeLog);
+            tracker.ProcessLogMessageForTest(PlatformResultLine, sourceFileName: ImeLog);
+            tracker.FlushPendingPlatformScriptResults(DateTime.UtcNow, force: true);
+
+            var script = Assert.Single(emitted);
+            Assert.Equal("User", script.RunContext);
         }
     }
 }

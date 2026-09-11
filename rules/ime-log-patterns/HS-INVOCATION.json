@@ -1,0 +1,9 @@
+{
+  "$schema": "../schema/ime-log-pattern.schema.json",
+  "patternId": "HS-INVOCATION",
+  "category": "always",
+  "pattern": "^\"[^\"]{0,260}\\\\agentexecutor\\.exe\"\\s+-(?<kind>remediationScript)\\s",
+  "action": "agentInvocationArgument",
+  "description": "The IME service's command line for a health-script executor, written by the health-script worker to IntuneManagementExtension.log and HealthScripts.log right before 'Launch powershell executor in ... session'. Opens an invocation that owns nothing, so the launch line the same worker writes next never sets the context of the platform script whose run is in flight in the IME log. The platform-script command line ('-powershell') does not match.",
+  "enabled": true
+}

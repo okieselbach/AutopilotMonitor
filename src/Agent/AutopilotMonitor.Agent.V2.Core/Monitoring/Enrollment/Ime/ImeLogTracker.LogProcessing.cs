@@ -871,11 +871,14 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <c>_activePatterns</c> → <see cref="HandlePatternMatch"/>). Lets unit tests drive the
         /// script / app handlers deterministically without writing CMTrace files or spinning the
         /// poller. <paramref name="sourceTimestampUtc"/> populates the entry timestamp some
-        /// handlers read via <see cref="LastMatchedLogTimestamp"/>.
+        /// handlers read via <see cref="LastMatchedLogTimestamp"/>. <paramref name="sourceFileName"/>
+        /// names the log the line comes from — positional ownership is per file — and stays in
+        /// effect for later calls; omitted, the line lands in the test file.
         /// </summary>
-        internal void ProcessLogMessageForTest(string message, DateTime? sourceTimestampUtc = null)
+        internal void ProcessLogMessageForTest(string message, DateTime? sourceTimestampUtc = null, string sourceFileName = null)
         {
             if (string.IsNullOrEmpty(message)) return;
+            if (sourceFileName != null) _currentSourceFileName = sourceFileName;
             NextTestEntry();
             // The test seam hands in an already-resolved UTC instant, so it takes the same route a
             // writer-declared bias does: TimestampUtc set, no zone left to guess.
