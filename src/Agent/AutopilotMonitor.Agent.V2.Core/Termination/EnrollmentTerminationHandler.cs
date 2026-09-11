@@ -588,6 +588,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Termination
                     ["overwriteBytesReprocessed"] = health.OverwriteBytesReprocessed,
                     ["verifyPasses"] = health.VerifyPasses,
                     ["verifiedBytes"] = health.VerifiedBytes,
+                    ["passMaxMs"] = health.PassMaxMs,
+                    ["passGapMaxMs"] = health.PassGapMaxMs,
                     ["agentVersion"] = _agentVersion ?? string.Empty,
                 };
                 if (!string.IsNullOrEmpty(health.ImeAgentVersion))

@@ -213,6 +213,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Periodic
                         data["ime_overwrite_bytes_reprocessed"] = health.OverwriteBytesReprocessed;
                         data["ime_verify_passes"] = health.VerifyPasses;
                         data["ime_verified_bytes"] = health.VerifiedBytes;
+                        data["ime_pass_max_ms"] = health.PassMaxMs;
+                        data["ime_pass_gap_max_ms"] = health.PassGapMaxMs;
                     }
                 }
                 catch (Exception ex)

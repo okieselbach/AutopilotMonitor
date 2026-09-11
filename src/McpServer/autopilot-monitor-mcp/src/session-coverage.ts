@@ -46,7 +46,7 @@ export const COVERAGE_EVENT_FIELDS =
   'data.bootToAgentStartSeconds,data.agentUptimeSeconds,data.outcome,data.note,' +
   'data.earliestRejectedSourceTimestamp,' +
   'data.file,data.firstSkippedPattern,data.lineBudgetBreaks,data.regexTimeouts,data.oversizedLines,data.unanchoredPatterns,data.linesRead,' +
-  'data.overwriteRewinds,data.overwriteBytesReprocessed,' +
+  'data.overwriteRewinds,data.overwriteBytesReprocessed,data.passMaxMs,data.passGapMaxMs,' +
   'data.collector,data.reason,data.errorType,' +
   'data.pendingItemCount,data.pendingBytes,data.kind,data.itemCount,data.disk_free_gb,' +
   'data.truncated,data.includedFiles,data.includedBytes,data.skippedFiles,data.skippedByReason,data.problemsByKind,' +
@@ -94,8 +94,18 @@ export interface ImeTrackerCoverage {
      */
     overwriteRewinds: number | null;
     overwriteBytesReprocessed: number | null;
+    /**
+     * Longest poll pass and longest pause between two passes, ms (agents after 2.0.1460). The
+     * loop sleeps 100 ms between passes; a pause of seconds means it was not scheduled — lines
+     * written meanwhile were read late, never lost (every event keeps its log line's timestamp).
+     */
+    passMaxMs: number | null;
+    passGapMaxMs: number | null;
   };
-  /** Present when overwriteRewinds > 0: says in words that those blocks were recovered, not lost. */
+  /**
+   * Present when overwriteRewinds > 0 or the poll loop paused for 5 s or longer: says in words
+   * that those blocks were recovered / those lines were read late — not lost.
+   */
   note?: string;
 }
 
@@ -287,6 +297,8 @@ export function buildSessionCoverage(
         oversizedLines: num(hits.data?.oversizedLines),
         overwriteRewinds: num(hits.data?.overwriteRewinds),
         overwriteBytesReprocessed: num(hits.data?.overwriteBytesReprocessed),
+        passMaxMs: num(hits.data?.passMaxMs),
+        passGapMaxMs: num(hits.data?.passGapMaxMs),
       }
     : undefined;
   // IME processes append to AgentExecutor.log and IntuneManagementExtension.log with independent
@@ -298,6 +310,19 @@ export function buildSessionCoverage(
       ? `${rewinds} log block(s) a concurrent IME process had overwritten were re-read` +
         `${sessionTotals?.overwriteBytesReprocessed ? ` (${Math.round(sessionTotals.overwriteBytesReprocessed / 1024)} KB)` : ''}` +
         ' — script results and exit codes in them are complete, not missing.'
+      : undefined;
+  // The poll loop sleeps 100 ms between passes; a pause of seconds (session c3ecb568: 26 s at
+  // 100 % VM CPU while the rest of the agent ran) delays the reading of every log line written
+  // meanwhile. Late, not lost: events keep their log line's timestamp and a result read before
+  // its executor end block waits for it — a note, never a gap.
+  const stallNoteMs = 5_000;
+  const passMaxMs = sessionTotals?.passMaxMs ?? 0;
+  const passGapMaxMs = sessionTotals?.passGapMaxMs ?? 0;
+  const stallNote =
+    Math.max(passMaxMs, passGapMaxMs) >= stallNoteMs
+      ? `The IME log tracker paused for up to ${Math.round(Math.max(passMaxMs, passGapMaxMs) / 1000)} s` +
+        ` (longest pass ${(passMaxMs / 1000).toFixed(1)} s, longest gap between passes ${(passGapMaxMs / 1000).toFixed(1)} s)` +
+        " — lines written meanwhile were read late, not lost: every event keeps its log line's own timestamp."
       : undefined;
   let imeTracker: ImeTrackerCoverage;
   if (degradedEv) {
@@ -330,7 +355,8 @@ export function buildSessionCoverage(
   } else {
     imeTracker = { degraded: false, ...(sessionTotals ? { sessionTotals } : {}) };
   }
-  if (overwriteNote) imeTracker.note = overwriteNote;
+  const notes = [overwriteNote, stallNote].filter((n): n is string => !!n);
+  if (notes.length > 0) imeTracker.note = notes.join(' ');
 
   // ── Collectors ──────────────────────────────────────────────────────────────
   const collectors: CollectorDegradation[] = [];

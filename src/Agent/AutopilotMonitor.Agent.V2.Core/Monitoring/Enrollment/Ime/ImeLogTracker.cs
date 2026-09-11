@@ -336,7 +336,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private int _unanchoredPatterns;
         private int _filesTailed;
         private long _backlogBytes;
+        // Poll-loop timing (restart-safe maxima on a monotonic clock): the longest pass and the
+        // longest pause between passes — see ImeTrackerHealth.PassMaxMs / PassGapMaxMs.
+        private long _passMaxMs;
+        private long _passGapMaxMs;
+        private long _lastPassEndMs = -1;
         private string _imeAgentVersionSeen;
+
+        /// <summary>Monotonic milliseconds for the poll-loop timing; tests substitute a counter.</summary>
+        internal Func<long> MonotonicMillisProvider { get; set; } = () => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
         private bool _trackerDegradedFired;
         private readonly Dictionary<string, int> _patternHits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -370,6 +378,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     OverwriteBytesReprocessed = _overwriteBytesReprocessed,
                     VerifyPasses = _verifyPasses,
                     VerifiedBytes = _verifiedBytes,
+                    PassMaxMs = _passMaxMs,
+                    PassGapMaxMs = _passGapMaxMs,
                     PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase),
                 };
             }
@@ -954,18 +964,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 {
                     try
                     {
-                        await CheckLogFilesAsync(token);
-
-                        // Platform-script completions that wait for the other file: an IME result
-                        // held for its executor end block, and the exit-code fallback for a
-                        // result IME never logged within the grace period. Runs on this same loop
-                        // thread (no locking) so it observes the buffer right after parsing.
-                        FlushPendingPlatformScriptResults(UtcNowProvider());
-
-                        // Token-failure grace window: fires only when the failure stayed
-                        // unresolved (no IME-TOKEN-SUCCESS) for the whole window. Runs after
-                        // the drain so a success later in the same batch clears first.
-                        CheckPendingTokenFailure(DateTime.UtcNow);
+                        await RunPollPassAsync(token);
                     }
                     catch (OperationCanceledException) { break; }
                     catch (Exception ex)
@@ -1004,6 +1003,36 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
                 _logger.Info("ImeLogTracker: polling stopped");
             }, token);
+        }
+
+        /// <summary>
+        /// One poll pass, timed: the file reads, then the platform-script completions that wait
+        /// for the other file (an IME result held for its executor end block, the exit-code
+        /// fallback for a result IME never logged), then the token-failure grace window — all on
+        /// this one loop thread, no locking, so the flushes observe the buffers right after
+        /// parsing. The longest pass and the longest pause since the previous pass ended are the
+        /// session's <see cref="ImeTrackerHealth.PassMaxMs"/> / <see cref="ImeTrackerHealth.PassGapMaxMs"/>.
+        /// </summary>
+        internal async Task RunPollPassAsync(CancellationToken token)
+        {
+            var startMs = MonotonicMillisProvider();
+            if (_lastPassEndMs >= 0 && startMs - _lastPassEndMs > _passGapMaxMs)
+            {
+                _passGapMaxMs = startMs - _lastPassEndMs;
+                _stateDirty = true;
+            }
+
+            await CheckLogFilesAsync(token);
+            FlushPendingPlatformScriptResults(UtcNowProvider());
+            CheckPendingTokenFailure(UtcNowProvider());
+
+            var endMs = MonotonicMillisProvider();
+            if (endMs - startMs > _passMaxMs)
+            {
+                _passMaxMs = endMs - startMs;
+                _stateDirty = true;
+            }
+            _lastPassEndMs = endMs;
         }
 
         /// <summary>
@@ -1155,6 +1184,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _overwriteBytesReprocessed = state.Health.OverwriteBytesReprocessed;
                     _verifyPasses = state.Health.VerifyPasses;
                     _verifiedBytes = state.Health.VerifiedBytes;
+                    _passMaxMs = state.Health.PassMaxMs;
+                    _passGapMaxMs = state.Health.PassGapMaxMs;
                 }
                 if (state.PatternHits != null)
                 {
@@ -1228,6 +1259,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     OverwriteBytesReprocessed = _overwriteBytesReprocessed,
                     VerifyPasses = _verifyPasses,
                     VerifiedBytes = _verifiedBytes,
+                    PassMaxMs = _passMaxMs,
+                    PassGapMaxMs = _passGapMaxMs,
                 };
                 state.PatternHits = new Dictionary<string, int>(_patternHits, StringComparer.OrdinalIgnoreCase);
             }

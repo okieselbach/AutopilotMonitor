@@ -177,6 +177,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public long OverwriteBytesReprocessed { get; set; }
         public long VerifyPasses { get; set; }
         public long VerifiedBytes { get; set; }
+        // Poll-loop timing maxima (null-defaulting on older state files).
+        public long PassMaxMs { get; set; }
+        public long PassGapMaxMs { get; set; }
     }
 
     public class PackageStateData

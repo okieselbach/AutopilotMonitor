@@ -132,7 +132,7 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('ime_tracker_degraded', 50, { file: 'AppWorkload.log', lineBudgetBreaks: 1, regexTimeouts: 0, oversizedLines: 0 }),
       ev('ime_pattern_hits', 900, { linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1 }, { severity: 'Debug' }),
     ]);
-    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1, overwriteRewinds: null, overwriteBytesReprocessed: null });
+    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 12000, lineBudgetBreaks: 7, regexTimeouts: 2, oversizedLines: 1, overwriteRewinds: null, overwriteBytesReprocessed: null, passMaxMs: null, passGapMaxMs: null });
     expect(c.gaps[0]).toContain('skipped the remaining patterns on 7 line(s)');
     expect(c.gaps[0]).toContain('gave up on 2 line(s) after a regex timeout');
     expect(c.gaps[0]).toContain('dropped 1 oversized line(s)');
@@ -143,7 +143,7 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('agent_started', 0),
       ev('ime_pattern_hits', 900, { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0 }),
     ]);
-    expect(c.imeTracker).toEqual({ degraded: false, sessionTotals: { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: null, overwriteBytesReprocessed: null } });
+    expect(c.imeTracker).toEqual({ degraded: false, sessionTotals: { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: null, overwriteBytesReprocessed: null, passMaxMs: null, passGapMaxMs: null } });
     expect(c.gaps).toEqual([]);
   });
 
@@ -155,7 +155,7 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('ime_pattern_hits', 900, { linesRead: 8957, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 6, overwriteBytesReprocessed: 5120 }, { severity: 'Debug' }),
     ]);
     expect(c.imeTracker.degraded).toBe(false);
-    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 8957, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 6, overwriteBytesReprocessed: 5120 });
+    expect(c.imeTracker.sessionTotals).toEqual({ linesRead: 8957, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 6, overwriteBytesReprocessed: 5120, passMaxMs: null, passGapMaxMs: null });
     expect(c.imeTracker.note).toBe('6 log block(s) a concurrent IME process had overwritten were re-read (5 KB) — script results and exit codes in them are complete, not missing.');
     expect(c.gaps).toEqual([]);
   });
@@ -165,6 +165,32 @@ describe('buildSessionCoverage — IME log tracker', () => {
       ev('agent_started', 0),
       ev('ime_pattern_hits', 900, { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 0, overwriteBytesReprocessed: 0 }),
     ]);
+    expect(c.imeTracker.note).toBeUndefined();
+  });
+
+  it('reports a poll-loop pause of 5 s or more as late reading — a note, never a gap', () => {
+    // Session c3ecb568: the tracker loop was not scheduled for 26 s at 100 % VM CPU; the lines
+    // written meanwhile were read afterwards with their own timestamps intact.
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('ime_pattern_hits', 900, { linesRead: 8422, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 11, overwriteBytesReprocessed: 1725, passMaxMs: 180, passGapMaxMs: 26100 }, { severity: 'Debug' }),
+    ]);
+    expect(c.imeTracker.degraded).toBe(false);
+    expect(c.imeTracker.sessionTotals?.passGapMaxMs).toBe(26100);
+    expect(c.imeTracker.note).toBe(
+      '11 log block(s) a concurrent IME process had overwritten were re-read (2 KB) — script results and exit codes in them are complete, not missing. '
+      + 'The IME log tracker paused for up to 26 s (longest pass 0.2 s, longest gap between passes 26.1 s)'
+      + " — lines written meanwhile were read late, not lost: every event keeps its log line's own timestamp.",
+    );
+    expect(c.gaps).toEqual([]);
+  });
+
+  it('stays silent about poll timing below the 5 s threshold', () => {
+    const c = buildSessionCoverage(SESSION, [
+      ev('agent_started', 0),
+      ev('ime_pattern_hits', 900, { linesRead: 800, lineBudgetBreaks: 0, regexTimeouts: 0, oversizedLines: 0, overwriteRewinds: 0, overwriteBytesReprocessed: 0, passMaxMs: 4999, passGapMaxMs: 800 }),
+    ]);
+    expect(c.imeTracker.sessionTotals?.passMaxMs).toBe(4999);
     expect(c.imeTracker.note).toBeUndefined();
   });
 });

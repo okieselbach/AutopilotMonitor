@@ -63,6 +63,24 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// <summary>Bytes re-read for verification, guard-zone checks included — the cost of the overwrite detection.</summary>
         public long VerifiedBytes { get; set; }
 
+        /// <summary>
+        /// Longest single poll pass this session (one <c>CheckLogFilesAsync</c> plus the
+        /// flushes), milliseconds on a monotonic clock. A pass spends its time in the file
+        /// reads, the ledger verifications and the regex matching; the fleet baseline is well
+        /// under 100 ms.
+        /// </summary>
+        public long PassMaxMs { get; set; }
+
+        /// <summary>
+        /// Longest pause between the end of one poll pass and the start of the next this
+        /// session, milliseconds. The loop sleeps 100 ms between passes and saves its state now
+        /// and then; anything far above that is the loop not being scheduled — session c3ecb568
+        /// lost 26 s this way at 100 % VM CPU while the rest of the agent kept running. Late
+        /// reading, not lost data: every event keeps its log line's own timestamp, and a
+        /// result read before its executor end block waits for it.
+        /// </summary>
+        public long PassGapMaxMs { get; set; }
+
         /// <summary>Match count per enabled pattern ID — every enabled pattern is present, zeros included.</summary>
         public IReadOnlyDictionary<string, int> PatternHits { get; set; }
 
