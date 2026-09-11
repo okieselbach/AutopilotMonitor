@@ -2,8 +2,9 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "29 August 2026";
+const LAST_UPDATED = "11 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
+const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
 const DOCS_PLANS = `${DOCS_URL}/plans`;
 const GITHUB_ADVISORY = "https://github.com/okieselbach/AutopilotMonitor/security/advisories/new";
 
@@ -48,7 +49,7 @@ export default function TermsPage() {
               <h3 className="font-semibold text-gray-900 mb-1">Pro</h3>
               <p className="text-sm text-gray-700">
                 Commercial plan under a written agreement with glueckkanja AG. Includes support and reliability
-                commitments, a data processing agreement, higher operating limits, extended retention, and delegated
+                commitments, higher operating limits, extended retention, and delegated
                 (MSP) administration. Where that agreement differs from these terms, the agreement prevails.
               </p>
             </div>
@@ -163,7 +164,9 @@ export default function TermsPage() {
             The security architecture, data residency, external services, retention and deletion behaviour, and an explicit
             statement of what the service does <em>not</em> do are published in the{" "}
             <a href={DOCS_SECURITY_FAQ} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Security &amp; Privacy FAQ</a>.
-            A signed data processing agreement is part of the Pro plan.
+            The{" "}
+            <a href={DOCS_DPA} target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Data Processing Agreement</a>{" "}
+            applies to both plans and is accepted when your organization signs up.
           </p>
         </div>
 

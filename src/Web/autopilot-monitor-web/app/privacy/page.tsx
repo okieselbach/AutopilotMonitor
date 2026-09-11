@@ -5,6 +5,7 @@ import { DOCS_URL } from "@/utils/config";
 const LAST_UPDATED = "11 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
+const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
 
 function DocsLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -59,8 +60,10 @@ export default function PrivacyPage() {
             contact for the open-source project and the Community edition.
           </p>
           <p className="text-gray-700">
-            A <strong>data processing agreement (DPA / AVV) is available on request</strong>, concluded with
-            glueckkanja AG. On the Pro plan it forms part of the written agreement.
+            The <strong>data processing agreement (DPA / AVV)</strong> with glueckkanja AG is{" "}
+            <DocsLink href={DOCS_DPA}>published</DocsLink> and applies to both plans. Your organization accepts it when
+            it signs up, and the accepted version is recorded with your tenant. Where you have concluded an individually
+            signed data processing agreement with us, that agreement prevails.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Collect</h2>
@@ -153,8 +156,8 @@ export default function PrivacyPage() {
             notification channels such as Teams, Slack, Discord, or a generic webhook, and your own AI assistant if a user connects
             one through the MCP integration. The platform itself makes no calls to any AI or LLM provider.{" "}
             <DocsLink href={DOCS_DATA_FLOWS}>Data Flows &amp; External Services</DocsLink> maps every outbound connection
-            and what it carries. The data processing agreement, available on request, is the authoritative document for
-            the parties engaged and the terms of their engagement.
+            and what it carries. The <DocsLink href={DOCS_DPA}>data processing agreement</DocsLink> is the authoritative
+            document for the parties engaged and the terms of their engagement; its list of sub-processors names them.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">Diagnostics Uploads</h2>
@@ -227,13 +230,13 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mt-6">Changes to This Policy</h2>
           <p className="text-gray-700">
             Material changes are reflected in the &quot;last updated&quot; date above and announced through the service
-            announcements in the portal. If you hold a signed data processing agreement, notification follows the terms of
-            that agreement.
+            announcements in the portal. Changes to the data processing agreement and its list of sub-processors are
+            announced in advance, as that agreement sets out.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">Contact</h2>
           <p className="text-gray-700">
-            For privacy questions, a data processing agreement, or a data subject request, contact glueckkanja AG using
+            For privacy questions or a data subject request, contact glueckkanja AG using
             the details in the <a href="https://www.glueckkanja.com/en/imprint" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">Imprint</a>.
             For the open-source project and the Community edition you can also reach the maintainer via{" "}
             <a href="https://www.linkedin.com/in/oliver-kieselbach" target="_blank" rel="noopener noreferrer" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">LinkedIn</a>{" "}
