@@ -219,6 +219,8 @@ public class AuthFunctionSideEffectTests
         // OnboardedBy is the immutable copy of the first-login UPN that auto-promote on
         // preview approval reads — UpdatedBy may later be clobbered by background syncs.
         Assert.Equal(Upn, config.OnboardedBy);
+        // The DPA version rides along in the same onboarding write (D-252).
+        Assert.Equal(CurrentDpa, config.DpaVersion);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(config, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
         _telegramMock.Verify(x => x.SendNewTenantSignupAsync(TenantId, Upn), Times.Once);
         _globalNotificationMock.Verify(x => x.CreateNotificationAsync(
@@ -301,6 +303,23 @@ public class AuthFunctionSideEffectTests
         await _sut.HandleAuthClientIdTrackingAsync(cached, TenantId, $"api://{PrimaryAppId}");
 
         _tenantConfigMock.Verify(x => x.GetConfigurationFreshAsync(It.IsAny<string>()), Times.Never);
+        _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    private const string CurrentDpa = AutopilotMonitor.Shared.Constants.CurrentDpaVersion;
+
+    [Fact]
+    public async Task HandleNewTenantDomain_WhenDomainAlreadySet_NeverStampsDpaVersion()
+    {
+        // The DPA version is written once, with the onboarding (D-252): an existing tenant's
+        // login writes nothing — no stamp, no save.
+        var config = DefaultConfig();
+        config.DomainName = "contoso.com";
+        config.DpaVersion = null;
+
+        await _sut.HandleNewTenantDomainAsync(config, TenantId, Upn);
+
+        Assert.Null(config.DpaVersion);
         _tenantConfigMock.Verify(x => x.SaveConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
 

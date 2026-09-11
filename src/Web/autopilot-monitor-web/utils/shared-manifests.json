@@ -120,6 +120,7 @@
       "lastUpdated",
       "updatedBy",
       "onboardedBy",
+      "dpaVersion",
       "contactEmail",
       "companyName",
       "onboardedAt",
@@ -224,6 +225,7 @@
       "lastUpdated": "0001-01-01T00:00:00.0000000",
       "updatedBy": null,
       "onboardedBy": null,
+      "dpaVersion": null,
       "contactEmail": null,
       "companyName": null,
       "onboardedAt": null,
@@ -21412,6 +21414,16 @@
           },
           "optional": true,
           "doc": "UPN of the user whose first login created this tenant configuration. Set once in HandleNewTenantDomainAsync alongside DomainName and never overwritten. Used by the preview-approval auto-promote path so background jobs that mutate UpdatedBy (e.g. global rate-limit sync) cannot leak a sentinel string into the TenantAdmins table. Null on rows that pre-date the OnboardedBy field — auto-promote falls back to UpdatedBy with a UPN-shape guard."
+        },
+        {
+          "name": "dpaVersion",
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "nullable": true
+          },
+          "optional": true,
+          "doc": "Version of the data processing agreement this tenant accepted with its onboarding — CurrentDpaVersion at that moment. Set once in HandleNewTenantDomainAsync together with OnboardedBy and never overwritten; never client-writable. Null on tenants onboarded before the field existed."
         },
         {
           "name": "contactEmail",

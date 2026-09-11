@@ -6,6 +6,17 @@ namespace AutopilotMonitor.Shared
     public static class Constants
     {
         // -----------------------------------------------------------------------
+        // Legal
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Version of the data processing agreement in force — the "Version" line of the customer
+        /// DPA page. Written once onto <c>TenantConfiguration.DpaVersion</c> when a tenant is onboarded
+        /// (D-252); bump it in the same change that publishes a new DPA version.
+        /// </summary>
+        public const string CurrentDpaVersion = "2026-09-1.7";
+
+        // -----------------------------------------------------------------------
         // Agent runtime defaults
         // -----------------------------------------------------------------------
 

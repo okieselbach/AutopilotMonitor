@@ -533,6 +533,7 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
     disabled: false,
     onboardedAt: '2026-01-15T00:00:00Z',
     onboardedBy: 'alice@contoso.example.com',
+    dpaVersion: '2026-09-1.7',
     lastUpdated: '2026-05-01T00:00:00Z',
     dataRetentionDays: 90,
     // ── sensitive / must NOT leak ──
@@ -553,7 +554,7 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
     for (const key of Object.keys(t)) expect(TENANT_SAFE_FIELDS.has(key)).toBe(true);
     for (const present of [
       'tenantId', 'domainName', 'planTier', 'disabled',
-      'onboardedAt', 'onboardedBy', 'lastUpdated', 'dataRetentionDays',
+      'onboardedAt', 'onboardedBy', 'dpaVersion', 'lastUpdated', 'dataRetentionDays',
     ]) {
       expect(t).toHaveProperty(present);
     }

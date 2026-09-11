@@ -387,6 +387,10 @@ public class AuthFunction
         // sync jobs that mutate UpdatedBy cannot leak sentinel strings into TenantAdmins.
         if (string.IsNullOrWhiteSpace(tenantConfig.OnboardedBy))
             tenantConfig.OnboardedBy = upn;
+        // The DPA is accepted with the onboarding itself (D-251/D-252): record the version in force,
+        // once, in this same first write — later logins never touch it.
+        if (string.IsNullOrWhiteSpace(tenantConfig.DpaVersion))
+            tenantConfig.DpaVersion = Constants.CurrentDpaVersion;
         // Dual app-reg window: home a NEW tenant on the primary app ONLY when its first login
         // actually arrived via the primary app. A first login via the legacy app leaves the field
         // null (= legacy) — keeps the "null = legacy" invariant clean and never routes a tenant

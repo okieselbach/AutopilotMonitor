@@ -45,6 +45,14 @@ namespace AutopilotMonitor.Shared.Models
         public string? OnboardedBy { get; set; }
 
         /// <summary>
+        /// Version of the data processing agreement this tenant accepted with its onboarding —
+        /// <see cref="Constants.CurrentDpaVersion"/> at that moment. Set once in
+        /// <c>HandleNewTenantDomainAsync</c> together with <see cref="OnboardedBy"/> and never
+        /// overwritten; never client-writable. Null on tenants onboarded before the field existed.
+        /// </summary>
+        public string? DpaVersion { get; set; }
+
+        /// <summary>
         /// Address used to reach this tenant about the service itself — a technical problem,
         /// a security matter, or a change that needs an administrator's attention. Editable by
         /// the tenant's own admins under Settings → Tenant → Contact.

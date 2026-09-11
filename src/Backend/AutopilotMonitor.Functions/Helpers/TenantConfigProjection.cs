@@ -39,6 +39,8 @@ namespace AutopilotMonitor.Functions.Helpers
             ("mcpDisabledReason", c => c.McpDisabledReason),
             ("onboardedAt",       c => c.OnboardedAt),
             ("onboardedBy",       c => c.OnboardedBy),
+            // DPA version accepted at onboarding — a version label, not a secret.
+            ("dpaVersion",        c => c.DpaVersion),
             ("lastUpdated",       c => c.LastUpdated),
             ("dataRetentionDays", c => c.DataRetentionDays),
             // App-reg migration observability: which app the tenant is homed on (null = legacy)
