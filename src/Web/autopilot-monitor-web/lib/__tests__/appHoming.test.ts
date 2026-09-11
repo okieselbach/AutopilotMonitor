@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { ADD_ON_GRANT_SCRIPT_URL, appHomingErrorMessage, buildAddOnGrantCommand } from "../appHoming";
+import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, appHomingErrorMessage, buildAddOnGrantCommand } from "../appHoming";
 import { classifyClientId } from "../authApp";
 
 const PRIMARY = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -88,13 +88,38 @@ describe("buildAddOnGrantCommand", () => {
   });
 
   it("uses the feature form for the Optional Graph capabilities page", () => {
-    const cmd = buildAddOnGrantCommand(LEGACY, TENANT, { features: "ScriptDisplayNames" });
+    const cmd = buildAddOnGrantCommand(LEGACY, TENANT, { features: ["ScriptDisplayNames"] });
     expect(cmd).toContain(`-ClientId "${LEGACY}"`);
-    expect(cmd).toContain("-Features ScriptDisplayNames");
+    expect(cmd).toContain("-Features ScriptDisplayNames `");
     expect(cmd).not.toContain("-Permissions");
   });
 
+  it("passes several features as one PowerShell array", () => {
+    const cmd = buildAddOnGrantCommand(PRIMARY, TENANT, { features: ["ScriptDisplayNames", "IntuneDeviceBinding"] });
+    expect(cmd).toContain("-Features ScriptDisplayNames,IntuneDeviceBinding `");
+  });
+
   it("leaves a placeholder when the tenant id is unknown", () => {
-    expect(buildAddOnGrantCommand(PRIMARY, undefined, { features: "All" })).toContain('-TenantId "<your-tenant-id>"');
+    expect(buildAddOnGrantCommand(PRIMARY, undefined, { features: ["All"] })).toContain('-TenantId "<your-tenant-id>"');
+  });
+});
+
+describe("addOnFeaturesSelector", () => {
+  const CATALOG = ["ScriptDisplayNames", "W365CloudPcValidation", "IntuneDeviceBinding"];
+
+  it("keeps catalog order regardless of tick order", () => {
+    expect(addOnFeaturesSelector(["IntuneDeviceBinding", "ScriptDisplayNames"], CATALOG))
+      .toEqual(["ScriptDisplayNames", "IntuneDeviceBinding"]);
+  });
+
+  it("collapses to All once every catalog feature is ticked", () => {
+    expect(addOnFeaturesSelector([...CATALOG].reverse(), CATALOG)).toEqual(["All"]);
+  });
+
+  it("is empty when nothing is ticked and ignores names outside the catalog", () => {
+    expect(addOnFeaturesSelector([], CATALOG)).toEqual([]);
+    expect(addOnFeaturesSelector(["Retired"], CATALOG)).toEqual([]);
+    // An empty catalog (status not loaded) never turns into All.
+    expect(addOnFeaturesSelector(["ScriptDisplayNames"], [])).toEqual([]);
   });
 });

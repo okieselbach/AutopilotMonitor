@@ -6,7 +6,7 @@ import { useTenant } from "../../../../contexts/TenantContext";
 import { api } from "@/lib/api";
 import { DOCS_URL } from "@/utils/config";
 import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
-import { ADD_ON_GRANT_SCRIPT_URL, buildAddOnGrantCommand } from "@/lib/appHoming";
+import { ADD_ON_GRANT_SCRIPT_URL, addOnFeaturesSelector, buildAddOnGrantCommand } from "@/lib/appHoming";
 import { trackEvent } from "@/lib/appInsights";
 
 interface FeatureStatus {
@@ -33,6 +33,13 @@ export function SectionOptionalGraphCapabilities() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"command" | "permissions" | null>(null);
+  // Features ticked in the table drive the command's -Features value. ScriptDisplayNames starts
+  // ticked so the link between the table and the command is obvious on first view.
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(["ScriptDisplayNames"]);
+
+  const toggleFeature = useCallback((name: string) => {
+    setSelectedFeatures(prev => (prev.includes(name) ? prev.filter(f => f !== name) : [...prev, name]));
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     if (!tenantId) return;
@@ -106,15 +113,18 @@ export function SectionOptionalGraphCapabilities() {
   }
 
   const featureRows = status?.features ?? [];
-  const allPermissions = Array.from(new Set(featureRows.flatMap(f => f.requiredPermissions)));
-  const allPermissionsLine = allPermissions.map(p => `"${p}"`).join(",");
   const featureNames = featureRows.map(f => f.name);
-  const exampleFeature = featureNames[0] ?? "ScriptDisplayNames";
+  const featuresValue = addOnFeaturesSelector(selectedFeatures, featureNames);
+  // "Copy permissions" follows the same selection, so both copy buttons grant the same set.
+  const selectedPermissions = Array.from(new Set(
+    featureRows.filter(f => selectedFeatures.includes(f.name)).flatMap(f => f.requiredPermissions),
+  ));
+  const selectedPermissionsLine = selectedPermissions.map(p => `"${p}"`).join(",");
 
   const scriptDownloadUrl = ADD_ON_GRANT_SCRIPT_URL;
   const docsUrl = `${DOCS_URL}/reference/optional-graph-permissions`;
-  const psCommand = status?.clientId
-    ? buildAddOnGrantCommand(status.clientId, tenantId, { features: exampleFeature })
+  const psCommand = status?.clientId && featuresValue.length > 0
+    ? buildAddOnGrantCommand(status.clientId, tenantId, { features: featuresValue })
     : "";
 
   return (
@@ -171,7 +181,18 @@ export function SectionOptionalGraphCapabilities() {
                 <tbody className="divide-y divide-gray-100">
                   {featureRows.map((f) => (
                     <tr key={f.name}>
-                      <td className="px-4 py-2 font-medium text-gray-900">{f.name}</td>
+                      <td className="px-4 py-2 font-medium text-gray-900">
+                        <label className="inline-flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedFeatures.includes(f.name)}
+                            onChange={() => toggleFeature(f.name)}
+                            className="h-4 w-4 rounded border-gray-300 text-green-600 accent-green-600 focus:ring-green-500"
+                            aria-label={`Include ${f.name} in the grant command`}
+                          />
+                          {f.name}
+                        </label>
+                      </td>
                       <td className="px-4 py-2 font-mono text-xs text-gray-700">
                         {f.requiredPermissions.join(", ")}
                       </td>
@@ -216,8 +237,18 @@ export function SectionOptionalGraphCapabilities() {
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-md font-semibold text-gray-900 mb-2">PowerShell grant command</h3>
           <p className="text-sm text-gray-600 mb-3">
-            Open a Windows PowerShell or PowerShell 7 prompt as a tenant administrator and run the commands
-            below — the first line downloads the script (
+            Run the commands below as a tenant administrator in{" "}
+            <a
+              href="https://shell.azure.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green-700 underline hover:text-green-800"
+            >
+              Azure Cloud Shell
+            </a>{" "}
+            (PowerShell) or in a local Windows PowerShell or PowerShell 7 prompt. In Cloud Shell the script uses
+            the account you are already signed in with, so there is no extra sign-in prompt. The first line
+            downloads the script (
             <a
               href={scriptDownloadUrl}
               className="text-green-700 underline hover:text-green-800"
@@ -229,19 +260,20 @@ export function SectionOptionalGraphCapabilities() {
           </p>
 
           <pre className="bg-gray-900 text-gray-100 text-xs font-mono p-3 rounded overflow-x-auto">
-{psCommand}
+{psCommand || "# Tick at least one feature in the table above to build the command."}
           </pre>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={() => copy(psCommand, "command")}
-              className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-800 font-medium hover:bg-gray-200"
+              disabled={!psCommand}
+              className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-800 font-medium hover:bg-gray-200 disabled:opacity-50"
             >
               {copied === "command" ? "Copied!" : "Copy command"}
             </button>
-            {allPermissionsLine.length > 0 && (
+            {selectedPermissionsLine.length > 0 && (
               <button
-                onClick={() => copy(allPermissionsLine, "permissions")}
+                onClick={() => copy(selectedPermissionsLine, "permissions")}
                 className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-800 font-medium hover:bg-gray-200"
                 title="Copy just the -Permissions value (handy if you keep your own runbook)"
               >
@@ -251,13 +283,12 @@ export function SectionOptionalGraphCapabilities() {
           </div>
 
           <p className="mt-3 text-xs text-gray-500">
-            The command above grants the <span className="font-mono">{exampleFeature}</span>{" "}capability.
-            Swap the <span className="font-mono">-Features</span> value as needed — available:{" "}
-            <span className="font-mono">{[...featureNames, "All"].join(", ")}</span>, where{" "}
-            <span className="font-mono">All</span> grants every optional capability in one go and{" "}
-            <span className="font-mono">-Features All -Revoke</span> removes them all again. If you prefer raw
-            permission strings, pass <span className="font-mono">-Permissions</span> with the list from{" "}
-            <span className="font-mono">Copy permissions</span>.
+            Tick features in the table above to choose what the command grants. Ticking all of them switches
+            the <span className="font-mono">-Features</span>{" "}value to{" "}
+            <span className="font-mono">All</span>, which grants every optional capability in one go;{" "}
+            <span className="font-mono">-Features All -Revoke</span>{" "}removes them all again. If you prefer raw
+            permission strings, pass <span className="font-mono">-Permissions</span>{" "}with the list from{" "}
+            <span className="font-mono">Copy permissions</span>, which follows the same selection.
           </p>
 
           <details className="mt-4 text-sm text-gray-600">

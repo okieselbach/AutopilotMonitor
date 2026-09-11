@@ -41,13 +41,22 @@ export const ADD_ON_GRANT_SCRIPT_NAME = "Grant-AutopilotMonitorAddOn.ps1";
 export const ADD_ON_GRANT_SCRIPT_URL = `${AGENT_DOWNLOAD_URL}/${ADD_ON_GRANT_SCRIPT_NAME}`;
 
 /**
- * What to grant: a feature name for the script's `-Features` switch (the Optional Graph
+ * What to grant: feature names for the script's `-Features` switch (the Optional Graph
  * capabilities page), or raw Graph application permission strings for `-Permissions` (the
  * app-homing funnel, which knows the exact roles the new app still lacks).
  */
 export type AddOnGrantSelection =
-  | { features: string }
+  | { features: readonly string[] }
   | { permissions: readonly string[] };
+
+/**
+ * The `-Features` value for the features ticked on the capabilities page: catalog order, and the
+ * script's `All` meta-value once every catalog feature is ticked. Empty when nothing is ticked.
+ */
+export function addOnFeaturesSelector(selected: readonly string[], catalog: readonly string[]): string[] {
+  const picked = catalog.filter((f) => selected.includes(f));
+  return picked.length > 0 && picked.length === catalog.length ? ["All"] : picked;
+}
 
 /**
  * Copy-paste-ready PowerShell: download the grant script, then run it against the service
@@ -61,7 +70,7 @@ export function buildAddOnGrantCommand(
 ): string {
   const selector = "permissions" in selection
     ? `-Permissions ${selection.permissions.map((p) => `"${p}"`).join(",")}`
-    : `-Features ${selection.features}`;
+    : `-Features ${selection.features.join(",")}`;
   return [
     `irm '${ADD_ON_GRANT_SCRIPT_URL}' -OutFile .\\${ADD_ON_GRANT_SCRIPT_NAME}`,
     `.\\${ADD_ON_GRANT_SCRIPT_NAME} \``,
