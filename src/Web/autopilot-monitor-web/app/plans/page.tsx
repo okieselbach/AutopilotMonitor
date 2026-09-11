@@ -39,7 +39,7 @@ export default function PlansPage() {
           }
           proBadge={
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
-              Coming soon
+              Free 30-day trial
             </span>
           }
           proCta={
@@ -53,7 +53,8 @@ export default function PlansPage() {
         />
 
         <p className="text-sm text-gray-600">
-          Pricing and availability for Pro will be announced. Community stays free.{" "}
+          Pro is sold through Microsoft Marketplace and Cleverbridge; a tenant administrator can
+          try it free for 30 days from the portal. Community stays free.{" "}
           For a feature-by-feature reference, see the{" "}
           <a
             href={`${DOCS_URL}/plans`}

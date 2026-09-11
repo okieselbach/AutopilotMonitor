@@ -8,9 +8,12 @@ export function LoginButton({
   className,
   children,
   signup = false,
+  disabled = false,
 }: {
   className?: string;
   children: React.ReactNode;
+  /** Inert until the caller's precondition holds (get-started: Terms + DPA accepted). */
+  disabled?: boolean;
   /**
    * Signup-funnel CTA (get-started "Sign in to get started"): routes the login through the
    * PRIMARY app registration so brand-new tenants consent the NEW app as part of the expected
@@ -43,7 +46,7 @@ export function LoginButton({
   };
 
   return (
-    <button onClick={handleClick} className={className}>
+    <button type="button" onClick={handleClick} disabled={disabled} className={className}>
       {children}
     </button>
   );

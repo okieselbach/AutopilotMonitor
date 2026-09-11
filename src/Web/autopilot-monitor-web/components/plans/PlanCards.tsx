@@ -128,17 +128,10 @@ export function PlanCards({ surface, highlight = null, communityBadge, proBadge,
 
         <div className="mt-4 mb-5">
           {proPrice ?? (
-            PRO_PRICE ? (
-              <>
-                <span className="text-2xl font-bold text-purple-900">{PRO_PRICE.amount}</span>
-                <span className="text-sm text-gray-600"> {PRO_PRICE.suffix}</span>
-              </>
-            ) : (
-              <>
-                <span className="text-2xl font-bold text-purple-900">Pricing</span>
-                <span className="text-sm text-gray-600"> — announced soon</span>
-              </>
-            )
+            <>
+              <span className="text-2xl font-bold text-purple-900">{PRO_PRICE.amount}</span>
+              <span className="text-sm text-gray-600"> {PRO_PRICE.suffix}</span>
+            </>
           )}
         </div>
 

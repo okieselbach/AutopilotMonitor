@@ -10,14 +10,6 @@ import { SectionCardHeader } from "@/components/SectionCardHeader";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 
 /**
- * Self-service Pro trial switch. The Pro feature set is not finalized yet, so the
- * trial CTA is teased but not actionable. Flip this to `true` (a one-line change) to open the
- * self-service 30-day trial — the backend POST /trial endpoint and the startTrial() wiring are
- * already in place; only this gate keeps the button inert.
- */
-const TRIAL_SELF_SERVICE_ENABLED = false;
-
-/**
  * Plan section: the shared Community/Pro comparison cards (components/plans/PlanCards —
  * also rendered on the public /plans page) with the tenant's current plan highlighted,
  * plus the portal-only trial CTA and the purchase handoff.
@@ -55,38 +47,22 @@ export function SectionPlan() {
           ? `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
           : "Current plan"}
     </span>
-  ) : (
+  ) : editionInfo.trialAvailable ? (
     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
-      Coming soon
+      Free 30-day trial
     </span>
-  );
+  ) : undefined;
 
   // CTA — only meaningful while the tenant is on Community
   const proCta = !isPro ? (
     <>
       {trialConsumed ? (
+        <p className="text-sm text-gray-600">This tenant has already used its Pro trial.</p>
+      ) : !canStartTrial ? (
         <p className="text-sm text-gray-600">
-          This tenant has already used its Pro trial. To move to Pro,{" "}
-          <a
-            href="https://github.com/okieselbach/AutopilotMonitor/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-purple-700 hover:underline"
-          >
-            get in touch
-          </a>
-          .
+          A tenant administrator can start the one-time 30-day Pro trial here.
         </p>
-      ) : !TRIAL_SELF_SERVICE_ENABLED ? (
-        <button
-          type="button"
-          disabled
-          title="Available soon — the Pro trial opens once the feature set is finalized."
-          className="w-full text-sm font-medium text-white bg-purple-400 rounded-lg px-4 py-2.5 cursor-not-allowed opacity-70"
-        >
-          Start 30-day Pro trial — coming soon
-        </button>
-      ) : canStartTrial && missingProfile.length > 0 ? (
+      ) : missingProfile.length > 0 ? (
         // Pro-requires-contact-profile gate (backend enforces the same via 409
         // ContactProfileRequired — this branch just makes the path obvious).
         <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-900 dark:bg-amber-950/30 dark:border-amber-700/50 dark:text-amber-200">
@@ -97,7 +73,7 @@ export function SectionPlan() {
           </Link>{" "}
           so we can reach and identify you for service or security matters — then start your trial here.
         </div>
-      ) : canStartTrial && !confirming ? (
+      ) : !confirming ? (
         <button
           type="button"
           onClick={() => setConfirming(true)}
@@ -105,7 +81,7 @@ export function SectionPlan() {
         >
           Start 30-day Pro trial
         </button>
-      ) : canStartTrial && confirming ? (
+      ) : (
         <div className="flex items-center gap-2 text-sm">
           <span className="text-gray-600">One-time trial — start now?</span>
           <button
@@ -128,16 +104,16 @@ export function SectionPlan() {
             Cancel
           </button>
         </div>
-      ) : null}
+      )}
       <p className="mt-3 text-xs text-gray-600">
-        Curious how Pro will be sold?{" "}
+        Ready to buy? Pro is sold through Microsoft Marketplace and Cleverbridge —{" "}
         <a
           href={`${SITE_URL}/buy`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-purple-700 hover:underline dark:text-purple-300"
         >
-          View purchase options
+          view purchase options
         </a>
         .
       </p>
@@ -167,7 +143,7 @@ export function SectionPlan() {
         <p className="text-xs text-gray-600 mt-5">
           {isPro && editionInfo.isTrial
             ? "When the trial ends, the tenant returns to Community automatically."
-            : "Scope, pricing and timeline for Pro will be announced. Community stays free."}
+            : "After a purchase this tenant moves to Pro and keeps its data. Community stays free."}
         </p>
       </div>
     </div>

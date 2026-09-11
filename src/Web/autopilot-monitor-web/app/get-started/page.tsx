@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
-import { LoginButton } from "../../components/landing/LoginButton";
+import { SignupConsentCta } from "../../components/landing/SignupConsentCta";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL, SITE_URL } from "@/utils/config";
 
@@ -85,11 +85,8 @@ export default function GetStartedPage() {
             </ol>
           </div>
 
-          {/* CTA */}
-          <div className="mt-14 flex flex-wrap items-center gap-3">
-            <LoginButton signup className="px-7 py-3 rounded-lg bg-[var(--lp-accent-ink)] hover:brightness-110 hover:shadow-lg text-white font-semibold shadow-md transition-all">
-              Sign in to get started
-            </LoginButton>
+          {/* CTA — sign-in waits for the Terms + DPA tick */}
+          <SignupConsentCta>
             <a
               href={DOCS_URL}
               target="_blank"
@@ -98,7 +95,7 @@ export default function GetStartedPage() {
             >
               Read the docs
             </a>
-          </div>
+          </SignupConsentCta>
 
           <p className="mt-6 text-sm text-[var(--lp-ink-faint)] leading-relaxed max-w-xl">
             When you need more later: the{" "}

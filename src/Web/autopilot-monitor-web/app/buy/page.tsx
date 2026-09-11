@@ -1,26 +1,32 @@
 import Link from "next/link";
 import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
+import { DOCS_URL } from "@/utils/config";
 
 /**
- * Purchase page for Pro. Linked from the public /plans page and from the
- * portal's Plan section (absolute www URL — /buy is public surface).
- *
- * Both purchase channels are honest "coming soon" placeholders until the
- * checkout links exist. When they do: the provider host must be registered in
- * utils/config.ts, the CSP in staticwebapp.config.json, the swaConfig guard
- * test, and the dev CSP in next.config.ts — see tasks/todo.md follow-up.
+ * Purchase page for Pro: hands the buyer off to one of the two purchase channels. Linked from
+ * the public /plans page and from the portal's Plan section (absolute www URL — /buy is public
+ * surface). It names no price on purpose: the plan cards carry the list price, the channel's
+ * checkout the binding one. Plain outbound links, so neither host needs a CSP entry.
  */
+const PURCHASE_GUIDE_URL = `${DOCS_URL}/troubleshooting-and-support/how-to-purchase`;
+
 const CHANNELS = [
   {
     label: "Microsoft Marketplace",
     description:
-      "Purchase through the Microsoft commercial marketplace using your organization's existing Microsoft billing relationship.",
+      "Subscribe through the Microsoft commercial marketplace and pay through your organization's existing Azure billing.",
+    href: "https://marketplace.microsoft.com/en-us/product/saas/glueckkanja-gabag.autopilot-monitor-transactable-prod?tab=Overview",
+    cta: "Buy on Microsoft Marketplace",
+    guide: `${PURCHASE_GUIDE_URL}/microsoft-marketplace`,
   },
   {
     label: "Cleverbridge",
     description:
-      "Buy Pro online with a credit card or on invoice — a fast, self-service checkout for a single organization.",
+      "Buy Pro online by credit card, PayPal or bank transfer — a fast, self-service checkout for a single organization.",
+    href: "https://www.cleverbridge.com/306/purl-Autopilot-Monitor-Buy-Y",
+    cta: "Buy with Cleverbridge",
+    guide: `${PURCHASE_GUIDE_URL}/cleverbridge`,
   },
 ];
 
@@ -35,9 +41,8 @@ export default function BuyPage() {
             Get Autopilot Monitor Pro
           </h1>
           <p className="mt-4 max-w-2xl text-[15px] text-gray-600 leading-relaxed">
-            Pro will be available through two purchase channels. Neither is open yet — pricing
-            and availability will be announced. Until then, Community is the full product, free
-            for everyone.
+            Pick the channel that fits how your organization buys software. Both lead to the same
+            Pro plan on your existing tenant — your data stays where it is.
           </p>
         </div>
       </header>
@@ -48,34 +53,42 @@ export default function BuyPage() {
           {CHANNELS.map((channel) => (
             <div key={channel.label} className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8 flex flex-col">
               <h2 className="text-lg font-bold text-gray-900 mb-3">{channel.label}</h2>
-              <p className="text-sm text-gray-600 leading-relaxed mb-4 flex-1">{channel.description}</p>
-              <button
-                type="button"
-                disabled
-                title="Available once Pro pricing is announced."
-                className="w-full rounded-lg border border-[var(--lp-line-soft)] bg-[var(--lp-surface-2)] px-4 py-2.5 text-sm font-semibold text-[var(--lp-ink-faint)] cursor-not-allowed"
+              <p className="text-sm text-gray-600 leading-relaxed mb-5 flex-1">{channel.description}</p>
+              <a
+                href={channel.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center text-sm font-semibold text-white bg-purple-600 rounded-lg px-4 py-2.5 hover:bg-purple-700 transition-colors"
               >
-                Coming soon
-              </button>
+                {channel.cta}
+              </a>
+              <a
+                href={channel.guide}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 text-center text-xs text-gray-600 hover:text-gray-900 underline"
+              >
+                Purchase guide: prerequisites, payment and cancellation
+              </a>
             </div>
           ))}
         </section>
 
-        {/* Interim path */}
+        {/* Trial + questions */}
         <section className="bg-[var(--lp-surface)] border border-[var(--lp-line-soft)] rounded-xl p-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Questions About Pro?</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Try Pro First</h2>
           <p className="text-gray-700 leading-relaxed">
-            Interested in Pro for your organization or an MSP scenario, or want to know when it
-            opens? Reach out through any channel on the{" "}
+            A tenant administrator can start a one-time, free 30-day Pro trial in the portal under
+            Settings → Tenant → Plan. When it ends, the tenant returns to Community automatically.
+            Questions about Pro or an MSP scenario? Reach out through any channel on the{" "}
             <Link href="/help" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">
               Help &amp; Support
             </Link>{" "}
-            page — you&apos;ll talk directly to the person building the platform. And if you
-            haven&apos;t compared the plans yet, the{" "}
+            page, or compare the plans in the{" "}
             <Link href="/plans" className="text-[var(--lp-accent-ink)] hover:opacity-80 underline">
               plans overview
-            </Link>{" "}
-            shows exactly what Pro adds.
+            </Link>
+            .
           </p>
         </section>
       </main>

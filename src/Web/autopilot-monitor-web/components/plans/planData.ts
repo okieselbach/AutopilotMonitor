@@ -39,9 +39,11 @@ export const proExtras = [
 ];
 
 /**
- * Pro price. Stays null until pricing is announced — PlanCards then renders the
- * "Pricing — announced soon" teaser. Once the price is final, set it here (e.g.
- * `{ amount: "€X", suffix: "per device / month" }`) and every surface — landing
- * and portal — updates in the same one-line change.
+ * Pro list price, shown on the plan cards only (public /plans and the portal Plan section).
+ * The /buy page deliberately names no price — the checkout of the purchase channel carries
+ * the binding one.
  */
-export const PRO_PRICE: { amount: string; suffix: string } | null = null;
+export const PRO_PRICE: { amount: string; suffix: string } = {
+  amount: "€149",
+  suffix: "/ month, excl. VAT",
+};
