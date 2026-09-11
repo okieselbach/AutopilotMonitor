@@ -22,7 +22,7 @@ import {
 } from "@/lib/scriptExecutions";
 import { lookupScriptDisplayName, type DisplayNamesByRefKey } from "@/lib/scriptDisplayNames";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
-import { userPhaseSplitIndex } from "@/lib/userPhaseBoundary";
+import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import PhaseDivider from "@/components/PhaseDivider";
 
 interface ScriptExecutionsProps {
@@ -43,11 +43,11 @@ interface ScriptExecutionsProps {
   // Epoch ms of the agent's last report, passed only once the session is terminal. A script
   // still running at that point renders as Incomplete instead of ticking against the wall clock.
   observedUntilMs?: number | null;
-  // Epoch ms the device entered Account Setup; null when the session has no user phase.
-  userPhaseStartMs?: number | null;
+  // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
+  userPhaseBoundary?: UserPhaseBoundary | null;
 }
 
-export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, observedUntilMs = null, userPhaseStartMs = null }: ScriptExecutionsProps) {
+export default function ScriptExecutions({ events, showScriptOutput, latestBootstrapVersion, displayNamesByRefKey, observedUntilMs = null, userPhaseBoundary = null }: ScriptExecutionsProps) {
   // Legacy-agent guard: split off script events replayed from a previous enrollment's IME
   // log (newer agents suppress them at the source) so week-old runs never render as current
   // executions. The muted note below keeps the gap explainable.
@@ -74,7 +74,7 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
   const platformCount = cards.filter(c => c.scriptType === "platform").length;
   const remediationCount = cards.filter(c => c.scriptType === "remediation").length;
 
-  const userSplit = userPhaseSplitIndex(cards, c => Date.parse(c.timestamp), userPhaseStartMs);
+  const userSplit = userPhaseSplitIndex(cards, c => Date.parse(c.timestamp), userPhaseBoundary);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -136,10 +136,10 @@ export default function ScriptExecutions({ events, showScriptOutput, latestBoots
 
       {expanded && (
         <div className="space-y-3 mt-4">
-          {userSplit > 0 && <PhaseDivider phase="device" />}
+          {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}
           {cards.map((card, i) => (
             <Fragment key={scriptCardKey(card)}>
-              {i === userSplit && <PhaseDivider phase="user" />}
+              {userPhaseBoundary && i === userSplit && <PhaseDivider boundary={userPhaseBoundary} side="after" />}
               <ScriptCardView
                 card={card}
                 showScriptOutput={showScriptOutput}

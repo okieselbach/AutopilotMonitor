@@ -7,7 +7,8 @@ import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type Inst
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 import PhaseDivider from "@/components/PhaseDivider";
-import { userPhaseSplitIndex } from "@/lib/userPhaseBoundary";
+import AssignmentPill from "@/components/AssignmentPill";
+import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 
 interface SummaryStats {
   totalApps?: number;
@@ -26,8 +27,8 @@ interface InstallProgressProps {
   // Epoch ms of the agent's last report, passed only once the session is terminal. A row still
   // installing at that point renders as Incomplete instead of ticking against the wall clock.
   observedUntilMs?: number | null;
-  // Epoch ms the device entered Account Setup; null when the session has no user phase.
-  userPhaseStartMs?: number | null;
+  // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
+  userPhaseBoundary?: UserPhaseBoundary | null;
 }
 
 // Finals counted by the historic-replay partition — one per hidden install, so the note
@@ -63,7 +64,7 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-export default function InstallProgress({ events, summaryStats, observedUntilMs = null, userPhaseStartMs = null }: InstallProgressProps) {
+export default function InstallProgress({ events, summaryStats, observedUntilMs = null, userPhaseBoundary = null }: InstallProgressProps) {
   // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
   // (newer agents suppress them at the source) so week-old installs never render as current.
   // office_*/realmjoin_* events never carry rejectedSourceTimestamp and pass through untouched.
@@ -133,7 +134,7 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
   const totalFromSummary = summaryStats?.totalApps;
   const installedFromSummary = summaryStats?.installed;
 
-  const userSplit = userPhaseSplitIndex(filteredInstalls, i => Date.parse(i.firstSeenAt), userPhaseStartMs);
+  const userSplit = userPhaseSplitIndex(filteredInstalls, i => Date.parse(i.firstSeenAt), userPhaseBoundary);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -233,10 +234,10 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
       </button>
 
       {expanded && <div className="space-y-3 mt-4">
-        {userSplit > 0 && <PhaseDivider phase="device" />}
+        {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}
         {filteredInstalls.map((item, i) => (
           <Fragment key={item.key}>
-            {i === userSplit && <PhaseDivider phase="user" />}
+            {userPhaseBoundary && i === userSplit && <PhaseDivider boundary={userPhaseBoundary} side="after" />}
             <InstallItemRow item={item} />
           </Fragment>
         ))}
@@ -345,6 +346,7 @@ function InstallItemRow({ item }: { item: InstallItem }) {
               {sourcePill.label}
             </span>
           )}
+          <AssignmentPill targeted={item.targeted} />
           {item.state === "Skipped" && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
           )}

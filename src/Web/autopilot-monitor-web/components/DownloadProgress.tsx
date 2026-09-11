@@ -5,7 +5,8 @@ import { partitionHistoricReplayEvents, type ReplayInputEvent } from "@/lib/hist
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
 import PhaseDivider from "@/components/PhaseDivider";
-import { userPhaseSplitIndex } from "@/lib/userPhaseBoundary";
+import AssignmentPill from "@/components/AssignmentPill";
+import { userPhaseSplitIndex, type UserPhaseBoundary } from "@/lib/userPhaseBoundary";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
@@ -32,6 +33,7 @@ interface DownloadEventData {
   downloadRateBps?: string;
   status?: string;
   intent?: string;
+  targeted?: string;
   progress_percent?: string;
   progressPercent?: string;
   doFileSize?: string;
@@ -66,8 +68,8 @@ interface DownloadProgressProps {
   // Epoch ms of the agent's last report, passed only once the session is terminal. A download
   // that never finished by then is incomplete, not active.
   observedUntilMs?: number | null;
-  // Epoch ms the device entered Account Setup; null when the session has no user phase.
-  userPhaseStartMs?: number | null;
+  // When the Enrollment Status Page entered Account Setup; null when the session has no such split.
+  userPhaseBoundary?: UserPhaseBoundary | null;
 }
 
 interface DoStats {
@@ -99,6 +101,8 @@ interface DownloadItem {
   // IME enforcement intent — a Win32 uninstall re-downloads the full package, so uninstall
   // rows are legitimate here; they just get labelled and counted separately.
   isUninstall: boolean;
+  // IME assignment target ("Device" / "User" / "Dependency").
+  targeted?: string;
   // Whether any event for this row ever showed real download activity (start signal, bytes,
   // progress). Rows without it are phantom "completed" rows from the terminal
   // download_progress event and are dropped after folding.
@@ -151,7 +155,7 @@ function effectiveDurationMs(dl: DownloadItem): number {
   return 0;
 }
 
-export default function DownloadProgress({ events, summaryStats, observedUntilMs = null, userPhaseStartMs = null }: DownloadProgressProps) {
+export default function DownloadProgress({ events, summaryStats, observedUntilMs = null, userPhaseBoundary = null }: DownloadProgressProps) {
   // Legacy-agent guard: drop download events replayed from a previous enrollment's IME log.
   // Silent (empty finals set) — the InstallProgress panel already reports the hidden count
   // for the same apps; a second note here would double-report them.
@@ -258,6 +262,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
         isComplete,
         isSkipped: isSkippedEvent || (existing?.isSkipped ?? false),
         isUninstall: (intent?.toLowerCase().includes("uninstall") ?? false) || (existing?.isUninstall ?? false),
+        targeted: (typeof d.targeted === "string" ? d.targeted : undefined) ?? existing?.targeted,
         hasByteEvidence: hasByteActivity(filterInput) || (existing?.hasByteEvidence ?? false),
         isIncomplete: false,
         firstSeenIndex: existing?.firstSeenIndex ?? insertionIndex++,
@@ -356,7 +361,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
     ? summaryStats.installed + summaryStats.installing + summaryStats.failed
     : null;
 
-  const userSplit = userPhaseSplitIndex(filteredDownloads, d => d.startedMs, userPhaseStartMs);
+  const userSplit = userPhaseSplitIndex(filteredDownloads, d => d.startedMs, userPhaseBoundary);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -460,7 +465,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
       </button>
 
       {expanded && <div className="space-y-3 mt-4">
-        {userSplit > 0 && <PhaseDivider phase="device" />}
+        {userPhaseBoundary && userSplit > 0 && <PhaseDivider boundary={userPhaseBoundary} side="before" />}
         {filteredDownloads.map((dl, i) => {
           const progressPercent = dl.bytesTotal > 0
             ? Math.min(100, (dl.bytesDownloaded / dl.bytesTotal) * 100)
@@ -468,7 +473,7 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
 
           return (
             <Fragment key={dl.appName}>
-              {i === userSplit && <PhaseDivider phase="user" />}
+              {userPhaseBoundary && i === userSplit && <PhaseDivider boundary={userPhaseBoundary} side="after" />}
               <DownloadItem download={dl} progressPercent={progressPercent} />
             </Fragment>
           );
@@ -524,6 +529,7 @@ function DownloadItem({ download: dl, progressPercent }: { download: DownloadIte
                     </svg>
                   )}
                   <TruncatedLabel text={dl.appName} className={`text-sm font-medium ${dl.isSkipped ? "text-gray-500" : "text-gray-900"}`} />
+                  <AssignmentPill targeted={dl.targeted} />
                   {dl.isSkipped && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">Skipped</span>
                   )}

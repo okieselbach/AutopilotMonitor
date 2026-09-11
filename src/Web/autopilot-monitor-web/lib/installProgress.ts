@@ -39,6 +39,7 @@ interface InstallEventData {
   error_code?: string;
   intent?: string;
   state?: string;
+  targeted?: string;
 }
 
 // Where an install row was observed. `ime` is the default and stays unlabelled in the UI —
@@ -61,6 +62,8 @@ export interface InstallItem {
   // IME enforcement intent ("Install" / "Uninstall" / "RequiredUninstall" …). Only present on
   // IME app events from agents that forward it; undefined keeps legacy behaviour.
   intent?: string;
+  // IME assignment target ("Device" / "User" / "Dependency"); only IME app events carry it.
+  targeted?: string;
   state: "Installing" | "Installed" | "Uninstalled" | "Failed" | "Postponed" | "Skipped" | "Preinstalled";
   startedAt?: string;
   completedAt?: string;
@@ -192,7 +195,14 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
     const isCompleted = (type === "app_install_completed" && !isSkippedCompletion) || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
     const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
 
-    const base = { key, source, appName, appId, intent: intent ?? existing?.intent, isIncomplete: false, firstSeenAt: existing?.firstSeenAt ?? eventTs };
+    const targeted = typeof d.targeted === "string" ? d.targeted : undefined;
+    const base = {
+      key, source, appName, appId,
+      intent: intent ?? existing?.intent,
+      targeted: targeted ?? existing?.targeted,
+      isIncomplete: false,
+      firstSeenAt: existing?.firstSeenAt ?? eventTs,
+    };
 
     if (isStarted) {
       // Don't reset an app that already completed — later batch re-scans

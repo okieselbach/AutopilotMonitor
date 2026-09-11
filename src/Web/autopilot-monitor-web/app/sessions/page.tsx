@@ -13,7 +13,7 @@ import PerformanceChart from '../../components/PerformanceChart';
 import DownloadProgress from '../../components/DownloadProgress';
 import InstallProgress from '../../components/InstallProgress';
 import ScriptExecutions from '../../components/ScriptExecutions';
-import { findUserPhaseStartMs } from '@/lib/userPhaseBoundary';
+import { findUserPhaseBoundary } from '@/lib/userPhaseBoundary';
 import { useLatestVersions } from '@/lib/useLatestVersions';
 import { useScriptDisplayNames } from '@/lib/scriptDisplayNames';
 import { api } from "@/lib/api";
@@ -217,7 +217,7 @@ function SessionDetailContent() {
   // bounded by the agent's last report. Live sessions pass null and keep ticking.
   const observedUntilMs = isTerminalStatus(displayStatus) ? lastObservedAtMs : null;
   // One boundary for the Download / Install / Script panels, so all three split at the same moment.
-  const userPhaseStartMs = findUserPhaseStartMs(events);
+  const userPhaseBoundary = findUserPhaseBoundary(events, session?.enrollmentType);
 
   // All phase keys currently present. For WhiteGlove sessions we use prefixed keys
   // (pre-X, user-X) to avoid collisions.
@@ -678,7 +678,7 @@ function SessionDetailContent() {
               latestBootstrapVersion={latestBootstrapVersion}
               displayNamesByRefKey={scriptDisplayNamesByRefKey}
               observedUntilMs={observedUntilMs}
-              userPhaseStartMs={userPhaseStartMs}
+              userPhaseBoundary={userPhaseBoundary}
             />
             </div>
           )}
@@ -692,7 +692,7 @@ function SessionDetailContent() {
               )}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
-              userPhaseStartMs={userPhaseStartMs}
+              userPhaseBoundary={userPhaseBoundary}
             />
             </div>
           )}
@@ -712,7 +712,7 @@ function SessionDetailContent() {
               )}
               summaryStats={appSummaryStats}
               observedUntilMs={observedUntilMs}
-              userPhaseStartMs={userPhaseStartMs}
+              userPhaseBoundary={userPhaseBoundary}
             />
             </div>
           )}
