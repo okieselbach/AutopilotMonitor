@@ -93,8 +93,9 @@ public class ImePatternHealthTests
             ["PS-AGENT-OUTPUT"] = "not-a-number",
         };
         var data = new Dictionary<string, object> { ["hits"] = hits, ["imeVersion"] = "1.105.103.0" };
+        var shipped = new HashSet<string>(new[] { "IME-ESP-PHASE", "IME-STARTED", "IME-DO-TEL", "PS-AGENT-OUTPUT" }, StringComparer.OrdinalIgnoreCase);
 
-        var result = ImePatternHealthService.ExtractBuiltInHits(data);
+        var result = ImePatternHealthService.ExtractBuiltInHits(data, shipped);
 
         Assert.Equal(12, result["IME-ESP-PHASE"]);
         Assert.Equal(1, result["IME-STARTED"]);
@@ -106,8 +107,9 @@ public class ImePatternHealthTests
     [Fact]
     public void ExtractBuiltInHits_without_a_histogram_is_empty()
     {
-        Assert.Empty(ImePatternHealthService.ExtractBuiltInHits(null));
-        Assert.Empty(ImePatternHealthService.ExtractBuiltInHits(new Dictionary<string, object> { ["linesRead"] = 5 }));
+        var shipped = new HashSet<string>(new[] { "IME-ESP-PHASE" }, StringComparer.OrdinalIgnoreCase);
+        Assert.Empty(ImePatternHealthService.ExtractBuiltInHits(null, shipped));
+        Assert.Empty(ImePatternHealthService.ExtractBuiltInHits(new Dictionary<string, object> { ["linesRead"] = 5 }, shipped));
     }
 
     [Fact]
@@ -128,9 +130,13 @@ public class ImePatternHealthTests
             new() { PatternId = "IME-NEW-THING", Category = "currentPhase", Enabled = true }, // no data yet
         };
 
-        var r = ImePatternHealthService.BuildResponse(stats, history, catalog, flaggedAt);
+        var stamp = new RuleCatalogStamp { Kind = RuleCatalogStamp.KindIme, Source = RuleCatalogStamp.SourceGitHub, StampedAt = flaggedAt.AddDays(-1), Count = 3 };
+        var r = ImePatternHealthService.BuildResponse(stats, history, catalog, stamp, flaggedAt);
 
         Assert.Equal("1.104.102.0", r.BaselineVersion);
+        Assert.Equal("github", r.Catalog.Source);
+        Assert.Equal(flaggedAt.AddDays(-1), r.Catalog.StampedAt);
+        Assert.Equal(3, r.Catalog.PatternCount);
         Assert.Equal("1.105.103.0", r.Versions[0].Version); // newest first
         Assert.Equal(30, r.Versions[0].Sessions);
         Assert.Equal(31, r.Versions[0].FleetSessions);
@@ -150,11 +156,13 @@ public class ImePatternHealthTests
     }
 
     [Fact]
-    public void BuiltInPatternIds_matches_the_embedded_catalog()
+    public void BuildResponse_without_a_stamp_reports_the_embedded_source()
     {
-        var ids = BuiltInImeLogPatterns.BuiltInPatternIds.Value;
-        Assert.Contains("IME-ESP-PHASE", ids);
-        Assert.Contains("PS-SCRIPT-RESULT", ids);
-        Assert.Equal(BuiltInImeLogPatterns.GetAll().Count, ids.Count);
+        var r = ImePatternHealthService.BuildResponse(new List<ImePatternStatsEntry>(), new List<ImeVersionHistoryEntry>(),
+            new List<ImeLogPattern> { new() { PatternId = "IME-ESP-PHASE", Category = "always", Enabled = true } }, null, DateTime.UtcNow);
+
+        Assert.Equal("embedded", r.Catalog.Source);
+        Assert.Null(r.Catalog.StampedAt);
+        Assert.Equal(1, r.Catalog.PatternCount);
     }
 }

@@ -77,5 +77,11 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
 
         public Task<bool> DeleteImeLogPatternAsync(string tenantId, string patternId)
             => _storage.DeleteImeLogPatternAsync(tenantId, patternId);
+
+        public Task<RuleCatalogStamp?> GetRuleCatalogStampAsync(string kind)
+            => _storage.GetRuleCatalogStampAsync(kind);
+
+        public Task<bool> SetRuleCatalogStampAsync(RuleCatalogStamp stamp)
+            => _storage.SetRuleCatalogStampAsync(stamp);
     }
 }

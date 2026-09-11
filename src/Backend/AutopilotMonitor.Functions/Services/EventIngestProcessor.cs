@@ -239,22 +239,22 @@ namespace AutopilotMonitor.Functions.Services
             }
 
             // IME pattern-drift loop: the agent's session-end histogram (every enabled pattern,
-            // zeros included) folds into the global per-IME-version statistics. Version from the
-            // event (the tracker saw IME's own "Agent version is:" line) with the session row as
-            // fallback — the ime_agent_version write above is fire-and-forget, so the row may lag
-            // in the same batch. Fire-and-forget, never affects the ingest response.
+            // zeros included) folds into the global per-IME-version statistics, filtered to the
+            // shipped catalog inside the service. Version from the event (the tracker saw IME's
+            // own "Agent version is:" line) with the session row as fallback — the
+            // ime_agent_version write above is fire-and-forget, so the row may lag in the same
+            // batch. Fire-and-forget, never affects the ingest response.
             var patternHitsEvent = request.Events.FirstOrDefault(e =>
                 e.EventType == AutopilotMonitor.Shared.Constants.EventTypes.ImePatternHits && e.Data != null);
             if (patternHitsEvent != null)
             {
-                var builtInHits = Ime.ImePatternHealthService.ExtractBuiltInHits(patternHitsEvent.Data);
                 string? hitsImeVersion = null;
                 if (patternHitsEvent.Data!.TryGetValue("imeVersion", out var imeVersionObj))
                     hitsImeVersion = imeVersionObj?.ToString();
                 if (string.IsNullOrWhiteSpace(hitsImeVersion))
                     hitsImeVersion = updatedSession?.ImeAgentVersion;
 
-                _ = _imePatternHealth.RecordSessionHitsAsync(hitsImeVersion, builtInHits, request.TenantId, request.SessionId);
+                _ = _imePatternHealth.RecordSessionHitsAsync(hitsImeVersion, patternHitsEvent.Data, request.TenantId, request.SessionId);
             }
 
             // Authoritative counter reconcile (EventCount + RebootCount): the LAST counter write

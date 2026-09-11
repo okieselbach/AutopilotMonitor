@@ -72,5 +72,13 @@ namespace AutopilotMonitor.Shared.DataAccess
         Task<bool> StoreImeLogPatternAsync(ImeLogPattern pattern, string tenantId = "global");
         Task<List<ImeLogPattern>> GetImeLogPatternsAsync(string partitionKey);
         Task<bool> DeleteImeLogPatternAsync(string tenantId, string patternId);
+
+        // --- Rule Catalog Stamps ---
+        /// <summary>
+        /// The stamp of the last explicit reseed of one catalog kind (<see cref="RuleCatalogStamp"/>).
+        /// Null when never stamped or unreadable — the embedded self-seed then runs as before.
+        /// </summary>
+        Task<RuleCatalogStamp?> GetRuleCatalogStampAsync(string kind);
+        Task<bool> SetRuleCatalogStampAsync(RuleCatalogStamp stamp);
     }
 }

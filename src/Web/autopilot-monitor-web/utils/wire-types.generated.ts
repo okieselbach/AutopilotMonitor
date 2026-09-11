@@ -2445,6 +2445,15 @@ export interface ImePatternDriftAlert {
   flaggedAt?: string;
 }
 
+export interface ImePatternHealthCatalog {
+  /** github (last written by a GitHub reseed) or embedded (the deployed backend's catalog). */
+  source: string;
+  /** When that reseed ran; null when no reseed was ever stamped. */
+  stampedAt?: string;
+  /** Patterns in the global catalog. */
+  patternCount: number;
+}
+
 export interface ImePatternHealthCell {
   version: string;
   patternId: string;
@@ -2471,6 +2480,8 @@ export interface ImePatternHealthResponse {
   minBaselineSessions: number;
   expectedHitRate: number;
   minCandidateSessions: number;
+  /** Where the shipped pattern list comes from — the seeded global catalog and the reseed that last wrote it. */
+  catalog: ImePatternHealthCatalog;
   versions: ImePatternHealthVersion[];
   patterns: ImePatternHealthPattern[];
   cells: ImePatternHealthCell[];

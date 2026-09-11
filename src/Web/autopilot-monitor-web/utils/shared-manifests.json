@@ -11417,6 +11417,36 @@
         }
       ]
     },
+    "ImePatternHealthCatalog": {
+      "kind": "object",
+      "fields": [
+        {
+          "name": "source",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "github (last written by a GitHub reseed) or embedded (the deployed backend's catalog)."
+        },
+        {
+          "name": "stampedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "When that reseed ran; null when no reseed was ever stamped."
+        },
+        {
+          "name": "patternCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Patterns in the global catalog."
+        }
+      ]
+    },
     "ImePatternHealthCell": {
       "kind": "object",
       "fields": [
@@ -11548,6 +11578,14 @@
             "kind": "primitive",
             "name": "number"
           }
+        },
+        {
+          "name": "catalog",
+          "type": {
+            "kind": "ref",
+            "name": "ImePatternHealthCatalog"
+          },
+          "doc": "Where the shipped pattern list comes from — the seeded global catalog and the reseed that last wrote it."
         },
         {
           "name": "versions",

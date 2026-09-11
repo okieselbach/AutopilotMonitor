@@ -71,6 +71,13 @@ export function SectionImePatternHealth() {
             Which shipped IME log patterns still match on which IME version. Built from the agents&apos; session-end
             {" "}<span className="font-mono">ime_pattern_hits</span> histograms; only sessions that reached a terminal run report one.
           </p>
+          {data?.catalog && (
+            <p className="text-sm text-gray-500">
+              Pattern catalog: {data.catalog.patternCount.toLocaleString()} patterns from{" "}
+              {data.catalog.source === "github" ? "the last GitHub reseed" : "the deployed backend build"}
+              {data.catalog.stampedAt ? ` (${new Date(data.catalog.stampedAt).toLocaleString()})` : ""}.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-gray-600">

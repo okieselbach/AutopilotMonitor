@@ -199,6 +199,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             _logger.LogInformation(
                 "GitHub reseed gather: {Deleted} deleted, {Written} written, {OrphanCount} orphan per-tenant RuleState(s) cleaned across {SunsetTotal} sunset rule(s) ({Skipped} skipped on failure for retry)",
                 deleted, rules.Count, orphanStatesGcd, sunset.Count, sunsetSkipped);
+            await _ruleRepo.SetRuleCatalogStampAsync(AutopilotMonitor.Functions.Services.RuleCatalogSeedGate.Stamp(
+                AutopilotMonitor.Shared.Models.RuleCatalogStamp.KindGather, AutopilotMonitor.Shared.Models.RuleCatalogStamp.SourceGitHub, rules.Count));
             return (deleted, rules.Count, orphanStatesGcd, sunsetSkipped);
         }
 
@@ -279,6 +281,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             _logger.LogInformation(
                 "GitHub reseed analyze: {Deleted} deleted, {Written} written, {OrphanCount} orphan per-tenant RuleState(s) cleaned across {SunsetTotal} sunset rule(s) ({Skipped} skipped on failure for retry)",
                 deleted, rules.Count, orphanStatesGcd, sunset.Count, sunsetSkipped);
+            await _ruleRepo.SetRuleCatalogStampAsync(AutopilotMonitor.Functions.Services.RuleCatalogSeedGate.Stamp(
+                AutopilotMonitor.Shared.Models.RuleCatalogStamp.KindAnalyze, AutopilotMonitor.Shared.Models.RuleCatalogStamp.SourceGitHub, rules.Count));
             return (deleted, rules.Count, orphanStatesGcd, sunsetSkipped);
         }
 
@@ -299,6 +303,8 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             }
 
             _logger.LogInformation($"GitHub reseed IME: {deleted} deleted, {patterns.Count} written");
+            await _ruleRepo.SetRuleCatalogStampAsync(AutopilotMonitor.Functions.Services.RuleCatalogSeedGate.Stamp(
+                AutopilotMonitor.Shared.Models.RuleCatalogStamp.KindIme, AutopilotMonitor.Shared.Models.RuleCatalogStamp.SourceGitHub, patterns.Count));
             return (deleted, patterns.Count);
         }
 

@@ -864,6 +864,64 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        // ===== RULE CATALOG STAMPS =====
+
+        private const string RuleCatalogStampPartitionKey = "RuleCatalog";
+
+        /// <summary>
+        /// The stamp of the last explicit reseed of one catalog kind (AdminConfiguration,
+        /// PK RuleCatalog / RK kind). Null when never stamped or unreadable — the self-seed then
+        /// runs as before, the safe direction for a fresh environment.
+        /// </summary>
+        public async Task<RuleCatalogStamp?> GetRuleCatalogStampAsync(string kind)
+        {
+            try
+            {
+                var table = _tableServiceClient.GetTableClient(Constants.TableNames.AdminConfiguration);
+                var response = await table.GetEntityIfExistsAsync<TableEntity>(RuleCatalogStampPartitionKey, kind);
+                if (!response.HasValue) return null;
+                var entity = response.Value!;
+                return new RuleCatalogStamp
+                {
+                    Kind = kind,
+                    Source = entity.GetString("Source") ?? string.Empty,
+                    StampedAt = entity.GetDateTime("StampedAt") ?? DateTime.MinValue,
+                    Count = entity.GetInt32("Count") ?? 0,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read the {Kind} rule catalog stamp", kind);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Written by every explicit reseed. A failed write is logged at Warning: without the
+        /// stamp the next fresh instance would apply the embedded catalog over the reseed again.
+        /// </summary>
+        public async Task<bool> SetRuleCatalogStampAsync(RuleCatalogStamp stamp)
+        {
+            try
+            {
+                var table = _tableServiceClient.GetTableClient(Constants.TableNames.AdminConfiguration);
+                var stampedAt = stamp.StampedAt == default ? DateTime.UtcNow : DateTime.SpecifyKind(stamp.StampedAt, DateTimeKind.Utc);
+                var entity = new TableEntity(RuleCatalogStampPartitionKey, stamp.Kind)
+                {
+                    ["Source"] = stamp.Source,
+                    ["StampedAt"] = stampedAt,
+                    ["Count"] = stamp.Count,
+                };
+                await table.UpsertEntityAsync(entity, TableUpdateMode.Replace);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to write the {Kind} rule catalog stamp", stamp.Kind);
+                return false;
+            }
+        }
+
         private ImeLogPattern MapToImeLogPattern(TableEntity entity)
         {
             return new ImeLogPattern

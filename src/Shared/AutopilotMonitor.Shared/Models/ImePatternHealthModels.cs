@@ -38,11 +38,23 @@ namespace AutopilotMonitor.Shared.Models
         public int MinBaselineSessions { get; set; }
         public double ExpectedHitRate { get; set; }
         public int MinCandidateSessions { get; set; }
+        /// <summary>Where the shipped pattern list comes from — the seeded global catalog and the reseed that last wrote it.</summary>
+        public ImePatternHealthCatalog Catalog { get; set; } = new();
         public List<ImePatternHealthVersion> Versions { get; set; } = new();
         public List<ImePatternHealthPattern> Patterns { get; set; } = new();
         public List<ImePatternHealthCell> Cells { get; set; } = new();
         public List<ImePatternDriftAlert> Alerts { get; set; } = new();
         public DateTime GeneratedAt { get; set; }
+    }
+
+    public class ImePatternHealthCatalog
+    {
+        /// <summary><c>github</c> (last written by a GitHub reseed) or <c>embedded</c> (the deployed backend's catalog).</summary>
+        public string Source { get; set; } = default!;
+        /// <summary>When that reseed ran; null when no reseed was ever stamped.</summary>
+        public DateTime? StampedAt { get; set; }
+        /// <summary>Patterns in the global catalog.</summary>
+        public int PatternCount { get; set; }
     }
 
     public class ImePatternHealthVersion

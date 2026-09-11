@@ -36,6 +36,14 @@ namespace AutopilotMonitor.Functions.Services
             BuildUtc = ResolveBuildUtc(asm);
         }
 
+        /// <summary>Test seam: a build identity with a chosen build time.</summary>
+        internal BackendBuildInfo(string version, string commitHash, DateTime buildUtc)
+        {
+            Version = version;
+            CommitHash = commitHash;
+            BuildUtc = buildUtc;
+        }
+
         /// <summary>
         /// Reads the <c>BuildTimestampUtc</c> AssemblyMetadata attribute. Falls back to
         /// <c>DateTime.UtcNow</c> only when the attribute is missing or unparseable —

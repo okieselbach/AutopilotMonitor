@@ -857,7 +857,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         'version — Microsoft probably changed the log wording). Workflow on an alert: search_sessions with ' +
         'imeAgentVersion=<version> -> get_session_diagnostics on a session with a package -> validate the pattern ' +
         'against the real IME log -> compare with the IME decompile -> fix the pattern in rules/ime-log-patterns. ' +
-        'Only sessions that reached a terminal run report a histogram (crashes/kills are excluded from the denominator).',
+        'Only sessions that reached a terminal run report a histogram (crashes/kills are excluded from the denominator). ' +
+        'catalog says where the shipped-pattern list comes from (the last GitHub reseed or the deployed backend build) and when it was written.',
       inputSchema: {},
       annotations: READ_ONLY,
     },

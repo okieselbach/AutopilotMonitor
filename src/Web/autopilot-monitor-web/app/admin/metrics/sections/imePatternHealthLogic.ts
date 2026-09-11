@@ -37,11 +37,21 @@ export interface ImePatternDriftAlert {
   flaggedAt?: string | null;
 }
 
+/** Where the shipped pattern list comes from: the seeded global catalog and the reseed that last wrote it. */
+export interface ImePatternHealthCatalog {
+  /** "github" (last written by a GitHub reseed) or "embedded" (the deployed backend's catalog). */
+  source: string;
+  stampedAt?: string | null;
+  patternCount: number;
+}
+
 export interface ImePatternHealthResponse {
   baselineVersion?: string | null;
   minBaselineSessions: number;
   expectedHitRate: number;
   minCandidateSessions: number;
+  /** Optional: a backend before the catalog block leaves it out. */
+  catalog?: ImePatternHealthCatalog | null;
   versions: ImePatternHealthVersion[];
   patterns: ImePatternHealthPattern[];
   cells: ImePatternHealthCell[];

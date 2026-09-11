@@ -17,6 +17,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IRuleRepository _ruleRepo;
         private readonly ILogger<GatherRuleService> _logger;
         private volatile bool _seeded = false;
+        private readonly BackendBuildInfo? _buildInfo;
         private readonly SemaphoreSlim _seedGate = new(1, 1);
 
         // Cached set of currently-shipped built-in gather rule IDs from
@@ -28,10 +29,11 @@ namespace AutopilotMonitor.Functions.Services
         private HashSet<string>? _liveCatalogIds;
         private readonly object _liveCatalogLock = new();
 
-        public GatherRuleService(IRuleRepository ruleRepo, ILogger<GatherRuleService> logger)
+        public GatherRuleService(IRuleRepository ruleRepo, ILogger<GatherRuleService> logger, BackendBuildInfo? buildInfo = null)
         {
             _ruleRepo = ruleRepo;
             _logger = logger;
+            _buildInfo = buildInfo;
         }
 
         /// <summary>
@@ -349,6 +351,7 @@ namespace AutopilotMonitor.Functions.Services
                 await _ruleRepo.StoreGatherRuleAsync(rule, "global");
             }
             _logger.LogInformation($"Written {builtInRules.Count} built-in gather rules from code");
+            await _ruleRepo.SetRuleCatalogStampAsync(RuleCatalogSeedGate.Stamp(RuleCatalogStamp.KindGather, RuleCatalogStamp.SourceEmbedded, builtInRules.Count));
 
             _seeded = false;
 
@@ -399,6 +402,14 @@ namespace AutopilotMonitor.Functions.Services
             }
             else
             {
+                // A GitHub reseed newer than this build owns the table: the embedded catalog is
+                // the older source (RuleCatalogSeedGate).
+                if (!await RuleCatalogSeedGate.AllowedAsync(_ruleRepo, _buildInfo, RuleCatalogStamp.KindGather, _logger))
+                {
+                    _seeded = true;
+                    return;
+                }
+
                 var existingLookup = existingRules.ToDictionary(r => r.RuleId, r => r);
                 var updated = 0;
 

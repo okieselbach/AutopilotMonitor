@@ -15,11 +15,13 @@ namespace AutopilotMonitor.Functions.Services
         private readonly ILogger<ImeLogPatternService> _logger;
         private volatile bool _seeded = false;
         private readonly SemaphoreSlim _seedGate = new(1, 1);
+        private readonly BackendBuildInfo? _buildInfo;
 
-        public ImeLogPatternService(IRuleRepository ruleRepo, ILogger<ImeLogPatternService> logger)
+        public ImeLogPatternService(IRuleRepository ruleRepo, ILogger<ImeLogPatternService> logger, BackendBuildInfo? buildInfo = null)
         {
             _ruleRepo = ruleRepo;
             _logger = logger;
+            _buildInfo = buildInfo;
         }
 
         /// <summary>
@@ -37,6 +39,21 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public Task<List<ImeLogPattern>> GetAllPatternsForTenantAsync(string tenantId)
             => LoadMergedPatternsAsync(tenantId);
+
+        /// <summary>
+        /// The shipped catalog as the agents receive it: the seeded <c>global</c> partition
+        /// (per-instance repository cache). The pattern-drift loop reads this, never the embedded
+        /// resource, so the health view and the ingest filter follow every reseed.
+        /// </summary>
+        public async Task<List<ImeLogPattern>> GetGlobalCatalogAsync()
+        {
+            await EnsureBuiltInPatternsSeededAsync();
+            return await _ruleRepo.GetImeLogPatternsAsync("global");
+        }
+
+        /// <summary>Which reseed last wrote the global catalog, if any was stamped.</summary>
+        public Task<RuleCatalogStamp?> GetCatalogStampAsync()
+            => _ruleRepo.GetRuleCatalogStampAsync(RuleCatalogStamp.KindIme);
 
         /// <summary>
         /// Global built-in patterns with the tenant's overrides applied (same PatternId wins),
@@ -147,6 +164,7 @@ namespace AutopilotMonitor.Functions.Services
                 await _ruleRepo.StoreImeLogPatternAsync(pattern, "global");
             }
             _logger.LogInformation($"Written {builtInPatterns.Count} built-in IME log patterns from code");
+            await _ruleRepo.SetRuleCatalogStampAsync(RuleCatalogSeedGate.Stamp(RuleCatalogStamp.KindIme, RuleCatalogStamp.SourceEmbedded, builtInPatterns.Count));
 
             _seeded = false;
 
@@ -192,6 +210,14 @@ namespace AutopilotMonitor.Functions.Services
             }
             else
             {
+                // A GitHub reseed newer than this build owns the table: the embedded catalog is
+                // the older source (RuleCatalogSeedGate).
+                if (!await RuleCatalogSeedGate.AllowedAsync(_ruleRepo, _buildInfo, RuleCatalogStamp.KindIme, _logger))
+                {
+                    _seeded = true;
+                    return;
+                }
+
                 var existingLookup = existingPatterns.ToDictionary(p => p.PatternId, p => p);
                 var updated = 0;
 
@@ -220,6 +246,22 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     _logger.LogInformation($"Updated {updated} built-in IME log patterns from code definitions");
                 }
+
+                // Sunset: built-in rows the embedded catalog no longer ships. Patterns carry no
+                // per-tenant RuleState, so this is a plain delete (the gather/analyze sunset minus
+                // the GC). A failed delete leaves _seeded=false so the next call retries.
+                var catalogIds = new HashSet<string>(builtInPatterns.Select(p => p.PatternId), StringComparer.OrdinalIgnoreCase);
+                var sunset = existingPatterns.Where(p => p.IsBuiltIn && !catalogIds.Contains(p.PatternId)).ToList();
+                var sunsetFailed = 0;
+                foreach (var pattern in sunset)
+                {
+                    if (!await _ruleRepo.DeleteImeLogPatternAsync("global", pattern.PatternId)) sunsetFailed++;
+                }
+                if (sunset.Count > 0)
+                {
+                    _logger.LogInformation("Sunset {Count} built-in IME log pattern(s) no longer in the embedded catalog ({Failed} failed)", sunset.Count, sunsetFailed);
+                }
+                if (sunsetFailed > 0) return;
             }
 
             _seeded = true;

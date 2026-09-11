@@ -9,9 +9,9 @@ namespace AutopilotMonitor.Functions.Services.Ime
     /// <para>
     /// <b>Ingest</b> (<see cref="RecordSessionHitsAsync"/>, fire-and-forget from
     /// <c>EventIngestProcessor</c>): the agent's session-end <c>ime_pattern_hits</c> histogram is
-    /// filtered to shipped pattern IDs (a device may only claim an ID; tenant custom patterns
-    /// never reach the global table), folded into <c>ImePatternStats</c> for the session's IME
-    /// version, then the version is evaluated for drift against the fleet baseline
+    /// filtered to the shipped pattern IDs of the global catalog (a device may only claim an ID;
+    /// tenant custom patterns never reach the global table), folded into <c>ImePatternStats</c>
+    /// for the session's IME version, then the version is evaluated for drift against the fleet baseline
     /// (<see cref="ImePatternDriftEvaluator"/>). A finding stamps the cell once and raises
     /// <c>ImePatternDriftSuspected</c>.
     /// </para>
@@ -20,6 +20,12 @@ namespace AutopilotMonitor.Functions.Services.Ime
     /// page and the MCP tool. Stats are cached for <see cref="StatsCacheTtl"/> for the drift
     /// evaluation only — the read side always queries fresh.
     /// </para>
+    /// <para>
+    /// The pattern catalog on both sides is the seeded <c>global</c> partition
+    /// (<see cref="ImeLogPatternService.GetGlobalCatalogAsync"/>), never the embedded resource:
+    /// a GitHub reseed changes what agents run before the next backend deploy, and the health
+    /// view must follow it.
+    /// </para>
     /// </summary>
     public sealed class ImePatternHealthService
     {
@@ -27,6 +33,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
 
         private readonly IMetricsRepository _metricsRepo;
         private readonly ISessionRepository _sessionRepo;
+        private readonly ImeLogPatternService _patterns;
         private readonly OpsEventService _opsEvents;
         private readonly ILogger<ImePatternHealthService> _logger;
 
@@ -37,29 +44,30 @@ namespace AutopilotMonitor.Functions.Services.Ime
         public ImePatternHealthService(
             IMetricsRepository metricsRepo,
             ISessionRepository sessionRepo,
+            ImeLogPatternService patterns,
             OpsEventService opsEvents,
             ILogger<ImePatternHealthService> logger)
         {
             _metricsRepo = metricsRepo;
             _sessionRepo = sessionRepo;
+            _patterns = patterns;
             _opsEvents = opsEvents;
             _logger = logger;
         }
 
         /// <summary>
         /// Extracts the histogram from an <c>ime_pattern_hits</c> event payload: the nested
-        /// <c>hits</c> object (patternId → count), restricted to shipped pattern IDs. Returns an
-        /// empty map when the payload has no usable histogram.
+        /// <c>hits</c> object (patternId → count), restricted to <paramref name="shippedIds"/>.
+        /// Returns an empty map when the payload has no usable histogram.
         /// </summary>
-        public static Dictionary<string, int> ExtractBuiltInHits(IReadOnlyDictionary<string, object>? data)
+        public static Dictionary<string, int> ExtractBuiltInHits(IReadOnlyDictionary<string, object>? data, ISet<string> shippedIds)
         {
             var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             if (data == null || !data.TryGetValue("hits", out var hitsObj) || hitsObj == null) return result;
 
-            var builtIn = BuiltInImeLogPatterns.BuiltInPatternIds.Value;
             foreach (var (patternId, value) in EnumerateHits(hitsObj))
             {
-                if (!builtIn.Contains(patternId)) continue;
+                if (!shippedIds.Contains(patternId)) continue;
                 result[patternId] = value;
             }
             return result;
@@ -102,13 +110,17 @@ namespace AutopilotMonitor.Functions.Services.Ime
         }
 
         /// <summary>
-        /// Folds one session's histogram into the version statistics and evaluates drift.
-        /// Never throws — the caller runs it fire-and-forget behind the ingest response.
+        /// Folds one session's histogram (the raw <c>ime_pattern_hits</c> payload) into the
+        /// version statistics and evaluates drift. Never throws — the caller runs it
+        /// fire-and-forget behind the ingest response.
         /// </summary>
-        public async Task RecordSessionHitsAsync(string? imeVersion, IReadOnlyDictionary<string, int> builtInHits, string tenantId, string sessionId)
+        public async Task RecordSessionHitsAsync(string? imeVersion, IReadOnlyDictionary<string, object>? data, string tenantId, string sessionId)
         {
             try
             {
+                var catalog = await _patterns.GetGlobalCatalogAsync();
+                var shipped = new HashSet<string>(catalog.Select(p => p.PatternId), StringComparer.OrdinalIgnoreCase);
+                var builtInHits = ExtractBuiltInHits(data, shipped);
                 if (builtInHits.Count == 0) return;
                 if (!ImeMsiArchiver.IsPlausibleVersion(imeVersion))
                 {
@@ -202,7 +214,9 @@ namespace AutopilotMonitor.Functions.Services.Ime
         {
             var stats = await _metricsRepo.GetImePatternStatsAsync();
             var history = await _sessionRepo.GetImeVersionHistoryAsync();
-            return BuildResponse(stats, history, BuiltInImeLogPatterns.GetAll(), DateTime.UtcNow);
+            var catalog = await _patterns.GetGlobalCatalogAsync();
+            var stamp = await _patterns.GetCatalogStampAsync();
+            return BuildResponse(stats, history, catalog, stamp, DateTime.UtcNow);
         }
 
         /// <summary>Pure projection — testable without storage.</summary>
@@ -210,6 +224,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
             IReadOnlyCollection<ImePatternStatsEntry> stats,
             IReadOnlyCollection<ImeVersionHistoryEntry> history,
             IReadOnlyCollection<ImeLogPattern> catalog,
+            RuleCatalogStamp? catalogStamp,
             DateTime nowUtc)
         {
             var baseline = ImePatternDriftEvaluator.SelectBaseline(stats, candidateVersion: null);
@@ -290,6 +305,12 @@ namespace AutopilotMonitor.Functions.Services.Ime
                 MinBaselineSessions = ImePatternDriftEvaluator.MinBaselineSessions,
                 ExpectedHitRate = ImePatternDriftEvaluator.ExpectedHitRate,
                 MinCandidateSessions = ImePatternDriftEvaluator.MinCandidateSessions,
+                Catalog = new ImePatternHealthCatalog
+                {
+                    Source = catalogStamp?.Source ?? RuleCatalogStamp.SourceEmbedded,
+                    StampedAt = catalogStamp?.StampedAt,
+                    PatternCount = catalog.Count,
+                },
                 Versions = versions,
                 Patterns = patterns,
                 Cells = cells,
