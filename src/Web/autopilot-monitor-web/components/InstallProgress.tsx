@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { getErrorCodeEntry, formatErrorCode, errorCodeTooltip } from "@/utils/errorCodeMap";
 import { partitionHistoricReplayEvents } from "@/lib/historicReplay";
 import { applyObservationEnd, buildInstallItems, isRebootOrRetryClass, type InstallEvent, type InstallItem, type InstallSource } from "@/lib/installProgress";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
+import PhaseDivider from "@/components/PhaseDivider";
+import { userPhaseSplitIndex } from "@/lib/userPhaseBoundary";
 
 interface SummaryStats {
   totalApps?: number;
@@ -24,6 +26,8 @@ interface InstallProgressProps {
   // Epoch ms of the agent's last report, passed only once the session is terminal. A row still
   // installing at that point renders as Incomplete instead of ticking against the wall clock.
   observedUntilMs?: number | null;
+  // Epoch ms the device entered Account Setup; null when the session has no user phase.
+  userPhaseStartMs?: number | null;
 }
 
 // Finals counted by the historic-replay partition — one per hidden install, so the note
@@ -59,7 +63,7 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-export default function InstallProgress({ events, summaryStats, observedUntilMs = null }: InstallProgressProps) {
+export default function InstallProgress({ events, summaryStats, observedUntilMs = null, userPhaseStartMs = null }: InstallProgressProps) {
   // Legacy-agent guard: split off app events replayed from a previous enrollment's IME log
   // (newer agents suppress them at the source) so week-old installs never render as current.
   // office_*/realmjoin_* events never carry rejectedSourceTimestamp and pass through untouched.
@@ -128,6 +132,8 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
   // Use summary stats for "X of Y" if available, fall back to local event counts
   const totalFromSummary = summaryStats?.totalApps;
   const installedFromSummary = summaryStats?.installed;
+
+  const userSplit = userPhaseSplitIndex(filteredInstalls, i => Date.parse(i.firstSeenAt), userPhaseStartMs);
 
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
@@ -227,8 +233,12 @@ export default function InstallProgress({ events, summaryStats, observedUntilMs 
       </button>
 
       {expanded && <div className="space-y-3 mt-4">
-        {filteredInstalls.map((item) => (
-          <InstallItemRow key={item.key} item={item} />
+        {userSplit > 0 && <PhaseDivider phase="device" />}
+        {filteredInstalls.map((item, i) => (
+          <Fragment key={item.key}>
+            {i === userSplit && <PhaseDivider phase="user" />}
+            <InstallItemRow item={item} />
+          </Fragment>
         ))}
         {showPending && pendingNames.map((name) => (
           <PendingAppRow key={`pending|${name}`} name={name} />

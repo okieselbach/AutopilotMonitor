@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { partitionHistoricReplayEvents, type ReplayInputEvent } from "@/lib/historicReplay";
 import TruncatedLabel from "@/components/TruncatedLabel";
 import PendingAppRow from "@/components/PendingAppRow";
+import PhaseDivider from "@/components/PhaseDivider";
+import { userPhaseSplitIndex } from "@/lib/userPhaseBoundary";
 import { shouldSkipLowBytesTotal, shouldSkipNoActivity, hasByteActivity } from "@/lib/downloadProgressFilters";
 import { formatBytes, formatThroughput, formatDuration } from "@/lib/formatting";
 import DoBreakdownBar from "./DoBreakdownBar";
@@ -64,6 +66,8 @@ interface DownloadProgressProps {
   // Epoch ms of the agent's last report, passed only once the session is terminal. A download
   // that never finished by then is incomplete, not active.
   observedUntilMs?: number | null;
+  // Epoch ms the device entered Account Setup; null when the session has no user phase.
+  userPhaseStartMs?: number | null;
 }
 
 interface DoStats {
@@ -147,7 +151,7 @@ function effectiveDurationMs(dl: DownloadItem): number {
   return 0;
 }
 
-export default function DownloadProgress({ events, summaryStats, observedUntilMs = null }: DownloadProgressProps) {
+export default function DownloadProgress({ events, summaryStats, observedUntilMs = null, userPhaseStartMs = null }: DownloadProgressProps) {
   // Legacy-agent guard: drop download events replayed from a previous enrollment's IME log.
   // Silent (empty finals set) — the InstallProgress panel already reports the hidden count
   // for the same apps; a second note here would double-report them.
@@ -352,6 +356,8 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
     ? summaryStats.installed + summaryStats.installing + summaryStats.failed
     : null;
 
+  const userSplit = userPhaseSplitIndex(filteredDownloads, d => d.startedMs, userPhaseStartMs);
+
   return (
     <div className="bg-white shadow rounded-lg p-6 mb-6">
       <button
@@ -454,12 +460,18 @@ export default function DownloadProgress({ events, summaryStats, observedUntilMs
       </button>
 
       {expanded && <div className="space-y-3 mt-4">
-        {filteredDownloads.map((dl) => {
+        {userSplit > 0 && <PhaseDivider phase="device" />}
+        {filteredDownloads.map((dl, i) => {
           const progressPercent = dl.bytesTotal > 0
             ? Math.min(100, (dl.bytesDownloaded / dl.bytesTotal) * 100)
             : (dl.isComplete ? 100 : 0);
 
-          return <DownloadItem key={dl.appName} download={dl} progressPercent={progressPercent} />;
+          return (
+            <Fragment key={dl.appName}>
+              {i === userSplit && <PhaseDivider phase="user" />}
+              <DownloadItem download={dl} progressPercent={progressPercent} />
+            </Fragment>
+          );
         })}
         {showPending && pendingNames.map((name) => (
           <PendingAppRow key={`pending|${name}`} name={name} />

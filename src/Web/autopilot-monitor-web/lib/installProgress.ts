@@ -100,6 +100,8 @@ export interface InstallItem {
   isIncomplete: boolean;
   observedMs?: number;
   firstSeenIndex: number;
+  // Timestamp of the row's first event — places the row before or after the user-phase boundary.
+  firstSeenAt: string;
   eventData?: Record<string, unknown>;
 }
 
@@ -190,7 +192,7 @@ export function buildInstallItems(events: InstallEvent[]): InstallItem[] {
     const isCompleted = (type === "app_install_completed" && !isSkippedCompletion) || type === "office_install_completed" || (type === "realmjoin_package_completed" && !rjFailed);
     const isFailed = type === "app_install_failed" || type === "office_install_failed" || rjFailed;
 
-    const base = { key, source, appName, appId, intent: intent ?? existing?.intent, isIncomplete: false };
+    const base = { key, source, appName, appId, intent: intent ?? existing?.intent, isIncomplete: false, firstSeenAt: existing?.firstSeenAt ?? eventTs };
 
     if (isStarted) {
       // Don't reset an app that already completed — later batch re-scans
