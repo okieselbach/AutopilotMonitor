@@ -32,7 +32,7 @@ export const proExtras = [
   `Extended data retention — ${PRO_RETENTION_DAYS} days (vs ${COMMUNITY_RETENTION_DAYS})`,
   "Higher portal & agent API rate limits",
   "Larger AI (MCP) usage quota",
-  "Delegated (MSP) administration across tenants — 2 managed tenants included, more on request",
+  "Delegated (MSP) administration across tenants — 2 managed tenants included, additional tenants as add-ons",
   "OOBE bootstrap sessions — run the agent already before MDM enrollment",
   "Unrestricted Mode for advanced data collection (activated on request)",
   "Reliability commitments & priority support",

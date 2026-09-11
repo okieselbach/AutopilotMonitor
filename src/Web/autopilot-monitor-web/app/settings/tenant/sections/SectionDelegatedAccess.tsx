@@ -282,7 +282,7 @@ export function SectionDelegatedAccess() {
                   {slots.managedTenantIds.length} managed
                   {slots.pendingInvitations > 0 && ` · ${slots.pendingInvitations} pending invitation${slots.pendingInvitations === 1 ? "" : "s"}`}
                   {slots.holds.length > 0 && ` · ${slots.holds.length} slot${slots.holds.length === 1 ? "" : "s"} held after a removal`}
-                  {slots.used >= slots.limit && " · no free slot — remove a tenant or ask for a larger package"}
+                  {slots.used >= slots.limit && " · no free slot — remove a tenant or buy additional tenants as add-ons"}
                 </p>
               )}
 
