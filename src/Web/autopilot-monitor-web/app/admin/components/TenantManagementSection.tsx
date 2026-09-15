@@ -29,6 +29,22 @@ import { AppHomingConfirmDialog } from "./AppHomingConfirmDialog";
 import { OffboardTenantConfirmDialog } from "./OffboardTenantConfirmDialog";
 import { useCanMutatePlatform } from "@/hooks/useCanMutatePlatform";
 import { matchesTenantSearch, notificationEmailFor, parseTenantSearch } from "./tenantSearch";
+import {
+  EMPTY_FILTERS,
+  activeFilterCount,
+  editionLabel,
+  effectiveEdition,
+  facetCounts,
+  facetOption,
+  matchesTenantFilters,
+  planOverview,
+  toggleFacetValue,
+  visibleFacets,
+  type FacetKey,
+  type TenantFilterContext,
+  type TenantFilters,
+} from "./tenantFilters";
+import { TenantFilterChips, TenantFilterMenu } from "./TenantFilterMenu";
 import { ModalPortal } from "@/components/ModalPortal";
 
 /** "Pro (MSP)" / "Pro (Trial)" / "Pro" / "Community" for the plan-save confirmation. */
@@ -117,8 +133,7 @@ function TenantManagementSectionInner({
   // Mount-time clock for trial-expiry checks — render must stay pure
   // (react-hooks/purity); day-granularity expiry doesn't need a live clock.
   const [nowMs] = useState(() => Date.now());
-  const [showOnlyWaitlist, setShowOnlyWaitlist] = useState(false);
-  const [showOnlyReady, setShowOnlyReady] = useState(false);
+  const [filters, setFilters] = useState<TenantFilters>(EMPTY_FILTERS);
   const [tenantSectionExpanded, setTenantSectionExpanded] = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantConfiguration | null>(null);
   const [savingTenant, setSavingTenant] = useState(false);
@@ -197,21 +212,28 @@ function TenantManagementSectionInner({
   const [sendingWelcomeEmail, setSendingWelcomeEmail] = useState(false);
   const [notificationEmail, setNotificationEmail] = useState("");
 
-  // Filter and sort tenants. Matching (incl. the quoted exact mode and the two
-  // searchable addresses) lives in tenantSearch.ts.
+  // Search, then facets. Search matching (incl. the quoted exact mode and the two
+  // searchable addresses) lives in tenantSearch.ts, the facet logic in tenantFilters.ts.
   const searchTerm = parseTenantSearch(searchQuery);
-  const filteredTenants = tenants.filter(t => {
-    const matchesSearch = matchesTenantSearch(
-      t, searchTerm, notificationEmailFor(notificationEmails, t.tenantId));
-    const matchesWaitlist = !showOnlyWaitlist || !previewApproved.has(t.tenantId);
-    const matchesReady = !showOnlyReady || t.validateAutopilotDevice;
-    return matchesSearch && matchesWaitlist && matchesReady;
-  });
+  const searchedTenants = tenants.filter(t =>
+    matchesTenantSearch(t, searchTerm, notificationEmailFor(notificationEmails, t.tenantId)));
+  const filterCtx: TenantFilterContext = {
+    nowMs,
+    isWaitlisted: (tenantId) => !previewApproved.has(tenantId),
+    classifyApp: legacyConfigured() ? classifyClientId : null,
+  };
+  const filteredTenants = searchedTenants.filter(t => matchesTenantFilters(t, filters, filterCtx));
+  // Counts over the search hits so the popover agrees with the visible list.
+  const filterCounts = facetCounts(searchedTenants, filters, filterCtx);
+  const filtersActive = activeFilterCount(filters) > 0;
+  const toggleFilter = (key: FacetKey, value: string) => setFilters(f => toggleFacetValue(f, key, value));
+  const clearFilters = () => setFilters(EMPTY_FILTERS);
 
   // Statistics (always over all tenants, not filtered)
   const readyCount = tenants.filter(t => t.validateAutopilotDevice).length;
   const waitlistCount = tenants.filter(t => !previewApproved.has(t.tenantId)).length;
   const totalCount = tenants.length;
+  const plans = planOverview(tenants, nowMs);
 
   // Pagination
   const totalPages = Math.ceil(filteredTenants.length / tenantsPerPage);
@@ -221,9 +243,9 @@ function TenantManagementSectionInner({
 
   // Reset to first page when the search or a filter changes (adjust-during-render
   // pattern, see react.dev "storing information from previous renders").
-  const [prevFilterKey, setPrevFilterKey] = useState<[string, boolean, boolean]>([searchQuery, showOnlyWaitlist, showOnlyReady]);
-  if (prevFilterKey[0] !== searchQuery || prevFilterKey[1] !== showOnlyWaitlist || prevFilterKey[2] !== showOnlyReady) {
-    setPrevFilterKey([searchQuery, showOnlyWaitlist, showOnlyReady]);
+  const [prevFilterKey, setPrevFilterKey] = useState<[string, TenantFilters]>([searchQuery, filters]);
+  if (prevFilterKey[0] !== searchQuery || prevFilterKey[1] !== filters) {
+    setPrevFilterKey([searchQuery, filters]);
     setCurrentPage(0);
   }
 
@@ -523,43 +545,31 @@ function TenantManagementSectionInner({
                     </button>
                   )}
                 </div>
-                <button
-                  onClick={() => { setShowOnlyReady(v => !v); setCurrentPage(0); }}
-                  className={`flex items-center space-x-1 px-3 py-2 text-sm rounded-lg border transition-colors whitespace-nowrap ${
-                    showOnlyReady
-                      ? 'bg-green-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {showOnlyReady && (
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                  <span>Ready</span>
-                </button>
-                <button
-                  onClick={() => { setShowOnlyWaitlist(v => !v); setCurrentPage(0); }}
-                  className={`flex items-center space-x-1 px-3 py-2 text-sm rounded-lg border transition-colors whitespace-nowrap ${
-                    showOnlyWaitlist
-                      ? 'bg-amber-500 text-white border-amber-500'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {showOnlyWaitlist && (
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                  <span>Waitlist</span>
-                </button>
+                <TenantFilterMenu
+                  facets={visibleFacets(filterCtx)}
+                  filters={filters}
+                  counts={filterCounts}
+                  onToggle={toggleFilter}
+                  onClear={clearFilters}
+                />
               </div>
+              {filtersActive && (
+                <div className="flex flex-wrap items-center justify-between gap-2 -mt-2">
+                  <TenantFilterChips filters={filters} onToggle={toggleFilter} onClear={clearFilters} />
+                  <span className="text-sm text-gray-600">
+                    <span className="font-semibold text-gray-900">{filteredTenants.length}</span>
+                    {' '}of{' '}
+                    <span className="font-semibold">{searchedTenants.length}</span>
+                    {' '}match
+                  </span>
+                </div>
+              )}
 
               {/* Tenant List */}
               <div className="space-y-3">
                 {paginatedTenants.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
-                    {showOnlyWaitlist ? "No waitlist tenants found" : searchQuery ? "No tenants found matching your search" : "No tenants registered yet"}
+                    {filtersActive ? "No tenants match the current filters" : searchQuery ? "No tenants found matching your search" : "No tenants registered yet"}
                   </div>
                 ) : (
                   <>
@@ -601,22 +611,21 @@ function TenantManagementSectionInner({
                                   Waitlist
                                 </span>
                               )}
-                              {tenant.managedByProTenantId ? (
-                                <span
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
-                                  title={`Pro conferred by the managing tenant ${tenant.managedByProTenantId}`}
-                                >
-                                  Pro (MSP)
-                                </span>
-                              ) : tenant.planTier === "pro" || tenant.planTier === "enterprise" ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                  Pro
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  Community
-                                </span>
-                              )}
+                              {(() => {
+                                const edition = effectiveEdition(tenant, nowMs);
+                                return (
+                                  <span
+                                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${facetOption("plan", edition)?.badgeClass}`}
+                                    title={
+                                      edition === "pro-msp" ? `Pro conferred by the managing tenant ${tenant.managedByProTenantId}`
+                                      : edition === "pro-trial" ? `Trial ends ${new Date(tenant.trialExpiresUtc!).toLocaleDateString()}`
+                                      : undefined
+                                    }
+                                  >
+                                    {editionLabel(edition)}
+                                  </span>
+                                );
+                              })()}
                               {tenant.payingCustomer && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800" title="Paying customer (sales bookkeeping)">
                                   Paying
@@ -695,19 +704,34 @@ function TenantManagementSectionInner({
 
               {/* Statistics */}
               {totalCount > 0 && (
-                <div className="pt-3 border-t border-green-200 flex items-center justify-between gap-4 text-sm text-gray-600 flex-wrap">
-                  <span>
-                    <span className="font-semibold text-blue-700">{readyCount}</span>
-                    {' '}of{' '}
-                    <span className="font-semibold">{totalCount}</span>
-                    {' '}Tenant(s) are Ready
-                  </span>
-                  <span>
-                    <span className="font-semibold text-amber-600">{waitlistCount}</span>
-                    {' '}of{' '}
-                    <span className="font-semibold">{totalCount}</span>
-                    {' '}Tenant(s) are on the Waitlist
-                  </span>
+                <div className="pt-3 border-t border-green-200 space-y-1.5 text-sm text-gray-600">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <span>
+                      <span className="font-semibold text-blue-700">{readyCount}</span>
+                      {' '}of{' '}
+                      <span className="font-semibold">{totalCount}</span>
+                      {' '}Tenant(s) are Ready
+                    </span>
+                    <span>
+                      <span className="font-semibold text-amber-600">{waitlistCount}</span>
+                      {' '}of{' '}
+                      <span className="font-semibold">{totalCount}</span>
+                      {' '}Tenant(s) are on the Waitlist
+                    </span>
+                  </div>
+                  {/* Plan breakdown over all tenants (never filtered); paying counted inside Pro */}
+                  <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
+                    <span>Community <span className="font-semibold text-green-700">{plans.community}</span></span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Pro <span className="font-semibold text-purple-700">{plans.pro}</span>
+                      {' '}(<span className="font-semibold text-emerald-700">{plans.proPaying}</span> paying)
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>Pro (Trial) <span className="font-semibold text-purple-700">{plans.proTrial}</span></span>
+                    <span aria-hidden="true">·</span>
+                    <span>Pro (MSP) <span className="font-semibold text-purple-700">{plans.proMsp}</span></span>
+                  </div>
                 </div>
               )}
             </div>
@@ -732,21 +756,18 @@ function TenantManagementSectionInner({
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-purple-900">Plan &amp; Trial</h3>
                     {(() => {
-                      const isProTier = editingTenant.planTier === "pro" || editingTenant.planTier === "enterprise";
-                      const trialActive = !!editingTenant.trialExpiresUtc &&
-                        new Date(editingTenant.trialExpiresUtc).getTime() > nowMs;
-                      const viaMsp = !!editingTenant.managedByProTenantId;
-                      const effective = viaMsp || isProTier || trialActive ? "Pro" : "Community";
+                      // Same derivation as the list badge and the Plan facet (tenantFilters.ts).
+                      const edition = effectiveEdition(editingTenant, nowMs);
                       return (
                         <span
                           className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            effective === "Pro"
-                              ? "bg-purple-100 text-purple-800"
-                              : "bg-gray-100 text-gray-700"
+                            edition === "community"
+                              ? "bg-gray-100 text-gray-700"
+                              : "bg-purple-100 text-purple-800"
                           }`}
-                          title={viaMsp ? `Pro conferred by the managing tenant ${editingTenant.managedByProTenantId}` : undefined}
+                          title={edition === "pro-msp" ? `Pro conferred by the managing tenant ${editingTenant.managedByProTenantId}` : undefined}
                         >
-                          Effective: {effective}{viaMsp ? " (MSP)" : !isProTier && trialActive ? " (Trial)" : ""}
+                          Effective: {editionLabel(edition)}
                         </span>
                       );
                     })()}
