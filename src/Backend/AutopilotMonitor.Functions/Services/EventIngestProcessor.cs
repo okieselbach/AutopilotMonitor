@@ -395,8 +395,12 @@ namespace AutopilotMonitor.Functions.Services
                 });
             }
 
-            // TotalEventsProcessed / SuccessfulEnrollments are recomputed every two hours from
-            // live data (D-198); no per-batch increment on the one global PlatformStats row.
+            // Cumulative event counter on the TENANT row: the platform-wide figure is rolled up
+            // from the tenant rows, so no batch ever touches the one global PlatformStats row.
+            if (processedCount > 0)
+                _ = _metricsRepo.IncrementTenantStatAsync(request.TenantId, nameof(TenantStats.TotalEventsProcessed), processedCount)
+                    .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,
+                        "Fire-and-forget IncrementTenantStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
 
             _ = RecordGatherRuleStatsAsync(request.TenantId, storedEvents)
                 .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException,

@@ -3070,7 +3070,7 @@ export interface PlatformAgentMetricsResponse {
   sessionsScanned: number;
 }
 
-/** Pre-computed platform-wide statistics for the public landing page. Stored as a single row (PartitionKey: "global", RowKey: "current"). Incremented during registration/ingest/login; the daily maintenance recompute treats every cumulative counter as a monotonic "since release" high-water-mark (raise-only — the scanned tables are retention-pruned, so a raw recompute would regress the figures). Only TotalSignedUpTenants is current-state (its source table is not retention-pruned). See MaintenanceService.BuildMonotonicPlatformStats. */
+/** Pre-computed platform-wide statistics for the public landing page. Stored as a single row (PartitionKey: "global", RowKey: "current"). "Since release" counters: the maintenance run adds the growth of the per-tenant counters (TenantStats) since its previous run and never derives a total from live data — the scanned tables are retention-pruned. Only TotalSignedUpTenants is current-state (its source table is not retention-pruned). See MaintenanceService.BuildPlatformStatsRollup. */
 export interface PlatformStats {
   /** Total enrollment sessions monitored since launch */
   totalEnrollments: number;

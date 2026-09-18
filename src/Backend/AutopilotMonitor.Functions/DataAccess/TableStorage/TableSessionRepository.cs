@@ -126,6 +126,12 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
                 // update the chain entry's status. Fail-soft + idempotent; the maintenance
                 // sweep self-heals any miss.
                 await _storage.UpdateDeviceHistoryForSessionAsync(tenantId, sessionId);
+
+                // Cumulative success counter, at the one seam every Succeeded writer passes:
+                // transitioned means the session was not Succeeded before, so each session
+                // counts once. Fail-soft.
+                if (status == SessionStatus.Succeeded)
+                    await _storage.IncrementTenantStatAsync(tenantId, nameof(TenantStats.SuccessfulEnrollments));
             }
 
             return transitioned;

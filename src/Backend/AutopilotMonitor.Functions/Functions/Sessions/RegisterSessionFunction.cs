@@ -228,11 +228,11 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             // registrations count: agent restarts and WhiteGlove Part 2 resumes re-register the
             // same session and must not inflate it. The per-tenant counter has no corrective
             // recompute (only a raise-only floor), so gating on fresh registrations is
-            // load-bearing. The platform-wide TotalEnrollments is recomputed every two hours from
-            // live data (D-198) and no longer incremented here.
+            // load-bearing. The platform-wide TotalEnrollments is rolled up from these tenant
+            // counters by the maintenance run.
             if (isFreshRegistration)
             {
-                _ = _metricsRepo.IncrementTenantStatAsync(registration.TenantId, "TotalEnrollments")
+                _ = _metricsRepo.IncrementTenantStatAsync(registration.TenantId, nameof(TenantStats.TotalEnrollments))
                     .ContinueWith(t => _logger.LogWarning(t.Exception?.InnerException, "Fire-and-forget IncrementTenantStatAsync failed"), TaskContinuationOptions.OnlyOnFaulted);
             }
 

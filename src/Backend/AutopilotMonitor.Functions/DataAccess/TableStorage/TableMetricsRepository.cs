@@ -56,20 +56,27 @@ namespace AutopilotMonitor.Functions.DataAccess.TableStorage
         public Task<PlatformStats?> GetPlatformStatsAsync()
             => _storage.GetPlatformStatsAsync();
 
-        public Task<bool> SavePlatformStatsAsync(PlatformStats stats)
-            => _storage.SavePlatformStatsAsync(stats);
+        public Task<PlatformStats?> RollupPlatformStatsAsync(
+            Func<PlatformStats?, PlatformRollupSources?, PlatformStats> merge, PlatformRollupSources sources)
+            => _storage.RollupPlatformStatsAsync(merge, sources);
 
         public Task IncrementPlatformStatAsync(string field, long amount = 1)
             => _storage.IncrementPlatformStatAsync(field, amount);
 
+        public Task<long> RecordSeenDeviceModelsAsync(IReadOnlyCollection<string> models)
+            => _storage.RecordSeenDeviceModelsAsync(models);
+
         public Task<TenantStats?> GetTenantStatsAsync(string tenantId)
             => _storage.GetTenantStatsAsync(tenantId);
+
+        public Task<List<TenantStats>> GetAllTenantStatsAsync()
+            => _storage.GetAllTenantStatsAsync();
 
         public Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1)
             => _storage.IncrementTenantStatAsync(tenantId, field, amount);
 
-        public Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor)
-            => _storage.EnsureTenantStatFloorAsync(tenantId, field, floor);
+        public Task<bool> EnsureTenantStatFloorsAsync(string tenantId, IReadOnlyDictionary<string, long> floors)
+            => _storage.EnsureTenantStatFloorsAsync(tenantId, floors);
 
         public Task RecordUserLoginAsync(string tenantId, string upn, string? displayName, string? objectId)
             => _storage.RecordUserLoginAsync(tenantId, upn, displayName, objectId);

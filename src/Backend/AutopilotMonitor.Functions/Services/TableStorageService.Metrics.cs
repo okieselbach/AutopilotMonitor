@@ -901,22 +901,8 @@ namespace AutopilotMonitor.Functions.Services
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
-                var response = await tableClient.GetEntityAsync<TableEntity>("global", "current");
-                var entity = response.Value;
-
-                return new PlatformStats
-                {
-                    TotalEnrollments = entity.GetInt64("TotalEnrollments") ?? 0,
-                    TotalUsers = entity.GetInt64("TotalUsers") ?? 0,
-                    TotalTenants = entity.GetInt64("TotalTenants") ?? 0,
-                    TotalSignedUpTenants = entity.GetInt64("TotalSignedUpTenants") ?? 0,
-                    UniqueDeviceModels = entity.GetInt64("UniqueDeviceModels") ?? 0,
-                    TotalEventsProcessed = entity.GetInt64("TotalEventsProcessed") ?? 0,
-                    SuccessfulEnrollments = entity.GetInt64("SuccessfulEnrollments") ?? 0,
-                    IssuesDetected = entity.GetInt64("IssuesDetected") ?? 0,
-                    LastFullCompute = entity.GetDateTimeOffset("LastFullCompute")?.UtcDateTime ?? DateTime.MinValue,
-                    LastUpdated = entity.GetDateTimeOffset("LastUpdated")?.UtcDateTime ?? DateTime.MinValue
-                };
+                var response = await tableClient.GetEntityAsync<TableEntity>(PlatformPartitionKey, PlatformRowKey);
+                return MapPlatformStats(response.Value);
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
@@ -929,44 +915,180 @@ namespace AutopilotMonitor.Functions.Services
             }
         }
 
+        private const string PlatformPartitionKey = "global";
+        private const string PlatformRowKey = "current";
+        private const string PlatformRollupBaselineRowKey = "rollup-baseline";
+        private const int PlatformRollupCasRetries = 8;
+
+        private static PlatformStats MapPlatformStats(TableEntity entity) => new PlatformStats
+        {
+            TotalEnrollments = entity.GetInt64("TotalEnrollments") ?? 0,
+            TotalUsers = entity.GetInt64("TotalUsers") ?? 0,
+            TotalTenants = entity.GetInt64("TotalTenants") ?? 0,
+            TotalSignedUpTenants = entity.GetInt64("TotalSignedUpTenants") ?? 0,
+            UniqueDeviceModels = entity.GetInt64("UniqueDeviceModels") ?? 0,
+            TotalEventsProcessed = entity.GetInt64("TotalEventsProcessed") ?? 0,
+            SuccessfulEnrollments = entity.GetInt64("SuccessfulEnrollments") ?? 0,
+            IssuesDetected = entity.GetInt64("IssuesDetected") ?? 0,
+            LastFullCompute = entity.GetDateTimeOffset("LastFullCompute")?.UtcDateTime ?? DateTime.MinValue,
+            LastUpdated = entity.GetDateTimeOffset("LastUpdated")?.UtcDateTime ?? DateTime.MinValue
+        };
+
         /// <summary>
-        /// Saves the full platform stats (upsert)
+        /// Writes the platform row and the rollup baseline in one transaction. The platform row
+        /// is merged with the ETag it was read with and never carries <c>IssuesDetected</c>: that
+        /// field belongs to <see cref="IncrementPlatformStatAsync"/>, and a full-row write-back
+        /// would undo every increment that landed since the read. A 412 (an increment or an
+        /// operator correction changed the row) re-reads and re-merges, so the accumulated
+        /// totals are always built on the row as it is, never on a stale copy.
         /// </summary>
-        public async Task<bool> SavePlatformStatsAsync(PlatformStats stats)
+        public async Task<PlatformStats?> RollupPlatformStatsAsync(
+            Func<PlatformStats?, PlatformRollupSources?, PlatformStats> merge, PlatformRollupSources sources)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+                var partitionFilter = $"PartitionKey eq '{PlatformPartitionKey}'";
 
-                var entity = new TableEntity("global", "current")
+                for (var attempt = 1; attempt <= PlatformRollupCasRetries; attempt++)
                 {
-                    ["TotalEnrollments"] = stats.TotalEnrollments,
-                    ["TotalUsers"] = stats.TotalUsers,
-                    ["TotalTenants"] = stats.TotalTenants,
-                    ["TotalSignedUpTenants"] = stats.TotalSignedUpTenants,
-                    ["UniqueDeviceModels"] = stats.UniqueDeviceModels,
-                    ["TotalEventsProcessed"] = stats.TotalEventsProcessed,
-                    ["SuccessfulEnrollments"] = stats.SuccessfulEnrollments,
-                    ["IssuesDetected"] = stats.IssuesDetected,
-                    ["LastFullCompute"] = stats.LastFullCompute,
-                    ["LastUpdated"] = stats.LastUpdated
-                };
+                    TableEntity? currentRow = null;
+                    PlatformRollupSources? baseline = null;
+                    await foreach (var row in tableClient.QueryAsync<TableEntity>(filter: partitionFilter).ConfigureAwait(false))
+                    {
+                        if (row.RowKey == PlatformRowKey)
+                            currentRow = row;
+                        else if (row.RowKey == PlatformRollupBaselineRowKey)
+                            baseline = new PlatformRollupSources
+                            {
+                                TotalEnrollments = row.GetInt64("TotalEnrollments") ?? 0,
+                                SuccessfulEnrollments = row.GetInt64("SuccessfulEnrollments") ?? 0,
+                                TotalEventsProcessed = row.GetInt64("TotalEventsProcessed") ?? 0,
+                                ActiveTenants = row.GetInt64("ActiveTenants") ?? 0,
+                                SeenDeviceModels = row.GetInt64("SeenDeviceModels") ?? 0,
+                            };
+                    }
 
-                await tableClient.UpsertEntityAsync(entity);
-                return true;
+                    var stats = merge(currentRow != null ? MapPlatformStats(currentRow) : null, baseline);
+
+                    var platformEntity = new TableEntity(PlatformPartitionKey, PlatformRowKey)
+                    {
+                        ["TotalEnrollments"] = stats.TotalEnrollments,
+                        ["TotalUsers"] = stats.TotalUsers,
+                        ["TotalTenants"] = stats.TotalTenants,
+                        ["TotalSignedUpTenants"] = stats.TotalSignedUpTenants,
+                        ["UniqueDeviceModels"] = stats.UniqueDeviceModels,
+                        ["TotalEventsProcessed"] = stats.TotalEventsProcessed,
+                        ["SuccessfulEnrollments"] = stats.SuccessfulEnrollments,
+                        ["LastFullCompute"] = stats.LastFullCompute,
+                        ["LastUpdated"] = stats.LastUpdated
+                    };
+                    var baselineEntity = new TableEntity(PlatformPartitionKey, PlatformRollupBaselineRowKey)
+                    {
+                        ["TotalEnrollments"] = sources.TotalEnrollments,
+                        ["SuccessfulEnrollments"] = sources.SuccessfulEnrollments,
+                        ["TotalEventsProcessed"] = sources.TotalEventsProcessed,
+                        ["ActiveTenants"] = sources.ActiveTenants,
+                        ["SeenDeviceModels"] = sources.SeenDeviceModels,
+                    };
+
+                    TableTransactionAction platformAction;
+                    if (currentRow != null)
+                    {
+                        platformAction = new TableTransactionAction(TableTransactionActionType.UpdateMerge, platformEntity, currentRow.ETag);
+                    }
+                    else
+                    {
+                        platformEntity["IssuesDetected"] = stats.IssuesDetected;
+                        platformAction = new TableTransactionAction(TableTransactionActionType.Add, platformEntity);
+                    }
+
+                    try
+                    {
+                        await tableClient.SubmitTransactionAsync(new[]
+                        {
+                            platformAction,
+                            new TableTransactionAction(TableTransactionActionType.UpsertReplace, baselineEntity),
+                        }).ConfigureAwait(false);
+                        return stats;
+                    }
+                    catch (RequestFailedException ex) when (ex.Status == 412 || StorageErrors.IsAlreadyExists(ex))
+                    {
+                        var exhausted = attempt == PlatformRollupCasRetries;
+                        _metrics?.CasConflict("RollupPlatformStats", Constants.TableNames.PlatformStats,
+                            exhausted ? CasOutcome.Exhausted : CasOutcome.Retried);
+                        if (exhausted)
+                        {
+                            _logger.LogWarning(
+                                "Platform stats rollup lost the CAS race {Retries} times — giving up (status {Status})",
+                                PlatformRollupCasRetries, ex.Status);
+                            return null;
+                        }
+
+                        var delay = 50 * attempt;
+                        await Task.Delay(delay + Random.Shared.Next(0, delay)).ConfigureAwait(false);
+                    }
+                }
+
+                return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save platform stats");
-                return false;
+                _logger.LogError(ex, "Failed to roll up platform stats");
+                return null;
             }
+        }
+
+        // Device models ever seen (PartitionKey "models", one row per model). Sessions are pruned
+        // by retention, so the live set of models shrinks while the public figure must not.
+        private const string SeenDeviceModelsPartitionKey = "models";
+
+        /// <summary>
+        /// RowKey of a seen-model row: a hash, because model strings carry characters a table
+        /// key cannot hold ('/', '#', '?'). Case-insensitive like the in-memory set it replaces.
+        /// </summary>
+        internal static string SeenDeviceModelRowKey(string model)
+            => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(model.Trim().ToUpperInvariant())));
+
+        /// <summary>
+        /// Adds unknown models to the persisted set and returns its size. Not fail-soft: the
+        /// result feeds the rollup baseline, and a swallowed failure would report an empty set
+        /// that the next run counts as growth a second time.
+        /// </summary>
+        public async Task<long> RecordSeenDeviceModelsAsync(IReadOnlyCollection<string> models)
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            await foreach (var row in tableClient.QueryAsync<TableEntity>(
+                filter: $"PartitionKey eq '{SeenDeviceModelsPartitionKey}'", select: new[] { "RowKey" }).ConfigureAwait(false))
+                seen.Add(row.RowKey);
+
+            var now = DateTime.UtcNow;
+            var added = new List<TableTransactionAction>();
+            foreach (var model in models)
+            {
+                if (string.IsNullOrWhiteSpace(model))
+                    continue;
+                var rowKey = SeenDeviceModelRowKey(model);
+                if (!seen.Add(rowKey))
+                    continue;
+                added.Add(new TableTransactionAction(TableTransactionActionType.UpsertReplace,
+                    new TableEntity(SeenDeviceModelsPartitionKey, rowKey) { ["Model"] = model.Trim(), ["FirstSeen"] = now }));
+            }
+
+            foreach (var chunk in added.Chunk(100))
+                await tableClient.SubmitTransactionAsync(chunk).ConfigureAwait(false);
+
+            return seen.Count;
         }
 
         /// <summary>
         /// Increments one platform counter with ETag CAS and a field-only merge. Only
-        /// <c>IssuesDetected</c> still goes through here (D-198): the enrollment and event
-        /// counters are recomputed every two hours from live data and no longer incremented on
-        /// the hot path — one global row cannot absorb an increment per ingest batch.
+        /// <c>IssuesDetected</c> goes through here: one global row cannot absorb an increment
+        /// per ingest batch, so the enrollment and event counters are incremented per tenant
+        /// and rolled up by <see cref="RollupPlatformStatsAsync"/>.
         /// </summary>
         public async Task IncrementPlatformStatAsync(string field, long amount = 1)
         {
@@ -1009,12 +1131,35 @@ namespace AutopilotMonitor.Functions.Services
         // ===== TENANT STATS METHODS =====
         // Cumulative per-tenant counters in the PlatformStats table (PartitionKey: tenantId,
         // RowKey: "current"; the platform row's "global" partition can never collide with a
-        // tenant GUID). Unlike PlatformStats these counters are NEVER recomputed from live data
-        // (retention prunes sessions), so a lost increment is permanent — writes use ETag CAS
-        // with retries instead of the platform row's last-writer-wins upsert.
+        // tenant GUID). These counters are NEVER recomputed from live data (retention prunes
+        // sessions), so a lost increment is permanent — writes use ETag CAS with retries. They
+        // are the source the platform-wide counters are rolled up from.
 
         private const string TenantStatsRowKey = "current";
         private const int TenantStatsCasRetries = 4;
+
+        private static TenantStats MapTenantStats(TableEntity entity) => new TenantStats
+        {
+            TotalEnrollments = entity.GetInt64(nameof(TenantStats.TotalEnrollments)) ?? 0,
+            SuccessfulEnrollments = entity.GetInt64(nameof(TenantStats.SuccessfulEnrollments)) ?? 0,
+            TotalEventsProcessed = entity.GetInt64(nameof(TenantStats.TotalEventsProcessed)) ?? 0,
+            LastUpdated = entity.GetDateTimeOffset("LastUpdated")?.UtcDateTime ?? DateTime.MinValue
+        };
+
+        /// <summary>
+        /// Gets the counters of every tenant row. Not fail-soft: the sums feed the rollup
+        /// baseline, and a swallowed failure would report zero — which the next run would
+        /// count as growth a second time.
+        /// </summary>
+        public async Task<List<TenantStats>> GetAllTenantStatsAsync()
+        {
+            var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
+            var result = new List<TenantStats>();
+            await foreach (var row in tableClient.QueryAsync<TableEntity>(
+                filter: $"RowKey eq '{TenantStatsRowKey}' and PartitionKey ne '{PlatformPartitionKey}'").ConfigureAwait(false))
+                result.Add(MapTenantStats(row));
+            return result;
+        }
 
         /// <summary>
         /// Gets the cumulative per-tenant counters, or null if none were recorded yet.
@@ -1025,13 +1170,7 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
                 var response = await tableClient.GetEntityAsync<TableEntity>(tenantId, TenantStatsRowKey);
-                var entity = response.Value;
-
-                return new TenantStats
-                {
-                    TotalEnrollments = entity.GetInt64("TotalEnrollments") ?? 0,
-                    LastUpdated = entity.GetDateTimeOffset("LastUpdated")?.UtcDateTime ?? DateTime.MinValue
-                };
+                return MapTenantStats(response.Value);
             }
             catch (RequestFailedException ex) when (ex.Status == 404)
             {
@@ -1050,57 +1189,66 @@ namespace AutopilotMonitor.Functions.Services
         /// </summary>
         public async Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1)
         {
-            await MutateTenantStatAsync(tenantId, field,
-                current => current + amount,
-                missingRowValue: amount);
+            await MutateTenantStatsAsync(tenantId,
+                new Dictionary<string, long> { [field] = amount },
+                (current, value) => current + value);
         }
 
         /// <summary>
-        /// Raises a cumulative per-tenant counter to at least <paramref name="floor"/> — used by the
-        /// maintenance recompute to seed pre-existing tenants and self-heal lost increments from the
-        /// live session count (a lower bound, since retention prunes). Never lowers the counter.
+        /// Raises cumulative per-tenant counters to at least the given floors in one write — used by
+        /// the maintenance recompute to seed pre-existing tenants and self-heal lost increments from
+        /// the live figures (a lower bound, since retention prunes). Never lowers a counter.
         /// </summary>
-        public async Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor)
-        {
-            await MutateTenantStatAsync(tenantId, field,
-                current => Math.Max(current, floor),
-                missingRowValue: floor);
-        }
+        public Task<bool> EnsureTenantStatFloorsAsync(string tenantId, IReadOnlyDictionary<string, long> floors)
+            => MutateTenantStatsAsync(tenantId, floors, Math.Max);
 
-        private async Task MutateTenantStatAsync(string tenantId, string field, Func<long, long> mutate, long missingRowValue)
+        /// <summary>Returns true when the row holds the mutated values afterwards (written, or nothing to change).</summary>
+        private async Task<bool> MutateTenantStatsAsync(string tenantId, IReadOnlyDictionary<string, long> values, Func<long, long, long> mutate)
         {
             try
             {
                 var tableClient = _tableServiceClient.GetTableClient(Constants.TableNames.PlatformStats);
-                await TableCasRetry.MutateAsync(
+                var upToDate = false;
+                var written = await TableCasRetry.MutateAsync(
                     tableClient, tenantId, TenantStatsRowKey,
                     patch: read =>
                     {
-                        var current = read.GetInt64(field) ?? 0;
-                        var next = mutate(current);
-                        if (next == current)
-                            return null;
-                        return new TableEntity(tenantId, TenantStatsRowKey)
+                        var update = new TableEntity(tenantId, TenantStatsRowKey);
+                        var changed = false;
+                        foreach (var (field, value) in values)
                         {
-                            [field] = next,
-                            ["LastUpdated"] = DateTime.UtcNow,
-                        };
+                            var current = read.GetInt64(field) ?? 0;
+                            var next = mutate(current, value);
+                            if (next == current)
+                                continue;
+                            update[field] = next;
+                            changed = true;
+                        }
+                        upToDate = !changed;
+                        if (!changed)
+                            return null;
+                        update["LastUpdated"] = DateTime.UtcNow;
+                        return update;
                     },
-                    createMissing: () => new TableEntity(tenantId, TenantStatsRowKey)
+                    createMissing: () =>
                     {
-                        [field] = missingRowValue,
-                        ["LastUpdated"] = DateTime.UtcNow,
+                        var created = new TableEntity(tenantId, TenantStatsRowKey) { ["LastUpdated"] = DateTime.UtcNow };
+                        foreach (var (field, value) in values)
+                            created[field] = value;
+                        return created;
                     },
                     operation: "MutateTenantStat",
                     tableName: Constants.TableNames.PlatformStats,
                     metrics: _metrics,
                     logger: _logger,
                     retries: TenantStatsCasRetries).ConfigureAwait(false);
+                return written || upToDate;
             }
             catch (Exception ex)
             {
                 // Non-fatal: don't break the caller if stats update fails
-                _logger.LogWarning(ex, "Failed to update tenant stat {Field} for tenant {TenantId}", field, tenantId);
+                _logger.LogWarning(ex, "Failed to update tenant stats {Fields} for tenant {TenantId}", string.Join(",", values.Keys), tenantId);
+                return false;
             }
         }
 

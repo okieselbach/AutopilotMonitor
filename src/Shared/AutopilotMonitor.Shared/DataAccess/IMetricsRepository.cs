@@ -58,16 +58,34 @@ namespace AutopilotMonitor.Shared.DataAccess
 
         // --- Platform Stats ---
         Task<PlatformStats?> GetPlatformStatsAsync();
-        Task<bool> SavePlatformStatsAsync(PlatformStats stats);
+        /// <summary>
+        /// Writes the platform row and the rollup baseline in one ETag-bound transaction.
+        /// <paramref name="merge"/> receives the row and the baseline as read (either may be null)
+        /// and returns the new row; <paramref name="sources"/> becomes the next baseline. The write
+        /// never carries <c>IssuesDetected</c> (its increments own that field), and a concurrent
+        /// change of the row re-reads and re-merges. Returns the row as persisted, null on failure.
+        /// </summary>
+        Task<PlatformStats?> RollupPlatformStatsAsync(
+            Func<PlatformStats?, PlatformRollupSources?, PlatformStats> merge, PlatformRollupSources sources);
         Task IncrementPlatformStatAsync(string field, long amount = 1);
+        /// <summary>
+        /// Adds the given device models to the persisted set of models ever seen (never pruned, so
+        /// it survives session retention) and returns the size of the set.
+        /// </summary>
+        Task<long> RecordSeenDeviceModelsAsync(IReadOnlyCollection<string> models);
 
         // --- Tenant Stats (cumulative per-tenant counters, retention-independent) ---
         /// <summary>Gets the cumulative per-tenant counters, or null if none were recorded yet.</summary>
         Task<TenantStats?> GetTenantStatsAsync(string tenantId);
+        /// <summary>Gets the cumulative counters of every tenant that has a row — the source of the platform rollup.</summary>
+        Task<List<TenantStats>> GetAllTenantStatsAsync();
         /// <summary>Increments a cumulative per-tenant counter (ETag CAS with retries; fail-soft).</summary>
         Task IncrementTenantStatAsync(string tenantId, string field, long amount = 1);
-        /// <summary>Raises a cumulative per-tenant counter to at least <paramref name="floor"/> (seed/self-heal). Never lowers it.</summary>
-        Task EnsureTenantStatFloorAsync(string tenantId, string field, long floor);
+        /// <summary>
+        /// Raises cumulative per-tenant counters to at least the given floors in one write (seed/self-heal).
+        /// Never lowers one. Returns false when the floors could not be put in place.
+        /// </summary>
+        Task<bool> EnsureTenantStatFloorsAsync(string tenantId, IReadOnlyDictionary<string, long> floors);
 
         // --- User Activity ---
         Task RecordUserLoginAsync(string tenantId, string upn, string? displayName, string? objectId);

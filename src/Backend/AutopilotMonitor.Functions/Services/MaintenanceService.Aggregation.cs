@@ -638,10 +638,10 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Recomputes platform-wide stats from all tables. Used on the public landing page (no
-        /// auth required). Since D-198 this is the ONLY writer of TotalEnrollments,
-        /// SuccessfulEnrollments and TotalEventsProcessed — the hot paths no longer increment the
-        /// global row — so the figures move in two-hour steps.
+        /// Rolls the platform-wide stats (public landing page, no auth) up from the per-tenant
+        /// counters. The hot paths increment the tenant rows only; this run adds the growth of
+        /// their sums since the previous run to the platform row, so the figures move in
+        /// two-hour steps.
         /// </summary>
         private async Task RecomputePlatformStatsAsync()
         {
@@ -652,65 +652,76 @@ namespace AutopilotMonitor.Functions.Services
             {
                 var tenantIds = await _maintenanceRepo.GetAllTenantIdsAsync();
                 var allConfigs = await _tenantConfigService.GetAllConfigurationsAsync();
-                long totalEnrollments = 0;
-                long successfulEnrollments = 0;
-                long totalEvents = 0;
                 long totalUsers = 0;
-                // "Active tenants" = tenants that have actually produced at least one enrollment
-                // session. tenantIds comes from the TenantConfiguration table (every registered
-                // tenant, including those that never granted consent and can never send data), so
-                // it equals TotalSignedUpTenants and must NOT be used for the active count. Count
-                // the tenants whose session query returns rows instead.
-                int activeTenants = 0;
-                var uniqueModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var liveModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var floorsInPlace = true;
 
                 foreach (var tid in tenantIds)
                 {
                     var sessions = await _sessionRepo.GetSessionsAsync(tid);
-                    if (sessions.Count > 0)
-                        activeTenants++;
-                    totalEnrollments += sessions.Count;
-                    successfulEnrollments += sessions.Count(s => s.Status == SessionStatus.Succeeded);
+                    long liveEvents = 0;
 
                     foreach (var s in sessions)
                     {
                         var modelKey = $"{s.Manufacturer} {s.Model}".Trim();
                         if (!string.IsNullOrEmpty(modelKey))
-                            uniqueModels.Add(modelKey);
-                        totalEvents += s.EventCount;
+                            liveModels.Add(modelKey);
+                        liveEvents += s.EventCount;
                     }
 
                     var userMetrics = await _metricsRepo.GetUserActivityMetricsAsync(tid);
                     totalUsers += userMetrics.TotalUniqueUsers;
 
-                    // Seed / self-heal the cumulative per-tenant enrollment counter: the live
-                    // session count (within retention) is a lower bound for "since signup".
-                    // Raise-only — retention prunes sessions, so recomputing/overwriting would
-                    // regress the counter (same reasoning as the TotalUsers clamp below).
+                    // Seed / self-heal the cumulative per-tenant counters: the live figures
+                    // (within retention) are a lower bound for "since signup". Raise-only —
+                    // retention prunes sessions, so overwriting would regress the counters.
                     if (sessions.Count > 0)
-                        await _metricsRepo.EnsureTenantStatFloorAsync(tid, "TotalEnrollments", sessions.Count);
+                    {
+                        floorsInPlace &= await _metricsRepo.EnsureTenantStatFloorsAsync(tid, new Dictionary<string, long>
+                        {
+                            [nameof(TenantStats.TotalEnrollments)] = sessions.Count,
+                            [nameof(TenantStats.SuccessfulEnrollments)] = sessions.Count(s => s.Status == SessionStatus.Succeeded),
+                            [nameof(TenantStats.TotalEventsProcessed)] = liveEvents,
+                        });
+                    }
                 }
 
-                var existingStats = await _metricsRepo.GetPlatformStatsAsync();
+                // A floor that lands one run late would be counted as growth although the
+                // platform row already contains it. Skip the rollup; the baseline stays, so the
+                // next run adds the whole growth since the last successful one.
+                if (!floorsInPlace)
+                {
+                    _logger.LogWarning("Platform stats rollup skipped: a tenant counter floor could not be written");
+                    return;
+                }
 
-                var stats = BuildMonotonicPlatformStats(
-                    recomputedEnrollments: totalEnrollments,
-                    recomputedSuccessful: successfulEnrollments,
-                    recomputedEvents: totalEvents,
-                    recomputedUsers: totalUsers,
-                    recomputedActiveTenants: activeTenants,
-                    recomputedUniqueModels: uniqueModels.Count,
-                    signedUpTenants: allConfigs.Count,
-                    existing: existingStats,
-                    nowUtc: DateTime.UtcNow);
+                var tenantStats = await _metricsRepo.GetAllTenantStatsAsync();
+                var sources = new PlatformRollupSources
+                {
+                    TotalEnrollments = tenantStats.Sum(t => t.TotalEnrollments),
+                    SuccessfulEnrollments = tenantStats.Sum(t => t.SuccessfulEnrollments),
+                    TotalEventsProcessed = tenantStats.Sum(t => t.TotalEventsProcessed),
+                    ActiveTenants = tenantStats.Count(t => t.TotalEnrollments > 0),
+                    SeenDeviceModels = await _metricsRepo.RecordSeenDeviceModelsAsync(liveModels),
+                };
 
-                await _metricsRepo.SavePlatformStatsAsync(stats);
+                var nowUtc = DateTime.UtcNow;
+                var signedUpTenants = allConfigs.Count;
+                var stats = await _metricsRepo.RollupPlatformStatsAsync(
+                    (existing, baseline) => BuildPlatformStatsRollup(existing, baseline, sources, totalUsers, signedUpTenants, nowUtc),
+                    sources);
+                if (stats == null)
+                {
+                    _logger.LogWarning("Platform stats rollup was not persisted; publish skipped");
+                    return;
+                }
+
                 await TryPublishPlatformStatsJsonAsync(stats);
 
                 sw.Stop();
-                _logger.LogInformation($"Platform stats recomputed in {sw.ElapsedMilliseconds}ms: " +
+                _logger.LogInformation($"Platform stats rolled up in {sw.ElapsedMilliseconds}ms: " +
                     $"{stats.TotalEnrollments} enrollments, {stats.TotalUsers} users, {tenantIds.Count} tenants, " +
-                    $"{stats.UniqueDeviceModels} models (all cumulative high-water-marks)");
+                    $"{stats.UniqueDeviceModels} models");
             }
             catch (Exception ex)
             {
@@ -719,35 +730,43 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Merges a fresh platform-stats recompute with the previously persisted row. Platform
-        /// stats are "since release" counters (public landing page): the tables the recompute
-        /// scans are pruned by session/user-activity retention, so a raw recompute can only see
-        /// the retention window and would regress the figures after every cleanup. Every
-        /// cumulative counter is therefore a monotonic high-water-mark — the recompute may raise
-        /// it (self-heal for lost increments), never lower it. IssuesDetected is increment-only
-        /// (no recompute source) and is carried over verbatim. TotalSignedUpTenants is the one
-        /// deliberate exception: the TenantConfiguration table is not retention-pruned, so its
-        /// count is authoritative current state and a drop reflects real offboarding, not data loss.
+        /// One cumulative platform counter: the persisted total plus the growth of its source
+        /// since the previous run. The total is never derived from the source's absolute value —
+        /// the sources shrink (retention prunes sessions, offboarding deletes a tenant's
+        /// counters), and a high-water-mark over a shrinking source stops moving for good. A
+        /// shrunken source costs the growth of that one interval. Without a baseline (first run)
+        /// the source is a lower bound only, so nothing already contained in the total is added
+        /// a second time.
         /// </summary>
-        internal static PlatformStats BuildMonotonicPlatformStats(
-            long recomputedEnrollments,
-            long recomputedSuccessful,
-            long recomputedEvents,
-            long recomputedUsers,
-            long recomputedActiveTenants,
-            long recomputedUniqueModels,
-            long signedUpTenants,
+        internal static long Accumulate(long existingTotal, long? previousSource, long currentSource)
+            => previousSource is null
+                ? Math.Max(existingTotal, currentSource)
+                : existingTotal + Math.Max(0, currentSource - previousSource.Value);
+
+        /// <summary>
+        /// Merges one rollup run into the persisted platform row ("since release" counters for the
+        /// public landing page). TotalUsers stays a high-water-mark over the live count: a
+        /// persisted set of users would outlive the user-activity retention. IssuesDetected is
+        /// increment-only and carried over for the published JSON; the storage write leaves it
+        /// alone. TotalSignedUpTenants is current state — the TenantConfiguration table is not
+        /// retention-pruned, so a drop reflects real offboarding, not data loss.
+        /// </summary>
+        internal static PlatformStats BuildPlatformStatsRollup(
             PlatformStats? existing,
+            PlatformRollupSources? baseline,
+            PlatformRollupSources sources,
+            long recomputedUsers,
+            long signedUpTenants,
             DateTime nowUtc)
         {
             return new PlatformStats
             {
-                TotalEnrollments = Math.Max(recomputedEnrollments, existing?.TotalEnrollments ?? 0),
-                SuccessfulEnrollments = Math.Max(recomputedSuccessful, existing?.SuccessfulEnrollments ?? 0),
-                TotalEventsProcessed = Math.Max(recomputedEvents, existing?.TotalEventsProcessed ?? 0),
+                TotalEnrollments = Accumulate(existing?.TotalEnrollments ?? 0, baseline?.TotalEnrollments, sources.TotalEnrollments),
+                SuccessfulEnrollments = Accumulate(existing?.SuccessfulEnrollments ?? 0, baseline?.SuccessfulEnrollments, sources.SuccessfulEnrollments),
+                TotalEventsProcessed = Accumulate(existing?.TotalEventsProcessed ?? 0, baseline?.TotalEventsProcessed, sources.TotalEventsProcessed),
+                TotalTenants = Accumulate(existing?.TotalTenants ?? 0, baseline?.ActiveTenants, sources.ActiveTenants),
+                UniqueDeviceModels = Accumulate(existing?.UniqueDeviceModels ?? 0, baseline?.SeenDeviceModels, sources.SeenDeviceModels),
                 TotalUsers = Math.Max(recomputedUsers, existing?.TotalUsers ?? 0),
-                TotalTenants = Math.Max(recomputedActiveTenants, existing?.TotalTenants ?? 0),
-                UniqueDeviceModels = Math.Max(recomputedUniqueModels, existing?.UniqueDeviceModels ?? 0),
                 TotalSignedUpTenants = signedUpTenants,
                 IssuesDetected = existing?.IssuesDetected ?? 0,
                 LastFullCompute = nowUtc,
