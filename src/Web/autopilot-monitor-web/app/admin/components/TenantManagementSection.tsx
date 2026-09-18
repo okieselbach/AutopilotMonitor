@@ -14,6 +14,7 @@ import type {
   SaveNotificationEmailRequest,
   SetTenantPlanTierResponse,
   TenantConfiguration as WireTenantConfiguration,
+  TenantOffboardingStatusResponse,
   UpdateTenantAppHomingResponse,
   UpdateTenantConfigurationResponse,
 } from "@/utils/wire-types.generated";
@@ -36,7 +37,9 @@ import {
   effectiveEdition,
   facetCounts,
   facetOption,
+  isOffboardingTombstone,
   matchesTenantFilters,
+  onWaitlist,
   planOverview,
   toggleFacetValue,
   visibleFacets,
@@ -195,6 +198,37 @@ function TenantManagementSectionInner({
       cancelled = true;
     };
   }, [editingTenantId, getAccessToken]);
+  // Offboarding record, loaded only for a row the cascade owns (the Disabled-gate tombstone).
+  // Keyed by the response's tenantId rather than reset on every editor switch: a record is
+  // only ever rendered for the tenant it names (editingRecord below), so a stale one from a
+  // previously opened editor can never show. null = no marker (never offboarded, or
+  // Completed and already cleaned up).
+  const [offboardingRecord, setOffboardingRecord] = useState<TenantOffboardingStatusResponse | null>(null);
+  const [retryDialogOpen, setRetryDialogOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const editingIsOffboarding = !!editingTenant && isOffboardingTombstone(editingTenant);
+  const editingRecord =
+    editingIsOffboarding && offboardingRecord && editingTenantId
+      && offboardingRecord.tenantId.toLowerCase() === editingTenantId.toLowerCase()
+      ? offboardingRecord
+      : null;
+  useEffect(() => {
+    // A 404 (no marker) and any other failure both leave the card hidden: the Danger Zone then
+    // shows the ordinary Offboard action, whose own resume/refusal messages still apply.
+    if (!editingTenantId || !editingIsOffboarding) return;
+    let cancelled = false;
+    fetchJson<TenantOffboardingStatusResponse>(api.tenants.offboardingStatus(editingTenantId), getAccessToken)
+      .then((record) => {
+        if (!cancelled) setOffboardingRecord(record);
+      })
+      .catch(() => {
+        if (!cancelled) setOffboardingRecord(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingTenantId, editingIsOffboarding, getAccessToken]);
   const [homingDialogTarget, setHomingDialogTarget] = useState<"primary" | "legacy" | null>(null);
   const [savingHoming, setSavingHoming] = useState(false);
   // Failures of the homing/offboard calls go into these instead of the page-level
@@ -231,7 +265,7 @@ function TenantManagementSectionInner({
 
   // Statistics (always over all tenants, not filtered)
   const readyCount = tenants.filter(t => t.validateAutopilotDevice).length;
-  const waitlistCount = tenants.filter(t => !previewApproved.has(t.tenantId)).length;
+  const waitlistCount = tenants.filter(t => onWaitlist(t, filterCtx)).length;
   const totalCount = tenants.length;
   const plans = planOverview(tenants, nowMs);
 
@@ -408,6 +442,34 @@ function TenantManagementSectionInner({
       setOffboardError(apiErrorText(err, "Failed to offboard tenant"));
     } finally {
       setOffboarding(false);
+    }
+  };
+
+  // Operator retry of a Failed offboarding (POST global/tenants/{id}/offboarding/retry). Failed
+  // is fail-closed on the backend: the worker returns and the DELETE re-click refuses, so this
+  // is the one path that re-drives the cascade. Same confirm dialog, retry variant.
+  const handleRetryOffboarding = async (tenant: TenantConfiguration) => {
+    if (!canMutate) return; // read-only Global Reader
+    try {
+      setRetrying(true);
+      setRetryError(null);
+      setSuccessMessage(null);
+      const data = await fetchJson<OffboardResponse>(
+        api.tenants.offboardingRetry(tenant.tenantId), getAccessToken, { method: "POST" });
+      trackEvent("admin_tenant_offboard_retried", {
+        tenantId: tenant.tenantId,
+        failedPhase: editingRecord?.failedPhase ?? "unknown",
+      });
+      setRetryDialogOpen(false);
+      setEditingTenant(null);
+      fetchTenants();
+      setSuccessMessage(data.message || `Offboarding retried for tenant ${tenant.tenantId}`);
+      setTimeout(() => setSuccessMessage(null), 8000);
+    } catch (err) {
+      console.error("Error retrying tenant offboarding:", err);
+      setRetryError(apiErrorText(err, "Failed to retry the offboarding"));
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -593,7 +655,14 @@ function TenantManagementSectionInner({
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="flex flex-wrap items-center gap-2">
-                              {tenant.disabled && (
+                              {isOffboardingTombstone(tenant) ? (
+                                <span
+                                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${facetOption("status", "offboarding")?.badgeClass}`}
+                                  title="The offboarding cascade owns this row — open the editor for its status"
+                                >
+                                  Offboarding
+                                </span>
+                              ) : tenant.disabled && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
                                   Suspended
                                 </span>
@@ -606,7 +675,7 @@ function TenantManagementSectionInner({
                                   MCP off
                                 </span>
                               )}
-                              {!previewApproved.has(tenant.tenantId) && (
+                              {onWaitlist(tenant, filterCtx) && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                                   Waitlist
                                 </span>
@@ -1265,28 +1334,103 @@ function TenantManagementSectionInner({
                   </div>
                 </div>
 
-                {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
-                    deliberately NOT part of the modal's Save button) */}
-                <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
-                  <h3 className="font-semibold text-red-900 mb-1">Offboard Tenant</h3>
-                  <p className="text-xs text-gray-600 mb-2">
-                    Suspends the tenant immediately and permanently deletes all of its data
-                    (sessions, events, rules, admins, configuration) after a short drain window.
-                    Same cascade as the tenant&apos;s self-service offboarding.
-                  </p>
-                  <p className="text-xs text-red-700 font-medium mb-3">
-                    Not a ban: the deletion includes the suspension, so once the cascade completes a
-                    new sign-in re-onboards (and auto-activates) the tenant. To lock a tenant out,
-                    suspend it above and leave its data in place.
-                  </p>
-                  <button
-                    onClick={() => { setOffboardError(null); setOffboardDialogOpen(true); }}
-                    disabled={!canMutate || offboarding}
-                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
-                  >
-                    Offboard Tenant…
-                  </button>
-                </div>
+                {/* Offboarding record — shown instead of the Offboard action while the cascade owns
+                    the row. Failed is a dead end on the backend until an operator retries here. */}
+                {editingRecord ? (
+                  <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold text-red-900">Offboarding</h3>
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          editingRecord.status === "Failed"
+                            ? "bg-red-100 text-red-800"
+                            : editingRecord.status === "Completed"
+                              ? "bg-green-100 text-green-800"
+                              : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {editingRecord.status}
+                      </span>
+                    </div>
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gray-700 mb-3">
+                      <dt className="text-gray-500">Started</dt>
+                      <dd>{new Date(editingRecord.initiatedAt).toLocaleString()} by {editingRecord.initiatedBy}</dd>
+                      <dt className="text-gray-500">Attempts</dt>
+                      <dd>{editingRecord.retryCount}</dd>
+                      {editingRecord.drainCompletedAt && (
+                        <>
+                          <dt className="text-gray-500">Drain done</dt>
+                          <dd>{new Date(editingRecord.drainCompletedAt).toLocaleString()}</dd>
+                        </>
+                      )}
+                      {editingRecord.status === "Failed" && (
+                        <>
+                          <dt className="text-gray-500">Failed</dt>
+                          <dd>
+                            {editingRecord.failedAt ? new Date(editingRecord.failedAt).toLocaleString() : "—"}
+                            {" "}in phase <span className="font-mono">{editingRecord.failedPhase || "unknown"}</span>
+                          </dd>
+                          {editingRecord.errorMessage && (
+                            <>
+                              <dt className="text-gray-500">Error</dt>
+                              <dd className="break-words">{editingRecord.errorMessage}</dd>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </dl>
+                    {editingRecord.status === "Failed" ? (
+                      <>
+                        <p className="text-xs text-red-700 font-medium mb-3">
+                          The cascade stopped and will not resume on its own. The tenant stays suspended and
+                          its remaining data stays in place until the offboarding is retried. Fix the cause
+                          first if the phase points at one (the backend log carries the details).
+                        </p>
+                        <button
+                          onClick={() => { setRetryError(null); setRetryDialogOpen(true); }}
+                          disabled={!canMutate || retrying}
+                          className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                        >
+                          Retry offboarding…
+                        </button>
+                      </>
+                    ) : editingRecord.status === "Completed" ? (
+                      <p className="text-xs text-gray-600">
+                        The cascade has finished; the tenant row disappears once the marker&apos;s grace window
+                        has passed.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-600">
+                        The cascade is running. Re-running the Offboard action would only re-queue it; nothing to do here.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* Danger Zone — offboarding cascade (own path: DELETE tenants/{id}/offboard;
+                        deliberately NOT part of the modal's Save button) */}
+                    <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                      <h3 className="font-semibold text-red-900 mb-1">Offboard Tenant</h3>
+                      <p className="text-xs text-gray-600 mb-2">
+                        Suspends the tenant immediately and permanently deletes all of its data
+                        (sessions, events, rules, admins, configuration) after a short drain window.
+                        Same cascade as the tenant&apos;s self-service offboarding.
+                      </p>
+                      <p className="text-xs text-red-700 font-medium mb-3">
+                        Not a ban: the deletion includes the suspension, so once the cascade completes a
+                        new sign-in re-onboards (and auto-activates) the tenant. To lock a tenant out,
+                        suspend it above and leave its data in place.
+                      </p>
+                      <button
+                        onClick={() => { setOffboardError(null); setOffboardDialogOpen(true); }}
+                        disabled={!canMutate || offboarding}
+                        className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm font-medium"
+                      >
+                        Offboard Tenant…
+                      </button>
+                    </div>
+                  </>
+                )}
 
               </div>
 
@@ -1328,6 +1472,19 @@ function TenantManagementSectionInner({
           error={offboardError}
           onCancel={() => setOffboardDialogOpen(false)}
           onConfirm={() => handleOffboardTenant(editingTenant)}
+        />
+      )}
+
+      {/* Retry confirmation for a Failed offboarding (same dialog, retry variant) */}
+      {editingTenant && retryDialogOpen && editingRecord && (
+        <OffboardTenantConfirmDialog
+          tenantLabel={editingTenant.domainName || editingTenant.tenantId}
+          tenantId={editingTenant.tenantId}
+          saving={retrying}
+          error={retryError}
+          retryOfFailedPhase={editingRecord.failedPhase || "unknown"}
+          onCancel={() => setRetryDialogOpen(false)}
+          onConfirm={() => handleRetryOffboarding(editingTenant)}
         />
       )}
 

@@ -28,6 +28,7 @@ export interface TenantFilterFields {
   payingCustomer: boolean;
   homedAppClientId?: string | null;
   disabled: boolean;
+  disabledReason?: string | null;
   mcpDisabled: boolean;
   validateAutopilotDevice: boolean;
 }
@@ -111,6 +112,7 @@ export const FACETS: readonly FacetDefinition[] = [
     options: [
       { value: "ready", label: "Ready", badgeClass: "bg-blue-100 text-blue-800" },
       { value: "waitlist", label: "Waitlist", badgeClass: AMBER },
+      { value: "offboarding", label: "Offboarding", badgeClass: "bg-orange-100 text-orange-800" },
       { value: "suspended", label: "Suspended", badgeClass: "bg-red-100 text-red-800" },
       { value: "mcp-off", label: "MCP off", badgeClass: AMBER },
     ],
@@ -155,12 +157,31 @@ export function trialState(t: TenantFilterFields, nowMs: number): TrialState {
   return "never";
 }
 
+/**
+ * DisabledReason the offboarding cascade writes on the tenant row (Phase 1 Disabled-gate,
+ * `TenantOffboardFunction.OffboardingDisabledReason`). While it is set the row is the
+ * cascade's tombstone: the tenant is neither suspended by an admin nor waiting for activation
+ * (its whitelist row is wiped early in the cascade), it is being deleted.
+ */
+export const OFFBOARDING_TOMBSTONE_REASON = "Offboarding in progress";
+
+export function isOffboardingTombstone(t: Pick<TenantFilterFields, "disabled" | "disabledReason">): boolean {
+  return t.disabled && t.disabledReason === OFFBOARDING_TOMBSTONE_REASON;
+}
+
+/** Waitlist = not activated yet, and not a row the offboarding cascade is deleting. */
+export function onWaitlist(t: TenantFilterFields, ctx: TenantFilterContext): boolean {
+  return !isOffboardingTombstone(t) && ctx.isWaitlisted(t.tenantId);
+}
+
 /** Every facet value a tenant carries; Status is the only multi-valued facet. */
 export function tenantFacetValues(t: TenantFilterFields, ctx: TenantFilterContext): Record<FacetKey, readonly string[]> {
   const status: string[] = [];
+  const offboarding = isOffboardingTombstone(t);
   if (t.validateAutopilotDevice) status.push("ready");
-  if (ctx.isWaitlisted(t.tenantId)) status.push("waitlist");
-  if (t.disabled) status.push("suspended");
+  if (onWaitlist(t, ctx)) status.push("waitlist");
+  if (offboarding) status.push("offboarding");
+  if (t.disabled && !offboarding) status.push("suspended");
   if (t.mcpDisabled) status.push("mcp-off");
   return {
     plan: [effectiveEdition(t, ctx.nowMs)],

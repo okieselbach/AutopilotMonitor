@@ -1046,4 +1046,210 @@ public sealed class TenantOffboardFunctionTests
         // No Save call (the tombstone was already correct).
         configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
     }
+
+    // ── RetryFailedOffboardingAsync (operator retry of a Failed offboarding) ──────────
+
+    private const string HistoryRowKey = "20260101000000000_" + TenantId;
+
+    private static FakeOffboardingAuditRepository SeedFailedOffboarding(
+        string failedPhase = "max_dequeue", DateTime? drainCompletedAt = null, int retryCount = 3)
+    {
+        var repo = new FakeOffboardingAuditRepository();
+        repo.Markers[TenantId] = new OffboardingMarkerEntry
+        {
+            PartitionKey = Constants.OffboardingPartitionKeys.Marker,
+            RowKey = TenantId, TenantId = TenantId,
+            OffboardingHistoryRowKey = HistoryRowKey,
+            InitiatedAt = DateTime.UtcNow.AddHours(-3),
+            InitiatedBy = "alice@contoso.com",
+            Status = "Failed",
+            FailedAt = DateTime.UtcNow.AddHours(-2),
+            FailedPhase = failedPhase,
+        };
+        repo.History[HistoryRowKey] = new OffboardingHistoryEntry
+        {
+            PartitionKey = Constants.OffboardingPartitionKeys.History,
+            RowKey = HistoryRowKey, TenantId = TenantId,
+            Status = "Failed",
+            ErrorMessage = "Poison queue: max dequeue count reached",
+            RetryCount = retryCount,
+            DrainCompletedAt = drainCompletedAt,
+            EarliestProcessingAt = DateTime.UtcNow.AddHours(-3),
+        };
+        return repo;
+    }
+
+    [Fact]
+    public async Task Retry_Failed_ResetsHistoryAndMarker_KeepsDrainAnchor_ReEnqueues()
+    {
+        var drained = DateTime.UtcNow.AddHours(-2).AddMinutes(-30);
+        var repo = SeedFailedOffboarding(drainCompletedAt: drained, retryCount: 5);
+        var enqueuer = new RecordingEnqueuer();
+        var sut = Build(repo, enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.Retried, outcome.Kind);
+        Assert.Equal(HistoryRowKey, outcome.HistoryRowKey);
+        Assert.Contains("max_dequeue", outcome.Message);
+
+        var history = repo.History[HistoryRowKey];
+        Assert.Equal("Initiated", history.Status);
+        Assert.Equal(6, history.RetryCount);
+        Assert.Null(history.ErrorMessage);
+        Assert.Equal(drained, history.DrainCompletedAt);   // the worker's resume anchor survives
+        Assert.Equal(HistoryRowKey, history.RowKey);      // same run, no new history row
+        Assert.Single(repo.History);
+
+        var marker = repo.Markers[TenantId];
+        Assert.Equal("Initiated", marker.Status);
+        Assert.Null(marker.FailedAt);
+        Assert.Null(marker.FailedPhase);
+
+        // History is written before the marker (worker authority first, HTTP anchor second).
+        Assert.Equal(new[] { "Initiated" }, repo.HistoryWrites);
+        Assert.Equal(new[] { "Initiated" }, repo.MarkerWrites);
+
+        var envelope = Assert.Single(enqueuer.Sent);
+        Assert.Equal(TenantId, envelope.TenantId);
+        Assert.Equal(HistoryRowKey, envelope.HistoryRowKey);
+        Assert.Equal("ops@contoso.com", envelope.InitiatedBy);
+    }
+
+    [Fact]
+    public async Task Retry_Completed_Conflict_NoWrites()
+    {
+        var repo = SeedFailedOffboarding();
+        repo.Markers[TenantId].Status = "Completed";
+        repo.Markers[TenantId].FailedPhase = null;
+        var enqueuer = new RecordingEnqueuer();
+        var sut = Build(repo, enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.NotFailed, outcome.Kind);
+        Assert.Contains("already completed", outcome.Message);
+        Assert.Empty(repo.HistoryWrites);
+        Assert.Empty(repo.MarkerWrites);
+        Assert.Empty(enqueuer.Sent);
+    }
+
+    [Theory]
+    [InlineData("Initiated")]
+    [InlineData("InProgress")]
+    public async Task Retry_InFlight_Conflict_PointsAtTheOffboardResume(string status)
+    {
+        var repo = SeedFailedOffboarding();
+        repo.Markers[TenantId].Status = status;
+        var enqueuer = new RecordingEnqueuer();
+        var sut = Build(repo, enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.NotFailed, outcome.Kind);
+        Assert.Contains(status, outcome.Message);
+        Assert.Equal("Failed", repo.History[HistoryRowKey].Status);
+        Assert.Empty(repo.MarkerWrites);
+        Assert.Empty(enqueuer.Sent);
+    }
+
+    [Fact]
+    public async Task Retry_NoMarker_NotFound()
+    {
+        var enqueuer = new RecordingEnqueuer();
+        var sut = Build(new FakeOffboardingAuditRepository(), enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.NotFound, outcome.Kind);
+        Assert.Empty(enqueuer.Sent);
+    }
+
+    [Fact]
+    public async Task Retry_HistoryRowMissing_FailsBeforeTouchingTheMarker()
+    {
+        var repo = SeedFailedOffboarding();
+        repo.History.Clear();
+        var enqueuer = new RecordingEnqueuer();
+        var sut = Build(repo, enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.HistoryMissing, outcome.Kind);
+        Assert.Equal("Failed", repo.Markers[TenantId].Status);
+        Assert.Empty(repo.MarkerWrites);
+        Assert.Empty(enqueuer.Sent);
+    }
+
+    [Fact]
+    public async Task Retry_EnqueueThrows_LeavesMarkerInitiated_ForTheOffboardResume()
+    {
+        var repo = SeedFailedOffboarding();
+        var enqueuer = new RecordingEnqueuer { ThrowOnEnqueue = new InvalidOperationException("queue down") };
+        var sut = Build(repo, enqueuer);
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.ReEnqueueFailed, outcome.Kind);
+        // Rows are reset: the ordinary DELETE offboard re-click now hits the Initiated resume path.
+        Assert.Equal("Initiated", repo.Markers[TenantId].Status);
+        Assert.Equal("Initiated", repo.History[HistoryRowKey].Status);
+    }
+
+    [Fact]
+    public async Task Retry_ResumesThroughTheDisabledGate_WithRemainingBarrierDelay()
+    {
+        // Tombstone written 2 minutes ago → the resume path must wait out the remaining
+        // 4 minutes of the 6-minute drain barrier, not restart it and not skip it.
+        var repo = SeedFailedOffboarding();
+        repo.History[HistoryRowKey].EarliestProcessingAt = DateTime.UtcNow.AddHours(-3);
+        var configRepoMock = new Mock<IConfigRepository>();
+        var tombstone = TenantConfiguration.CreateDefault(TenantId);
+        tombstone.Disabled = true;
+        tombstone.DisabledReason = "Offboarding in progress";
+        tombstone.LastUpdated = DateTime.UtcNow.AddMinutes(-2);
+        configRepoMock.Setup(r => r.GetTenantConfigurationAsync(It.IsAny<string>())).ReturnsAsync(tombstone);
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var service = new TenantConfigurationService(configRepoMock.Object, NullLogger<TenantConfigurationService>.Instance, cache);
+        var enqueuer = new RecordingEnqueuer();
+        var sut = new TenantOffboardFunction(
+            logger: NullLogger<TenantOffboardFunction>.Instance,
+            configRepo: configRepoMock.Object,
+            tenantConfigService: service,
+            maintenanceRepo: Mock.Of<IMaintenanceRepository>(),
+            offboardingRepo: repo,
+            offboardingEnqueuer: enqueuer,
+            previewWhitelistService: BuildPreviewWhitelistService(configRepoMock));
+
+        var outcome = await sut.RetryFailedOffboardingAsync(TenantId, "ops@contoso.com");
+
+        Assert.Equal(RetryOutcomeKind.Retried, outcome.Kind);
+        var delay = Assert.Single(enqueuer.VisibilityDelays);
+        Assert.NotNull(delay);
+        Assert.InRange(delay!.Value, TimeSpan.FromMinutes(3.5), TimeSpan.FromMinutes(4.1));
+        configRepoMock.Verify(r => r.SaveTenantConfigurationAsync(It.IsAny<TenantConfiguration>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void BuildStatusResponse_ProjectsMarkerStatus_AndHistoryDetails()
+    {
+        var repo = SeedFailedOffboarding(retryCount: 5);
+        var marker = repo.Markers[TenantId];
+        var history = repo.History[HistoryRowKey];
+
+        var dto = TenantOffboardFunction.BuildStatusResponse(TenantId, marker, history);
+
+        Assert.Equal("Failed", dto.Status);
+        Assert.Equal("max_dequeue", dto.FailedPhase);
+        Assert.Equal(marker.FailedAt, dto.FailedAt);
+        Assert.Equal(5, dto.RetryCount);
+        Assert.Equal(history.ErrorMessage, dto.ErrorMessage);
+        Assert.Equal(HistoryRowKey, dto.HistoryRowKey);
+
+        // History row gone (should not happen, but the record must still render).
+        var bare = TenantOffboardFunction.BuildStatusResponse(TenantId, marker, null);
+        Assert.Equal("Failed", bare.Status);
+        Assert.Equal(0, bare.RetryCount);
+        Assert.Null(bare.ErrorMessage);
+    }
 }

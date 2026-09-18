@@ -5010,6 +5010,23 @@ export interface TenantOffboardingCustomsArchiveEntry {
   archivedBy: string;
 }
 
+/** Body of GET global/tenants/{tenantId}/offboarding — the tenant's current offboarding record for the admin tenant editor. Status is the marker's status (the anchor every HTTP decision keys on); the history fields describe the run behind it. A Failed record carries FailedPhase so the operator sees what to expect from a retry before starting one. */
+export interface TenantOffboardingStatusResponse {
+  tenantId: string;
+  status: string;
+  historyRowKey: string;
+  initiatedAt: string;
+  initiatedBy: string;
+  /** Queue dequeue attempts plus operator retries of this run. */
+  retryCount: number;
+  earliestProcessingAt?: string;
+  drainCompletedAt?: string;
+  completedAt?: string;
+  failedAt?: string;
+  failedPhase?: string;
+  errorMessage?: string;
+}
+
 /** Body of POST rules/gather/test-pattern. */
 export interface TestLogPatternRequest {
   pattern?: string | null;

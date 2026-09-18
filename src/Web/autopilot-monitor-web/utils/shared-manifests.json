@@ -22906,6 +22906,103 @@
         }
       ]
     },
+    "TenantOffboardingStatusResponse": {
+      "kind": "object",
+      "doc": "Body of GET global/tenants/{tenantId}/offboarding — the tenant's current offboarding record for the admin tenant editor. Status is the marker's status (the anchor every HTTP decision keys on); the history fields describe the run behind it. A Failed record carries FailedPhase so the operator sees what to expect from a retry before starting one.",
+      "fields": [
+        {
+          "name": "tenantId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "historyRowKey",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "initiatedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "initiatedBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "retryCount",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Queue dequeue attempts plus operator retries of this run."
+        },
+        {
+          "name": "earliestProcessingAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "drainCompletedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "completedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "failedAt",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "failedPhase",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        },
+        {
+          "name": "errorMessage",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true
+        }
+      ]
+    },
     "TestLogPatternRequest": {
       "kind": "object",
       "doc": "Body of POST rules/gather/test-pattern.",

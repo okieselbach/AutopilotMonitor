@@ -12,6 +12,9 @@ interface OffboardTenantConfirmDialogProps {
   error: string | null;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Set when the dialog confirms the RETRY of a Failed offboarding instead of a new one:
+   *  the phase the previous run died in, shown so the operator knows what the retry re-runs. */
+  retryOfFailedPhase?: string | null;
 }
 
 /**
@@ -27,26 +30,37 @@ export function OffboardTenantConfirmDialog({
   error,
   onCancel,
   onConfirm,
+  retryOfFailedPhase,
 }: OffboardTenantConfirmDialogProps) {
   const [confirmText, setConfirmText] = useState("");
   const armed = confirmText === "OFFBOARD";
+  const retry = retryOfFailedPhase !== undefined && retryOfFailedPhase !== null;
 
   return (
     <ModalPortal>
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
         <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
           <div className="p-5 rounded-t-lg text-white bg-red-600">
-            <h2 className="text-lg font-bold">Offboard tenant</h2>
+            <h2 className="text-lg font-bold">{retry ? "Retry offboarding" : "Offboard tenant"}</h2>
             <p className="text-sm opacity-90 mt-0.5">{tenantLabel}</p>
             <p className="text-xs opacity-75">{tenantId}</p>
           </div>
 
           <div className="p-5 space-y-3 text-sm text-gray-700">
-            <p>
-              This queues the offboarding cascade: the tenant is <strong>suspended immediately</strong>,
-              and after a short drain window <strong>all of its data is permanently deleted</strong> —
-              sessions, events, rules, admins, and the tenant configuration itself.
-            </p>
+            {retry ? (
+              <p>
+                The previous run failed in phase <span className="font-mono font-semibold">{retryOfFailedPhase}</span>.
+                This re-queues the same offboarding: the tenant stays suspended, the cascade re-runs its
+                remaining phases (every step is idempotent) and <strong>permanently deletes whatever data
+                is left</strong> — including the tenant configuration itself.
+              </p>
+            ) : (
+              <p>
+                This queues the offboarding cascade: the tenant is <strong>suspended immediately</strong>,
+                and after a short drain window <strong>all of its data is permanently deleted</strong> —
+                sessions, events, rules, admins, and the tenant configuration itself.
+              </p>
+            )}
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-800">
               <strong>This cannot be undone,</strong> and it is <strong>not a ban</strong>: because the
               configuration row (including any suspension) is deleted, a new sign-in from this tenant
@@ -69,7 +83,7 @@ export function OffboardTenantConfirmDialog({
             </div>
             {error && (
               <div role="alert" className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-800">
-                <strong>Offboarding failed:</strong>{" "}{error}
+                <strong>{retry ? "Retry failed:" : "Offboarding failed:"}</strong>{" "}{error}
               </div>
             )}
           </div>
@@ -90,10 +104,10 @@ export function OffboardTenantConfirmDialog({
               {saving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Offboarding…</span>
+                  <span>{retry ? "Retrying…" : "Offboarding…"}</span>
                 </>
               ) : (
-                <span>Offboard tenant</span>
+                <span>{retry ? "Retry offboarding" : "Offboard tenant"}</span>
               )}
             </button>
           </div>
