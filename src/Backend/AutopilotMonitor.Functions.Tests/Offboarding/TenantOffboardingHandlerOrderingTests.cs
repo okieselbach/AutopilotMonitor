@@ -320,6 +320,22 @@ public class TenantOffboardingHandlerOrderingTests
         Assert.Contains(Constants.TableNames.ScriptNameCache, harness.SafeWipeProbe.ExactPartitionWipes);
     }
 
+    [Fact]
+    public async Task PostDrain_OwnedGroupWipe_AnchorsOnSelfServiceGroupId()
+    {
+        // The tenant's own self-service group lives under "msp-{tenantId}" — not a GUID. The wipe
+        // must go through the owned-group entry points (tenant GUID in, group id derived inside);
+        // handing the group id to a tenant-GUID entry point throws and poisons every offboarding.
+        var harness = Harness.New();
+        var ownedGroupId = Constants.TenantGroupIds.ForHomeTenant(TenantId);
+
+        await harness.Sut.HandleAsync(harness.Envelope());
+
+        Assert.Contains((Constants.TableNames.TenantGroups, ownedGroupId), harness.SafeWipeProbe.ExactPartitionAnchors);
+        Assert.Contains((Constants.TableNames.TenantGroupAssignments, ownedGroupId), harness.SafeWipeProbe.RowKeyAnchors);
+        Assert.Equal("Completed", harness.Repo.History[HistoryRowKey].Status);
+    }
+
     // ── Harness (copied minimal — only what these tests need) ───────────────────
 
     private sealed class Harness
@@ -470,12 +486,16 @@ public class TenantOffboardingHandlerOrderingTests
             new BlobStorageService(new BlobServiceClient("UseDevelopmentStorage=true"),
                 NullLogger<BlobStorageService>.Instance, usesManagedIdentity: false),
             NullLogger<SafeWipeService>.Instance) { }
-        public override Task<int> WipeByExactPartitionAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; ExactPartitionWipes.Add(t); return Task.FromResult(0); }
-        public override Task<int> WipeByCompositePartitionRangeAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
-        public override Task<int> WipeByDiscriminatorAndTenantPropertyAsync(string t, string d, string i, CancellationToken c = default) { WipeCallCount++; return Task.FromResult(0); }
-        public override Task<int> WipeByTenantIdPropertyAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; PropertyOnlyWipes.Add(t); return Task.FromResult(0); }
-        public override Task<int> WipeByRowKeyAsync(string t, string i, CancellationToken c = default) { WipeCallCount++; RowKeyWipes.Add(t); return Task.FromResult(0); }
-        public override Task<int> WipeBlobsByTenantPrefixAsync(string c, string i, CancellationToken ct = default) { WipeCallCount++; return Task.FromResult(0); }
+        /// <summary>(table, partition key) pairs of the exact-partition wipe — the anchor the delete would run against.</summary>
+        public List<(string Table, string Anchor)> ExactPartitionAnchors { get; } = new();
+        /// <summary>(table, row key) pairs of the RowKey-anchored wipe.</summary>
+        public List<(string Table, string Anchor)> RowKeyAnchors { get; } = new();
+        protected override Task<int> WipeByExactPartitionCoreAsync(string t, string pk, string filter, CancellationToken c) { WipeCallCount++; ExactPartitionWipes.Add(t); ExactPartitionAnchors.Add((t, pk)); return Task.FromResult(0); }
+        protected override Task<int> WipeByCompositePartitionRangeCoreAsync(string t, string i, CancellationToken c) { WipeCallCount++; return Task.FromResult(0); }
+        protected override Task<int> WipeByDiscriminatorAndTenantPropertyCoreAsync(string t, string d, string i, CancellationToken c) { WipeCallCount++; return Task.FromResult(0); }
+        protected override Task<int> WipeByTenantIdPropertyCoreAsync(string t, string i, CancellationToken c) { WipeCallCount++; PropertyOnlyWipes.Add(t); return Task.FromResult(0); }
+        protected override Task<int> WipeByRowKeyCoreAsync(string t, string rk, string filter, CancellationToken c) { WipeCallCount++; RowKeyWipes.Add(t); RowKeyAnchors.Add((t, rk)); return Task.FromResult(0); }
+        protected override Task<int> WipeBlobsByTenantPrefixCoreAsync(string c, string i, CancellationToken ct) { WipeCallCount++; return Task.FromResult(0); }
     }
 
     private sealed class NoopCustomsArchivingOrderingHandler : TenantOffboardingHandler

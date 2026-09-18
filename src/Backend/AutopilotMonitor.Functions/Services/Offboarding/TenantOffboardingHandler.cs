@@ -1003,11 +1003,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // The tenant's own self-service Tenant Group ("msp-{tenantId}": PK=groupId, which no bucket above
             // matches) and the assignment rows pointing at it — the managing side of self-service delegation.
             ct.ThrowIfCancellationRequested();
-            var ownedGroupId = Constants.TenantGroupIds.ForHomeTenant(tenantId);
             counts[$"{Constants.TableNames.TenantGroups}/owned"] =
-                await _safeWipe.WipeByExactPartitionAsync(Constants.TableNames.TenantGroups, ownedGroupId, ct);
+                await _safeWipe.WipeByOwnedGroupPartitionAsync(Constants.TableNames.TenantGroups, tenantId, ct);
             counts[$"{Constants.TableNames.TenantGroupAssignments}/owned"] =
-                await _safeWipe.WipeByRowKeyAsync(Constants.TableNames.TenantGroupAssignments, ownedGroupId, ct);
+                await _safeWipe.WipeByOwnedGroupRowKeyAsync(Constants.TableNames.TenantGroupAssignments, tenantId, ct);
         }
 
         // ── Failure path ────────────────────────────────────────────────────────

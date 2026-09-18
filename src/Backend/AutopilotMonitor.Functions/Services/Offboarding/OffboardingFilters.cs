@@ -1,5 +1,6 @@
 using System;
 using AutopilotMonitor.Functions.Security;
+using AutopilotMonitor.Shared;
 
 namespace AutopilotMonitor.Functions.Services.Offboarding
 {
@@ -76,6 +77,30 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
             return $"RowKey eq '{ODataSanitizer.EscapeValue(normalizedTenantId)}'";
+        }
+
+        /// <summary>
+        /// <c>PartitionKey eq 'msp-{tenantId}'</c> — the tenant's own self-service Tenant Group
+        /// (TenantGroups: PK=groupId). The group id is derived from the validated tenant GUID here,
+        /// never passed in.
+        /// </summary>
+        public static string OwnedGroupPartition(string normalizedTenantId)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            var groupId = Constants.TenantGroupIds.ForHomeTenant(normalizedTenantId);
+            return $"PartitionKey eq '{ODataSanitizer.EscapeValue(groupId)}'";
+        }
+
+        /// <summary>
+        /// <c>RowKey eq 'msp-{tenantId}'</c> — assignment rows pointing at the tenant's own
+        /// self-service Tenant Group (TenantGroupAssignments: PK=managed tenant, RK=groupId).
+        /// Full-table scan, same reservation as <see cref="RowKeyEquals"/>.
+        /// </summary>
+        public static string OwnedGroupRowKey(string normalizedTenantId)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            var groupId = Constants.TenantGroupIds.ForHomeTenant(normalizedTenantId);
+            return $"RowKey eq '{ODataSanitizer.EscapeValue(groupId)}'";
         }
     }
 }

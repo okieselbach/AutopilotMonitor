@@ -116,6 +116,23 @@ public class OffboardingFiltersTests
         Assert.DoesNotContain("PartitionKey", filter);
     }
 
+    [Fact]
+    public void OwnedGroupFilters_AnchorOnTheDerivedSelfServiceGroupId()
+    {
+        Assert.Equal($"PartitionKey eq 'msp-{ValidTenant}'", OffboardingFilters.OwnedGroupPartition(ValidTenant));
+        Assert.Equal($"RowKey eq 'msp-{ValidTenant}'", OffboardingFilters.OwnedGroupRowKey(ValidTenant));
+    }
+
+    [Theory]
+    [InlineData("not-a-guid")]
+    [InlineData("msp-11111111-1111-1111-1111-111111111111")] // the group id itself is not an input
+    [InlineData("")]
+    public void OwnedGroupFilters_ThrowForNonGuid(string input)
+    {
+        Assert.Throws<ArgumentException>(() => OffboardingFilters.OwnedGroupPartition(input));
+        Assert.Throws<ArgumentException>(() => OffboardingFilters.OwnedGroupRowKey(input));
+    }
+
     // ── Injection neutralization (defense in depth even after EnsureValidGuid) ──
 
     [Fact]

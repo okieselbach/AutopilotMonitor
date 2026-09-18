@@ -414,7 +414,7 @@ public class OffboardingMarkerCleanupFunctionTests
         {
         }
 
-        public override Task<int> WipeByExactPartitionAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByExactPartitionCoreAsync(string tableName, string normalizedTenantId, string filter, CancellationToken ct)
         {
             WipeCalls.Add((tableName, normalizedTenantId));
             if (ThrowOnNextWipe is { } ex)

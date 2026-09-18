@@ -288,10 +288,10 @@ public class TenantOffboardingWorkerPoisonTests
             new BlobStorageService(new BlobServiceClient("UseDevelopmentStorage=true"),
                 NullLogger<BlobStorageService>.Instance, usesManagedIdentity: false),
             NullLogger<SafeWipeService>.Instance) { }
-        public override Task<int> WipeByExactPartitionAsync(string t, string i, CancellationToken c = default) => Task.FromResult(0);
-        public override Task<int> WipeByCompositePartitionRangeAsync(string t, string i, CancellationToken c = default) => Task.FromResult(0);
-        public override Task<int> WipeByDiscriminatorAndTenantPropertyAsync(string t, string d, string i, CancellationToken c = default) => Task.FromResult(0);
-        public override Task<int> WipeByTenantIdPropertyAsync(string t, string i, CancellationToken c = default) => Task.FromResult(0);
-        public override Task<int> WipeBlobsByTenantPrefixAsync(string c, string i, CancellationToken ct = default) => Task.FromResult(0);
+        protected override Task<int> WipeByExactPartitionCoreAsync(string t, string i, string filter, CancellationToken c) => Task.FromResult(0);
+        protected override Task<int> WipeByCompositePartitionRangeCoreAsync(string t, string i, CancellationToken c) => Task.FromResult(0);
+        protected override Task<int> WipeByDiscriminatorAndTenantPropertyCoreAsync(string t, string d, string i, CancellationToken c) => Task.FromResult(0);
+        protected override Task<int> WipeByTenantIdPropertyCoreAsync(string t, string i, CancellationToken c) => Task.FromResult(0);
+        protected override Task<int> WipeBlobsByTenantPrefixCoreAsync(string c, string i, CancellationToken ct) => Task.FromResult(0);
     }
 }

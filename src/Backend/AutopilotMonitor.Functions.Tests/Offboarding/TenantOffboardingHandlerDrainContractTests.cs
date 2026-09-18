@@ -593,9 +593,9 @@ public class TenantOffboardingHandlerDrainContractTests
 
     /// <summary>
     /// <see cref="SafeWipeService"/> that records call counts without performing any storage IO.
-    /// Tests use this to assert that fail-closed paths NEVER touch the wipe methods. Now that
-    /// <see cref="SafeWipeService"/> exposes the wipe methods as <c>virtual</c>, the production
-    /// dispatch lands here.
+    /// Tests use this to assert that fail-closed paths NEVER touch the wipe methods. Only the
+    /// protected cores are overridden, so the tenant-GUID guard of the public entry points still
+    /// runs against whatever the handler passes in.
     /// </summary>
     private sealed class CountingSafeWipeService : SafeWipeService
     {
@@ -610,37 +610,37 @@ public class TenantOffboardingHandlerDrainContractTests
         {
         }
 
-        public override Task<int> WipeByExactPartitionAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByExactPartitionCoreAsync(string tableName, string normalizedTenantId, string filter, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);
         }
 
-        public override Task<int> WipeByCompositePartitionRangeAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByCompositePartitionRangeCoreAsync(string tableName, string normalizedTenantId, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);
         }
 
-        public override Task<int> WipeByDiscriminatorAndTenantPropertyAsync(string tableName, string discriminator, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByDiscriminatorAndTenantPropertyCoreAsync(string tableName, string discriminator, string normalizedTenantId, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);
         }
 
-        public override Task<int> WipeByTenantIdPropertyAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByTenantIdPropertyCoreAsync(string tableName, string normalizedTenantId, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);
         }
 
-        public override Task<int> WipeByRowKeyAsync(string tableName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeByRowKeyCoreAsync(string tableName, string normalizedTenantId, string filter, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);
         }
 
-        public override Task<int> WipeBlobsByTenantPrefixAsync(string containerName, string normalizedTenantId, CancellationToken ct = default)
+        protected override Task<int> WipeBlobsByTenantPrefixCoreAsync(string containerName, string normalizedTenantId, CancellationToken ct)
         {
             WipeCallCount++;
             return Task.FromResult(0);

@@ -38,21 +38,46 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             _logger = logger;
         }
 
+        // Every public entry point validates the tenant GUID and builds the filter, then hands
+        // over to a protected virtual core. Test fakes override the cores only, so the guard runs
+        // under every fake — a caller that passes anything but the tenant GUID fails in tests.
+
         /// <summary>
         /// Variant A (exact tenant PartitionKey). Used for tables where rows live under
         /// <c>PartitionKey == normalizedTenantId</c> (AuditLogs, UsageMetrics, …).
         /// </summary>
-        public virtual Task<int> WipeByExactPartitionAsync(
+        public Task<int> WipeByExactPartitionAsync(
             string tableName, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
-            var filter = OffboardingFilters.ExactPartition(normalizedTenantId);
+            return WipeByExactPartitionCoreAsync(
+                tableName, normalizedTenantId, OffboardingFilters.ExactPartition(normalizedTenantId), ct);
+        }
 
+        /// <summary>
+        /// Variant A for the tenant's own self-service Tenant Group: rows live under
+        /// <c>PartitionKey == "msp-{tenantId}"</c>. Takes the tenant GUID and derives the group id
+        /// itself, so the anchor is never a caller-supplied string.
+        /// </summary>
+        public Task<int> WipeByOwnedGroupPartitionAsync(
+            string tableName, string normalizedTenantId, CancellationToken ct = default)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            return WipeByExactPartitionCoreAsync(
+                tableName,
+                Constants.TenantGroupIds.ForHomeTenant(normalizedTenantId),
+                OffboardingFilters.OwnedGroupPartition(normalizedTenantId),
+                ct);
+        }
+
+        protected virtual Task<int> WipeByExactPartitionCoreAsync(
+            string tableName, string partitionKey, string filter, CancellationToken ct)
+        {
             return RunFetchVerifyDeleteAsync(
                 tableName,
                 filter,
-                expectedAnchor: normalizedTenantId,
-                verifyRow: e => string.Equals(e.PartitionKey, normalizedTenantId, StringComparison.Ordinal),
+                expectedAnchor: partitionKey,
+                verifyRow: e => string.Equals(e.PartitionKey, partitionKey, StringComparison.Ordinal),
                 ct);
         }
 
@@ -60,10 +85,16 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// Variant A range (composite tenant PartitionKey). Used for tables where rows live
         /// under <c>{tenantId}_{sessionId|discriminator}</c>.
         /// </summary>
-        public virtual Task<int> WipeByCompositePartitionRangeAsync(
+        public Task<int> WipeByCompositePartitionRangeAsync(
             string tableName, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            return WipeByCompositePartitionRangeCoreAsync(tableName, normalizedTenantId, ct);
+        }
+
+        protected virtual Task<int> WipeByCompositePartitionRangeCoreAsync(
+            string tableName, string normalizedTenantId, CancellationToken ct)
+        {
             var prefix = normalizedTenantId + "_";
             var filter = OffboardingFilters.CompositePartitionRange(normalizedTenantId);
 
@@ -81,12 +112,17 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// <c>TenantId</c> property identifies tenant ownership. Verify-step MUST check the
         /// property because the PK is non-anchored.
         /// </summary>
-        public virtual Task<int> WipeByDiscriminatorAndTenantPropertyAsync(
+        public Task<int> WipeByDiscriminatorAndTenantPropertyAsync(
             string tableName, string discriminator, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
             if (string.IsNullOrEmpty(discriminator)) throw new ArgumentException("Discriminator required", nameof(discriminator));
+            return WipeByDiscriminatorAndTenantPropertyCoreAsync(tableName, discriminator, normalizedTenantId, ct);
+        }
 
+        protected virtual Task<int> WipeByDiscriminatorAndTenantPropertyCoreAsync(
+            string tableName, string discriminator, string normalizedTenantId, CancellationToken ct)
+        {
             var filter = OffboardingFilters.DiscriminatorWithTenantProp(discriminator, normalizedTenantId);
             var expectedAnchor = $"{discriminator}+TenantId={normalizedTenantId}";
 
@@ -104,10 +140,16 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// PartitionKey is not tenant-anchored (e.g. <c>UserUsageLog</c> keyed by userOid).
         /// Full-table scan — DO NOT use on high-volume tables without consideration.
         /// </summary>
-        public virtual Task<int> WipeByTenantIdPropertyAsync(
+        public Task<int> WipeByTenantIdPropertyAsync(
             string tableName, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            return WipeByTenantIdPropertyCoreAsync(tableName, normalizedTenantId, ct);
+        }
+
+        protected virtual Task<int> WipeByTenantIdPropertyCoreAsync(
+            string tableName, string normalizedTenantId, CancellationToken ct)
+        {
             var filter = OffboardingFilters.TenantIdProperty(normalizedTenantId);
 
             return RunFetchVerifyDeleteAsync(
@@ -124,17 +166,38 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// PK=date, RK=tenantId|"global"). Full-table scan — reserve for retention-bounded
         /// tables.
         /// </summary>
-        public virtual Task<int> WipeByRowKeyAsync(
+        public Task<int> WipeByRowKeyAsync(
             string tableName, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
-            var filter = OffboardingFilters.RowKeyEquals(normalizedTenantId);
+            return WipeByRowKeyCoreAsync(
+                tableName, normalizedTenantId, OffboardingFilters.RowKeyEquals(normalizedTenantId), ct);
+        }
 
+        /// <summary>
+        /// Variant D for the tenant's own self-service Tenant Group: rows whose
+        /// <c>RowKey == "msp-{tenantId}"</c> (TenantGroupAssignments: PK=managed tenant). Takes
+        /// the tenant GUID and derives the group id itself.
+        /// </summary>
+        public Task<int> WipeByOwnedGroupRowKeyAsync(
+            string tableName, string normalizedTenantId, CancellationToken ct = default)
+        {
+            SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
+            return WipeByRowKeyCoreAsync(
+                tableName,
+                Constants.TenantGroupIds.ForHomeTenant(normalizedTenantId),
+                OffboardingFilters.OwnedGroupRowKey(normalizedTenantId),
+                ct);
+        }
+
+        protected virtual Task<int> WipeByRowKeyCoreAsync(
+            string tableName, string rowKey, string filter, CancellationToken ct)
+        {
             return RunFetchVerifyDeleteAsync(
                 tableName,
                 filter,
-                expectedAnchor: $"RowKey={normalizedTenantId}",
-                verifyRow: e => string.Equals(e.RowKey, normalizedTenantId, StringComparison.Ordinal),
+                expectedAnchor: $"RowKey={rowKey}",
+                verifyRow: e => string.Equals(e.RowKey, rowKey, StringComparison.Ordinal),
                 ct);
         }
 
@@ -144,12 +207,17 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         /// per-blob (DeleteIfExistsAsync) so the helper stays idempotent across crash/resume.
         /// Mismatch → abort before any delete. Returns the number of blobs deleted.
         /// </summary>
-        public virtual async Task<int> WipeBlobsByTenantPrefixAsync(
+        public Task<int> WipeBlobsByTenantPrefixAsync(
             string containerName, string normalizedTenantId, CancellationToken ct = default)
         {
             SecurityValidator.EnsureValidGuid(normalizedTenantId, nameof(normalizedTenantId));
             if (string.IsNullOrEmpty(containerName)) throw new ArgumentException("Container required", nameof(containerName));
+            return WipeBlobsByTenantPrefixCoreAsync(containerName, normalizedTenantId, ct);
+        }
 
+        protected virtual async Task<int> WipeBlobsByTenantPrefixCoreAsync(
+            string containerName, string normalizedTenantId, CancellationToken ct)
+        {
             var prefix = normalizedTenantId + "/";
             var container = _blobs.GetContainerClient(containerName);
 

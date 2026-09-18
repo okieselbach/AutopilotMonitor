@@ -8,6 +8,7 @@ using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Offboarding;
+using AutopilotMonitor.Shared;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -206,6 +207,75 @@ public class SafeWipeServiceTests
     }
 
     [Fact]
+    public async Task OwnedGroupPartition_DeletesRowsUnderSelfServiceGroupId()
+    {
+        // TenantGroups: PK = "msp-{tenantId}". The entry point takes the tenant GUID and derives
+        // the group id — the rows under that partition are the ones deleted.
+        var groupId = Constants.TenantGroupIds.ForHomeTenant(TenantId);
+        var harness = new Harness(
+            queriedRows: new[]
+            {
+                new TableEntity(groupId, "meta"),
+                new TableEntity(groupId, OtherTenant),
+            });
+
+        var deleted = await harness.Sut.WipeByOwnedGroupPartitionAsync("FakeTable", TenantId);
+
+        Assert.Equal(2, deleted);
+        Assert.Equal($"PartitionKey eq '{groupId}'", Assert.Single(harness.Filters));
+    }
+
+    [Fact]
+    public async Task OwnedGroupPartition_AbortsWhenForeignGroupReturned()
+    {
+        var harness = new Harness(
+            queriedRows: new[]
+            {
+                new TableEntity(Constants.TenantGroupIds.ForHomeTenant(TenantId), "meta"),
+                new TableEntity(Constants.TenantGroupIds.ForHomeTenant(OtherTenant), "meta"), // <-- another manager's group
+            });
+
+        await Assert.ThrowsAsync<SafeWipeVerificationException>(() =>
+            harness.Sut.WipeByOwnedGroupPartitionAsync("FakeTable", TenantId));
+
+        Assert.Empty(harness.SubmittedBatches);
+        Assert.Empty(harness.PerRowDeletes);
+    }
+
+    [Fact]
+    public async Task OwnedGroupRowKey_AbortsWhenForeignGroupAssignmentReturned()
+    {
+        // TenantGroupAssignments: PK = managed tenant, RK = groupId. An assignment pointing at
+        // another manager's group must never be deleted.
+        var harness = new Harness(
+            queriedRows: new[]
+            {
+                new TableEntity(OtherTenant, Constants.TenantGroupIds.ForHomeTenant(TenantId)),
+                new TableEntity(OtherTenant, Constants.TenantGroupIds.ForHomeTenant(OtherTenant)),
+            });
+
+        await Assert.ThrowsAsync<SafeWipeVerificationException>(() =>
+            harness.Sut.WipeByOwnedGroupRowKeyAsync("FakeTable", TenantId));
+
+        Assert.Empty(harness.SubmittedBatches);
+        Assert.Empty(harness.PerRowDeletes);
+    }
+
+    [Fact]
+    public async Task TenantGuidEntryPoints_RejectTheDerivedGroupId()
+    {
+        // The production bug: the handler passed "msp-{tenantId}" into the tenant-GUID entry
+        // points and every offboarding poisoned. Those entry points stay GUID-only.
+        var harness = new Harness(queriedRows: Array.Empty<TableEntity>());
+        var groupId = Constants.TenantGroupIds.ForHomeTenant(TenantId);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Sut.WipeByExactPartitionAsync("t", groupId));
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Sut.WipeByRowKeyAsync("t", groupId));
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Sut.WipeByOwnedGroupPartitionAsync("t", groupId));
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Sut.WipeByOwnedGroupRowKeyAsync("t", groupId));
+    }
+
+    [Fact]
     public async Task Variants_RejectNonGuidTenantId()
     {
         var harness = new Harness(queriedRows: Array.Empty<TableEntity>());
@@ -228,6 +298,8 @@ public class SafeWipeServiceTests
     {
         public List<List<TableTransactionAction>> SubmittedBatches { get; } = new();
         public List<(string Pk, string Rk, ETag Etag)> PerRowDeletes { get; } = new();
+        /// <summary>OData filters the service sent to the table — the server-side anchor.</summary>
+        public List<string> Filters { get; } = new();
         public SafeWipeService Sut { get; }
 
         public Harness(
@@ -244,6 +316,7 @@ public class SafeWipeServiceTests
                     It.IsAny<int?>(),
                     It.IsAny<IEnumerable<string>>(),
                     It.IsAny<CancellationToken>()))
+                .Callback<string, int?, IEnumerable<string>, CancellationToken>((filter, _, _, _) => Filters.Add(filter))
                 .Returns(AsAsyncPageable(queriedRows));
 
             mockTableClient
