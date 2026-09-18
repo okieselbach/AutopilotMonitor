@@ -53,8 +53,11 @@ export function MaintenanceTriggerSection({
       setError(null);
       setSuccessMessage(null);
 
+      // The run answers when it is done (minutes), far beyond the default fetch timeout;
+      // the platform gateway cuts a request at 230 s, so waiting longer gains nothing.
       await fetchOk(api.maintenance.trigger(maintenanceDate || undefined), getAccessToken, {
         method: "POST",
+        signal: AbortSignal.timeout(230_000),
       });
 
       const dateInfo = maintenanceDate ? ` for ${maintenanceDate}` : '';
