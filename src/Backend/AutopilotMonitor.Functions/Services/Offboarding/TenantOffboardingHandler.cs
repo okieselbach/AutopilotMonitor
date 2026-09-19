@@ -237,7 +237,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             _logger = logger;
         }
 
-        public async Task HandleAsync(TenantOffboardingEnvelope envelope, CancellationToken ct = default)
+        public async Task<TenantOffboardingOutcome> HandleAsync(TenantOffboardingEnvelope envelope, CancellationToken ct = default)
         {
             if (envelope == null) throw new ArgumentNullException(nameof(envelope));
             var tenantId = envelope.TenantId.ToLowerInvariant();
@@ -250,14 +250,14 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             if (history.Status == "Completed")
             {
                 _logger.LogInformation("Tenant offboarding already Completed — re-pickup is a no-op. tenant={Tenant}", tenantId);
-                return;
+                return TenantOffboardingOutcome.Completed;
             }
             if (history.Status == "Failed")
             {
                 _logger.LogWarning(
                     "Tenant offboarding History is Failed (phase={Phase}) — operator action required, worker returns. tenant={Tenant}",
                     history.ErrorMessage ?? "unknown", tenantId);
-                return;
+                return TenantOffboardingOutcome.Failed;
             }
 
             // 2.A — first pickup transitions History/Pointer/Marker to InProgress.
@@ -279,7 +279,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
                     "Drain-Skip-Gate: History.DrainCompletedAt={DrainedAt} set; running post-drain phases idempotently. tenant={Tenant}",
                     history.DrainCompletedAt, tenantId);
                 await RunPostDrainPhasesAsync(history, tenantId, ct);
-                return;
+                return TenantOffboardingOutcome.Completed;
             }
 
             // 2.B — Ensure Expectations blob exists. The two history markers EnumerationStartedAt
@@ -336,7 +336,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
                 _logger.LogInformation(
                     "Drain not yet settled — re-enqueued tenant={Tenant} poll={Poll}/{Max} delay={Delay}",
                     tenantId, next.DrainPollCount, MaxDrainPolls, DrainPollDelay);
-                return;
+                return TenantOffboardingOutcome.Pending;
             }
 
             // Drain OK — Rev-9-F1: stamp DrainCompletedAt BEFORE Phase 2.D begins.
@@ -344,6 +344,7 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             await _auditRepo.UpsertHistoryAsync(history, ct);
 
             await RunPostDrainPhasesAsync(history, tenantId, ct);
+            return TenantOffboardingOutcome.Completed;
         }
 
         // ── Phase 2.A status transitions ────────────────────────────────────────

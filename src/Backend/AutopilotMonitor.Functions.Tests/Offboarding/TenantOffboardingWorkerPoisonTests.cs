@@ -111,6 +111,71 @@ public class TenantOffboardingWorkerPoisonTests
         Assert.Equal("InProgress", harness.Repo.History[HistoryRowKey].Status);
     }
 
+    // ── Superseded dead letters ─────────────────────────────────────────────────
+    //
+    // A retry after a poisoned run is a new envelope, so nothing else ever removes the dead
+    // letter of the failed run. The completed run sweeps it.
+
+    private const string OtherTenantId = "22222222-2222-2222-2222-222222222222";
+
+    [Fact]
+    public async Task Completed_RemovesOnlyTheTenantsDeadLetters()
+    {
+        var harness = new Harness();
+        harness.Repo.History[HistoryRowKey].Status = "Completed";
+        var own = harness.AddDeadLetter(TenantId.ToUpperInvariant());   // tenant ids compare case-insensitively
+        var foreign = harness.AddDeadLetter(OtherTenantId);
+        var malformed = harness.AddDeadLetter(tenantId: null, bodyOverride: "{ not json at all");
+
+        await harness.InvokeHandleAsync();
+
+        Assert.Equal(new[] { own }, harness.PoisonDeletedIds);
+        Assert.DoesNotContain(foreign, harness.PoisonDeletedIds);
+        Assert.DoesNotContain(malformed, harness.PoisonDeletedIds);
+    }
+
+    [Fact]
+    public async Task Completed_SweepsPastTheFirstBatch()
+    {
+        var harness = new Harness();
+        harness.Repo.History[HistoryRowKey].Status = "Completed";
+        for (var i = 0; i < TenantOffboardingWorker.PoisonSweepBatchSize; i++)
+            harness.AddDeadLetter(OtherTenantId);
+        var own = harness.AddDeadLetter(TenantId);
+
+        await harness.InvokeHandleAsync();
+
+        Assert.Equal(new[] { own }, harness.PoisonDeletedIds);
+    }
+
+    [Fact]
+    public async Task NotCompleted_LeavesThePoisonQueueAlone()
+    {
+        // A pickup that finds the run Failed must not touch the dead letter — it is the only
+        // queue-side trace of a failure nobody has resolved yet.
+        var harness = new Harness();
+        harness.Repo.History[HistoryRowKey].Status = "Failed";
+        harness.AddDeadLetter(TenantId);
+
+        await harness.InvokeHandleAsync();
+
+        Assert.Equal(0, harness.PoisonReceiveCount);
+        Assert.Empty(harness.PoisonDeletedIds);
+    }
+
+    [Fact]
+    public async Task Completed_SweepFailure_DoesNotFailTheRun()
+    {
+        // A throw here would keep the completed envelope on the main queue and finally move a
+        // Completed run to poison.
+        var harness = new Harness(poisonReceiveThrows: true);
+        harness.Repo.History[HistoryRowKey].Status = "Completed";
+
+        await harness.InvokeHandleAsync();
+
+        Assert.Equal(1, harness.PoisonReceiveCount);
+    }
+
     // ── Harness ─────────────────────────────────────────────────────────────────
 
     private sealed class Harness
@@ -121,10 +186,37 @@ public class TenantOffboardingWorkerPoisonTests
         public Mock<QueueClient> PoisonQueue { get; } = new();
         public int PoisonSendCount { get; private set; }
         public int MainDeleteCount { get; private set; }
+        public int PoisonReceiveCount { get; private set; }
+        public List<string> PoisonDeletedIds { get; } = new();
 
-        public Harness(bool poisonSendThrows = false)
+        // Poison-queue content for the sweep tests. A received message turns invisible, like the
+        // real queue, so a second receive returns the next batch instead of the same one.
+        private readonly List<QueueMessage> _deadLetters = new();
+        private readonly HashSet<string> _hiddenDeadLetters = new();
+
+        public Harness(bool poisonSendThrows = false, bool poisonReceiveThrows = false)
         {
             SeedAudit();
+
+            PoisonQueue.Setup(q => q.ReceiveMessagesAsync(It.IsAny<int?>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()))
+                .Returns<int?, TimeSpan?, CancellationToken>((max, _, _) =>
+                {
+                    PoisonReceiveCount++;
+                    if (poisonReceiveThrows) throw new InvalidOperationException("simulated poison-queue 503");
+                    var batch = _deadLetters
+                        .Where(m => !_hiddenDeadLetters.Contains(m.MessageId))
+                        .Take(max ?? 1)
+                        .ToArray();
+                    foreach (var m in batch) _hiddenDeadLetters.Add(m.MessageId);
+                    return Task.FromResult(Response.FromValue(batch, new Mock<Response>().Object));
+                });
+
+            PoisonQueue.Setup(q => q.DeleteMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns<string, string, CancellationToken>((id, _, _) =>
+                {
+                    PoisonDeletedIds.Add(id);
+                    return Task.FromResult(new Mock<Response>().Object);
+                });
 
             // Cascade-handler dependencies. The handler is real — it talks to FakeRepo +
             // OpsEvent + (unused) other deps. Only MarkEnvelopeFailedFromPoisonAsync is
@@ -160,23 +252,42 @@ public class TenantOffboardingWorkerPoisonTests
         }
 
         public QueueMessage BuildMessage(int dequeueCount, string? bodyOverride = null)
-        {
-            var envelope = new TenantOffboardingEnvelope
-            {
-                TenantId = TenantId,
-                HistoryPartitionKey = Constants.OffboardingPartitionKeys.History,
-                HistoryRowKey = HistoryRowKey,
-                InitiatedBy = "alice@contoso.invalid",
-                InitiatedAt = DateTime.UtcNow.AddMinutes(-1),
-                EnqueuedAt = DateTime.UtcNow,
-                DrainPollCount = 0,
-            };
-            return QueuesModelFactory.QueueMessage(
+            => QueuesModelFactory.QueueMessage(
                 messageId: Guid.NewGuid().ToString(),
                 popReceipt: "fake-receipt",
-                body: new BinaryData(bodyOverride ?? JsonConvert.SerializeObject(envelope)),
+                body: new BinaryData(bodyOverride ?? JsonConvert.SerializeObject(BuildEnvelope(TenantId))),
                 dequeueCount: dequeueCount);
+
+        /// <summary>Puts a dead letter into the poison queue and returns its message id.</summary>
+        public string AddDeadLetter(string? tenantId, string? bodyOverride = null)
+        {
+            var msg = QueuesModelFactory.QueueMessage(
+                messageId: Guid.NewGuid().ToString(),
+                popReceipt: "fake-receipt",
+                body: new BinaryData(bodyOverride ?? JsonConvert.SerializeObject(BuildEnvelope(tenantId!))),
+                dequeueCount: 1);
+            _deadLetters.Add(msg);
+            return msg.MessageId;
         }
+
+        public Task InvokeHandleAsync()
+        {
+            var method = typeof(TenantOffboardingWorker)
+                .GetMethod("HandleAsync", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
+            return (Task)method!.Invoke(Worker, new object[] { BuildEnvelope(TenantId), default(CancellationToken) })!;
+        }
+
+        private static TenantOffboardingEnvelope BuildEnvelope(string tenantId) => new()
+        {
+            TenantId = tenantId,
+            HistoryPartitionKey = Constants.OffboardingPartitionKeys.History,
+            HistoryRowKey = HistoryRowKey,
+            InitiatedBy = "alice@contoso.invalid",
+            InitiatedAt = DateTime.UtcNow.AddMinutes(-1),
+            EnqueuedAt = DateTime.UtcNow,
+            DrainPollCount = 0,
+        };
 
         public Task InvokeMoveToPoisonAsync(QueueMessage msg)
         {

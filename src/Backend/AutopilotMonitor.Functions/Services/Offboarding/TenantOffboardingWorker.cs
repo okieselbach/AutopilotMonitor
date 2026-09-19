@@ -24,6 +24,8 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
     ///       handler's Failed-state transition FIRST and vetoes the move if that fails — otherwise a
     ///       transient failure would leave the message in poison while the Tenant hangs at
     ///       InProgress.</item>
+    ///   <item>A completed run removes the tenant's superseded dead letters from the poison queue
+    ///       (<see cref="SweepSupersededPoisonAsync"/>).</item>
     /// </list>
     /// </summary>
     public sealed class TenantOffboardingWorker : QueuePollingWorker<TenantOffboardingEnvelope>
@@ -66,8 +68,82 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         protected override string DescribeForLog(TenantOffboardingEnvelope envelope)
             => $"tenant={envelope.TenantId} history={envelope.HistoryRowKey}";
 
-        protected override Task HandleAsync(TenantOffboardingEnvelope envelope, CancellationToken ct)
-            => _handler.HandleAsync(envelope, ct);
+        protected override async Task HandleAsync(TenantOffboardingEnvelope envelope, CancellationToken ct)
+        {
+            var outcome = await _handler.HandleAsync(envelope, ct).ConfigureAwait(false);
+            if (outcome == TenantOffboardingOutcome.Completed)
+                await SweepSupersededPoisonAsync(envelope.TenantId, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// A retry after a poisoned run is a NEW envelope (new history row), so the dead letter of
+        /// the failed run would otherwise sit in the poison queue until its TTL and keep the
+        /// backlog alert firing for a tenant that is gone. Once a run completes, every dead letter
+        /// of that tenant is superseded — the failure itself stays on its History row.
+        /// <para>
+        /// Must never throw: a failure here would keep the completed envelope on the main queue,
+        /// burn its dequeue budget and finally poison a Completed run. A re-pickup of a completed
+        /// envelope sweeps again, so a skipped sweep gets a second chance.
+        /// </para>
+        /// </summary>
+        internal async Task SweepSupersededPoisonAsync(string tenantId, CancellationToken ct)
+        {
+            try
+            {
+                var removed = 0;
+                for (var round = 0; round < PoisonSweepMaxRounds; round++)
+                {
+                    // Messages of other tenants are only hidden for the sweep and reappear untouched.
+                    var batch = await PoisonQueue
+                        .ReceiveMessagesAsync(PoisonSweepBatchSize, PoisonSweepVisibility, ct)
+                        .ConfigureAwait(false);
+                    if (batch?.Value is null || batch.Value.Length == 0) break;
+
+                    foreach (var msg in batch.Value)
+                    {
+                        if (!IsEnvelopeOfTenant(msg, tenantId)) continue;
+                        await PoisonQueue.DeleteMessageAsync(msg.MessageId, msg.PopReceipt, ct).ConfigureAwait(false);
+                        removed++;
+                    }
+
+                    if (batch.Value.Length < PoisonSweepBatchSize) break;
+                }
+
+                if (removed > 0)
+                {
+                    Logger.LogWarning(
+                        "{Worker}: removed {Count} superseded dead letter(s) from {Queue} after tenant={Tenant} completed",
+                        WorkerName, removed, PoisonQueue.Name, tenantId);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex,
+                    "{Worker}: poison sweep failed for tenant={Tenant} — dead letter stays until its TTL",
+                    WorkerName, tenantId);
+            }
+        }
+
+        internal const int PoisonSweepBatchSize = 32;
+        internal const int PoisonSweepMaxRounds = 10;
+        private static readonly TimeSpan PoisonSweepVisibility = TimeSpan.FromSeconds(60);
+
+        private static bool IsEnvelopeOfTenant(QueueMessage msg, string tenantId)
+        {
+            try
+            {
+                var envelope = JsonConvert.DeserializeObject<TenantOffboardingEnvelope>(msg.Body.ToString());
+                return string.Equals(envelope?.TenantId, tenantId, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
 
         protected override async Task<bool> BeforePoisonMoveAsync(QueueMessage msg, CancellationToken ct)
         {
