@@ -213,6 +213,11 @@ export const api = {
       `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/offboard`,
     offboardFeedback: (tenantId: string) =>
       `${API_BASE_URL}/api/tenants/${encodeURIComponent(tenantId)}/offboard/feedback`,
+    // Offboarding record + operator retry of a Failed run (Global Admin tooling, /api/global/*).
+    offboardingStatus: (tenantId: string) =>
+      `${API_BASE_URL}/api/global/tenants/${encodeURIComponent(tenantId)}/offboarding`,
+    offboardingRetry: (tenantId: string) =>
+      `${API_BASE_URL}/api/global/tenants/${encodeURIComponent(tenantId)}/offboarding/retry`,
   },
 
   // ── Devices ───────────────────────────────────────────────────────────────

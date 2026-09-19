@@ -506,6 +506,194 @@ public class TenantOffboardFunction
             EarliestProcessingAt: earliestProcessingAtForResponse);
     }
 
+    // ── Offboarding record + operator retry (Global Admin tooling) ────────────────────
+
+    /// <summary>
+    /// GET /api/global/tenants/{tenantId}/offboarding — the tenant's current offboarding record
+    /// (marker + history) for the admin tenant editor. 404 without a marker: the tenant was
+    /// never offboarded, or the Completed marker is already cleaned up
+    /// (<see cref="OffboardingMarkerCleanupFunction"/>, 15-min grace) — the normal end state,
+    /// nothing for an operator to do. Global Admin / Global Reader only (middleware-enforced).
+    /// </summary>
+    [Function("GetTenantOffboardingStatus")]
+    [Authorize]
+    public async Task<HttpResponseData> GetTenantOffboardingStatus(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/tenants/{tenantId}/offboarding")] HttpRequestData req,
+        string tenantId,
+        FunctionContext context)
+    {
+        var targetTenantId = context.GetRequestContext().TargetTenantId;
+        if (string.IsNullOrEmpty(targetTenantId) || !SecurityValidator.IsValidGuid(targetTenantId))
+        {
+            return await req.BadRequestAsync("tenantId must be a valid GUID");
+        }
+
+        var normalizedTenantId = targetTenantId.ToLowerInvariant();
+        var marker = await _offboardingRepo.TryGetMarkerAsync(normalizedTenantId);
+        if (marker == null)
+        {
+            return await req.NotFoundAsync("No offboarding on record for this tenant");
+        }
+
+        var history = await _offboardingRepo.TryGetHistoryAsync(marker.OffboardingHistoryRowKey);
+        return await req.OkAsync(BuildStatusResponse(normalizedTenantId, marker, history));
+    }
+
+    internal static TenantOffboardingStatusResponse BuildStatusResponse(
+        string normalizedTenantId, OffboardingMarkerEntry marker, OffboardingHistoryEntry? history)
+        => new()
+        {
+            TenantId = normalizedTenantId,
+            Status = marker.Status,
+            HistoryRowKey = marker.OffboardingHistoryRowKey,
+            InitiatedAt = marker.InitiatedAt,
+            InitiatedBy = marker.InitiatedBy,
+            RetryCount = history?.RetryCount ?? 0,
+            EarliestProcessingAt = history?.EarliestProcessingAt,
+            DrainCompletedAt = history?.DrainCompletedAt,
+            CompletedAt = marker.CompletedAt,
+            FailedAt = marker.FailedAt,
+            FailedPhase = marker.FailedPhase,
+            ErrorMessage = history?.ErrorMessage,
+        };
+
+    /// <summary>
+    /// POST /api/global/tenants/{tenantId}/offboarding/retry — re-drives an offboarding whose
+    /// marker is Failed. Failed is fail-closed by design (the worker returns, the offboard
+    /// re-click refuses to re-enqueue), so this is the explicit operator action that design
+    /// asks for; nothing retries on its own. History and marker go back to Initiated — the
+    /// History row keeps its RowKey and <c>DrainCompletedAt</c> (the worker's resume anchor)
+    /// and counts the retry — and the ordinary resume path re-affirms the Disabled-gate,
+    /// computes the remaining drain barrier and enqueues the envelope. Global Admin only.
+    /// </summary>
+    [Function("RetryTenantOffboarding")]
+    [Authorize]
+    public async Task<HttpResponseData> RetryTenantOffboarding(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "global/tenants/{tenantId}/offboarding/retry")] HttpRequestData req,
+        string tenantId,
+        FunctionContext context)
+    {
+        var requestCtx = context.GetRequestContext();
+        var upn = requestCtx.UserPrincipalName;
+        var targetTenantId = requestCtx.TargetTenantId;
+
+        if (string.IsNullOrEmpty(targetTenantId) || !SecurityValidator.IsValidGuid(targetTenantId))
+        {
+            return await req.BadRequestAsync("tenantId must be a valid GUID");
+        }
+
+        var normalizedTenantId = targetTenantId.ToLowerInvariant();
+        var retry = await RetryFailedOffboardingAsync(normalizedTenantId, upn);
+
+        switch (retry.Kind)
+        {
+            case RetryOutcomeKind.Retried:
+            {
+                var response = req.CreateResponse(HttpStatusCode.Accepted);
+                await response.WriteAsJsonAsync(new OffboardResponse
+                {
+                    TenantId = normalizedTenantId,
+                    Status = "Queued",
+                    HistoryPartitionKey = Constants.OffboardingPartitionKeys.History,
+                    HistoryRowKey = retry.HistoryRowKey ?? string.Empty,
+                    EarliestProcessingAt = retry.EarliestProcessingAt,
+                    Message = retry.Message,
+                });
+                return response;
+            }
+            case RetryOutcomeKind.NotFound:
+                return await req.NotFoundAsync(retry.Message);
+            case RetryOutcomeKind.NotFailed:
+                return await req.ConflictAsync(retry.Message);
+            default:
+                return await Build500Async(req, retry.Message);
+        }
+    }
+
+    /// <summary>
+    /// Pure retry decision behind <see cref="RetryTenantOffboarding"/>; internal for unit tests.
+    /// Write order matters: History first (the worker's authority — a Failed history makes
+    /// it return early), Marker second (the HTTP idempotency anchor). A crash in between
+    /// leaves History=Initiated + Marker=Failed, and the next retry click resolves it the
+    /// same way. The worker's first pickup then flips History/Pointer/Marker to InProgress.
+    /// </summary>
+    internal async Task<RetryOutcome> RetryFailedOffboardingAsync(string normalizedTenantId, string upn)
+    {
+        var marker = await _offboardingRepo.TryGetMarkerAsync(normalizedTenantId);
+        if (marker == null)
+        {
+            return new RetryOutcome(RetryOutcomeKind.NotFound, "No offboarding on record for this tenant");
+        }
+
+        if (!string.Equals(marker.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            var message = string.Equals(marker.Status, "Completed", StringComparison.OrdinalIgnoreCase)
+                ? "Tenant offboarding already completed — nothing to retry"
+                : $"Tenant offboarding is {marker.Status} — not Failed; re-run the offboard action to resume it";
+            _logger.LogInformation(
+                "TenantOffboard retry for {TenantId} refused: marker status={Status}", normalizedTenantId, marker.Status);
+            return new RetryOutcome(RetryOutcomeKind.NotFailed, message, marker.OffboardingHistoryRowKey);
+        }
+
+        var history = await _offboardingRepo.TryGetHistoryAsync(marker.OffboardingHistoryRowKey);
+        if (history == null)
+        {
+            _logger.LogError(
+                "TenantOffboard retry for {TenantId}: History row {History} is missing — operator inspection required",
+                normalizedTenantId, marker.OffboardingHistoryRowKey);
+            return new RetryOutcome(
+                RetryOutcomeKind.HistoryMissing,
+                "Offboarding history row is missing — operator inspection required",
+                marker.OffboardingHistoryRowKey);
+        }
+
+        var failedPhase = marker.FailedPhase ?? "unknown";
+
+        history.Status = "Initiated";
+        history.RetryCount += 1;
+        history.ErrorMessage = null;
+        await _offboardingRepo.UpsertHistoryAsync(history);
+
+        marker.Status = "Initiated";
+        marker.FailedAt = null;
+        marker.FailedPhase = null;
+        await _offboardingRepo.UpsertMarkerAsync(marker);
+
+        _logger.LogWarning(
+            "TENANT OFFBOARD RETRY for {TenantId} by {Upn}: previous failure phase={Phase}; historyRowKey={History} retryCount={RetryCount}",
+            normalizedTenantId, upn, failedPhase, history.RowKey, history.RetryCount);
+
+        // Global audit row (survives the TenantConfiguration wipe like the initiation's DELETE row).
+        await _maintenanceRepo.LogAuditEntryAsync(
+            Constants.AuditGlobalTenantId,
+            "RETRY",
+            "TenantOffboarding",
+            normalizedTenantId,
+            upn,
+            new Dictionary<string, string>
+            {
+                ["failedPhase"] = failedPhase,
+                ["historyRowKey"] = history.RowKey,
+                ["retryCount"] = history.RetryCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            });
+
+        var resume = await ResumeExistingMarkerAsync(marker, upn, normalizedTenantId, isRace: false);
+        if (resume.Kind == ResumeOutcomeKind.ReEnqueueFailed)
+        {
+            // Marker is Initiated now, so the ordinary offboard re-click resumes it.
+            return new RetryOutcome(
+                RetryOutcomeKind.ReEnqueueFailed,
+                "Failed to re-enqueue tenant offboarding — re-run the offboard action to resume it",
+                history.RowKey);
+        }
+
+        return new RetryOutcome(
+            RetryOutcomeKind.Retried,
+            $"Tenant offboarding retried after the failure in phase '{failedPhase}'",
+            history.RowKey,
+            resume.EarliestProcessingAt);
+    }
+
     /// <summary>
     /// Magic-string DisabledReason that identifies a TenantConfiguration row as the
     /// offboarding tombstone. Used by <c>EnsureTenantDisabledAsync</c> for the idempotent
@@ -773,5 +961,26 @@ internal enum ResumeOutcomeKind
     /// <summary>Marker is Initiated/InProgress; defensive re-enqueue was sent.</summary>
     ReEnqueuedInFlight,
     /// <summary>Marker classified as in-flight but re-enqueue threw; surface 500.</summary>
+    ReEnqueueFailed,
+}
+
+/// <summary>Result of <see cref="TenantOffboardFunction.RetryFailedOffboardingAsync"/>.</summary>
+internal sealed record RetryOutcome(
+    RetryOutcomeKind Kind,
+    string Message,
+    string? HistoryRowKey = null,
+    DateTime? EarliestProcessingAt = null);
+
+internal enum RetryOutcomeKind
+{
+    /// <summary>Marker was Failed; history + marker reset to Initiated and the envelope re-enqueued (202).</summary>
+    Retried,
+    /// <summary>No marker on record (404).</summary>
+    NotFound,
+    /// <summary>Marker is Completed or in flight — nothing to retry (409).</summary>
+    NotFailed,
+    /// <summary>Marker points at a History row that no longer exists (500).</summary>
+    HistoryMissing,
+    /// <summary>Rows were reset but the re-enqueue threw (500); the offboard re-click resumes.</summary>
     ReEnqueueFailed,
 }

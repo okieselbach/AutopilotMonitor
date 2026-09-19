@@ -428,6 +428,11 @@ public static class EndpointAccessPolicyCatalog
         new("GET",    "global/sessions/{sessionId}/deletion-manifest", EndpointPolicy.GlobalReadOrAdmin),
         // Platform-operational (cascade-delete restore prep) — GA + read-only Reader only, NOT delegated.
         new("GET",    "global/tenants/{tenantId}/deletion-manifests",  EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam, excludeDelegated: true),
+        // Offboarding record (marker + history) behind the tenant editor's status card, and the
+        // operator retry of a Failed offboarding. Platform-operational: GA + Reader read, GA-only
+        // retry, never delegated (an MSP manages active tenants, not the platform's offboarding).
+        new("GET",    "global/tenants/{tenantId}/offboarding",        EndpointPolicy.GlobalReadOrAdmin, TenantScoping.RouteParam, excludeDelegated: true),
+        new("POST",   "global/tenants/{tenantId}/offboarding/retry",  EndpointPolicy.GlobalAdminOnly,   TenantScoping.RouteParam, excludeDelegated: true),
         new("GET",    "global/session-deletions",                    EndpointPolicy.GlobalReadOrAdmin),
         // Manual maintenance-run trigger (GC sweeps + retention fanout) — mutating, GA only.
         new("POST",   "global/session-deletions/maintenance/trigger", EndpointPolicy.GlobalAdminOnly),

@@ -6,7 +6,9 @@ import {
   effectiveEdition,
   facetCounts,
   matchesTenantFilters,
+  onWaitlist,
   planOverview,
+  tenantFacetValues,
   toggleFacetValue,
   trialState,
   visibleFacets,
@@ -115,6 +117,21 @@ describe("matchesTenantFilters", () => {
     expect(matchesTenantFilters(t, filters({ status: ["ready"] }), waitlisted)).toBe(true);
     expect(matchesTenantFilters(t, filters({ status: ["waitlist"] }), waitlisted)).toBe(true);
     expect(matchesTenantFilters(t, filters({ status: ["suspended"] }), waitlisted)).toBe(false);
+  });
+
+  it("an offboarding tombstone is Offboarding — neither Waitlist nor Suspended", () => {
+    const t = tenant({ tenantId: "w", disabled: true, disabledReason: "Offboarding in progress" });
+    const waitlisted = ctx({ isWaitlisted: (id) => id === "w" });
+    expect(tenantFacetValues(t, waitlisted).status).toEqual(["offboarding"]);
+    expect(onWaitlist(t, waitlisted)).toBe(false);
+    expect(matchesTenantFilters(t, filters({ status: ["offboarding"] }), waitlisted)).toBe(true);
+    expect(matchesTenantFilters(t, filters({ status: ["waitlist"] }), waitlisted)).toBe(false);
+    expect(matchesTenantFilters(t, filters({ status: ["suspended"] }), waitlisted)).toBe(false);
+
+    // An admin suspension with any other reason stays Suspended (+ Waitlist while unactivated).
+    const suspended = tenant({ tenantId: "w", disabled: true, disabledReason: "abuse" });
+    expect(tenantFacetValues(suspended, waitlisted).status).toEqual(["waitlist", "suspended"]);
+    expect(onWaitlist(suspended, waitlisted)).toBe(true);
   });
 
   it("classifies the app registration through the context", () => {

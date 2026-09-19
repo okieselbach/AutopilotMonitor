@@ -888,4 +888,75 @@ public class TypedContractCompletionWireParityTests
                 },
             });
     }
+
+    // ── global/tenants/{tenantId}/offboarding ────────────────────────────────────────────
+
+    [Fact]
+    public void TenantOffboardingStatusResponse_pins_the_failed_record_shape()
+    {
+        var initiated = new DateTime(2026, 9, 18, 6, 0, 0, DateTimeKind.Utc);
+        var failed = initiated.AddMinutes(30);
+        AssertWireIdentical(
+            new
+            {
+                tenantId = "11111111-1111-1111-1111-111111111111",
+                status = "Failed",
+                historyRowKey = "20260918060000000_11111111-1111-1111-1111-111111111111",
+                initiatedAt = initiated,
+                initiatedBy = "alice@contoso.com",
+                retryCount = 5,
+                earliestProcessingAt = (DateTime?)initiated.AddMinutes(6),
+                drainCompletedAt = (DateTime?)initiated.AddMinutes(8),
+                completedAt = (DateTime?)null,
+                failedAt = (DateTime?)failed,
+                failedPhase = (string?)"max_dequeue",
+                errorMessage = (string?)"Poison queue: max dequeue count reached",
+            },
+            new TenantOffboardingStatusResponse
+            {
+                TenantId = "11111111-1111-1111-1111-111111111111",
+                Status = "Failed",
+                HistoryRowKey = "20260918060000000_11111111-1111-1111-1111-111111111111",
+                InitiatedAt = initiated,
+                InitiatedBy = "alice@contoso.com",
+                RetryCount = 5,
+                EarliestProcessingAt = initiated.AddMinutes(6),
+                DrainCompletedAt = initiated.AddMinutes(8),
+                CompletedAt = null,
+                FailedAt = failed,
+                FailedPhase = "max_dequeue",
+                ErrorMessage = "Poison queue: max dequeue count reached",
+            });
+    }
+
+    [Fact]
+    public void TenantOffboardingStatusResponse_keeps_null_slots_for_an_in_flight_record()
+    {
+        var initiated = new DateTime(2026, 9, 18, 6, 0, 0, DateTimeKind.Utc);
+        AssertWireIdentical(
+            new
+            {
+                tenantId = "11111111-1111-1111-1111-111111111111",
+                status = "InProgress",
+                historyRowKey = "20260918060000000_11111111-1111-1111-1111-111111111111",
+                initiatedAt = initiated,
+                initiatedBy = "alice@contoso.com",
+                retryCount = 0,
+                earliestProcessingAt = (DateTime?)initiated.AddMinutes(6),
+                drainCompletedAt = (DateTime?)null,
+                completedAt = (DateTime?)null,
+                failedAt = (DateTime?)null,
+                failedPhase = (string?)null,
+                errorMessage = (string?)null,
+            },
+            new TenantOffboardingStatusResponse
+            {
+                TenantId = "11111111-1111-1111-1111-111111111111",
+                Status = "InProgress",
+                HistoryRowKey = "20260918060000000_11111111-1111-1111-1111-111111111111",
+                InitiatedAt = initiated,
+                InitiatedBy = "alice@contoso.com",
+                EarliestProcessingAt = initiated.AddMinutes(6),
+            });
+    }
 }
