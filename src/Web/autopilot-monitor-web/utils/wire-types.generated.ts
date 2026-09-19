@@ -2787,22 +2787,6 @@ export interface LogQueryRequest {
   budgetSeconds?: number | null;
 }
 
-/** Run report of a manual maintenance run (POST maintenance/trigger). */
-export interface MaintenanceResult {
-  success: boolean;
-  error?: string;
-  triggeredBy: string;
-  triggeredAt: string;
-  durationMs: number;
-  stalledSessionsChecked: boolean;
-  metricsAggregated: boolean;
-  aggregatedDate?: string;
-  dataCleanupExecuted: boolean;
-  platformStatsRecomputed: boolean;
-  devicesBlockedForExcessiveData: number;
-  contactEmailsBackfilled: number;
-}
-
 /** One managed tenant as the managing tenant sees it. */
 export interface ManagedTenantItem {
   tenantId: string;
@@ -5158,13 +5142,14 @@ export interface TriggerEpssSyncResponse {
   syncedAt: string;
 }
 
-/** Response of POST maintenance/trigger. */
+/** Response of POST maintenance/trigger (202 Accepted): the run is queued, not done. Its progress and its report surface as Maintenance* ops events (Started, Completed, Failed, SkippedLocked). */
 export interface TriggerMaintenanceResponse {
-  success: boolean;
   message: string;
-  result: MaintenanceResult;
   triggeredBy: string;
   triggeredAt: string;
+  /** Date to aggregate (yyyy-MM-dd); null = yesterday. */
+  targetDate?: string;
+  aggregateOnly: boolean;
 }
 
 /** Response of POST vulnerability/sync-msrc (dual-purpose: success reflects whether the MSRC index refresh finished without error). */

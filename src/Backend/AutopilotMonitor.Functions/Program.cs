@@ -283,7 +283,17 @@ builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Analyze.Interi
 builder.Services.AddSingleton<ImeLogPatternService>();
 builder.Services.AddHttpClient<GitHubRuleRepository>()
     .AddPolicyHandler((sp, _) => sp.GetRequiredService<ResiliencePolicies>().ExternalDataApi);
+// Platform maintenance run: blob-lease gate (serializes the 2h timer, the manual trigger and a
+// second host instance), fail-hard queue producer for POST /api/maintenance/trigger, and the
+// BackgroundService worker that runs a queued manual run.
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.MaintenanceRunLockStore>();
+builder.Services.AddSingleton<AutopilotMonitor.Functions.Services.Maintenance.MaintenanceRunGate>();
+builder.Services.AddSingleton<
+    AutopilotMonitor.Functions.Services.Maintenance.IMaintenanceTriggerProducer,
+    AutopilotMonitor.Functions.Services.Maintenance.AzureQueueMaintenanceTriggerProducer>();
 builder.Services.AddSingleton<MaintenanceService>();
+builder.Services.AddHostedService<
+    AutopilotMonitor.Functions.Services.Maintenance.MaintenanceTriggerQueueWorker>();
 builder.Services.AddSingleton<LegacyReclassificationService>();
 builder.Services.AddSingleton<OccurredUtcBackfillService>();
 builder.Services.AddSingleton<

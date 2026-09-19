@@ -145,15 +145,20 @@ namespace AutopilotMonitor.Shared.Models
         public DateTime TriggeredAt { get; set; }
     }
 
-    /// <summary>Response of POST maintenance/trigger.</summary>
+    /// <summary>
+    /// Response of POST maintenance/trigger (202 Accepted): the run is queued, not done. Its
+    /// progress and its report surface as Maintenance* ops events (Started, Completed, Failed,
+    /// SkippedLocked).
+    /// </summary>
     // Declaration order == wire order.
     public class TriggerMaintenanceResponse : IApiResponse
     {
-        public bool Success { get; set; }
         public string Message { get; set; } = default!;
-        public MaintenanceResult Result { get; set; } = default!;
         public string TriggeredBy { get; set; } = default!;
         public DateTime TriggeredAt { get; set; }
+        /// <summary>Date to aggregate (yyyy-MM-dd); null = yesterday.</summary>
+        public string? TargetDate { get; set; }
+        public bool AggregateOnly { get; set; }
     }
 
     /// <summary>
@@ -218,7 +223,7 @@ namespace AutopilotMonitor.Shared.Models
         public string Reason { get; set; } = string.Empty;
     }
 
-    /// <summary>Run report of a manual maintenance run (POST maintenance/trigger).</summary>
+    /// <summary>Run report of a manual maintenance run; its figures travel in the MaintenanceCompleted ops event.</summary>
     // Declaration order == wire order.
     public class MaintenanceResult
     {

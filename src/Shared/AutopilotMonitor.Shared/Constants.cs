@@ -1702,6 +1702,20 @@ namespace AutopilotMonitor.Shared
             public const string SessionDeletionMaintenancePoison = "session-deletion-maintenance-poison";
 
             /// <summary>
+            /// Manual-trigger queue for the platform maintenance run. Producer = HTTP trigger
+            /// <c>/api/maintenance/trigger</c> (fail-hard, answers 202); consumer =
+            /// <c>MaintenanceTriggerQueueWorker</c> (self-managed BackgroundService,
+            /// VisibilityTimeout=60min = the host functionTimeout). Envelope
+            /// <c>{ triggeredBy, targetDate, aggregateOnly }</c>; concurrency against the 2h timer
+            /// is serialized by the maintenance-run blob lease, not the queue.
+            /// Poison-suffix <c>-poison</c>, max-dequeue 5.
+            /// </summary>
+            public const string MaintenanceTrigger = "maintenance-trigger";
+
+            /// <summary>Poison sibling of <see cref="MaintenanceTrigger"/>.</summary>
+            public const string MaintenanceTriggerPoison = "maintenance-trigger-poison";
+
+            /// <summary>
             /// IME-MSI archive fan-out. Producer = <c>EventIngestProcessor</c> when
             /// <c>RecordImeVersionAsync</c> reports a genuinely NEW IME version (first sighting
             /// across the fleet — roughly monthly); consumer = <c>ImeMsiArchiveQueueFunction</c>,

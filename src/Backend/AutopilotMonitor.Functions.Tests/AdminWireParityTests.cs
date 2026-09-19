@@ -447,41 +447,27 @@ public class AdminWireParityTests
     // ---- TriggerMaintenance --------------------------------------------------------------
 
     [Fact]
-    public void TriggerMaintenanceResponse_matches_the_manual_trigger_shape()
+    public void TriggerMaintenanceResponse_matches_the_queued_trigger_shape()
     {
-        var result = new MaintenanceResult
-        {
-            Success = true,
-            TriggeredBy = "admin@contoso.com",
-            TriggeredAt = new DateTime(2026, 8, 30, 13, 10, 0, DateTimeKind.Utc),
-            DurationMs = 1234,
-            StalledSessionsChecked = true,
-            MetricsAggregated = true,
-            AggregatedDate = "2026-08-29",
-            DataCleanupExecuted = false,
-            PlatformStatsRecomputed = true,
-            DevicesBlockedForExcessiveData = 0,
-            ContactEmailsBackfilled = 2,
-        };
         var userEmail = "admin@contoso.com";
         var triggeredAt = new DateTime(2026, 8, 30, 13, 10, 5, DateTimeKind.Utc);
 
         AssertParity(
             new
             {
-                success = true,
-                message = "Maintenance tasks completed",
-                result = result,
+                message = "Maintenance run queued",
                 triggeredBy = userEmail,
-                triggeredAt
+                triggeredAt,
+                targetDate = "2026-08-29",
+                aggregateOnly = true
             },
             new TriggerMaintenanceResponse
             {
-                Success = true,
-                Message = "Maintenance tasks completed",
-                Result = result,
+                Message = "Maintenance run queued",
                 TriggeredBy = userEmail,
-                TriggeredAt = triggeredAt
+                TriggeredAt = triggeredAt,
+                TargetDate = "2026-08-29",
+                AggregateOnly = true
             });
     }
 

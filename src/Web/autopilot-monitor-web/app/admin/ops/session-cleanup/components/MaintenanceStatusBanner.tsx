@@ -1,22 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/api";
-import { TokenExpiredError } from "@/lib/authenticatedFetch";
-import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
-
-interface OpsEvent {
-  id: string;
-  eventType: string;
-  severity: string;
-  message: string;
-  details: string | null;
-  timestamp: string;
-}
-
-interface OpsEventsResponse {
-  events: OpsEvent[];
-}
+import { ApiError, apiErrorText, fetchOk } from "@/lib/apiClient";
+import { parseOpsDetails, useOpsRunStatus, type OpsRunLifecycle } from "@/hooks/useOpsRunStatus";
 
 interface CompletedDetails {
   tenantsProcessed?: number;
@@ -34,14 +21,12 @@ type BannerState =
   | { kind: "idle"; at: string; details: CompletedDetails }
   | { kind: "none" }; // no lifecycle events in the window — render nothing
 
-function parseDetails<T>(raw: string | null): T {
-  if (!raw) return {} as T;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return {} as T;
-  }
-}
+const LIFECYCLE: OpsRunLifecycle = {
+  category: "Maintenance",
+  started: "SessionDeletionMaintenanceStarted",
+  completed: "SessionDeletionMaintenanceCompleted",
+  failed: "SessionDeletionMaintenanceFailed",
+};
 
 /**
  * Status banner for the session-deletion maintenance run (12h retention fanout + GC sweeps).
@@ -59,71 +44,18 @@ export function MaintenanceStatusBanner({
   setError: (error: string | null) => void;
   setSuccessMessage: (message: string | null) => void;
 }) {
-  const [state, setState] = useState<BannerState>({ kind: "loading" });
+  const { status, refresh } = useOpsRunStatus(getAccessToken, setError, LIFECYCLE);
   const [triggering, setTriggering] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const data = await fetchJson<OpsEventsResponse>(
-        api.opsEvents.list("Maintenance", { pageSize: 100 }),
-        getAccessToken,
-      );
-
-      const lifecycle = (data.events ?? []).filter((e) =>
-        e.eventType.startsWith("SessionDeletionMaintenance"),
-      );
-      // Backend returns newest-first; keep it defensive anyway.
-      lifecycle.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-
-      const started = lifecycle.find((e) => e.eventType === "SessionDeletionMaintenanceStarted");
-      const terminal = lifecycle.find(
-        (e) =>
-          e.eventType === "SessionDeletionMaintenanceCompleted" ||
-          e.eventType === "SessionDeletionMaintenanceFailed",
-      );
-
-      if (started && (!terminal || started.timestamp > terminal.timestamp)) {
-        const details = parseDetails<{ triggeredBy?: string }>(started.details);
-        setState({
-          kind: "active",
-          since: started.timestamp,
-          triggeredBy: details.triggeredBy ?? "unknown",
-        });
-        return;
-      }
-
-      if (!terminal) {
-        setState({ kind: "none" });
-        return;
-      }
-
-      if (terminal.eventType === "SessionDeletionMaintenanceFailed") {
-        setState({ kind: "failed", at: terminal.timestamp, message: terminal.message });
-        return;
-      }
-
-      const details = parseDetails<CompletedDetails>(terminal.details);
-      setState(
-        details.abortedByBudget
-          ? { kind: "budget-exceeded", at: terminal.timestamp, details }
-          : { kind: "idle", at: terminal.timestamp, details },
-      );
-    } catch (err) {
-      if (err instanceof TokenExpiredError) {
-        setError("Session expired; reload the page and try again.");
-      }
-      // Non-auth failures degrade silently — the banner is auxiliary to the tabs.
-      setState({ kind: "none" });
-    }
-  }, [getAccessToken, setError]);
-
-  useEffect(() => {
-    const run = async () => {
-      await fetchStatus();
-    };
-    void run();
-  }, [fetchStatus, refreshKey]);
+  let state: BannerState;
+  if (status.kind === "completed") {
+    const details = parseOpsDetails<CompletedDetails>(status.details);
+    state = details.abortedByBudget
+      ? { kind: "budget-exceeded", at: status.at, details }
+      : { kind: "idle", at: status.at, details };
+  } else {
+    state = status;
+  }
 
   const triggerRun = useCallback(async () => {
     setTriggering(true);
@@ -136,13 +68,13 @@ export function MaintenanceStatusBanner({
           throw err;
         });
       setSuccessMessage(queued ? "Maintenance run queued — it will appear here as active shortly." : "A maintenance run is already active.");
-      setRefreshKey((k) => k + 1);
+      refresh();
     } catch (err) {
       setError(apiErrorText(err));
     } finally {
       setTriggering(false);
     }
-  }, [getAccessToken, setError, setSuccessMessage]);
+  }, [getAccessToken, setError, setSuccessMessage, refresh]);
 
   if (state.kind === "loading" || state.kind === "none") return null;
 
@@ -165,7 +97,7 @@ export function MaintenanceStatusBanner({
           deletions enqueued by this run appear under In-Flight.
         </p>
         <button
-          onClick={() => setRefreshKey((k) => k + 1)}
+          onClick={refresh}
           className="shrink-0 px-3 py-1.5 text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-200 rounded hover:bg-purple-100 dark:hover:bg-purple-900/40"
         >
           Refresh

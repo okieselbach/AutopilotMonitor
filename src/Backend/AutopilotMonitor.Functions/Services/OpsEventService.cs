@@ -64,10 +64,42 @@ namespace AutopilotMonitor.Functions.Services
 
         // ── Maintenance ────────────────────────────────────────────────────────
 
-        public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy)
+        /// <summary>
+        /// Emitted after the maintenance-run lease was acquired, so a lease-skip never
+        /// masquerades as an active run — the portal treats "latest Started newer than latest
+        /// Completed/Failed" as run-active.
+        /// </summary>
+        public Task RecordMaintenanceStartedAsync(string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceStarted, OpsEventSeverity.Info,
+                $"Maintenance run started (triggered by {triggeredBy})",
+                null, triggeredBy, new { triggeredBy });
+
+        /// <summary>Another run (timer, manual trigger or a second host instance) held the maintenance-run lease.</summary>
+        public Task RecordMaintenanceSkippedLockedAsync(string triggeredBy)
+            => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceSkippedLocked, OpsEventSeverity.Info,
+                $"Maintenance run skipped — another run holds the lease (triggered by {triggeredBy})",
+                null, triggeredBy, new { reason = "lease held by another run", triggeredBy });
+
+        /// <summary>
+        /// <paramref name="report"/> is the run report of a manual run: the trigger answers 202
+        /// before the run starts, so this event is where the operator reads what the run did.
+        /// </summary>
+        public Task RecordMaintenanceCompletedAsync(int durationMs, string triggeredBy, MaintenanceResult? report = null)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceCompleted, OpsEventSeverity.Info,
                 $"Maintenance completed in {durationMs}ms (triggered by {triggeredBy})",
-                null, triggeredBy, new { durationMs });
+                null, triggeredBy,
+                report == null
+                    ? (object)new { durationMs }
+                    : new
+                    {
+                        durationMs,
+                        aggregatedDate = report.AggregatedDate,
+                        stalledSessionsChecked = report.StalledSessionsChecked,
+                        dataCleanupExecuted = report.DataCleanupExecuted,
+                        platformStatsRecomputed = report.PlatformStatsRecomputed,
+                        devicesBlockedForExcessiveData = report.DevicesBlockedForExcessiveData,
+                        contactEmailsBackfilled = report.ContactEmailsBackfilled,
+                    });
 
         public Task RecordMaintenanceFailedAsync(string error, string triggeredBy)
             => WriteAsync(OpsEventCategory.Maintenance, OpsEventTypes.MaintenanceFailed, OpsEventSeverity.Error,

@@ -32,6 +32,10 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     // Soft watchdog (Warning): a maintenance run completed but exceeded the 10min threshold and is
     // climbing toward the host's 60min functionTimeout. Backend helper RecordMaintenanceLongRunningAsync.
     "MaintenanceLongRunning",
+    // Run lifecycle + lease serialization: Started marks run begin (timer or manual,
+    // details.triggeredBy), SkippedLocked means another run held the maintenance-run lease.
+    "MaintenanceStarted",
+    "MaintenanceSkippedLocked",
     "OpsEventCleanup",
     "SessionTimeouts",
     // Hourly stalled-session sweep interleave (SessionSweepFunction, minute 30) — dual-register

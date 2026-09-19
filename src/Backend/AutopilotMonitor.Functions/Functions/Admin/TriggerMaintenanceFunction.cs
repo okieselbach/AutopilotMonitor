@@ -2,7 +2,7 @@ using System;
 using System.Net;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
-using AutopilotMonitor.Functions.Services;
+using AutopilotMonitor.Functions.Services.Maintenance;
 using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -11,24 +11,29 @@ using Microsoft.Extensions.Logging;
 namespace AutopilotMonitor.Functions.Functions.Admin
 {
     /// <summary>
-    /// Allows Global Admins to manually trigger maintenance tasks
+    /// <c>POST /api/maintenance/trigger</c> — manual Global Admin trigger of the platform
+    /// maintenance run. The run takes minutes, so the request only queues it:
+    /// <c>202 Accepted</c> when queued, <c>409</c> while a run (timer or manual) is active,
+    /// <c>500</c> when the enqueue failed — never a hollow success. Progress and the run report
+    /// surface as <c>Maintenance*</c> ops events.
     /// </summary>
     public class TriggerMaintenanceFunction
     {
         private readonly ILogger<TriggerMaintenanceFunction> _logger;
-        private readonly MaintenanceService _maintenanceService;
+        private readonly IMaintenanceTriggerProducer _producer;
+        private readonly MaintenanceRunGate _runGate;
 
         public TriggerMaintenanceFunction(
             ILogger<TriggerMaintenanceFunction> logger,
-            MaintenanceService maintenanceService)
+            IMaintenanceTriggerProducer producer,
+            MaintenanceRunGate runGate)
         {
             _logger = logger;
-            _maintenanceService = maintenanceService;
+            _producer = producer;
+            _runGate = runGate;
         }
 
         /// <summary>
-        /// POST /api/maintenance/trigger
-        /// Manually trigger maintenance tasks (Global Admin only)
         /// Query parameters:
         /// - date: Optional date to aggregate (yyyy-MM-dd). If not provided, uses yesterday.
         /// - aggregateOnly: If true, only runs aggregation (skips timeout and cleanup)
@@ -38,45 +43,42 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "maintenance/trigger")] HttpRequestData req,
             FunctionContext context)
         {
-            _logger.LogInformation("Manual maintenance trigger requested");
-
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
-            var userEmail = TenantHelper.GetUserIdentifier(req);
-
-            _logger.LogInformation($"Maintenance trigger initiated by Global Admin: {userEmail}");
+            var userEmail = TenantHelper.GetUserIdentifier(req) ?? "GlobalAdmin";
+            var ct = context.CancellationToken;
 
             try
             {
-                // Parse query parameters
-                var dateParam = req.Query["date"];
-                var aggregateOnlyParam = req.Query["aggregateOnly"];
-
-                if (!QueryParams.TryUtcInstant(dateParam, "date", out var dateInstant, out _))
+                if (!QueryParams.TryUtcInstant(req.Query["date"], "date", out var dateInstant, out _))
                 {
                     return await req.BadRequestAsync("Invalid date format. Use yyyy-MM-dd");
                 }
                 DateTime? targetDate = dateInstant?.Date;
-                if (targetDate.HasValue)
+                bool aggregateOnly = req.Query["aggregateOnly"]?.ToLower() == "true";
+
+                if (await _runGate.IsRunActiveAsync(ct))
                 {
-                    _logger.LogInformation($"Manual maintenance for date: {targetDate:yyyy-MM-dd}");
+                    return await req.ConflictAsync("A maintenance run is already active.");
                 }
 
-                bool aggregateOnly = aggregateOnlyParam?.ToLower() == "true";
-
-                // Execute maintenance tasks
-                var result = await _maintenanceService.RunManualAsync(targetDate, aggregateOnly, userEmail);
-
-                var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(new TriggerMaintenanceResponse
+                await _producer.EnqueueAsync(new MaintenanceTriggerEnvelope
                 {
-                    Success = true,
-                    Message = "Maintenance tasks completed",
-                    Result = result,
                     TriggeredBy = userEmail,
-                    TriggeredAt = DateTime.UtcNow
-                });
+                    TargetDate = targetDate,
+                    AggregateOnly = aggregateOnly,
+                }, ct);
 
-                return response;
+                _logger.LogInformation("TriggerMaintenance: run queued (triggeredBy={TriggeredBy}, date={Date:yyyy-MM-dd}, aggregateOnly={AggregateOnly})",
+                    userEmail, targetDate, aggregateOnly);
+
+                return await req.JsonAsync(HttpStatusCode.Accepted, new TriggerMaintenanceResponse
+                {
+                    Message = "Maintenance run queued",
+                    TriggeredBy = userEmail,
+                    TriggeredAt = DateTime.UtcNow,
+                    TargetDate = targetDate?.ToString("yyyy-MM-dd"),
+                    AggregateOnly = aggregateOnly,
+                });
             }
             catch (Exception ex)
             {

@@ -2,14 +2,30 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { ApiError, apiErrorText, fetchJson, fetchOk } from "@/lib/apiClient";
+import { parseOpsDetails, useOpsRunStatus, type OpsRunLifecycle } from "@/hooks/useOpsRunStatus";
 import { SectionCardHeader } from "@/components/SectionCardHeader";
 import type { GetLatestVersionsResponse } from "@/utils/wire-types.generated";
+
+const LIFECYCLE: OpsRunLifecycle = {
+  category: "Maintenance",
+  started: "MaintenanceStarted",
+  completed: "MaintenanceCompleted",
+  failed: "MaintenanceFailed",
+};
+
+// A run takes a few minutes; while one is active the status line follows it on its own.
+const POLL_WHILE_ACTIVE_MS = 15_000;
 
 interface MaintenanceTriggerSectionProps {
   getAccessToken: () => Promise<string | null>;
   setError: (error: string | null) => void;
   setSuccessMessage: (message: string | null) => void;
+}
+
+function formatRunDuration(durationMs: number | undefined): string {
+  if (typeof durationMs !== "number") return "";
+  return durationMs < 60_000 ? ` in ${Math.round(durationMs / 1000)} s` : ` in ${Math.round(durationMs / 60_000)} min`;
 }
 
 export function MaintenanceTriggerSection({
@@ -23,6 +39,8 @@ export function MaintenanceTriggerSection({
   // (react-hooks/purity) and the cap doesn't need a live midnight rollover.
   const [maxMaintenanceDate] = useState(() => new Date(Date.now() - 86400000).toISOString().split('T')[0]);
   const [refreshingVersions, setRefreshingVersions] = useState(false);
+  const { status: runStatus, refresh: refreshRunStatus } = useOpsRunStatus(getAccessToken, setError, LIFECYCLE, POLL_WHILE_ACTIVE_MS);
+  const runActive = runStatus.kind === "active";
 
   const handleRefreshLatestVersions = async () => {
     try {
@@ -53,15 +71,20 @@ export function MaintenanceTriggerSection({
       setError(null);
       setSuccessMessage(null);
 
-      // The run answers when it is done (minutes), far beyond the default fetch timeout;
-      // the platform gateway cuts a request at 230 s, so waiting longer gains nothing.
-      await fetchOk(api.maintenance.trigger(maintenanceDate || undefined), getAccessToken, {
-        method: "POST",
-        signal: AbortSignal.timeout(230_000),
-      });
+      // 202 = queued (the run reports through Maintenance* ops events); 409 = a run is
+      // already active, which is not an error for the operator.
+      const queued = await fetchOk(api.maintenance.trigger(maintenanceDate || undefined), getAccessToken, { method: "POST" })
+        .then(() => true)
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.status === 409) return false;
+          throw err;
+        });
 
       const dateInfo = maintenanceDate ? ` for ${maintenanceDate}` : '';
-      setSuccessMessage(`Maintenance job completed successfully${dateInfo}!`);
+      setSuccessMessage(queued
+        ? `Maintenance run queued${dateInfo} — its status appears below shortly.`
+        : "A maintenance run is already active.");
+      refreshRunStatus();
 
       setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
@@ -142,8 +165,8 @@ export function MaintenanceTriggerSection({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
             <p className="text-sm text-gray-800 dark:text-gray-200">
-              <strong>Warning:</strong> This operation runs across all tenants and may take several minutes to complete.
-              Use this only for testing or when immediate cleanup is needed.
+              <strong>Warning:</strong> This operation runs across all tenants. The run is queued and takes a few minutes in the background;
+              only one run is active at a time, the 2h timer included. Use this only for testing or when immediate cleanup is needed.
             </p>
           </div>
         </div>
@@ -179,16 +202,35 @@ export function MaintenanceTriggerSection({
             </button>
           </div>
         </div>
-        <div className="flex justify-end pt-2">
+        <div className="flex items-center justify-between gap-4 pt-2">
+          <p className={`text-sm ${runStatus.kind === "failed" ? "text-red-700 dark:text-red-300" : "text-purple-900 dark:text-gray-200"}`}>
+            {runStatus.kind === "active" && (
+              <>
+                <span className="font-medium">Maintenance run active</span> — started{" "}
+                {new Date(runStatus.since).toLocaleString()} (triggered by {runStatus.triggeredBy}).
+              </>
+            )}
+            {runStatus.kind === "failed" && (
+              <>
+                <span className="font-medium">Last run failed</span> ({new Date(runStatus.at).toLocaleString()}): {runStatus.message}
+              </>
+            )}
+            {runStatus.kind === "completed" && (
+              <>
+                Last run completed {new Date(runStatus.at).toLocaleString()}
+                {formatRunDuration(parseOpsDetails<{ durationMs?: number }>(runStatus.details).durationMs)}.
+              </>
+            )}
+          </p>
           <button
             onClick={handleTriggerMaintenance}
-            disabled={triggeringMaintenance}
+            disabled={triggeringMaintenance || runActive}
             className="px-6 py-3 bg-gradient-to-r from-purple-600 to-violet-600 text-white rounded-lg hover:from-purple-700 hover:to-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg flex items-center space-x-2"
           >
             {triggeringMaintenance ? (
               <>
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                <span>Running...</span>
+                <span>Queuing...</span>
               </>
             ) : (
               <>

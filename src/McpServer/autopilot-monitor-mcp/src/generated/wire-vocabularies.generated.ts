@@ -64,6 +64,8 @@ export const OPS_EVENT_TYPES = [
   "MaintenanceCompleted",
   "MaintenanceFailed",
   "MaintenanceLongRunning",
+  "MaintenanceStarted",
+  "MaintenanceSkippedLocked",
   "SessionSweepCompleted",
   "SessionSweepFailed",
   "OpsEventCleanup",

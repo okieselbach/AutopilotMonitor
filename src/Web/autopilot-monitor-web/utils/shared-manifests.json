@@ -526,6 +526,8 @@
     "MaintenanceCompleted",
     "MaintenanceFailed",
     "MaintenanceLongRunning",
+    "MaintenanceStarted",
+    "MaintenanceSkippedLocked",
     "SessionSweepCompleted",
     "SessionSweepFailed",
     "OpsEventCleanup",
@@ -13149,98 +13151,6 @@
         }
       ]
     },
-    "MaintenanceResult": {
-      "kind": "object",
-      "doc": "Run report of a manual maintenance run (POST maintenance/trigger).",
-      "fields": [
-        {
-          "name": "success",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        {
-          "name": "error",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true
-        },
-        {
-          "name": "triggeredBy",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        {
-          "name": "triggeredAt",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          }
-        },
-        {
-          "name": "durationMs",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "stalledSessionsChecked",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        {
-          "name": "metricsAggregated",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        {
-          "name": "aggregatedDate",
-          "type": {
-            "kind": "primitive",
-            "name": "string"
-          },
-          "optional": true
-        },
-        {
-          "name": "dataCleanupExecuted",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        {
-          "name": "platformStatsRecomputed",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
-        {
-          "name": "devicesBlockedForExcessiveData",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        },
-        {
-          "name": "contactEmailsBackfilled",
-          "type": {
-            "kind": "primitive",
-            "name": "number"
-          }
-        }
-      ]
-    },
     "ManagedTenantItem": {
       "kind": "object",
       "doc": "One managed tenant as the managing tenant sees it.",
@@ -23545,27 +23455,13 @@
     },
     "TriggerMaintenanceResponse": {
       "kind": "object",
-      "doc": "Response of POST maintenance/trigger.",
+      "doc": "Response of POST maintenance/trigger (202 Accepted): the run is queued, not done. Its progress and its report surface as Maintenance* ops events (Started, Completed, Failed, SkippedLocked).",
       "fields": [
-        {
-          "name": "success",
-          "type": {
-            "kind": "primitive",
-            "name": "boolean"
-          }
-        },
         {
           "name": "message",
           "type": {
             "kind": "primitive",
             "name": "string"
-          }
-        },
-        {
-          "name": "result",
-          "type": {
-            "kind": "ref",
-            "name": "MaintenanceResult"
           }
         },
         {
@@ -23580,6 +23476,22 @@
           "type": {
             "kind": "primitive",
             "name": "string"
+          }
+        },
+        {
+          "name": "targetDate",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "optional": true,
+          "doc": "Date to aggregate (yyyy-MM-dd); null = yesterday."
+        },
+        {
+          "name": "aggregateOnly",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
           }
         }
       ]

@@ -530,6 +530,8 @@ export const SHARED_MANIFEST = {
     "MaintenanceCompleted",
     "MaintenanceFailed",
     "MaintenanceLongRunning",
+    "MaintenanceStarted",
+    "MaintenanceSkippedLocked",
     "SessionSweepCompleted",
     "SessionSweepFailed",
     "OpsEventCleanup",

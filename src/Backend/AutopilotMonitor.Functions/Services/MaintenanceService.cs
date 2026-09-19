@@ -55,6 +55,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly PreviewWhitelistService _previewWhitelistService;
         private readonly IStorageInitializer _storageInitializer;
+        private readonly Maintenance.MaintenanceRunGate _runGate;
         private readonly ILogger<MaintenanceService> _logger;
 
         private const string PlatformStatsAliasFileName = "platform-stats.json";
@@ -90,6 +91,7 @@ namespace AutopilotMonitor.Functions.Services
             IHttpClientFactory httpClientFactory,
             PreviewWhitelistService previewWhitelistService,
             IStorageInitializer storageInitializer,
+            Maintenance.MaintenanceRunGate runGate,
             ILogger<MaintenanceService> logger)
         {
             _maintenanceRepo = maintenanceRepo;
@@ -120,6 +122,7 @@ namespace AutopilotMonitor.Functions.Services
             _httpClientFactory = httpClientFactory;
             _previewWhitelistService = previewWhitelistService;
             _storageInitializer = storageInitializer;
+            _runGate = runGate;
             _logger = logger;
         }
 
@@ -136,9 +139,12 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         /// <summary>
-        /// Runs all maintenance tasks (used by the daily timer trigger)
+        /// Runs all maintenance tasks (used by the 2h timer trigger). Single-flight with the
+        /// manual trigger: skipped when another run holds the maintenance-run lease.
         /// </summary>
-        public async Task RunAllAsync()
+        public Task RunAllAsync() => _runGate.RunExclusiveAsync("Timer", RunAllCoreAsync);
+
+        private async Task RunAllCoreAsync()
         {
             _logger.LogInformation($"Daily maintenance started at {DateTime.UtcNow}");
             var maintenanceStart = Stopwatch.StartNew();
@@ -246,9 +252,27 @@ namespace AutopilotMonitor.Functions.Services
             => window.Where(s => s.StartedAt >= windowStart).ToList();
 
         /// <summary>
-        /// Manually triggered maintenance with flexible date selection
+        /// Manually triggered maintenance with flexible date selection. Single-flight with the
+        /// timer: when another run holds the maintenance-run lease, nothing runs and the result
+        /// says so.
         /// </summary>
         public async Task<MaintenanceResult> RunManualAsync(DateTime? targetDate = null, bool aggregateOnly = false, string triggeredBy = "Unknown")
+        {
+            MaintenanceResult? result = null;
+            var ran = await _runGate.RunExclusiveAsync(triggeredBy,
+                async () => result = await RunManualCoreAsync(targetDate, aggregateOnly, triggeredBy));
+            return ran && result != null
+                ? result
+                : new MaintenanceResult
+                {
+                    TriggeredBy = triggeredBy,
+                    TriggeredAt = DateTime.UtcNow,
+                    Success = false,
+                    Error = "Another maintenance run is active",
+                };
+        }
+
+        private async Task<MaintenanceResult> RunManualCoreAsync(DateTime? targetDate, bool aggregateOnly, string triggeredBy)
         {
             _logger.LogInformation($"Manual maintenance triggered by {triggeredBy} at {DateTime.UtcNow}");
             var maintenanceStart = Stopwatch.StartNew();
@@ -329,7 +353,7 @@ namespace AutopilotMonitor.Functions.Services
                 result.Success = true;
 
                 _logger.LogInformation($"Manual maintenance completed in {maintenanceStart.ElapsedMilliseconds}ms");
-                await _opsEventService.RecordMaintenanceCompletedAsync(result.DurationMs, triggeredBy);
+                await _opsEventService.RecordMaintenanceCompletedAsync(result.DurationMs, triggeredBy, result);
                 return result;
             }
             catch (Exception ex)

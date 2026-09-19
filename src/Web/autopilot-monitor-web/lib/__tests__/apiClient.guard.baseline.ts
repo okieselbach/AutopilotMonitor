@@ -10,7 +10,7 @@ export const PERMANENT: Record<string, string> = {
   "app/health-check/page.tsx": "/version.json of the SWA itself, not the API",
   "app/dashboard/hooks/deleteSessionResponse.ts": "safeJson on the 202 Response of the delete-cascade classifier (refusals arrive as ApiError)",
   "app/settings/TenantConfigContext.tsx": "consent return path routes on TokenExpiredError (router.replace); the access check rethrows it as a non-outcome",
-  "app/admin/ops/session-cleanup/components/MaintenanceStatusBanner.tsx": "auxiliary banner: only a token expiry is surfaced, backend refusals stay silent",
+  "hooks/useOpsRunStatus.ts": "auxiliary run status (session-cleanup banner, maintenance trigger): only a token expiry is surfaced, backend refusals stay silent",
   "app/dashboard/hooks/useBlockDevice.ts": "bulk runner rethrows the expiry so it is toasted once, not per device",
   "app/dashboard/hooks/useDeleteSession.ts": "bulk runner collects the expiry and toasts once after the batch",
   "app/dashboard/hooks/useTenantSecurityConfig.ts": "fail-soft banner data; the expiry is the one failure the user must hear about",
@@ -50,7 +50,7 @@ export const BODY_STRINGIFY_BASELINE: Record<string, number> = {
 };
 
 export const TOKENEXPIRED_BASELINE: Record<string, number> = {
-  "app/admin/ops/session-cleanup/components/MaintenanceStatusBanner.tsx": 1,
+  "hooks/useOpsRunStatus.ts": 1,
   "app/dashboard/hooks/useBlockDevice.ts": 1,
   "app/dashboard/hooks/useDeleteSession.ts": 1,
   "app/dashboard/hooks/useTenantSecurityConfig.ts": 1,
