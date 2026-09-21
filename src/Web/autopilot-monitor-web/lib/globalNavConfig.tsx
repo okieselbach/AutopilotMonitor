@@ -163,14 +163,17 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "monitoring",
     label: "Monitoring",
     visibility: "tenantMember",
+    // Ordered by what tenant admins/operators actually open. The Progress Portal is the end-user page
+    // (regular users get it as their only entry via REGULAR_USER_ITEMS), so it sits last here: directly
+    // under Dashboard it collected mostly misclicks that bounced back within seconds.
     items: [
-      { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
-      { id: "annotations", label: "Annotations", href: "/annotations", icon: <PencilSquareIcon /> },
-      { id: "geographic-performance", label: "Geographic Perf.", href: "/geographic-performance", icon: <GlobeAltIcon /> },
       { id: "fleet-health", label: "Fleet Health", href: "/fleet-health", icon: <ChartBarIcon /> },
-      { id: "sla", label: "SLA Compliance", href: "/sla", icon: <ShieldCheckIcon /> },
+      { id: "geographic-performance", label: "Geographic Perf.", href: "/geographic-performance", icon: <GlobeAltIcon /> },
       { id: "apps", label: "Software", href: "/apps", icon: <CubeIcon /> },
+      { id: "sla", label: "SLA Compliance", href: "/sla", icon: <ShieldCheckIcon /> },
       { id: "usage-metrics", label: "Usage Metrics", href: "/usage-metrics", icon: <TrendingUpIcon /> },
+      { id: "annotations", label: "Annotations", href: "/annotations", icon: <PencilSquareIcon /> },
+      { id: "progress", label: "Progress Portal", href: "/progress", icon: <MonitorIcon /> },
     ],
   },
   {
