@@ -731,7 +731,8 @@ namespace AutopilotMonitor.Agent.V2
         /// 10s / 500ms contract as the bootstrap script's Get-Process probe. The install-mode
         /// process shares the runtime's exe name, so the own pid is excluded; a pre-existing
         /// foreign runtime cannot be running here because install mode bails earlier on the
-        /// Deployed marker.
+        /// Deployed marker. Same identity rule as the multi-instance guard: a same-named process
+        /// in a user session is not the runtime and must not satisfy the verification.
         /// </summary>
         private static int WaitForDetachedRuntimePid(string exePath, AgentLogger logger)
         {
@@ -742,16 +743,8 @@ namespace AutopilotMonitor.Agent.V2
             {
                 try
                 {
-                    var candidates = Process.GetProcessesByName(processName);
-                    try
-                    {
-                        var runtime = candidates.FirstOrDefault(p => p.Id != ownPid);
-                        if (runtime != null) return runtime.Id;
-                    }
-                    finally
-                    {
-                        foreach (var p in candidates) p.Dispose();
-                    }
+                    var runtimePid = FindSiblingAgentPid(SnapshotProcessesByName(processName), ownPid);
+                    if (runtimePid != 0) return runtimePid;
                 }
                 catch (Exception ex)
                 {

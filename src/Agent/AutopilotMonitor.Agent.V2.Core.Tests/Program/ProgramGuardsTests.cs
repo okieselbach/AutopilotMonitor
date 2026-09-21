@@ -302,6 +302,114 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Program
             Assert.False(File.Exists(path));
         }
 
+        // ================================================================= Multi-instance guard
+
+        private static AutopilotMonitor.Agent.V2.Program.AgentProcessFact Proc(int pid, int sessionId)
+            => new AutopilotMonitor.Agent.V2.Program.AgentProcessFact(pid, sessionId);
+
+        [Fact]
+        public void FindSiblingAgentPid_ignores_a_same_named_process_in_a_user_session()
+        {
+            // The agent (pid 100, session 0) starts while a standard user keeps a process with
+            // the agent's image name resident in their own session. It must not block the start.
+            var matches = new[] { Proc(100, 0), Proc(200, 1) };
+
+            Assert.Equal(0, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(7)]
+        [InlineData(-1)]
+        public void FindSiblingAgentPid_ignores_every_session_but_zero(int sessionId)
+        {
+            var matches = new[] { Proc(100, 0), Proc(200, sessionId) };
+
+            Assert.Equal(0, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Fact]
+        public void FindSiblingAgentPid_reports_a_second_runtime_in_session_zero()
+        {
+            // Self-update restart while the old runtime is still alive — the single-agent
+            // invariant the guard exists for.
+            var matches = new[] { Proc(100, 0), Proc(300, 0) };
+
+            Assert.Equal(300, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Fact]
+        public void FindSiblingAgentPid_never_reports_the_caller_itself()
+        {
+            var matches = new[] { Proc(100, 0) };
+
+            Assert.Equal(0, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Fact]
+        public void FindSiblingAgentPid_skips_user_session_processes_listed_before_the_runtime()
+        {
+            // Install-mode launch verification: a user-session process enumerated first must not
+            // be reported as the launched runtime.
+            var matches = new[] { Proc(200, 1), Proc(201, 2), Proc(100, 0), Proc(300, 0) };
+
+            Assert.Equal(300, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Fact]
+        public void FindSiblingAgentPid_blocks_an_interactive_start_next_to_the_session_zero_runtime()
+        {
+            // --console run from an admin prompt (session 1) while the Scheduled Task runtime is up.
+            var matches = new[] { Proc(100, 1), Proc(300, 0) };
+
+            Assert.Equal(300, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(matches, ownPid: 100));
+        }
+
+        [Fact]
+        public void FindSiblingAgentPid_returns_zero_for_no_matches()
+        {
+            Assert.Equal(0, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(
+                new AutopilotMonitor.Agent.V2.Program.AgentProcessFact[0], ownPid: 100));
+            Assert.Equal(0, AutopilotMonitor.Agent.V2.Program.FindSiblingAgentPid(null, ownPid: 100));
+        }
+
+        [Fact]
+        public void SnapshotProcessesByName_reads_pid_and_session_of_the_running_test_host()
+        {
+            using var self = System.Diagnostics.Process.GetCurrentProcess();
+
+            var facts = AutopilotMonitor.Agent.V2.Program.SnapshotProcessesByName(self.ProcessName);
+
+            var own = Assert.Single(facts, f => f.Pid == self.Id);
+            Assert.Equal(self.SessionId, own.SessionId);
+        }
+
+        [Fact]
+        public void SnapshotProcessesByName_reads_the_session_of_system_owned_processes_without_access_rights()
+        {
+            // Positive control for the fail-open direction: the session id comes from the process
+            // snapshot, not from an opened handle, so even an unprivileged caller reads it for
+            // SYSTEM-owned service hosts. A skipped process would let a real sibling go unseen.
+            var expected = System.Diagnostics.Process.GetProcessesByName("svchost");
+            foreach (var p in expected) p.Dispose();
+
+            var facts = AutopilotMonitor.Agent.V2.Program.SnapshotProcessesByName("svchost");
+
+            Assert.NotEmpty(facts);
+            Assert.All(facts, f => Assert.True(f.Pid > 0));
+            Assert.Contains(facts, f => f.SessionId == 0);
+            // Service hosts come and go; a wholesale access failure would drop (nearly) all of them.
+            Assert.True(facts.Count >= expected.Length / 2,
+                $"Snapshot returned {facts.Count} of ~{expected.Length} svchost processes.");
+        }
+
+        [Fact]
+        public void SnapshotProcessesByName_returns_empty_for_an_unknown_name()
+        {
+            Assert.Empty(AutopilotMonitor.Agent.V2.Program.SnapshotProcessesByName("no-such-process-" + Guid.NewGuid().ToString("N")));
+        }
+
         // ================================================================= Crash log writer
 
         [Fact]

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
 using System.IO;
@@ -41,17 +42,31 @@ namespace AutopilotMonitor.Agent.V2
 
         // ----------------------------------------------------------------- Multi-instance guard
 
+        /// <summary>Pid and terminal-services session of one name-matched process.</summary>
+        internal readonly struct AgentProcessFact
+        {
+            public AgentProcessFact(int pid, int sessionId)
+            {
+                Pid = pid;
+                SessionId = sessionId;
+            }
+
+            public int Pid { get; }
+            public int SessionId { get; }
+        }
+
         /// <summary>
-        /// <c>true</c> when another process with the same filename (module name) is alive.
-        /// Race-safe by design: we count processes sharing our name; if 1, only we exist.
+        /// <c>true</c> when another agent runtime is alive. A process name is not a protected
+        /// namespace — any user session can run a binary named like the agent — so a name match
+        /// only counts in session 0. Every runtime start (Scheduled Task, WMI launch, self-update
+        /// restart) lands there, and a standard user cannot start a process in it.
         /// </summary>
         internal static bool IsAnotherAgentInstanceRunning()
         {
             try
             {
-                var self = Process.GetCurrentProcess();
-                var siblings = Process.GetProcessesByName(self.ProcessName);
-                return siblings.Length > 1;
+                using (var self = Process.GetCurrentProcess())
+                    return FindSiblingAgentPid(SnapshotProcessesByName(self.ProcessName), self.Id) != 0;
             }
             catch
             {
@@ -59,6 +74,40 @@ namespace AutopilotMonitor.Agent.V2
                 // we do not block startup on a diagnostic false negative.
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Pid of the first name-matched process that is a real agent runtime — session 0 and not
+        /// the caller itself — or <c>0</c> when there is none. Shared by the multi-instance guard
+        /// and install mode's launch verification so both trust the same identity.
+        /// </summary>
+        internal static int FindSiblingAgentPid(IEnumerable<AgentProcessFact> nameMatches, int ownPid)
+        {
+            if (nameMatches == null) return 0;
+            foreach (var candidate in nameMatches)
+            {
+                if (candidate.Pid == ownPid) continue;
+                if (candidate.SessionId != 0) continue;
+                return candidate.Pid;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Reads pid and session of every process with the given name. A process that vanished
+        /// between enumeration and read is skipped: it is not a live sibling, and failing open
+        /// means the worst case is two agents, never none.
+        /// </summary>
+        internal static List<AgentProcessFact> SnapshotProcessesByName(string processName)
+        {
+            var facts = new List<AgentProcessFact>();
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                try { facts.Add(new AgentProcessFact(process.Id, process.SessionId)); }
+                catch { /* exited mid-read */ }
+                finally { process.Dispose(); }
+            }
+            return facts;
         }
 
         // ----------------------------------------------------------------- clean-exit marker
