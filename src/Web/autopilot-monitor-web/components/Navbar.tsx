@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { trustedRoute } from '@/lib/routes';
 import { usePathname, useRouter } from 'next/navigation';
 import { BrandMark } from './BrandMark';
+import { UserAvatar } from './UserAvatar';
 import { trackEvent } from '@/lib/appInsights';
 import { useAdminMode } from '@/hooks/useAdminMode';
 import { useEditionInfo } from '@/hooks/useEditionInfo';
@@ -114,17 +115,6 @@ export default function Navbar() {
     router.push(trustedRoute(href));
   };
 
-  const getUserInitials = () => {
-    if (user?.displayName) {
-      const names = user.displayName.split(' ');
-      if (names.length >= 2) {
-        return `${names[0].charAt(0)}${names[names.length - 1].charAt(0)}`.toUpperCase();
-      }
-      return user.displayName.charAt(0).toUpperCase();
-    }
-    return user?.upn?.charAt(0).toUpperCase() || 'U';
-  };
-
   const isTenantAdmin = user?.isTenantAdmin ?? false;
   // Whether to PRESENT the caller as a Global Admin. Follows the Global-Admin view toggle (which
   // demo mode forces off), so switching it off shows the tenant-admin identity a live demo needs.
@@ -168,9 +158,7 @@ export default function Navbar() {
               {/* User Menu */}
               <div className="relative" ref={userMenuRef}>
                 <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
-                    {getUserInitials()}
-                  </div>
+                  <UserAvatar displayName={user?.displayName} upn={user?.upn} size="sm" />
                   <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
                     <path d="M19 9l-7 7-7-7"></path>
                   </svg>
@@ -178,9 +166,7 @@ export default function Navbar() {
                 {showUserMenu && (
                   <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                     <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                      <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
-                        {getUserInitials()}
-                      </div>
+                      <UserAvatar displayName={user?.displayName} upn={user?.upn} size="md" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900">{user?.displayName || 'User'}</p>
                         <p className="text-xs text-gray-500 truncate">{user?.upn}</p>
@@ -759,9 +745,7 @@ export default function Navbar() {
             {/* User Menu */}
             <div className="relative" ref={userMenuRef}>
               <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center space-x-1.5 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white font-semibold text-xs">
-                  {getUserInitials()}
-                </div>
+                <UserAvatar displayName={user?.displayName} upn={user?.upn} size="sm" />
                 <svg className="w-3.5 h-3.5 text-gray-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
                   <path d="M19 9l-7 7-7-7"></path>
                 </svg>
@@ -771,9 +755,7 @@ export default function Navbar() {
               {showUserMenu && (
                 <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                   <div className="px-3 py-2.5 border-b border-gray-200 flex items-start space-x-2.5">
-                    <div className="w-8 h-8 rounded-full bg-green-600 flex-shrink-0 flex items-center justify-center text-white font-semibold text-xs">
-                      {getUserInitials()}
-                    </div>
+                    <UserAvatar displayName={user?.displayName} upn={user?.upn} size="md" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900">{user?.displayName || 'User'}</p>
                       <p className="text-xs text-gray-500 truncate">{user?.upn}</p>

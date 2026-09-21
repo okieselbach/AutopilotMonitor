@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { API_URL_PROD, BLOB_URL_PROD, DOCS_URL, ENTRA_LOGIN_URL } from "../config";
+import { API_URL_PROD, BLOB_URL_PROD, DOCS_URL, ENTRA_LOGIN_URL, GRAPH_URL } from "../config";
 
 /**
  * Guards staticwebapp.config.json — since the static export it carries the
@@ -42,7 +42,7 @@ const ALLOWED_THIRD_PARTY_HOSTS = [
   "*.in.applicationinsights.azure.com",
 ];
 
-const REGISTRY_HOSTS = [DOCS_URL, API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL].map(
+const REGISTRY_HOSTS = [DOCS_URL, API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL, GRAPH_URL].map(
   (u) => new URL(u).host,
 );
 

@@ -2,7 +2,7 @@ import { LandingNavbar } from "../../components/landing/LandingNavbar";
 import { SiteFooter } from "../../components/SiteFooter";
 import { DOCS_URL } from "@/utils/config";
 
-const LAST_UPDATED = "11 September 2026";
+const LAST_UPDATED = "21 September 2026";
 const DOCS_SECURITY_FAQ = `${DOCS_URL}/trust/security-faq`;
 const DOCS_DATA_FLOWS = `${DOCS_URL}/trust/data-flows`;
 const DOCS_DPA = `${DOCS_URL}/legal/data-privacy-agreement-dpa`;
@@ -90,6 +90,10 @@ export default function PrivacyPage() {
             Community plan and required before a Pro trial. Your administrators set and change them under Settings →
             Tenant → Contact, and clearing a field removes it. Where an organization gave a notification address during sign-up
             (tenant activation), that address is copied once as the initial contact and is yours to change from then on.
+          </p>
+          <p className="text-gray-700">
+            Your Entra ID profile photo, where one exists, is loaded by your browser directly from Microsoft Graph to show
+            it in the portal header. It stays in your browser session and is never sent to or stored by the service.
           </p>
 
           <h2 className="text-lg font-semibold text-gray-900 mt-6">What We Do Not Collect</h2>

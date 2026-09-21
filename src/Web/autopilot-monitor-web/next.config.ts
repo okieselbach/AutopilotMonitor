@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import withBundleAnalyzer from "@next/bundle-analyzer";
-import { API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL } from "./utils/config";
+import { API_URL_PROD, BLOB_URL_PROD, ENTRA_LOGIN_URL, GRAPH_URL } from "./utils/config";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -74,7 +74,7 @@ const nextConfig: NextConfig = {
                     "style-src 'self' 'unsafe-inline'",
                     "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
                     "font-src 'self'",
-                    `connect-src 'self' ${API_URL_PROD} ${BLOB_URL_PROD} ${ENTRA_LOGIN_URL} https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com`,
+                    `connect-src 'self' ${API_URL_PROD} ${BLOB_URL_PROD} ${ENTRA_LOGIN_URL} ${GRAPH_URL} https://*.service.signalr.net wss://*.service.signalr.net https://js.monitor.azure.com https://*.in.applicationinsights.azure.com`,
                     "frame-ancestors 'none'",
                   ].join("; "),
                 },

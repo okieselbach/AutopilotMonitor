@@ -106,6 +106,14 @@ export const loginRequest: RedirectRequest = {
 };
 
 /**
+ * Scopes for the browser's own Microsoft Graph call (profile photo). Already consented at
+ * sign-in through loginRequest, so a silent token request never prompts.
+ */
+export const graphRequest = {
+  scopes: ["User.Read"],
+};
+
+/**
  * Scopes for accessing the backend API
  * IMPORTANT: Backend API must be exposed in Azure AD App Registration with this scope
  * Format: api://<backend-client-id>/access_as_user

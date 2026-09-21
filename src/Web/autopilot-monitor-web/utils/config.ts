@@ -43,6 +43,9 @@ export const BOOTSTRAP_GO_URL = "https://go.autopilotmonitor.com";
 /** Entra ID login/token authority host (no trailing slash). */
 export const ENTRA_LOGIN_URL = "https://login.microsoftonline.com";
 
+/** Microsoft Graph origin (CSP connect-src: the browser loads the signed-in user's profile photo). */
+export const GRAPH_URL = "https://graph.microsoft.com";
+
 /** Production backend origin (CSP connect-src + server-side env fallback). */
 export const API_URL_PROD = "https://autopilotmonitor-api-eu.azurewebsites.net";
 
