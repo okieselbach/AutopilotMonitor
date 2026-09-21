@@ -6,10 +6,12 @@ import { DOCS_PATHS } from "@/lib/docsPaths";
 interface CommunityContributionBoxProps {
   /** Undefined hides the button (read-only roles, no custom rules yet). */
   onContribute?: () => void;
+  /** The caller's role cannot contribute at all (contributing is tenant-admin only): say so instead of just hiding the button. */
+  adminOnly?: boolean;
 }
 
 /** The community call-to-action on the rule pages: contribute a rule here, report bugs on GitHub. */
-export function CommunityContributionBox({ onContribute }: CommunityContributionBoxProps) {
+export function CommunityContributionBox({ onContribute, adminOnly }: CommunityContributionBoxProps) {
   return (
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="flex items-start space-x-3 flex-1">
@@ -22,6 +24,9 @@ export function CommunityContributionBox({ onContribute }: CommunityContribution
           <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="font-medium underline hover:text-blue-900">
             open a GitHub issue
           </a>.
+          {adminOnly && (
+            <span className="block mt-1 text-blue-700">Only tenant admins can contribute rules and follow the tenant&apos;s submissions — ask an admin of your tenant to submit it.</span>
+          )}
         </p>
       </div>
       {onContribute && (

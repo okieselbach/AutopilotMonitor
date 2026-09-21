@@ -112,6 +112,9 @@ export default function AnalyzeRulesPage() {
   // A read-only Global Reader — and an own-tenant admin viewing a FOREIGN tenant (cross-tenant override) —
   // is read-only. Backend also enforces (rules write is TenantAdminOrGA, cross-tenant blocked for non-GA).
   const isReadOnly = !(user?.isGlobalAdmin || (user?.isTenantAdmin && !isGlobalOverride));
+  // Community submissions are TenantAdminOrGA on the own tenant; only a global-scope override reads them through
+  // the operator list. Everyone else (Operator, Viewer) gets a hint instead of a 403 on the list call.
+  const submissionsAdminOnly = isReadOnly && !isGlobalOverride;
 
   // Cross-tenant write routing: in a Global Admin override the JWT-scoped rules/analyze/{id} route
   // resolves the tenant from the caller's token and would silently upsert into the GA's OWN tenant
@@ -610,15 +613,17 @@ export default function AnalyzeRulesPage() {
           ) : (
             <div className="space-y-6">
               {/* Community contribution: submit own custom rules for the shared pool; the list shows their status. */}
-              <CommunityContributionBox onContribute={isReadOnly ? undefined : () => setShowSubmitModal(true)} />
-              <MySubmissionsList
-                kind="analyze"
-                getAccessToken={getAccessToken}
-                refreshKey={submissionsRefreshKey}
-                overrideTenantId={isGlobalOverride ? effectiveTenantId : undefined}
-                readOnly={isReadOnly}
-                onError={showError}
-              />
+              <CommunityContributionBox onContribute={isReadOnly ? undefined : () => setShowSubmitModal(true)} adminOnly={submissionsAdminOnly} />
+              {!submissionsAdminOnly && (
+                <MySubmissionsList
+                  kind="analyze"
+                  getAccessToken={getAccessToken}
+                  refreshKey={submissionsRefreshKey}
+                  overrideTenantId={isGlobalOverride ? effectiveTenantId : undefined}
+                  readOnly={isReadOnly}
+                  onError={showError}
+                />
+              )}
 
               {/* Summary Stats */}
               <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
