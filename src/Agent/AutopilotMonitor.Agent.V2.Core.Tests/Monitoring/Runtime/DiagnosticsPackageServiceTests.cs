@@ -206,6 +206,91 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Monitoring.Runtime
             Assert.Contains($"BLOCKED (path guard): {configuredPath}", manifest);
         }
 
+        // %TEMP% lives under C:\Users, which the guard blocks in every mode — the positive
+        // configured-path cases run beside the test assembly, in unrestricted mode.
+        private sealed class ConfiguredPathTree : System.IDisposable
+        {
+            public string Root { get; } = Path.Combine(
+                System.AppContext.BaseDirectory, "diag-paths-" + System.Guid.NewGuid().ToString("N"));
+            public string Logs => Path.Combine(Root, "Logs");
+
+            public ConfiguredPathTree()
+            {
+                Directory.CreateDirectory(Path.Combine(Logs, "sub"));
+                File.WriteAllText(Path.Combine(Root, "parent-only.txt"), "not configured");
+                File.WriteAllText(Path.Combine(Logs, "app.log"), "configured");
+                File.WriteAllText(Path.Combine(Logs, "sub", "app.log"), "below");
+            }
+
+            public void Dispose()
+            {
+                try { Directory.Delete(Root, recursive: true); } catch { /* best effort */ }
+            }
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("\\")]
+        public void BuildArchiveBytes_folder_entry_collects_the_folder_not_its_parent(string trailing)
+        {
+            using var rig = new Rig();
+            using var tree = new ConfiguredPathTree();
+
+            var bytes = rig.Build(cfg =>
+                {
+                    cfg.UnrestrictedMode = true;
+                    cfg.DiagnosticsLogPaths.Add(new AutopilotMonitor.Shared.Models.DiagnosticsLogPath
+                    {
+                        Path = tree.Logs + trailing,
+                        IncludeSubfolders = true,
+                    });
+                })
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var entries = ZipEntryNames(bytes);
+            Assert.Contains("AdditionalLogs/Logs/app.log", entries);
+            Assert.Contains("AdditionalLogs/Logs/sub/app.log", entries);
+            Assert.DoesNotContain(entries, e => e.EndsWith("parent-only.txt"));
+        }
+
+        [Fact]
+        public void BuildArchiveBytes_file_entry_ignores_include_subfolders()
+        {
+            using var rig = new Rig();
+            using var tree = new ConfiguredPathTree();
+
+            var bytes = rig.Build(cfg =>
+                {
+                    cfg.UnrestrictedMode = true;
+                    cfg.DiagnosticsLogPaths.Add(new AutopilotMonitor.Shared.Models.DiagnosticsLogPath
+                    {
+                        Path = Path.Combine(tree.Logs, "app.log"),
+                        IncludeSubfolders = true,
+                    });
+                })
+                .BuildArchiveBytes(enrollmentSucceeded: true);
+
+            var entries = ZipEntryNames(bytes);
+            Assert.Contains("AdditionalLogs/Logs/app.log", entries);
+            Assert.DoesNotContain("AdditionalLogs/Logs/sub/app.log", entries);
+        }
+
+        [Fact]
+        public void EnumerateFilesNoReparseDirs_asks_the_guard_before_entering_a_subfolder()
+        {
+            using var tree = new ConfiguredPathTree();
+            var refused = new List<string>();
+
+            var files = DiagnosticsPackageService.EnumerateFilesNoReparseDirs(
+                tree.Root, "*", recurse: true,
+                mayEnterDirectory: dir => !dir.EndsWith("sub"),
+                refusedDirectories: refused);
+
+            Assert.Contains(Path.Combine(tree.Logs, "app.log"), files);
+            Assert.DoesNotContain(Path.Combine(tree.Logs, "sub", "app.log"), files);
+            Assert.Equal(new[] { Path.Combine(tree.Logs, "sub") }, refused);
+        }
+
         [Fact]
         public void BuildArchiveBytes_excludes_top_level_session_id_and_bootstrap_config()
         {

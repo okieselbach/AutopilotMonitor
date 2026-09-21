@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
 {
@@ -124,57 +125,220 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
                 if (IsSymlinkOrReparsePoint(normalizedDir))
                     return false;
 
-                // C:\Users block always applies (even in unrestricted mode)
-                // Exception: paths under <userProfilePath>\AppData\Local or AppData\Roaming
-                // are allowed when the %LOGGED_ON_USER_PROFILE% token was used.
-                if (normalizedDir.StartsWith(BlockedUsersPrefix, StringComparison.OrdinalIgnoreCase) &&
-                    (normalizedDir.Length == BlockedUsersPrefix.Length ||
-                     normalizedDir[BlockedUsersPrefix.Length] == Path.DirectorySeparatorChar))
-                {
-                    if (!GatherRuleGuards.IsUserProfileSubpathAllowed(normalizedDir, userProfilePath))
-                        return false;
-                }
-
-                // Additional hard-blocked paths (even in unrestricted mode)
-                foreach (var blocked in AdditionalHardBlockedPrefixes)
-                {
-                    var normalizedBlocked = Path.GetFullPath(blocked);
-                    if (normalizedDir.StartsWith(normalizedBlocked, StringComparison.OrdinalIgnoreCase) &&
-                        (normalizedDir.Length == normalizedBlocked.Length ||
-                         normalizedDir[normalizedBlocked.Length] == Path.DirectorySeparatorChar))
-                    {
-                        return false;
-                    }
-                }
-
-                // In unrestricted mode, everything except hard-blocked paths is allowed
-                if (unrestrictedMode)
-                    return true;
-
-                foreach (var prefix in AllowedDiagnosticsPathPrefixes)
-                {
-                    var normalizedPrefix = Path.GetFullPath(prefix);
-                    if (normalizedDir.StartsWith(normalizedPrefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Segment-bounded: next char must be '\' or end-of-string
-                        if (normalizedDir.Length == normalizedPrefix.Length ||
-                            normalizedDir[normalizedPrefix.Length] == Path.DirectorySeparatorChar)
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                // Vendor folders under the signed-in user's profile — same allowlist the file
-                // collectors use, since it answers the same question: which folders below a
-                // profile carry enrollment-relevant logs rather than the user's own data.
-                return GatherRuleGuards.IsUserProfilePathOnAllowlist(normalizedDir, userProfilePath);
+                return IsNormalizedPathAllowed(normalizedDir, unrestrictedMode, userProfilePath);
             }
             catch
             {
                 // Any path normalization failure → deny
                 return false;
             }
+        }
+
+        /// <summary>
+        /// What the package actually reads for one configured entry: every file matching
+        /// <see cref="Pattern"/> in <see cref="Folder"/>, optionally below it.
+        /// </summary>
+        public sealed class CollectionTarget
+        {
+            public CollectionTarget(string folder, string pattern, bool recurse)
+            {
+                Folder = folder;
+                Pattern = pattern;
+                Recurse = recurse;
+            }
+
+            /// <summary>Full path without a trailing separator (drive roots keep theirs).</summary>
+            public string Folder { get; }
+            public string Pattern { get; }
+            public bool Recurse { get; }
+        }
+
+        /// <summary>
+        /// Resolves a configured entry to the folder and pattern that get enumerated, and
+        /// validates exactly that. Returns false when the guard refuses the entry.
+        ///
+        /// <paramref name="expandedPath"/> must already have the %LOGGED_ON_USER_PROFILE% token
+        /// resolved: validating the raw token would judge a different path than the one read.
+        ///
+        /// A wildcard in the last segment selects files in its parent folder. A trailing
+        /// separator or an existing directory selects every file in that folder. Anything else
+        /// names one file — validated as that file and never recursed, because its parent
+        /// folder has not passed the guard. The filesystem decides folder-vs-file, never the
+        /// spelling of the last segment.
+        /// </summary>
+        public static bool TryResolveCollectionTarget(
+            string expandedPath,
+            bool includeSubfolders,
+            bool unrestrictedMode,
+            string userProfilePath,
+            out CollectionTarget target)
+            => TryResolveCollectionTarget(
+                expandedPath, includeSubfolders, unrestrictedMode, userProfilePath, Directory.Exists, out target);
+
+        internal static bool TryResolveCollectionTarget(
+            string expandedPath,
+            bool includeSubfolders,
+            bool unrestrictedMode,
+            string userProfilePath,
+            Func<string, bool> directoryExists,
+            out CollectionTarget target)
+        {
+            target = null;
+            if (string.IsNullOrWhiteSpace(expandedPath))
+                return false;
+
+            try
+            {
+                var expanded = Environment.ExpandEnvironmentVariables(expandedPath.Trim());
+                var lastSegment = Path.GetFileName(expanded);
+
+                if (lastSegment.Contains('*') || lastSegment.Contains('?'))
+                {
+                    var parent = Path.GetDirectoryName(expanded);
+                    if (string.IsNullOrEmpty(parent))
+                        return false;
+                    var folder = TrimTrailingSeparators(Path.GetFullPath(parent));
+                    if (!IsDiagnosticsPathAllowed(folder, unrestrictedMode, userProfilePath))
+                        return false;
+                    target = new CollectionTarget(folder, lastSegment, includeSubfolders);
+                    return true;
+                }
+
+                var full = TrimTrailingSeparators(Path.GetFullPath(expanded));
+                if (!IsDiagnosticsPathAllowed(full, unrestrictedMode, userProfilePath))
+                    return false;
+
+                if (lastSegment.Length == 0 || directoryExists(full))
+                {
+                    target = new CollectionTarget(full, "*", includeSubfolders);
+                    return true;
+                }
+
+                var fileFolder = Path.GetDirectoryName(full);
+                if (string.IsNullOrEmpty(fileFolder))
+                    return false;
+                target = new CollectionTarget(fileFolder, Path.GetFileName(full), recurse: false);
+                return true;
+            }
+            catch
+            {
+                target = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Guard for every subdirectory a recursive collection is about to enter. The start
+        /// folder passed <see cref="IsDiagnosticsPathAllowed(string, bool, string)"/>, but a
+        /// hard-blocked subtree can sit below an allowed folder (unrestricted mode, drive
+        /// root). Lexical only: reparse points are skipped by the enumeration and refused
+        /// again on the handle that is read.
+        /// </summary>
+        public static bool IsDirectoryEnterable(string directory, bool unrestrictedMode, string userProfilePath)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                return false;
+
+            try
+            {
+                return IsNormalizedPathAllowed(Path.GetFullPath(directory), unrestrictedMode, userProfilePath);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string TrimTrailingSeparators(string fullPath)
+        {
+            var root = Path.GetPathRoot(fullPath);
+            var trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return root != null && trimmed.Length < root.Length ? root : trimmed;
+        }
+
+        // Hard blocks, then (restricted mode) the allowlists — on an already normalized path.
+        private static bool IsNormalizedPathAllowed(string normalizedDir, bool unrestrictedMode, string userProfilePath)
+        {
+            // C:\Users block always applies (even in unrestricted mode)
+            // Exception: paths under <userProfilePath>\AppData\Local or AppData\Roaming
+            // are allowed when the %LOGGED_ON_USER_PROFILE% token was used.
+            if (normalizedDir.StartsWith(BlockedUsersPrefix, StringComparison.OrdinalIgnoreCase) &&
+                (normalizedDir.Length == BlockedUsersPrefix.Length ||
+                 normalizedDir[BlockedUsersPrefix.Length] == Path.DirectorySeparatorChar))
+            {
+                if (!GatherRuleGuards.IsUserProfileSubpathAllowed(normalizedDir, userProfilePath))
+                    return false;
+            }
+
+            // Additional hard-blocked paths (even in unrestricted mode)
+            foreach (var blocked in AdditionalHardBlockedPrefixes)
+            {
+                var normalizedBlocked = Path.GetFullPath(blocked);
+                if (normalizedDir.StartsWith(normalizedBlocked, StringComparison.OrdinalIgnoreCase) &&
+                    (normalizedDir.Length == normalizedBlocked.Length ||
+                     normalizedDir[normalizedBlocked.Length] == Path.DirectorySeparatorChar))
+                {
+                    return false;
+                }
+            }
+
+            // Hard-blocked event logs (even in unrestricted mode). Only a path that names the
+            // file is caught here; a wildcard or folder entry is judged per file by
+            // DiagnosticsPackageService, which is the enforcement point.
+            if (IsHardBlockedEventLogFile(normalizedDir))
+                return false;
+
+            // In unrestricted mode, everything except hard-blocked paths is allowed
+            if (unrestrictedMode)
+                return true;
+
+            foreach (var prefix in AllowedDiagnosticsPathPrefixes)
+            {
+                var normalizedPrefix = Path.GetFullPath(prefix);
+                if (normalizedDir.StartsWith(normalizedPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Segment-bounded: next char must be '\' or end-of-string
+                    if (normalizedDir.Length == normalizedPrefix.Length ||
+                        normalizedDir[normalizedPrefix.Length] == Path.DirectorySeparatorChar)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // Vendor folders under the signed-in user's profile — same allowlist the file
+            // collectors use, since it answers the same question: which folders below a
+            // profile carry enrollment-relevant logs rather than the user's own data.
+            return GatherRuleGuards.IsUserProfilePathOnAllowlist(normalizedDir, userProfilePath);
+        }
+
+        // Windows archives a full channel as "Archive-<file name>-yyyy-MM-dd-HH-mm-ss-fff.evtx".
+        private static readonly Regex ArchivedEventLogRegex = new Regex(
+            @"^Archive-(.+)-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>
+        /// True when the .evtx file name belongs to one of
+        /// <see cref="GatherRuleGuards.HardBlockedEventLogChannels"/> — live file
+        /// ("Microsoft-Windows-PowerShell%4Operational.evtx", where %4 encodes '/') or
+        /// archived copy. Judges the NAME only; a channel may write to a file that does not
+        /// follow the convention, so the packager also checks the channel it resolved.
+        /// </summary>
+        internal static bool IsHardBlockedEventLogFile(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            var name = Path.GetFileName(path);
+            if (!name.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var stem = name.Substring(0, name.Length - ".evtx".Length);
+            var archived = ArchivedEventLogRegex.Match(stem);
+            if (archived.Success)
+                stem = archived.Groups[1].Value;
+
+            return GatherRuleGuards.IsHardBlockedEventLogChannel(stem.Replace("%4", "/"));
         }
 
         /// <summary>

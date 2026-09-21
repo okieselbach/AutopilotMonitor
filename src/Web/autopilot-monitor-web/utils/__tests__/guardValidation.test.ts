@@ -410,6 +410,32 @@ describe("validateDiagnosticsPath", () => {
     const r = validateDiagnosticsPath("C:\\Windows\\System32\\winevt\\Logs\\System.evtx", false);
     expect(r.allowed).toBe(true);
   });
+
+  it.each([
+    "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+    "C:\\Windows\\System32\\winevt\\Logs\\security.EVTX",
+    "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-PowerShell%4Operational.evtx",
+    "C:\\Windows\\System32\\winevt\\Logs\\Windows PowerShell.evtx",
+    "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-Sysmon%4Operational.evtx",
+    "C:\\Windows\\System32\\winevt\\Logs\\Archive-Security-2026-09-21-10-15-30-123.evtx",
+    "C:\\Install\\Log\\Security.evtx",
+  ])("blocks the hard-blocked event log %s in every mode", (path) => {
+    expect(validateDiagnosticsPath(path, false).allowed).toBe(false);
+    const unrestricted = validateDiagnosticsPath(path, true);
+    expect(unrestricted.allowed).toBe(false);
+    expect(unrestricted.reason).toContain("never readable");
+  });
+
+  it("does not mistake a neighbouring channel for a blocked one", () => {
+    const dsc =
+      "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-PowerShell-DesiredStateConfiguration-FileDownloadManager%4Operational.evtx";
+    expect(validateDiagnosticsPath(dsc, false).allowed).toBe(true);
+    expect(validateDiagnosticsPath("C:\\Windows\\Logs\\SecurityAudit.evtx", false).allowed).toBe(true);
+  });
+
+  it("leaves an .evtx wildcard allowed — the agent skips blocked files one by one", () => {
+    expect(validateDiagnosticsPath("C:\\Windows\\System32\\winevt\\Logs\\*.evtx", false).allowed).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

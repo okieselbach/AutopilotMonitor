@@ -99,7 +99,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
 
         /// <summary>
         /// Packaging problems that are not cap skips, per kind: <c>path-guard</c> (configured path
-        /// refused), <c>no-user-session</c> (user-profile token without a signed-in user),
+        /// or hard-blocked event log refused),<c>no-user-session</c> (user-profile token without a signed-in user),
         /// <c>folder-rejected</c>, <c>enumerate</c>, <c>open</c>, <c>copy</c>.
         /// </summary>
         public IReadOnlyDictionary<string, int> ProblemsByKind { get; set; } = Empty;
@@ -144,6 +144,10 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         // reproduce the enumerate-then-open race (a subdirectory swapped for a junction) at the
         // exact point production is exposed. Null in production.
         internal Action<string> BeforeSourceFileOpen { get; set; }
+
+        // Test seam: which channel writes to an .evtx file. Production asks the registered
+        // channels; a test cannot register one.
+        internal Func<string, string> EventLogChannelResolver { get; set; } = ResolveChannelForEvtxFile;
 
         // Tracks per-build inclusion totals + skip reasons. Threaded through every
         // AddLogFiles call so caps are global across all sections, not per section.
@@ -462,17 +466,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     // 3. Configured additional log paths (global + tenant, validated by guards)
                     foreach (var entry in _configuration.DiagnosticsLogPaths ?? new System.Collections.Generic.List<Shared.Models.DiagnosticsLogPath>())
                     {
-                        // Resolve %LOGGED_ON_USER_PROFILE% token and get profile path for guard exception
+                        // The profile path only lifts the C:\Users block for entries that use the token.
                         var userProfilePath = UserProfileResolver.ContainsUserProfileToken(entry.Path)
                             ? UserProfileResolver.GetLoggedOnUserProfilePath() : null;
 
-                        if (!DiagnosticsPathGuards.IsDiagnosticsPathAllowed(entry.Path, _configuration.UnrestrictedMode, userProfilePath))
-                        {
-                            _logger.Warning($"Diagnostics path blocked by guard: {entry.Path}");
-                            ManifestLine($"BLOCKED (path guard): {entry.Path}");
-                            tracker.RecordProblem("path-guard");
-                            continue;
-                        }
+                        // Expand BEFORE the guard: the guard must judge the path that is read,
+                        // and an unresolved token is not a path it can judge.
                         var expandedPath = UserProfileResolver.ExpandCustomTokens(entry.Path);
                         if (expandedPath == null)
                         {
@@ -481,13 +480,23 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                             tracker.RecordProblem("no-user-session");
                             continue;
                         }
-                        var folder = Path.GetDirectoryName(expandedPath);
-                        var pattern = Path.GetFileName(expandedPath);
-                        if (string.IsNullOrEmpty(folder)) continue;
-                        if (string.IsNullOrEmpty(pattern) || !pattern.Contains(".")) pattern = "*";
-                        var zipFolder = $"AdditionalLogs/{Path.GetFileName(folder)}";
-                        ManifestLine($"CONFIGURED PATH: '{entry.Path}' -> folder='{folder}' pattern='{pattern}'");
-                        AddLogFiles(archive, folder, zipFolder, pattern, tracker, entry.IncludeSubfolders);
+
+                        // The guard validates the folder that gets enumerated — never a path
+                        // derived from the validated one afterwards.
+                        if (!DiagnosticsPathGuards.TryResolveCollectionTarget(
+                                expandedPath, entry.IncludeSubfolders, _configuration.UnrestrictedMode, userProfilePath, out var target))
+                        {
+                            _logger.Warning($"Diagnostics path blocked by guard: {entry.Path}");
+                            ManifestLine($"BLOCKED (path guard): {entry.Path}");
+                            tracker.RecordProblem("path-guard");
+                            continue;
+                        }
+
+                        var unrestrictedMode = _configuration.UnrestrictedMode;
+                        var zipFolder = $"AdditionalLogs/{Path.GetFileName(target.Folder)}";
+                        ManifestLine($"CONFIGURED PATH: '{entry.Path}' -> folder='{target.Folder}' pattern='{target.Pattern}' recursive={target.Recurse}");
+                        AddLogFiles(archive, target.Folder, zipFolder, target.Pattern, tracker, target.Recurse,
+                            dir => DiagnosticsPathGuards.IsDirectoryEnterable(dir, unrestrictedMode, userProfilePath));
                     }
 
                     // Packaging manifest — always written, even when empty of problems, so its
@@ -617,14 +626,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         // Recursive enumeration that skips reparse-point directories. Materializes the
         // result into a list so the caller can iterate without holding a directory handle.
         // Errors during enumeration are swallowed (logged via _logger by the caller).
-        private static List<string> EnumerateFilesNoReparseDirs(string folder, string pattern, bool recurse)
+        // mayEnterDirectory (configured paths only) is asked for every subdirectory before the
+        // walk descends: a hard-blocked subtree can sit below a folder that passed the guard.
+        internal static List<string> EnumerateFilesNoReparseDirs(string folder, string pattern, bool recurse,
+            Func<string, bool> mayEnterDirectory, List<string> refusedDirectories)
         {
             var result = new List<string>();
-            CollectFilesNoReparseDirs(folder, pattern, recurse, result);
+            CollectFilesNoReparseDirs(folder, pattern, recurse, mayEnterDirectory, refusedDirectories, result);
             return result;
         }
 
-        private static void CollectFilesNoReparseDirs(string folder, string pattern, bool recurse, List<string> result)
+        private static void CollectFilesNoReparseDirs(string folder, string pattern, bool recurse,
+            Func<string, bool> mayEnterDirectory, List<string> refusedDirectories, List<string> result)
         {
             string[] files;
             try { files = Directory.GetFiles(folder, pattern, SearchOption.TopDirectoryOnly); }
@@ -643,12 +656,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 try { attrs = File.GetAttributes(sub); }
                 catch { continue; }
                 if (IsReparsePoint(attrs)) continue;
-                CollectFilesNoReparseDirs(sub, pattern, recurse: true, result);
+                if (mayEnterDirectory != null && !mayEnterDirectory(sub))
+                {
+                    refusedDirectories.Add(sub);
+                    continue;
+                }
+                CollectFilesNoReparseDirs(sub, pattern, recurse: true, mayEnterDirectory, refusedDirectories, result);
             }
         }
 
         private void AddLogFiles(ZipArchive archive, string sourceFolder, string zipFolder, string searchPattern,
-            BudgetTracker tracker, bool includeSubfolders = false)
+            BudgetTracker tracker, bool includeSubfolders = false, Func<string, bool> mayEnterDirectory = null)
         {
             // The folder stays pinned (open handle) for this whole section. The path guards and
             // the enumeration below only ever judge path strings; every byte that reaches the
@@ -673,9 +691,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 }
 
                 List<string> files;
+                var refusedDirectories = new List<string>();
                 try
                 {
-                    files = EnumerateFilesNoReparseDirs(pinned.LexicalPath, searchPattern, includeSubfolders);
+                    files = EnumerateFilesNoReparseDirs(pinned.LexicalPath, searchPattern, includeSubfolders,
+                        mayEnterDirectory, refusedDirectories);
                 }
                 catch (Exception ex)
                 {
@@ -683,6 +703,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                     ManifestLine($"ENUMERATION FAILED: {sourceFolder} (pattern '{searchPattern}'): {ex.Message}");
                     tracker.RecordProblem("enumerate", sourceFolder);
                     return;
+                }
+
+                // Expected outcome, not a packaging problem: the subtree is off limits by design.
+                foreach (var refused in refusedDirectories)
+                {
+                    _logger.Info($"Diagnostics subfolder skipped by guard: {refused}");
+                    ManifestLine($"SKIPPED DIR (path guard): {refused}");
                 }
 
                 if (files.Count == 0)
@@ -704,7 +731,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
                 // the tenant-configured BootstrapperAgent channel never made it into the ZIP.
                 if (file.EndsWith(".evtx", StringComparison.OrdinalIgnoreCase))
                 {
-                    tempExport = TryExportEventLogChannel(file);
+                    // Hard-blocked channels are refused for every source and in every mode,
+                    // by file name AND by the channel the export would read: the path guard
+                    // cannot judge what a wildcard or folder entry resolves to, and the %4
+                    // fallback of the resolver turns a "Security.evtx" in any allowed folder
+                    // into the live Security channel.
+                    var channel = EventLogChannelResolver(file);
+                    if (DiagnosticsPathGuards.IsHardBlockedEventLogFile(file) ||
+                        GatherRuleGuards.IsHardBlockedEventLogChannel(channel))
+                    {
+                        _logger.Warning($"Event log blocked by channel guard (channel '{channel}'): {file}");
+                        ManifestLine($"BLOCKED (event-log channel guard, channel '{channel}'): {file}");
+                        tracker.RecordProblem("path-guard");
+                        return;
+                    }
+
+                    tempExport = TryExportEventLogChannel(file, channel);
                     if (tempExport == null)
                     {
                         // Export failed (channel not resolvable / wevtutil error) — fall through
@@ -850,16 +892,16 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Runtime
         /// <summary>
         /// Exports the event-log channel behind a winevt .evtx file to a temp copy via
         /// <c>wevtutil epl</c> (active channels hold their file exclusively locked, so a raw
-        /// copy fails). Channel resolution happens against the registered channels — see
-        /// <see cref="ResolveChannelForEvtxFile"/>. Returns the temp file path (caller deletes)
-        /// or null when the export failed.
+        /// copy fails). The caller resolved <paramref name="channel"/> against the registered
+        /// channels — see <see cref="ResolveChannelForEvtxFile"/> — and checked it against the
+        /// hard-blocked channels. Returns the temp file path (caller deletes) or null when the
+        /// export failed.
         /// </summary>
-        private string TryExportEventLogChannel(string evtxPath)
+        private string TryExportEventLogChannel(string evtxPath, string channel)
         {
             string tempPath = null;
             try
             {
-                var channel = ResolveChannelForEvtxFile(evtxPath);
                 tempPath = Path.Combine(Path.GetTempPath(), $"am-evtx-{Guid.NewGuid():N}.evtx");
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {

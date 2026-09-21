@@ -451,16 +451,27 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Telemetry.Gather
             var trimmed = channel.Trim();
 
             // Hard blocks apply even in unrestricted mode
-            foreach (var blocked in HardBlockedEventLogChannels)
-            {
-                if (MatchesChannel(trimmed, blocked))
-                    return false;
-            }
+            if (IsHardBlockedEventLogChannel(trimmed))
+                return false;
 
             if (unrestrictedMode)
                 return true;
 
             return AllowedEventLogChannels.Any(allowed => MatchesChannel(trimmed, allowed));
+        }
+
+        /// <summary>
+        /// True when the channel is one of <see cref="HardBlockedEventLogChannels"/>. Every
+        /// path that can read an event log asks here — the event-log collector and the
+        /// diagnostics package alike — so the block cannot hold in one and leak through another.
+        /// </summary>
+        internal static bool IsHardBlockedEventLogChannel(string channel)
+        {
+            if (string.IsNullOrWhiteSpace(channel))
+                return false;
+
+            var trimmed = channel.Trim();
+            return HardBlockedEventLogChannels.Any(blocked => MatchesChannel(trimmed, blocked));
         }
 
         private static bool MatchesChannel(string channel, string prefix)

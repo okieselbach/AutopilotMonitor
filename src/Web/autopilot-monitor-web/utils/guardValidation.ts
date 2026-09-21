@@ -457,6 +457,19 @@ export function validateDiagnosticsPath(
     return { allowed: false, reason: `${hardBlockedDiag} is always blocked (protected system path)`, unrestricted: false };
   }
 
+  // Hard-blocked event logs (even in unrestricted mode). Only a path that names the
+  // file is caught here; for a wildcard the agent skips these files one by one.
+  const blockedChannel = findBlockedEventLogFile(
+    normalizedDir.substring(normalizedDir.lastIndexOf("\\") + 1)
+  );
+  if (blockedChannel) {
+    return {
+      allowed: false,
+      reason: `"${blockedChannel}" is never readable — it carries the audit trail or script-block logging`,
+      unrestricted: false,
+    };
+  }
+
   if (unrestrictedMode) {
     return { allowed: true, reason: "All paths allowed in unrestricted mode (except blocked system paths)", unrestricted: true };
   }
@@ -495,6 +508,22 @@ function matchesChannel(channel: string, prefix: string): boolean {
   const c = channel.toLowerCase();
   const p = prefix.toLowerCase();
   return c === p || c.startsWith(p + "/");
+}
+
+// Windows archives a full channel as "Archive-<file name>-yyyy-MM-dd-HH-mm-ss-fff.evtx".
+const ARCHIVED_EVENT_LOG = /^Archive-(.+)-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}$/i;
+
+/**
+ * The blocked channel an .evtx file name belongs to (live or archived file; "%4" in the
+ * name encodes "/"), or undefined. Mirrors DiagnosticsPathGuards.IsHardBlockedEventLogFile.
+ */
+function findBlockedEventLogFile(fileName: string): string | undefined {
+  if (!fileName.toLowerCase().endsWith(".evtx")) return undefined;
+  let stem = fileName.slice(0, -".evtx".length);
+  const archived = ARCHIVED_EVENT_LOG.exec(stem);
+  if (archived) stem = archived[1];
+  const channel = stem.replace(/%4/g, "/").trim();
+  return BLOCKED_EVENT_LOG_CHANNELS.find((b) => matchesChannel(channel, b));
 }
 
 export function validateEventLogTarget(

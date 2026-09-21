@@ -79,7 +79,7 @@ export function DiagnosticsLogPathsSection({
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="text"
-              placeholder="Path or wildcard (e.g. C:\Windows\Panther\*.log)"
+              placeholder="Folder, file or wildcard (e.g. C:\Windows\Panther or C:\Windows\Panther\*.log)"
               value={newDiagPath}
               onChange={(e) => setNewDiagPath(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPath(); } }}
