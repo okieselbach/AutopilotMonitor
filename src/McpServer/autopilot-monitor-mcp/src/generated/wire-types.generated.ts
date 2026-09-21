@@ -912,6 +912,12 @@ export interface BackupJobStatus {
 /** Manifest-level outcome. Job-level state (Failed for fatal errors) is tracked separately on BackupJobStatus; a manifest only exists when the run reached the "all tables attempted, manifest write succeeded" milestone. */
 export type BackupOutcome = "Success" | "Partial";
 
+/** Response of POST global/backups/trigger (202 Accepted): the job is queued, not done. The portal polls StatusUrl for the BackupJobStatus. */
+export interface BackupTriggerResponse {
+  jobId: string;
+  statusUrl: string;
+}
+
 /** Body of POST devices/block (Global Admin). */
 export interface BlockDeviceRequest {
   tenantId: string;
@@ -3932,6 +3938,12 @@ export interface SessionDeletionListItem {
   /** Row timestamp, pre-formatted round-trip ("o"). */
   timestamp: string;
   ageMinutes: number;
+}
+
+/** Response of POST global/session-deletions/maintenance/trigger (202 Accepted): the run is queued, not done. Its progress surfaces as SessionDeletionMaintenance* ops events. */
+export interface SessionDeletionMaintenanceTriggerResponse {
+  message: string;
+  triggeredBy: string;
 }
 
 /** Worker progress projection nested in GetSessionDeletionManifestResponse. */

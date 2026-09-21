@@ -848,9 +848,4 @@ export interface BackupManifest {
   tables: BackupTableEntry[];
 }
 
-export interface BackupTriggerResponse {
-  jobId: string;
-  statusUrl: string;
-}
-
 // ── PR2: single-row restore — request/response types are generated (RestoreRowRequest, RestoreRowMode) ──

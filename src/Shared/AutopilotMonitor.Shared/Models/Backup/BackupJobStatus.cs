@@ -11,7 +11,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// risk after enum refactorings.
     /// </summary>
     [WireContract]
-    public sealed class BackupJobStatus
+    public sealed class BackupJobStatus : IApiResponse
     {
         public string JobId { get; set; } = string.Empty;
         public BackupJobKind Kind { get; set; }

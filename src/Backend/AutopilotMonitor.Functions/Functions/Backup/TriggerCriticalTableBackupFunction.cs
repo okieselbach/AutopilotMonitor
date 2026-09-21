@@ -1,10 +1,10 @@
 using System;
 using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Backup.Queue;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -63,11 +63,9 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             if (!inserted)
             {
                 // Guid-N collision (effectively impossible) — surface so the operator can retry.
-                return await WriteJsonAsync(req, HttpStatusCode.Conflict, new
-                {
-                    error = "JobIdCollision",
-                    message = "Failed to allocate a unique jobId — please retry.",
-                });
+                return await req.ConflictAsync(
+                    "Failed to allocate a unique jobId — please retry.",
+                    Constants.BackupErrorCodes.JobIdCollision);
             }
 
             try
@@ -91,28 +89,17 @@ namespace AutopilotMonitor.Functions.Functions.Backup
                     await _jobs.TryUpdateWithCasAsync(fresh, etag.Value, req.FunctionContext.CancellationToken);
                 }
 
-                return await WriteJsonAsync(req, HttpStatusCode.InternalServerError, new
-                {
-                    error = "EnqueueFailed",
-                    message = "Failed to enqueue backup job — job status has been marked Failed.",
-                    jobId,
-                });
+                return await req.ErrorAsync(
+                    HttpStatusCode.InternalServerError,
+                    Constants.ApiErrorCodes.EnqueueFailed,
+                    $"Failed to enqueue backup job {jobId} — job status has been marked Failed.");
             }
 
-            return await WriteJsonAsync(req, HttpStatusCode.Accepted, new
+            return await req.JsonAsync(HttpStatusCode.Accepted, new BackupTriggerResponse
             {
-                jobId,
-                statusUrl = $"/api/global/backups/jobs/{jobId}",
+                JobId = jobId,
+                StatusUrl = $"/api/global/backups/jobs/{jobId}",
             });
-        }
-
-        private static async Task<HttpResponseData> WriteJsonAsync(HttpRequestData req, HttpStatusCode status, object body)
-        {
-            var response = req.CreateResponse(status);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            var json = JsonSerializer.Serialize(body, BackupManifestJson.SerializerOptions);
-            await response.WriteStringAsync(json);
-            return response;
         }
     }
 }

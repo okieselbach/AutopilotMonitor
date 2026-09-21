@@ -1,6 +1,5 @@
 using System;
 using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Deletion;
@@ -51,7 +50,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             if (string.IsNullOrWhiteSpace(sessionId))
             {
-                return await WriteJsonAsync(req, HttpStatusCode.BadRequest, new { success = false, message = "sessionId is required" });
+                return await req.BadRequestAsync("sessionId is required");
             }
 
             var read = await req.ReadAsync<RestoreSessionRequest>();
@@ -95,12 +94,9 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                     // the tenantId in the request body (or via the X-Target-Tenant header).
                     if (string.IsNullOrWhiteSpace(body.TenantId))
                     {
-                        return await WriteJsonAsync(req, HttpStatusCode.NotFound, new
-                        {
-                            success = false,
-                            message = $"Session {sessionId} not found in any active SessionsIndex entry. " +
-                                      "If the cascade completed (Sessions row gone), pass the tenantId explicitly in the request body."
-                        });
+                        return await req.NotFoundAsync(
+                            $"Session {sessionId} not found in any active SessionsIndex entry.",
+                            hint: "If the cascade completed (Sessions row gone), pass the tenantId explicitly in the request body.");
                     }
                     tenantId = body.TenantId!;
                 }
@@ -133,11 +129,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex,
-                    "RestoreSession: unhandled exception for tenant={TenantId} session={SessionId} manifestId={ManifestId}",
-                    tenantId, sessionId, body.ManifestId);
-                return await WriteJsonAsync(req, HttpStatusCode.InternalServerError,
-                    new { success = false, message = "Internal error during restore — see audit log + telemetry for details.", exceptionType = ex.GetType().Name });
+                return await req.InternalServerErrorAsync(
+                    _logger, ex, $"RestoreSession tenant={tenantId} session={sessionId} manifestId={body.ManifestId}");
             }
 
             return await WriteResultAsync(req, result);
@@ -175,14 +168,8 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 DurationMs = result.DurationMs,
             };
 
-            return await WriteJsonAsync(req, status, body);
-        }
-
-        private static async Task<HttpResponseData> WriteJsonAsync(HttpRequestData req, HttpStatusCode status, object body)
-        {
-            var response = req.CreateResponse(status);
-            await response.WriteAsJsonAsync(body);
-            return response;
+            // One shape for every outcome (see SessionRestoreResponse): the status carries the verdict.
+            return await req.JsonAsync(status, body);
         }
     }
 }

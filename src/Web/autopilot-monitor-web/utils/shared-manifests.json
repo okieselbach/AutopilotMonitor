@@ -633,6 +633,8 @@
     "CascadePoisonedUseRestore",
     "KillSwitchActive",
     "CasExhaustedRetryLater",
+    "RunAlreadyActive",
+    "EnqueueFailed",
     "InvalidInvitation",
     "InvitationNotFound",
     "InvitationExpired",
@@ -646,7 +648,26 @@
     "NotATenantMember",
     "AssigneeNotFound",
     "IdentityBindingConflict",
-    "DelegatedSlotLimitReached"
+    "DelegatedSlotLimitReached",
+    "InvalidBackupId",
+    "MissingBody",
+    "InvalidTable",
+    "InvalidKeys",
+    "InvalidMode",
+    "MissingPrecondition",
+    "BackupNotFound",
+    "RowNotInBackup",
+    "JobNotFound",
+    "TableNotInBackup",
+    "ManifestCorrupt",
+    "ManifestSchemaUnsupported",
+    "IntegrityCheckFailed",
+    "BlobChangedSinceValidation",
+    "RowChangedSinceValidation",
+    "CurrentRowChanged",
+    "MaintenanceInProgress",
+    "MaintenanceLeaseLost",
+    "JobIdCollision"
   ],
   "tenantRoles": [
     "Admin",
@@ -4877,6 +4898,26 @@
       "members": [
         "Success",
         "Partial"
+      ]
+    },
+    "BackupTriggerResponse": {
+      "kind": "object",
+      "doc": "Response of POST global/backups/trigger (202 Accepted): the job is queued, not done. The portal polls StatusUrl for the BackupJobStatus.",
+      "fields": [
+        {
+          "name": "jobId",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "statusUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
       ]
     },
     "BlockDeviceRequest": {
@@ -18175,6 +18216,26 @@
           "type": {
             "kind": "primitive",
             "name": "number"
+          }
+        }
+      ]
+    },
+    "SessionDeletionMaintenanceTriggerResponse": {
+      "kind": "object",
+      "doc": "Response of POST global/session-deletions/maintenance/trigger (202 Accepted): the run is queued, not done. Its progress surfaces as SessionDeletionMaintenance* ops events.",
+      "fields": [
+        {
+          "name": "message",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        {
+          "name": "triggeredBy",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
           }
         }
       ]

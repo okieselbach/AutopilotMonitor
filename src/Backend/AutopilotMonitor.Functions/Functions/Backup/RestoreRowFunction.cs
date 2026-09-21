@@ -1,10 +1,10 @@
 using System;
 using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Functions.Services.Backup;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -61,7 +61,7 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             }
             catch (BackupTerminalException ex)
             {
-                return await WriteErrorAsync(req, HttpStatusCode.BadRequest, ex.Code, ex.Message).ConfigureAwait(false);
+                return await req.BadRequestAsync(ex.Message, ex.Code).ConfigureAwait(false);
             }
 
             // 3. Dispatch on mode
@@ -71,7 +71,7 @@ namespace AutopilotMonitor.Functions.Functions.Backup
                 {
                     var preview = await _restoreService.PreviewRowAsync(
                         backupId, body.TableName, body.PartitionKey, body.RowKey, ct).ConfigureAwait(false);
-                    return await WriteJsonAsync(req, HttpStatusCode.OK, preview).ConfigureAwait(false);
+                    return await req.OkAsync(preview).ConfigureAwait(false);
                 }
                 else
                 {
@@ -92,13 +92,13 @@ namespace AutopilotMonitor.Functions.Functions.Backup
                         _logger.LogWarning(evtEx, "RestoreRow: ops event recording failed — write itself succeeded");
                     }
 
-                    return await WriteJsonAsync(req, HttpStatusCode.OK, commit).ConfigureAwait(false);
+                    return await req.OkAsync(commit).ConfigureAwait(false);
                 }
             }
             catch (BackupTerminalException ex)
             {
                 var status = MapErrorCodeToStatus(ex.Code);
-                return await WriteErrorAsync(req, status, ex.Code, ex.Message).ConfigureAwait(false);
+                return await req.ErrorAsync(status, ex.Code, ex.Message).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -107,39 +107,26 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "RestoreRow: unexpected failure for backupId={BackupId} table={Table}", backupId, body.TableName);
-                return await WriteErrorAsync(req, HttpStatusCode.InternalServerError, "InternalError", ex.Message).ConfigureAwait(false);
+                // Sanitized envelope: the raw exception text stays in the log, the correlation id is the handle.
+                return await req.InternalServerErrorAsync(
+                    _logger, ex, $"RestoreRow backupId={backupId} table={body.TableName}").ConfigureAwait(false);
             }
         }
 
         private static HttpStatusCode MapErrorCodeToStatus(string code) => code switch
         {
-            "BackupNotFound"                => HttpStatusCode.NotFound,
-            "RowNotInBackup"                => HttpStatusCode.NotFound,
-            "TableNotInBackup"              => HttpStatusCode.Conflict,
-            "ManifestCorrupt"               => HttpStatusCode.Conflict,
-            "ManifestSchemaUnsupported"     => HttpStatusCode.Conflict,
-            "IntegrityCheckFailed"          => HttpStatusCode.Conflict,
-            "BlobChangedSinceValidation"    => HttpStatusCode.Conflict,
-            "RowChangedSinceValidation"     => HttpStatusCode.Conflict,
-            "CurrentRowChanged"             => HttpStatusCode.Conflict,
-            "MaintenanceInProgress"         => HttpStatusCode.Conflict,
-            "MaintenanceLeaseLost"          => HttpStatusCode.Conflict,
-            _                               => HttpStatusCode.BadRequest,
+            Constants.BackupErrorCodes.BackupNotFound               => HttpStatusCode.NotFound,
+            Constants.BackupErrorCodes.RowNotInBackup               => HttpStatusCode.NotFound,
+            Constants.BackupErrorCodes.TableNotInBackup             => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.ManifestCorrupt              => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.ManifestSchemaUnsupported    => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.IntegrityCheckFailed         => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.BlobChangedSinceValidation   => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.RowChangedSinceValidation    => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.CurrentRowChanged            => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.MaintenanceInProgress        => HttpStatusCode.Conflict,
+            Constants.BackupErrorCodes.MaintenanceLeaseLost         => HttpStatusCode.Conflict,
+            _                                                       => HttpStatusCode.BadRequest,
         };
-
-        private static async Task<HttpResponseData> WriteJsonAsync(HttpRequestData req, HttpStatusCode status, object body)
-        {
-            var response = req.CreateResponse(status);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            var json = JsonSerializer.Serialize(body, BackupManifestJson.SerializerOptions);
-            await response.WriteStringAsync(json).ConfigureAwait(false);
-            return response;
-        }
-
-        private static async Task<HttpResponseData> WriteErrorAsync(HttpRequestData req, HttpStatusCode status, string code, string message)
-        {
-            return await WriteJsonAsync(req, status, new { error = code, message }).ConfigureAwait(false);
-        }
     }
 }

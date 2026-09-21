@@ -88,7 +88,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             if (dump == null)
             {
                 throw new BackupTerminalException(
-                    "RowNotInBackup",
+                    Constants.BackupErrorCodes.RowNotInBackup,
                     $"row (pk='{partitionKey}', rk='{rowKey}') was not found in backup {backupId}/{tableName}");
             }
 
@@ -161,7 +161,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             catch (LeaseHeldException ex)
             {
                 throw new BackupTerminalException(
-                    "MaintenanceInProgress",
+                    Constants.BackupErrorCodes.MaintenanceInProgress,
                     "another maintenance operation is in progress — please retry shortly",
                     ex);
             }
@@ -185,7 +185,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 if (dump == null)
                 {
                     throw new BackupTerminalException(
-                        "RowNotInBackup",
+                        Constants.BackupErrorCodes.RowNotInBackup,
                         $"row (pk='{partitionKey}', rk='{rowKey}') was not found in backup {backupId}/{tableName}");
                 }
 
@@ -196,7 +196,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 if (!string.Equals(freshSha, (ifSha256 ?? string.Empty).ToLowerInvariant(), StringComparison.Ordinal))
                 {
                     throw new BackupTerminalException(
-                        "RowChangedSinceValidation",
+                        Constants.BackupErrorCodes.RowChangedSinceValidation,
                         $"backup row SHA-256 changed between preview and commit (preview echoed {ifSha256}, fresh {freshSha}) — re-open the preview to refresh");
                 }
 
@@ -217,7 +217,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                     catch (RequestFailedException ex) when (ex.Status == 412 || ex.Status == 404)
                     {
                         throw new BackupTerminalException(
-                            "CurrentRowChanged",
+                            Constants.BackupErrorCodes.CurrentRowChanged,
                             $"live row was modified or deleted since preview (status={ex.Status}) — re-open the preview",
                             ex);
                     }
@@ -241,7 +241,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                     catch (RequestFailedException ex) when (StorageErrors.IsAlreadyExists(ex))
                     {
                         throw new BackupTerminalException(
-                            "CurrentRowChanged",
+                            Constants.BackupErrorCodes.CurrentRowChanged,
                             "live row was created since preview — re-open the preview",
                             ex);
                     }
@@ -266,7 +266,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 // up to the HTTP layer's generic catch and renders as a 500.
                 var reason = holder.RenewalFailureReason ?? "handler cancelled without explicit renewal failure";
                 throw new BackupTerminalException(
-                    "MaintenanceLeaseLost",
+                    Constants.BackupErrorCodes.MaintenanceLeaseLost,
                     $"maintenance lease lost during commit — retry shortly ({reason})",
                     ex);
             }
@@ -287,7 +287,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             if (open == null)
             {
                 throw new BackupTerminalException(
-                    "BackupNotFound",
+                    Constants.BackupErrorCodes.BackupNotFound,
                     $"NDJSON blob for {backupId}/{tableName}.ndjson disappeared between validation and scan");
             }
             if (!open.Value.ETag.Equals(expectedETag))
@@ -296,7 +296,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 // validator and scan, the blob was overwritten.
                 try { open.Value.Stream.Dispose(); } catch { /* best effort */ }
                 throw new BackupTerminalException(
-                    "BlobChangedSinceValidation",
+                    Constants.BackupErrorCodes.BlobChangedSinceValidation,
                     "NDJSON blob ETag changed between validation hash and scan — refusing to read mismatching bytes");
             }
             return open.Value;
@@ -331,7 +331,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 catch (JsonException ex)
                 {
                     throw new BackupTerminalException(
-                        "ManifestCorrupt",
+                        Constants.BackupErrorCodes.ManifestCorrupt,
                         $"NDJSON line failed to parse as DeletionRowDump: {ex.Message}",
                         ex);
                 }

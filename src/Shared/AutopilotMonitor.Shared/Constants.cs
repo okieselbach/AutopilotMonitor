@@ -280,8 +280,8 @@ namespace AutopilotMonitor.Shared
         /// <summary>
         /// Machine-readable <c>code</c> values of the typed error envelope (<c>ApiErrorResponse</c>).
         /// Status defaults first (one per HTTP status the API emits), then the codes a consumer
-        /// branches on. Domain code classes (<see cref="DelegationCodes"/>, <see cref="DelegatedSlots"/>)
-        /// keep their own values; the manifest exports all of them together as <c>apiErrorCodes</c>.
+        /// branches on. Domain code classes (<see cref="DelegationCodes"/>, <see cref="DelegatedSlots"/>,
+        /// <see cref="BackupErrorCodes"/>) keep their own values; the manifest exports all of them together as <c>apiErrorCodes</c>.
         /// Wire contract — keep stable, PascalCase.
         /// </summary>
         public static class ApiErrorCodes
@@ -335,6 +335,45 @@ namespace AutopilotMonitor.Shared
             public const string CascadePoisonedUseRestore = "CascadePoisonedUseRestore";
             public const string KillSwitchActive = "KillSwitchActive";
             public const string CasExhaustedRetryLater = "CasExhaustedRetryLater";
+
+            // ── queued operator runs (backup trigger, session-deletion maintenance trigger) ──
+            /// <summary>409: a run of the same kind already holds the lease.</summary>
+            public const string RunAlreadyActive = "RunAlreadyActive";
+            /// <summary>500: the queue refused the message; nothing was scheduled.</summary>
+            public const string EnqueueFailed = "EnqueueFailed";
+        }
+
+        /// <summary>
+        /// Machine-readable <c>code</c> values of the critical-table backup and restore surface
+        /// (<c>global/backups/*</c>). <c>BackupTerminalException.Code</c> carries one of these;
+        /// <c>RestoreRowFunction</c> maps it to the HTTP status. Wire contract — keep stable.
+        /// </summary>
+        public static class BackupErrorCodes
+        {
+            // ── request validation (400) ──
+            public const string InvalidBackupId = "InvalidBackupId";
+            public const string MissingBody = "MissingBody";
+            public const string InvalidTable = "InvalidTable";
+            public const string InvalidKeys = "InvalidKeys";
+            public const string InvalidMode = "InvalidMode";
+            public const string MissingPrecondition = "MissingPrecondition";
+
+            // ── not found (404) ──
+            public const string BackupNotFound = "BackupNotFound";
+            public const string RowNotInBackup = "RowNotInBackup";
+            public const string JobNotFound = "JobNotFound";
+
+            // ── state conflicts (409) ──
+            public const string TableNotInBackup = "TableNotInBackup";
+            public const string ManifestCorrupt = "ManifestCorrupt";
+            public const string ManifestSchemaUnsupported = "ManifestSchemaUnsupported";
+            public const string IntegrityCheckFailed = "IntegrityCheckFailed";
+            public const string BlobChangedSinceValidation = "BlobChangedSinceValidation";
+            public const string RowChangedSinceValidation = "RowChangedSinceValidation";
+            public const string CurrentRowChanged = "CurrentRowChanged";
+            public const string MaintenanceInProgress = "MaintenanceInProgress";
+            public const string MaintenanceLeaseLost = "MaintenanceLeaseLost";
+            public const string JobIdCollision = "JobIdCollision";
         }
 
         /// <summary>

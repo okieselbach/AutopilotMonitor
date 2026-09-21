@@ -28,21 +28,21 @@ namespace AutopilotMonitor.Functions.Services.Backup
         {
             if (string.IsNullOrEmpty(backupId))
             {
-                throw new BackupTerminalException("InvalidBackupId", "backupId route segment is empty");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidBackupId, "backupId route segment is empty");
             }
             if (request == null)
             {
-                throw new BackupTerminalException("MissingBody", "request body is required");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.MissingBody, "request body is required");
             }
 
             if (string.IsNullOrEmpty(request.TableName))
             {
-                throw new BackupTerminalException("InvalidTable", "tableName is required");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidTable, "tableName is required");
             }
             if (!Constants.CriticalBackupTables.All.Contains(request.TableName, StringComparer.Ordinal))
             {
                 throw new BackupTerminalException(
-                    "InvalidTable",
+                    Constants.BackupErrorCodes.InvalidTable,
                     $"tableName '{request.TableName}' is not in the critical-backup catalog — only the 15 critical tables are restorable");
             }
 
@@ -51,16 +51,16 @@ namespace AutopilotMonitor.Functions.Services.Backup
             // is not found for the given keys.
             if (request.PartitionKey == null)
             {
-                throw new BackupTerminalException("InvalidKeys", "partitionKey is required (may be empty string but not null)");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidKeys, "partitionKey is required (may be empty string but not null)");
             }
             if (request.RowKey == null)
             {
-                throw new BackupTerminalException("InvalidKeys", "rowKey is required (may be empty string but not null)");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidKeys, "rowKey is required (may be empty string but not null)");
             }
 
             if (request.Mode != RestoreRowMode.Preview && request.Mode != RestoreRowMode.Commit)
             {
-                throw new BackupTerminalException("InvalidMode", $"mode must be 'preview' or 'commit', got '{request.Mode}'");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidMode, $"mode must be 'preview' or 'commit', got '{request.Mode}'");
             }
 
             if (request.Mode == RestoreRowMode.Commit)
@@ -68,13 +68,13 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 if (string.IsNullOrEmpty(request.IfSha256))
                 {
                     throw new BackupTerminalException(
-                        "MissingPrecondition",
+                        Constants.BackupErrorCodes.MissingPrecondition,
                         "ifSha256 is required on commit — echo the rowSha256 from the preview response");
                 }
                 if (!IsLowerHex64(request.IfSha256))
                 {
                     throw new BackupTerminalException(
-                        "MissingPrecondition",
+                        Constants.BackupErrorCodes.MissingPrecondition,
                         "ifSha256 must be 64 lowercase hex characters (SHA-256 hex digest)");
                 }
                 // ifCurrentETag is intentionally nullable: null carries the precondition

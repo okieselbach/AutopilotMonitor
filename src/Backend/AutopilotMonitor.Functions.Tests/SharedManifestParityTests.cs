@@ -107,6 +107,7 @@ public sealed class SharedManifestParityTests
             ["apiErrorCodes"] = ConstStrings(typeof(Constants.ApiErrorCodes))
                 .Concat(ConstStrings(typeof(Constants.DelegationCodes)))
                 .Concat(ConstStrings(typeof(Constants.DelegatedSlots)))
+                .Concat(ConstStrings(typeof(Constants.BackupErrorCodes)))
                 .ToArray(),
             ["tenantRoles"] = ConstStrings(typeof(Constants.TenantRoles)),
             ["globalRoles"] = ConstStrings(typeof(Constants.GlobalRoles)),

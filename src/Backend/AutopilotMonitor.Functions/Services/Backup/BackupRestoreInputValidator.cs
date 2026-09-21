@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using Azure;
 using Microsoft.Extensions.Logging;
@@ -58,32 +59,32 @@ namespace AutopilotMonitor.Functions.Services.Backup
         /// </summary>
         public async Task<ValidationResult> ValidateAsync(string backupId, string tableName, CancellationToken ct = default)
         {
-            if (string.IsNullOrEmpty(backupId)) throw new BackupTerminalException("InvalidBackupId", "backupId is required");
-            if (string.IsNullOrEmpty(tableName)) throw new BackupTerminalException("InvalidTable", "tableName is required");
+            if (string.IsNullOrEmpty(backupId)) throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidBackupId, "backupId is required");
+            if (string.IsNullOrEmpty(tableName)) throw new BackupTerminalException(Constants.BackupErrorCodes.InvalidTable, "tableName is required");
 
             // 1. Manifest exists + parseable
             var (payload, _) = await _store.ReadManifestAsync(backupId, ct).ConfigureAwait(false);
             if (payload == null)
             {
-                throw new BackupTerminalException("BackupNotFound", $"manifest for backupId '{backupId}' was not found");
+                throw new BackupTerminalException(Constants.BackupErrorCodes.BackupNotFound, $"manifest for backupId '{backupId}' was not found");
             }
 
             CriticalTableBackupManifest manifest;
             try
             {
                 manifest = JsonSerializer.Deserialize<CriticalTableBackupManifest>(payload, BackupManifestJson.SerializerOptions)
-                    ?? throw new BackupTerminalException("ManifestCorrupt", "manifest deserialised to null");
+                    ?? throw new BackupTerminalException(Constants.BackupErrorCodes.ManifestCorrupt, "manifest deserialised to null");
             }
             catch (BackupTerminalException) { throw; }
             catch (Exception ex)
             {
-                throw new BackupTerminalException("ManifestCorrupt", $"manifest JSON parse failed: {ex.Message}", ex);
+                throw new BackupTerminalException(Constants.BackupErrorCodes.ManifestCorrupt, $"manifest JSON parse failed: {ex.Message}", ex);
             }
 
             if (manifest.SchemaVersion != SupportedSchemaVersion)
             {
                 throw new BackupTerminalException(
-                    "ManifestSchemaUnsupported",
+                    Constants.BackupErrorCodes.ManifestSchemaUnsupported,
                     $"manifest schemaVersion={manifest.SchemaVersion} not supported by this restore endpoint (expected {SupportedSchemaVersion})");
             }
 
@@ -92,13 +93,13 @@ namespace AutopilotMonitor.Functions.Services.Backup
             if (entry == null)
             {
                 throw new BackupTerminalException(
-                    "TableNotInBackup",
+                    Constants.BackupErrorCodes.TableNotInBackup,
                     $"no entry for tableName '{tableName}' in manifest {backupId}");
             }
             if (entry.Status != TableBackupStatus.Ok && entry.Status != TableBackupStatus.Empty)
             {
                 throw new BackupTerminalException(
-                    "TableNotInBackup",
+                    Constants.BackupErrorCodes.TableNotInBackup,
                     $"manifest entry for '{tableName}' has Status={entry.Status} — restore is only allowed from Ok or Empty entries");
             }
 
@@ -107,7 +108,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             if (!string.Equals(entry.BlobName, expectedBlobName, StringComparison.Ordinal))
             {
                 throw new BackupTerminalException(
-                    "ManifestCorrupt",
+                    Constants.BackupErrorCodes.ManifestCorrupt,
                     $"manifest entry BlobName='{entry.BlobName}' does not match canonical '{expectedBlobName}'");
             }
 
@@ -116,7 +117,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             if (openResult == null)
             {
                 throw new BackupTerminalException(
-                    "BackupNotFound",
+                    Constants.BackupErrorCodes.BackupNotFound,
                     $"NDJSON blob '{expectedBlobName}' is missing despite manifest entry present — orphan manifest");
             }
 
@@ -136,7 +137,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                 // The IfMatch precondition can also fire mid-stream if the blob was
                 // overwritten between OpenRead and the final byte. Same recovery as
                 // OpenNdjsonReadAsync's 412 path.
-                throw new BackupTerminalException("BlobChangedSinceValidation", "NDJSON blob changed during SHA verification", ex);
+                throw new BackupTerminalException(Constants.BackupErrorCodes.BlobChangedSinceValidation, "NDJSON blob changed during SHA verification", ex);
             }
 
             var expectedSha = (entry.Sha256Hex ?? string.Empty).ToLowerInvariant();
@@ -146,7 +147,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
                     "BackupRestoreInputValidator: SHA mismatch for backupId={BackupId} table={Table} (expected={Expected}, actual={Actual}) — refusing restore",
                     backupId, tableName, expectedSha, actualSha);
                 throw new BackupTerminalException(
-                    "IntegrityCheckFailed",
+                    Constants.BackupErrorCodes.IntegrityCheckFailed,
                     $"SHA-256 mismatch for table '{tableName}' (expected {expectedSha}, got {actualSha}) — backup may be tampered or partially written");
             }
 

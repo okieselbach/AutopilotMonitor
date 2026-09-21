@@ -53,7 +53,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// live ETag (or null) to echo on commit.
     /// </summary>
     [WireContract]
-    public sealed class RestoreRowPreviewResponse
+    public sealed class RestoreRowPreviewResponse : IApiResponse
     {
         public string BackupId { get; set; } = string.Empty;
         public string TableName { get; set; } = string.Empty;
@@ -93,7 +93,7 @@ namespace AutopilotMonitor.Shared.Models.Backup
     /// Successful response body of <c>mode=commit</c>. Echoes the write outcome.
     /// </summary>
     [WireContract]
-    public sealed class RestoreRowCommitResponse
+    public sealed class RestoreRowCommitResponse : IApiResponse
     {
         public string BackupId { get; set; } = string.Empty;
         public string TableName { get; set; } = string.Empty;

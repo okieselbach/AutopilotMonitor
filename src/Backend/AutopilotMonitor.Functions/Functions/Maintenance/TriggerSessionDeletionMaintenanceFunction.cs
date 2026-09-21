@@ -1,10 +1,11 @@
 using System;
 using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Backup;
 using AutopilotMonitor.Functions.Services.Deletion;
+using AutopilotMonitor.Shared;
+using AutopilotMonitor.Shared.Models;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -65,11 +66,9 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
             }
             catch (LeaseHeldException)
             {
-                return await WriteJsonAsync(req, HttpStatusCode.Conflict, new
-                {
-                    error = "RunAlreadyActive",
-                    message = "A session-deletion maintenance run is already active — check the Session Cleanup page for progress.",
-                });
+                return await req.ConflictAsync(
+                    "A session-deletion maintenance run is already active — check the Session Cleanup page for progress.",
+                    Constants.ApiErrorCodes.RunAlreadyActive);
             }
 
             try
@@ -79,27 +78,18 @@ namespace AutopilotMonitor.Functions.Functions.Maintenance
             catch (Exception ex)
             {
                 _logger.LogError(ex, "TriggerSessionDeletionMaintenance: enqueue failed (triggeredBy={TriggeredBy})", actor);
-                return await WriteJsonAsync(req, HttpStatusCode.InternalServerError, new
-                {
-                    error = "EnqueueFailed",
-                    message = "Failed to enqueue the maintenance run — please retry.",
-                });
+                return await req.ErrorAsync(
+                    HttpStatusCode.InternalServerError,
+                    Constants.ApiErrorCodes.EnqueueFailed,
+                    "Failed to enqueue the maintenance run — please retry.");
             }
 
             _logger.LogInformation("TriggerSessionDeletionMaintenance: run queued (triggeredBy={TriggeredBy})", actor);
-            return await WriteJsonAsync(req, HttpStatusCode.Accepted, new
+            return await req.JsonAsync(HttpStatusCode.Accepted, new SessionDeletionMaintenanceTriggerResponse
             {
-                message = "Maintenance run queued — progress surfaces as SessionDeletionMaintenance* ops events.",
-                triggeredBy = actor,
+                Message = "Maintenance run queued — progress surfaces as SessionDeletionMaintenance* ops events.",
+                TriggeredBy = actor,
             });
-        }
-
-        private static async Task<HttpResponseData> WriteJsonAsync(HttpRequestData req, HttpStatusCode status, object body)
-        {
-            var response = req.CreateResponse(status);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            await response.WriteStringAsync(JsonSerializer.Serialize(body));
-            return response;
         }
     }
 }

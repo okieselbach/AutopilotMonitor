@@ -218,7 +218,7 @@ namespace AutopilotMonitor.Functions.Services.Backup
             catch (RequestFailedException ex) when (ex.Status == 412)
             {
                 throw new BackupTerminalException(
-                    "BlobChangedSinceValidation",
+                    Constants.BackupErrorCodes.BlobChangedSinceValidation,
                     $"NDJSON blob '{BuildNdjsonBlobName(backupId, tableName)}' changed between GetProperties and OpenRead — refusing to read a half-version",
                     ex);
             }

@@ -53,14 +53,16 @@ public class TypedResponseGuardTests
     private static readonly Dictionary<string, int> WriteBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Bypass-shape guards (closed 2026-08-31) ─────────────────────────────────────────
-    // Regexes A/B only see the INLINE literal `...(new { ... })`. Three bypass shapes let a
+    // Regexes A/B only see the INLINE literal `...(new { ... })`. Four bypass shapes let a
     // response ship untyped anyway and are ratcheted here with EMPTY baselines:
     //   C: the literal parked in a variable first (`var result = new { ... };` →
     //      `WriteAsJsonAsync(result)`), which is how rule-stats escaped the 08-31 migration,
     //   D: hand-serialized bodies (`WriteStringAsync(JsonSerializer.Serialize(new { ... }))`),
     //   E: builder methods declared `object` / `Task<object>` returning `new { ... }`
-    //      (verdict-calibration's Build). A fourth shape — local `WriteJson(req, object)`
-    //      wrappers — is closed structurally: wrappers take a `T : IApiResponse` generic.
+    //      (verdict-calibration's Build),
+    //   F: local response wrappers taking the body as `object` (`WriteJsonAsync(req, status,
+    //      object body)`) — every call site behind one is invisible to A–D, which is how the
+    //      backup, session-restore and delegation bodies stayed anonymous until 2026-09-21.
 
     /// <summary>Identifier passed to WriteAsJsonAsync — flagged when the SAME file assigns that identifier an anonymous object.</summary>
     private static readonly Regex WriteAsJsonIdentifier =
@@ -71,6 +73,15 @@ public class TypedResponseGuardTests
 
     private static readonly Regex ObjectReturningBuilder =
         new(@"\b(?:object|Task<object>)\s+\w*(?:Build|Compute|Payload|Response)\w*\s*\(", RegexOptions.Compiled);
+
+    private static readonly Regex ObjectBodyResponseWrapper =
+        new(@"\b(?:Task<HttpResponseData>|HttpResponseData)\s+\w+\s*\([^)]*\bobject\??\s+\w+[^)]*\)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// EMPTY. A response writer takes <c>T : IApiResponse</c> / <c>T : IApiErrorResponse</c>
+    /// (ResponseHelper), never <c>object</c>.
+    /// </summary>
+    private static readonly Dictionary<string, int> ObjectWrapperBaseline = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>EMPTY — an anonymous object smuggled through a local variable is the same regression as an inline one.</summary>
     private static readonly Dictionary<string, int> IdentifierBaseline = new(StringComparer.OrdinalIgnoreCase);
@@ -138,6 +149,15 @@ public class TypedResponseGuardTests
             text => ObjectReturningBuilder.Matches(text).Count,
             ObjectBuilderBaseline,
             "object/Task<object>-returning Build*/Compute*/*Payload/*Response method");
+    }
+
+    [Fact]
+    public void Response_wrappers_taking_an_object_body_are_flagged()
+    {
+        AssertRatchet(
+            text => ObjectBodyResponseWrapper.Matches(text).Count,
+            ObjectWrapperBaseline,
+            "HttpResponseData-returning wrapper with an object parameter");
     }
 
     /// <summary>

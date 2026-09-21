@@ -1,7 +1,7 @@
-using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 using AutopilotMonitor.Functions.DataAccess.TableStorage;
+using AutopilotMonitor.Functions.Helpers;
+using AutopilotMonitor.Shared;
 using AutopilotMonitor.Shared.Models.Backup;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
@@ -36,18 +36,9 @@ namespace AutopilotMonitor.Functions.Functions.Backup
             var (job, _) = await _jobs.GetWithETagAsync(jobId, req.FunctionContext.CancellationToken);
             if (job is null)
             {
-                return await WriteJsonAsync(req, HttpStatusCode.NotFound, new { error = "JobNotFound", jobId });
+                return await req.NotFoundAsync($"Backup job {jobId} not found.", Constants.BackupErrorCodes.JobNotFound);
             }
-            return await WriteJsonAsync(req, HttpStatusCode.OK, job);
-        }
-
-        private static async Task<HttpResponseData> WriteJsonAsync(HttpRequestData req, HttpStatusCode status, object body)
-        {
-            var response = req.CreateResponse(status);
-            response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-            var json = JsonSerializer.Serialize(body, BackupManifestJson.SerializerOptions);
-            await response.WriteStringAsync(json);
-            return response;
+            return await req.OkAsync(job);
         }
     }
 }

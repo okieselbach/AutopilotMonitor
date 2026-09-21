@@ -162,6 +162,17 @@ namespace AutopilotMonitor.Shared.Models
     }
 
     /// <summary>
+    /// Response of POST global/session-deletions/maintenance/trigger (202 Accepted): the run is
+    /// queued, not done. Its progress surfaces as SessionDeletionMaintenance* ops events.
+    /// </summary>
+    // Declaration order == wire order.
+    public class SessionDeletionMaintenanceTriggerResponse : IApiResponse
+    {
+        public string Message { get; set; } = default!;
+        public string TriggeredBy { get; set; } = default!;
+    }
+
+    /// <summary>
     /// Run report of the one-shot OccurredUtc backfill (POST maintenance/backfill-occurred-utc).
     /// </summary>
     // Declaration order == wire order.

@@ -3,8 +3,8 @@
 import { backupUrl } from "@/lib/routes";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type BackupTriggerResponse } from "@/lib/api";
-import type { BackupJobStatus, ListBackupsResponse } from "@/utils/wire-types.generated";
+import { api } from "@/lib/api";
+import type { BackupJobStatus, BackupTriggerResponse, ListBackupsResponse } from "@/utils/wire-types.generated";
 import { apiErrorText, fetchJson } from "@/lib/apiClient";
 import { useAdminConfig } from "../AdminConfigContext";
 import { AdminNotifications } from "../AdminNotifications";

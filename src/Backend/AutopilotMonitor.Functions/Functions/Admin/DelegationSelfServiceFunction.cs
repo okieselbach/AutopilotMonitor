@@ -41,7 +41,7 @@ public class DelegationSelfServiceFunction
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "delegations/slots")] HttpRequestData req)
     {
         var usage = await _slots.GetUsageAsync(req.GetRequestContext().TenantId);
-        return await OkAsync(req, DelegatedSlotManagementFunction.ToResponse(usage));
+        return await req.OkAsync(DelegatedSlotManagementFunction.ToResponse(usage));
     }
 
     /// <summary>GET /api/delegations/managed — the tenants the caller's tenant manages.</summary>
@@ -66,7 +66,7 @@ public class DelegationSelfServiceFunction
             });
         }
 
-        return await OkAsync(req, new ManagedTenantListResponse
+        return await req.OkAsync(new ManagedTenantListResponse
         {
             HomeTenantId = home,
             Slots = DelegatedSlotManagementFunction.ToResponse(view.Slots),
@@ -88,7 +88,7 @@ public class DelegationSelfServiceFunction
             return await BadAsync(req, "a valid tenantId (GUID) is required");
 
         var result = await _svc.RemoveManagedAsync(ctx.TenantId, body.TenantId, ctx.UserPrincipalName);
-        return result.Ok ? await OkAsync(req, new { message = "Delegation ended" }) : await FailAsync(req, result.Failure!);
+        return result.Ok ? await req.OkAsync(new MessageResponse { Message = "Delegation ended" }) : await FailAsync(req, result.Failure!);
     }
 
     // ── Invitations ──────────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ public class DelegationSelfServiceFunction
                 HoldUntilUtc = r.HoldUntilUtc,
             });
         }
-        return await OkAsync(req, new DelegationInvitationListResponse { HomeTenantId = home, Invitations = items });
+        return await req.OkAsync(new DelegationInvitationListResponse { HomeTenantId = home, Invitations = items });
     }
 
     /// <summary>POST /api/delegations/invitations — mint a single-use invitation link (token shown once). TenantAdminOrGA.</summary>
@@ -147,7 +147,7 @@ public class DelegationSelfServiceFunction
     {
         var ctx = req.GetRequestContext();
         var result = await _svc.CancelInvitationAsync(ctx.TenantId, invitationId, ctx.UserPrincipalName);
-        return result.Ok ? await OkAsync(req, new { message = "Invitation cancelled" }) : await FailAsync(req, result.Failure!);
+        return result.Ok ? await req.OkAsync(new MessageResponse { Message = "Invitation cancelled" }) : await FailAsync(req, result.Failure!);
     }
 
     // ── Assignees (the managing tenant's own users) ──────────────────────────────
@@ -160,7 +160,7 @@ public class DelegationSelfServiceFunction
     {
         var home = req.GetRequestContext().TenantId;
         var assignees = await _svc.ListAssigneesAsync(home);
-        return await OkAsync(req, new DelegationAssigneeListResponse
+        return await req.OkAsync(new DelegationAssigneeListResponse
         {
             HomeTenantId = home,
             GroupId = Constants.TenantGroupIds.ForHomeTenant(home),
@@ -200,7 +200,7 @@ public class DelegationSelfServiceFunction
     {
         var ctx = req.GetRequestContext();
         var result = await _svc.UnassignAsync(ctx.TenantId, upn, ctx.UserPrincipalName);
-        return result.Ok ? await OkAsync(req, new { message = "Unassigned" }) : await FailAsync(req, result.Failure!);
+        return result.Ok ? await req.OkAsync(new MessageResponse { Message = "Unassigned" }) : await FailAsync(req, result.Failure!);
     }
 
     // ── Accept (the customer's tenant admin) ─────────────────────────────────────
@@ -217,7 +217,7 @@ public class DelegationSelfServiceFunction
         if (!result.Ok)
             return await FailAsync(req, result.Failure!);
         var p = result.Value!;
-        return await OkAsync(req, new DelegationAcceptPreviewResponse
+        return await req.OkAsync(new DelegationAcceptPreviewResponse
         {
             HomeTenantId = p.HomeTenantId,
             HomeTenantDomain = p.HomeTenantDomain,
@@ -245,7 +245,7 @@ public class DelegationSelfServiceFunction
         if (!result.Ok)
             return await FailAsync(req, result.Failure!);
         var o = result.Value!;
-        return await OkAsync(req, new AcceptDelegationInvitationResponse { HomeTenantId = o.HomeTenantId, HomeTenantDomain = o.HomeTenantDomain, ManagedTenantId = o.ManagedTenantId });
+        return await req.OkAsync(new AcceptDelegationInvitationResponse { HomeTenantId = o.HomeTenantId, HomeTenantDomain = o.HomeTenantDomain, ManagedTenantId = o.ManagedTenantId });
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -255,13 +255,6 @@ public class DelegationSelfServiceFunction
         if (failure.SlotViolation != null)
             return await DelegatedSlotResponses.ConflictAsync(req, failure.SlotViolation);
         return await req.ErrorAsync((HttpStatusCode)failure.Status, failure.Code, failure.Message);
-    }
-
-    private static async Task<HttpResponseData> OkAsync(HttpRequestData req, object body)
-    {
-        var response = req.CreateResponse(HttpStatusCode.OK);
-        await response.WriteAsJsonAsync(body);
-        return response;
     }
 
     private static async Task<HttpResponseData> BadAsync(HttpRequestData req, string error)
