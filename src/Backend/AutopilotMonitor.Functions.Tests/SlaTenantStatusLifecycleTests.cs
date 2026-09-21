@@ -213,6 +213,14 @@ public class SlaTenantStatusLifecycleTests
                 .ReturnsAsync(sessions);
         }
 
+        /// <summary>Like the real repository: only sessions started inside the queried range come back.</summary>
+        public void SetSessionsHonoringDateRange(string tenantId, List<SessionSummary> sessions)
+        {
+            _maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), tenantId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync((DateTime start, DateTime end, string? _, CancellationToken _) =>
+                    sessions.Where(s => s.StartedAt >= start && s.StartedAt < end).ToList());
+        }
+
         public void SetRecentSessions(string tenantId, List<SessionSummary> sessions)
         {
             _sessionRepo.Setup(r => r.GetSessionsPageAsync(tenantId, It.IsAny<int?>(), It.IsAny<int>(), It.IsAny<string?>()))
@@ -291,7 +299,7 @@ public class SlaTenantStatusLifecycleTests
     }
 
     [Fact]
-    public async Task ReBreach_AfterCooldown_SendsAnotherNotification()
+    public async Task ReBreach_AfterCooldown_WithNewlyFinishedSession_SendsAnotherNotification()
     {
         var h = new Harness();
         var config = CreateConfig(successRate: true);
@@ -307,11 +315,81 @@ public class SlaTenantStatusLifecycleTests
         row!.SuccessRate_LastNotifiedAt = DateTime.UtcNow.AddHours(-25);
         await h.StatusRepo.UpsertAsync(row);
 
+        // A session that finished after the last notification: the population changed.
+        var sessions = Sessions(succeeded: 8, failed: 4);
+        sessions.Add(new SessionSummary
+        {
+            TenantId = TenantId, SessionId = Guid.NewGuid().ToString(), Status = SessionStatus.Failed,
+            StartedAt = DateTime.UtcNow.AddHours(-26), CompletedAt = DateTime.UtcNow.AddHours(-1), DurationSeconds = 1800,
+        });
+        h.SetTerminalSessions(TenantId, sessions);
+
         await h.Service.EvaluateAllTenantsAsync();
 
         Assert.Equal(2, h.NotificationsSent.Count(n => n.Type == "sla_breach"));
         var afterRow = await h.StatusRepo.GetAsync(TenantId);
         Assert.True((DateTime.UtcNow - afterRow!.SuccessRate_LastNotifiedAt!.Value).TotalMinutes < 1);
+    }
+
+    /// <summary>
+    /// A lasting breach without any newly finished enrollment is not repeated, however long the
+    /// cooldown has expired — a tenant that enrolls nothing must not get the same number every day.
+    /// Includes a session that finished BEFORE the last notification (an imported or merely old
+    /// row): it is not new evidence.
+    /// </summary>
+    [Fact]
+    public async Task ReBreach_AfterCooldown_WithoutNewSession_StaysSilent()
+    {
+        var h = new Harness();
+        var config = CreateConfig(successRate: true, duration: true, targetMaxDurationMinutes: 10);
+        h.SetTenants(config);
+        var sessions = Sessions(succeeded: 8, failed: 4); // 66.7 % and P95 30 min: both breach
+        sessions.Add(new SessionSummary
+        {
+            TenantId = TenantId, SessionId = Guid.NewGuid().ToString(), Status = SessionStatus.Failed,
+            StartedAt = DateTime.UtcNow.AddDays(-9), CompletedAt = DateTime.UtcNow.AddDays(-9).AddMinutes(30), DurationSeconds = 1800,
+        });
+        h.SetTerminalSessions(TenantId, sessions);
+
+        await h.Service.EvaluateAllTenantsAsync();
+        Assert.Equal(2, h.NotificationsSent.Count(n => n.Type == "sla_breach"));
+
+        var row = await h.StatusRepo.GetAsync(TenantId);
+        row!.SuccessRate_LastNotifiedAt = DateTime.UtcNow.AddDays(-5);
+        row.Duration_LastNotifiedAt = DateTime.UtcNow.AddDays(-5);
+        await h.StatusRepo.UpsertAsync(row);
+
+        await h.Service.EvaluateAllTenantsAsync();
+
+        Assert.Equal(2, h.NotificationsSent.Count(n => n.Type == "sla_breach"));
+        var afterRow = await h.StatusRepo.GetAsync(TenantId);
+        Assert.True(afterRow!.SuccessRate_IsActive); // still breaching, still tracked
+        Assert.True(afterRow.Duration_IsActive);
+        Assert.NotNull(afterRow.SuccessRate_LastBreachAt);
+    }
+
+    /// <summary>
+    /// A new breach episode after a resolve notifies without new evidence: the rolling window can
+    /// re-breach by good sessions aging out, and the admin was last told "resolved".
+    /// </summary>
+    [Fact]
+    public async Task NewBreachEpisode_AfterResolve_NotifiesWithoutNewSession()
+    {
+        var h = new Harness();
+        var config = CreateConfig(successRate: true);
+        h.SetTenants(config);
+        await h.StatusRepo.UpsertAsync(new SlaTenantStatus
+        {
+            TenantId = TenantId,
+            SuccessRate_IsActive = false,
+            SuccessRate_LastNotifiedAt = DateTime.UtcNow.AddDays(-3),
+            SuccessRate_ResolvedAt = DateTime.UtcNow.AddDays(-2),
+        });
+        h.SetTerminalSessions(TenantId, Sessions(succeeded: 8, failed: 4)); // no CompletedAt after the watermark
+
+        await h.Service.EvaluateAllTenantsAsync();
+
+        Assert.Single(h.NotificationsSent, n => n.Type == "sla_breach");
     }
 
     [Fact]
@@ -774,6 +852,68 @@ public class SlaTenantStatusLifecycleTests
     }
 
     /// <summary>
+    /// The breach notification links to the SLA dashboard, so both must report the same number
+    /// for the same target. Same sessions through the evaluator and through SlaMetricsService:
+    /// the persisted breach values equal the dashboard's evaluation-period snapshot. The fixture
+    /// holds sessions of the previous calendar month inside AND outside the rolling window and an
+    /// empty current ISO week on purpose — a headline computed on a calendar month, on the ISO
+    /// week or on the selected months diverges here. Both month selections run: with "1 Month"
+    /// the dashboard's own range starts after the window does.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Evaluator_And_DashboardEvaluationPeriod_ReportTheSameValues(int months)
+    {
+        var clock = new DateTime(2026, 9, 21, 12, 0, 0, DateTimeKind.Utc); // Monday, ISO week 39; window starts 08-22 12:00
+        SessionSummary At(DateTime startedAt, SessionStatus status, int durationSec) => new()
+        {
+            TenantId = TenantId, SessionId = Guid.NewGuid().ToString(), Status = status,
+            StartedAt = startedAt, DurationSeconds = durationSec,
+        };
+
+        var sessions = new List<SessionSummary>();
+        for (int i = 0; i < 4; i++) // previous month, outside the rolling window
+            sessions.Add(At(new DateTime(2026, 8, 20, 9, 0, 0, DateTimeKind.Utc), SessionStatus.Failed, 9000));
+        for (int i = 0; i < 2; i++) // previous month, inside the rolling window
+            sessions.Add(At(new DateTime(2026, 8, 28, 9, 0, 0, DateTimeKind.Utc), SessionStatus.Failed, 5400));
+        for (int i = 0; i < 7; i++) // this month, earlier ISO weeks
+            sessions.Add(At(new DateTime(2026, 9, 3 + i, 9, 0, 0, DateTimeKind.Utc), SessionStatus.Succeeded, 900 + i * 600));
+        sessions.Add(At(new DateTime(2026, 9, 9, 9, 0, 0, DateTimeKind.Utc), SessionStatus.Failed, 7200));
+        sessions.Add(At(new DateTime(2026, 9, 10, 9, 0, 0, DateTimeKind.Utc), SessionStatus.Failed, 300));
+
+        var h = new Harness(clock: clock);
+        var config = CreateConfig(successRate: true, duration: true, targetMaxDurationMinutes: 30);
+        h.SetTenants(config);
+        h.SetSessionsHonoringDateRange(TenantId, sessions);
+
+        await h.Service.EvaluateAllTenantsAsync();
+        var row = await h.StatusRepo.GetAsync(TenantId);
+
+        var maintenanceRepo = new Mock<IMaintenanceRepository>();
+        maintenanceRepo.Setup(r => r.GetSessionsByDateRangeAsync(It.IsAny<DateTime>(), It.IsAny<DateTime>(), TenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DateTime start, DateTime end, string? _, CancellationToken _) =>
+                sessions.Where(s => s.StartedAt >= start && s.StartedAt < end).ToList());
+        var configService = new Mock<TenantConfigurationService>(
+            Mock.Of<IConfigRepository>(), NullLogger<TenantConfigurationService>.Instance, new MemoryCache(new MemoryCacheOptions()));
+        configService.Setup(c => c.GetConfigurationAsync(TenantId)).ReturnsAsync(config);
+        var dashboard = new SlaMetricsService(
+            maintenanceRepo.Object, Mock.Of<IMetricsRepository>(), configService.Object,
+            NullLogger<SlaMetricsService>.Instance, () => clock);
+
+        var metrics = await dashboard.ComputeSlaMetricsAsync(TenantId, months, fresh: true);
+
+        Assert.Equal(11, metrics.EvaluationPeriod.TotalCompleted);
+        Assert.Equal(63.6, metrics.EvaluationPeriod.SuccessRate);
+        Assert.Equal(row!.SuccessRate_CurrentValue, metrics.EvaluationPeriod.SuccessRate);
+        Assert.Equal(row.SuccessRate_TotalSessions, metrics.EvaluationPeriod.TotalCompleted);
+        Assert.Equal(row.Duration_CurrentP95Minutes, metrics.EvaluationPeriod.P95DurationMinutes);
+        Assert.Equal(row.SuccessRate_IsActive, !metrics.EvaluationPeriod.SuccessRateMet);
+        Assert.Equal(row.Duration_IsActive, !metrics.EvaluationPeriod.DurationTargetMet);
+        Assert.False(metrics.CurrentWeek.HasData);
+    }
+
+    /// <summary>
     /// Review-finding regression: AppInstall notification + ops event must carry the actual
     /// installer totals (not 0/0). Without this, Application Insights / Ops dashboards see
     /// every AppInstall breach as "0 sessions, 0 failed" — meaningless context.
@@ -877,8 +1017,8 @@ public class SlaTenantStatusLifecycleTests
     /// ops dashboards even though they were evaluated on the current ISO week.
     /// </summary>
     [Theory]
-    [InlineData("SuccessRate", "CurrentMonth")]
-    [InlineData("Duration", "CurrentMonth")]
+    [InlineData("SuccessRate", "Last30Days")]
+    [InlineData("Duration", "Last30Days")]
     [InlineData("AppInstall", "CurrentWeek")]
     public void PeriodForBreachType_MatchesEvaluationWindow(string breachType, string expectedPeriod)
     {

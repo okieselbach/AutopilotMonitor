@@ -176,15 +176,12 @@ namespace AutopilotMonitor.Functions.Services
         {
             // Compute observables once outside the retry loop — they don't change across retries.
             var now = _nowProvider();
-            var monthStart = new DateTime(now.Year, now.Month, 1);
-            var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(monthStart, now.AddDays(1), config.TenantId);
-            var terminal = sessions
-                .Where(s => s.Status == SessionStatus.Succeeded || s.Status == SessionStatus.Failed)
-                .ToList();
+            // Populations come from SlaEvaluationWindow — the same definitions the SLA dashboard
+            // headline uses, so a notification and the page it links to show the same number.
+            var windowStart = SlaEvaluationWindow.WindowStart(now);
+            var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(windowStart, now.AddDays(1), config.TenantId);
+            var terminal = sessions.Where(SlaEvaluationWindow.IsTerminal).ToList();
 
-            // AppInstall is evaluated on the same current-ISO-week scope as the SLA dashboard
-            // (SlaMetricsService.cs:170, SectionSlaTargets.tsx). Without this alignment a
-            // notification could fire while the UI shows green for the week (or vice versa).
             List<AppInstallSummary>? appInstalls = null;
             if (config.SlaNotifyOnAppInstallBreach && config.SlaTargetAppInstallSuccessRate.HasValue)
             {
@@ -193,13 +190,7 @@ namespace AutopilotMonitor.Functions.Services
                 // now-8d never excludes a current-week row). The exact week match happens in-memory
                 // below; this just stops the query from scanning the tenant's entire history every 2h.
                 var raw = await _metricsRepo.GetAppInstallSummariesByTenantAsync(config.TenantId, now.AddDays(-8));
-                appInstalls = raw
-                    .Where(a => (a.Status == "Succeeded" || a.Status == "Failed")
-                                // PR0 (2026-07-26): skips are not install attempts — keep the breach
-                                // evaluation on the same population as the SLA dashboard rate.
-                                && !Helpers.MetricsMath.IsSkipTerminalState(a)
-                                && SlaMetricsService.GetIsoWeekKey(a.StartedAt) == currentWeekKey)
-                    .ToList();
+                appInstalls = SlaEvaluationWindow.AppInstallAttemptsInWeek(raw, currentWeekKey);
             }
 
             // Recent-page query is also stable for the cycle (timer view of "is breach still going").
@@ -222,9 +213,8 @@ namespace AutopilotMonitor.Functions.Services
                 // --- SuccessRate ---
                 if (config.SlaNotifyOnSuccessRateBreach && config.SlaTargetSuccessRate.HasValue && terminal.Count > 0)
                 {
-                    var succeeded = terminal.Count(s => s.Status == SessionStatus.Succeeded);
                     var failed = terminal.Count(s => s.Status == SessionStatus.Failed);
-                    var successRate = succeeded / (double)terminal.Count * 100;
+                    var successRate = SlaEvaluationWindow.SuccessRate(terminal);
                     var target = (double)config.SlaTargetSuccessRate.Value;
                     var threshold = config.SlaSuccessRateNotifyThreshold.HasValue
                         ? (double)config.SlaSuccessRateNotifyThreshold.Value
@@ -233,7 +223,8 @@ namespace AutopilotMonitor.Functions.Services
                     if (isBreaching) breaches++;
 
                     ApplySuccessRateState(status, now, isBreaching, successRate, target, threshold,
-                        terminal.Count, failed, cooldown, pending, config);
+                        terminal.Count, failed, cooldown, pending, config,
+                        HasNewEvidence(status.SuccessRate_LastNotifiedAt, t => SlaEvaluationWindow.HasNewSince(terminal, t)));
                 }
                 else if (status.SuccessRate_IsActive)
                 {
@@ -243,21 +234,18 @@ namespace AutopilotMonitor.Functions.Services
                 // --- Duration ---
                 if (config.SlaNotifyOnDurationBreach && config.SlaTargetMaxDurationMinutes.HasValue)
                 {
-                    var completed = terminal
-                        .Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0)
-                        .Select(s => s.DurationSeconds!.Value / 60.0)
-                        .OrderBy(d => d)
-                        .ToList();
+                    var completed = SlaEvaluationWindow.DurationsMinutes(terminal);
 
                     if (completed.Count > 0)
                     {
-                        var p95 = MetricsMath.Percentile(completed, 95);
+                        var p95 = SlaEvaluationWindow.P95Minutes(completed);
                         var target = config.SlaTargetMaxDurationMinutes.Value;
                         var isBreaching = p95 > target;
                         if (isBreaching) breaches++;
 
                         ApplyDurationState(status, now, isBreaching, p95, target, completed.Count,
-                            cooldown, pending, config);
+                            cooldown, pending, config,
+                            HasNewEvidence(status.Duration_LastNotifiedAt, t => SlaEvaluationWindow.HasNewSince(terminal, t)));
                     }
                     else if (status.Duration_IsActive)
                     {
@@ -274,9 +262,8 @@ namespace AutopilotMonitor.Functions.Services
                 {
                     if (appInstalls.Count >= MinAppInstallSampleSize)
                     {
-                        var succeeded = appInstalls.Count(a => a.Status == "Succeeded");
                         var failed = appInstalls.Count(a => a.Status == "Failed");
-                        var rate = succeeded / (double)appInstalls.Count * 100;
+                        var rate = SlaEvaluationWindow.AppInstallSuccessRate(appInstalls);
                         var target = (double)config.SlaTargetAppInstallSuccessRate.Value;
                         var topFailing = appInstalls
                             .Where(a => a.Status == "Failed")
@@ -288,7 +275,8 @@ namespace AutopilotMonitor.Functions.Services
                         if (isBreaching) breaches++;
 
                         ApplyAppInstallState(status, now, isBreaching, rate, target, topFailing,
-                            appInstalls.Count, failed, cooldown, pending, config);
+                            appInstalls.Count, failed, cooldown, pending, config,
+                            HasNewEvidence(status.AppInstall_LastNotifiedAt, t => SlaEvaluationWindow.HasNewSince(appInstalls, t)));
                     }
                     else if (status.AppInstall_IsActive)
                     {
@@ -375,7 +363,7 @@ namespace AutopilotMonitor.Functions.Services
 
         private void ApplySuccessRateState(SlaTenantStatus s, DateTime now, bool isBreaching,
             double current, double target, double threshold, int total, int failed,
-            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config)
+            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config, bool hasNewEvidence)
         {
             if (isBreaching)
             {
@@ -391,8 +379,7 @@ namespace AutopilotMonitor.Functions.Services
                 s.SuccessRate_LastBreachAt = now;
                 s.SuccessRate_ResolvedAt = null;
 
-                var shouldNotify = !s.SuccessRate_LastNotifiedAt.HasValue
-                    || (now - s.SuccessRate_LastNotifiedAt.Value) >= cooldown;
+                var shouldNotify = ShouldNotify(s.SuccessRate_LastNotifiedAt, now, cooldown, firstBreach, hasNewEvidence);
 
                 if (shouldNotify)
                 {
@@ -425,7 +412,7 @@ namespace AutopilotMonitor.Functions.Services
 
         private void ApplyDurationState(SlaTenantStatus s, DateTime now, bool isBreaching,
             double p95, int targetMinutes, int totalSessions,
-            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config)
+            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config, bool hasNewEvidence)
         {
             if (isBreaching)
             {
@@ -439,8 +426,7 @@ namespace AutopilotMonitor.Functions.Services
                 s.Duration_LastBreachAt = now;
                 s.Duration_ResolvedAt = null;
 
-                var shouldNotify = !s.Duration_LastNotifiedAt.HasValue
-                    || (now - s.Duration_LastNotifiedAt.Value) >= cooldown;
+                var shouldNotify = ShouldNotify(s.Duration_LastNotifiedAt, now, cooldown, firstBreach, hasNewEvidence);
 
                 if (shouldNotify)
                 {
@@ -469,7 +455,7 @@ namespace AutopilotMonitor.Functions.Services
         private void ApplyAppInstallState(SlaTenantStatus s, DateTime now, bool isBreaching,
             double currentRate, double targetRate, string? topFailingApp,
             int totalInstalls, int failedInstalls,
-            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config)
+            TimeSpan cooldown, List<Func<Task>> pending, TenantConfiguration config, bool hasNewEvidence)
         {
             if (isBreaching)
             {
@@ -483,8 +469,7 @@ namespace AutopilotMonitor.Functions.Services
                 s.AppInstall_LastBreachAt = now;
                 s.AppInstall_ResolvedAt = null;
 
-                var shouldNotify = !s.AppInstall_LastNotifiedAt.HasValue
-                    || (now - s.AppInstall_LastNotifiedAt.Value) >= cooldown;
+                var shouldNotify = ShouldNotify(s.AppInstall_LastNotifiedAt, now, cooldown, firstBreach, hasNewEvidence);
 
                 if (shouldNotify)
                 {
@@ -747,6 +732,22 @@ namespace AutopilotMonitor.Functions.Services
         private static int EffectiveConsecutiveFailureThreshold(TenantConfiguration config)
             => config.SlaConsecutiveFailureThreshold < 2 ? 5 : config.SlaConsecutiveFailureThreshold;
 
+        private static bool HasNewEvidence(DateTime? lastNotifiedAt, Func<DateTime, bool> hasNewSince)
+            => !lastNotifiedAt.HasValue || hasNewSince(lastNotifiedAt.Value);
+
+        // A lasting breach is repeated only when something new finished since the last
+        // notification; the cooldown stays the lower bound. A tenant without enrollments would
+        // otherwise receive the same number every cooldown. A new breach episode (first breach
+        // after a resolve) needs no new evidence — the rolling window can re-breach by good
+        // sessions aging out, and the admin was last told "resolved".
+        private static bool ShouldNotify(DateTime? lastNotifiedAt, DateTime now, TimeSpan cooldown,
+            bool firstBreach, bool hasNewEvidence)
+        {
+            if (!lastNotifiedAt.HasValue) return true;
+            if (now - lastNotifiedAt.Value < cooldown) return false;
+            return firstBreach || hasNewEvidence;
+        }
+
         private async Task<TimeSpan> GetCooldownAsync()
         {
             var admin = await _adminConfigService.GetConfigurationAsync();
@@ -755,12 +756,12 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         // Telemetry tag — must match the actual evaluation window so Application Insights /
-        // ops dashboards don't group AppInstall breaches under "CurrentMonth".
+        // ops dashboards don't group AppInstall breaches under the session window.
         internal static string PeriodForBreachType(string breachType) => breachType switch
         {
             SlaBreachType.AppInstall => "CurrentWeek",
-            SlaBreachType.SuccessRate => "CurrentMonth",
-            SlaBreachType.Duration => "CurrentMonth",
+            SlaBreachType.SuccessRate => $"Last{SlaEvaluationWindow.WindowDays}Days",
+            SlaBreachType.Duration => $"Last{SlaEvaluationWindow.WindowDays}Days",
             _ => "CurrentPeriod",
         };
     }

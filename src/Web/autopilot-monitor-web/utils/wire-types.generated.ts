@@ -4325,6 +4325,10 @@ export interface SlaMetricsResponse {
   targetSuccessRate?: number;
   targetMaxDurationMinutes?: number;
   targetAppInstallSuccessRate?: number;
+  /** SLA snapshot of the rolling window the success-rate and duration breach notifications evaluate (EvaluationWindowDays), so the dashboard headline and the alert show the same number. */
+  evaluationPeriod: SlaSnapshot;
+  /** Length of the rolling evaluation window in days. */
+  evaluationWindowDays: number;
   /** Current ISO week SLA snapshot. */
   currentWeek: SlaSnapshot;
   /** Weekly trend (newest first). */
@@ -4338,10 +4342,14 @@ export interface SlaMetricsResponse {
   computeDurationMs: number;
 }
 
-/** SLA compliance snapshot for a single period (ISO week). */
+/** SLA compliance snapshot for a single period (ISO week or the rolling evaluation window). */
 export interface SlaSnapshot {
-  /** ISO week identifier, e.g. "2026-W15". */
+  /** Period identifier: ISO week "2026-W15", or "last-30-days" for the rolling evaluation window. */
+  period: string;
+  /** ISO week identifier, e.g. "2026-W15". Empty on the evaluation-window snapshot. */
   week: string;
+  /** False when no enrollment finished in the period. The rates are 0 then and both target flags are true — an empty period breaches nothing; clients render "no data". */
+  hasData: boolean;
   totalCompleted: number;
   succeeded: number;
   failed: number;

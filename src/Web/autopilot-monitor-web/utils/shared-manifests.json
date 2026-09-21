@@ -19928,6 +19928,22 @@
           "optional": true
         },
         {
+          "name": "evaluationPeriod",
+          "type": {
+            "kind": "ref",
+            "name": "SlaSnapshot"
+          },
+          "doc": "SLA snapshot of the rolling window the success-rate and duration breach notifications evaluate (EvaluationWindowDays), so the dashboard headline and the alert show the same number."
+        },
+        {
+          "name": "evaluationWindowDays",
+          "type": {
+            "kind": "primitive",
+            "name": "number"
+          },
+          "doc": "Length of the rolling evaluation window in days."
+        },
+        {
           "name": "currentWeek",
           "type": {
             "kind": "ref",
@@ -19991,15 +20007,31 @@
     },
     "SlaSnapshot": {
       "kind": "object",
-      "doc": "SLA compliance snapshot for a single period (ISO week).",
+      "doc": "SLA compliance snapshot for a single period (ISO week or the rolling evaluation window).",
       "fields": [
+        {
+          "name": "period",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "doc": "Period identifier: ISO week \"2026-W15\", or \"last-30-days\" for the rolling evaluation window."
+        },
         {
           "name": "week",
           "type": {
             "kind": "primitive",
             "name": "string"
           },
-          "doc": "ISO week identifier, e.g. \"2026-W15\"."
+          "doc": "ISO week identifier, e.g. \"2026-W15\". Empty on the evaluation-window snapshot."
+        },
+        {
+          "name": "hasData",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "doc": "False when no enrollment finished in the period. The rates are 0 then and both target flags are true — an empty period breaches nothing; clients render \"no data\"."
         },
         {
           "name": "totalCompleted",

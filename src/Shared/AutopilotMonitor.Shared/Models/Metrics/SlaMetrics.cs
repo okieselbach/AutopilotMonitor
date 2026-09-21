@@ -13,6 +13,16 @@ namespace AutopilotMonitor.Shared.Models.Metrics
         public int? TargetMaxDurationMinutes { get; set; }
         public decimal? TargetAppInstallSuccessRate { get; set; }
 
+        /// <summary>
+        /// SLA snapshot of the rolling window the success-rate and duration breach notifications
+        /// evaluate (<see cref="EvaluationWindowDays"/>), so the dashboard headline and the alert
+        /// show the same number.
+        /// </summary>
+        public SlaSnapshot EvaluationPeriod { get; set; } = new();
+
+        /// <summary>Length of the rolling evaluation window in days.</summary>
+        public int EvaluationWindowDays { get; set; }
+
         /// <summary>Current ISO week SLA snapshot.</summary>
         public SlaSnapshot CurrentWeek { get; set; } = new();
 
@@ -31,12 +41,21 @@ namespace AutopilotMonitor.Shared.Models.Metrics
     }
 
     /// <summary>
-    /// SLA compliance snapshot for a single period (ISO week).
+    /// SLA compliance snapshot for a single period (ISO week or the rolling evaluation window).
     /// </summary>
     public class SlaSnapshot
     {
-        /// <summary>ISO week identifier, e.g. "2026-W15".</summary>
+        /// <summary>Period identifier: ISO week "2026-W15", or "last-30-days" for the rolling evaluation window.</summary>
+        public string Period { get; set; } = default!;
+
+        /// <summary>ISO week identifier, e.g. "2026-W15". Empty on the evaluation-window snapshot.</summary>
         public string Week { get; set; } = default!;
+
+        /// <summary>
+        /// False when no enrollment finished in the period. The rates are 0 then and both
+        /// target flags are true — an empty period breaches nothing; clients render "no data".
+        /// </summary>
+        public bool HasData { get; set; }
 
         public int TotalCompleted { get; set; }
         public int Succeeded { get; set; }

@@ -311,7 +311,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     label = "Success Rate";
                     title = $"\ud83d\udfe1 SLA Breach: Success Rate {currentRate:F1}%";
                     summary = $"SLA breach: success rate {currentRate:F1}% is below target {targetRate:F1}%";
-                    period = "Current Month";
+                    period = $"Last {SlaEvaluationWindow.WindowDays} days";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
                     facts.Add(new NotificationFact { Name = "Current Rate", Value = $"{currentRate:F1}%" });
                     facts.Add(new NotificationFact { Name = "Target Rate", Value = $"{targetRate:F1}%" });
@@ -323,7 +323,7 @@ namespace AutopilotMonitor.Functions.Services.Notifications
                     label = "Duration (P95)";
                     title = "\ud83d\udfe1 SLA Breach: P95 Duration Exceeds Target";
                     summary = $"SLA breach: P95 duration {currentRate:F1}min exceeds target {targetRate:F0}min";
-                    period = "Current Month";
+                    period = $"Last {SlaEvaluationWindow.WindowDays} days";
                     facts.Add(new NotificationFact { Name = "Breach Type", Value = label });
                     facts.Add(new NotificationFact { Name = "Current P95", Value = $"{currentRate:F1} min" });
                     facts.Add(new NotificationFact { Name = "Target Max", Value = $"{targetRate:F0} min" });

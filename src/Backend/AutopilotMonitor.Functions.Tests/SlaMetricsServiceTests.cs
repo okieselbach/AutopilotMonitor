@@ -17,6 +17,10 @@ public class SlaMetricsServiceTests
     // Use unique tenant IDs per test to avoid static cache collisions
     private static string NewTenantId() => $"sla-test-{Guid.NewGuid():N}";
 
+    // Fixed clock: Wednesday 2026-09-23, ISO week 39. Mid-week and mid-month, so neither a week
+    // nor a month boundary can move a fixture out of its period.
+    private static readonly DateTime Now = new(2026, 9, 23, 12, 0, 0, DateTimeKind.Utc);
+
     private static (SlaMetricsService Service, string TenantId) CreateService(
         List<SessionSummary> sessions,
         TenantConfiguration? config = null,
@@ -44,7 +48,7 @@ public class SlaMetricsServiceTests
 
         var logger = NullLogger<SlaMetricsService>.Instance;
 
-        return (new SlaMetricsService(maintenanceRepo.Object, metricsRepo.Object, configService.Object, logger), tenantId);
+        return (new SlaMetricsService(maintenanceRepo.Object, metricsRepo.Object, configService.Object, logger, () => Now), tenantId);
     }
 
     private static TenantConfiguration CreateDefaultConfig(
@@ -65,15 +69,7 @@ public class SlaMetricsServiceTests
         int? durationSeconds = null,
         DateTime? startedAt = null)
     {
-        // The CurrentWeek asserts require the session to fall into the CURRENT ISO week
-        // (SlaMetricsService groups by GetIsoWeekKey, weeks start Monday 00:00 UTC).
-        // A plain "now - 1h" crosses into LAST week during the first hour of every
-        // Monday (UTC) and empties CurrentWeek — exactly the CI failure on
-        // Mon 2026-08-31 00:20Z. Clamp the anchor to the week's Monday instead.
-        var now = DateTime.UtcNow;
-        var isoWeekMonday = now.Date.AddDays(-(((int)now.DayOfWeek + 6) % 7));
-        var anHourAgo = now.AddHours(-1);
-        var started = startedAt ?? (anHourAgo >= isoWeekMonday ? anHourAgo : isoWeekMonday);
+        var started = startedAt ?? Now.AddHours(-1);
         return new SessionSummary
         {
             SessionId = Guid.NewGuid().ToString(),
@@ -134,6 +130,96 @@ public class SlaMetricsServiceTests
         Assert.Equal(0, result.CurrentWeek.SuccessRate);
         Assert.Equal(0, result.CurrentWeek.TotalCompleted);
         Assert.Empty(result.Violators);
+
+        // An empty period is "no data": it must not read as a breached target.
+        foreach (var snapshot in new[] { result.CurrentWeek, result.EvaluationPeriod })
+        {
+            Assert.False(snapshot.HasData);
+            Assert.True(snapshot.SuccessRateMet);
+            Assert.True(snapshot.DurationTargetMet);
+        }
+    }
+
+    [Fact]
+    public async Task ComputeSlaMetrics_EmptyWeekFilledWindow_HeadlineCarriesTheEvaluationWindow()
+    {
+        // The evaluation window holds finished enrollments, the current ISO week none — the
+        // headline snapshot (what the breach notification evaluates) reports them, the week stays empty.
+        var twoWeeksAgo = new DateTime(2026, 9, 8, 10, 0, 0, DateTimeKind.Utc); // W37
+        var sessions = new List<SessionSummary>();
+        for (var i = 0; i < 32; i++) sessions.Add(CreateSession(SessionStatus.Succeeded, 1800, twoWeeksAgo));
+        for (var i = 0; i < 9; i++) sessions.Add(CreateSession(SessionStatus.Failed, 1800, twoWeeksAgo));
+
+        var (service, tenantId) = CreateService(sessions);
+        var result = await service.ComputeSlaMetricsAsync(tenantId, 1);
+
+        Assert.Equal(30, result.EvaluationWindowDays);
+        Assert.Equal("last-30-days", result.EvaluationPeriod.Period);
+        Assert.Equal("", result.EvaluationPeriod.Week);
+        Assert.True(result.EvaluationPeriod.HasData);
+        Assert.Equal(41, result.EvaluationPeriod.TotalCompleted);
+        Assert.Equal(78, result.EvaluationPeriod.SuccessRate);
+        Assert.False(result.EvaluationPeriod.SuccessRateMet);
+
+        Assert.Equal("2026-W39", result.CurrentWeek.Period);
+        Assert.Equal("2026-W39", result.CurrentWeek.Week);
+        Assert.False(result.CurrentWeek.HasData);
+        Assert.True(result.CurrentWeek.SuccessRateMet);
+    }
+
+    [Fact]
+    public async Task ComputeSlaMetrics_EvaluationWindow_IsRolling_NotTheCalendarMonth()
+    {
+        // Now = 2026-09-23 12:00 ⇒ the window starts 2026-08-24 12:00.
+        var sessions = new List<SessionSummary>
+        {
+            CreateSession(SessionStatus.Succeeded, 1800),
+            // previous calendar month, inside the rolling window
+            CreateSession(SessionStatus.Failed, 1800, new DateTime(2026, 8, 25, 9, 0, 0, DateTimeKind.Utc)),
+            // just outside the window
+            CreateSession(SessionStatus.Failed, 1800, new DateTime(2026, 8, 24, 11, 59, 59, DateTimeKind.Utc)),
+            CreateSession(SessionStatus.Failed, 1800, new DateTime(2026, 7, 15, 9, 0, 0, DateTimeKind.Utc)),
+        };
+
+        var (service, tenantId) = CreateService(sessions);
+        var result = await service.ComputeSlaMetricsAsync(tenantId, 3);
+
+        Assert.Equal(2, result.EvaluationPeriod.TotalCompleted);
+        Assert.Equal(50, result.EvaluationPeriod.SuccessRate);
+        Assert.Equal(4, result.WeeklyTrend.Sum(w => w.TotalCompleted));
+    }
+
+    [Fact]
+    public async Task ComputeSlaMetrics_OneMonthSelection_HeadlineStillReachesBack_TrendDoesNot()
+    {
+        // "1 Month" starts on the first; the evaluation window reaches into August. The headline
+        // must count the August session, the trend and the violators must not grow by it.
+        var sessions = new List<SessionSummary>
+        {
+            CreateSession(SessionStatus.Succeeded, 1800),
+            CreateSession(SessionStatus.Failed, 1800, new DateTime(2026, 8, 28, 9, 0, 0, DateTimeKind.Utc)),
+        };
+
+        var (service, tenantId) = CreateService(sessions);
+        var result = await service.ComputeSlaMetricsAsync(tenantId, 1);
+
+        Assert.Equal(2, result.EvaluationPeriod.TotalCompleted);
+        Assert.Equal(1, result.WeeklyTrend.Sum(w => w.TotalCompleted));
+        Assert.Empty(result.Violators);
+    }
+
+    [Fact]
+    public async Task ComputeSlaMetrics_SessionsWithoutDuration_DurationTargetIsNotJudged()
+    {
+        var config = CreateDefaultConfig(targetMaxDuration: 30);
+        var sessions = new List<SessionSummary> { CreateSession(SessionStatus.Failed) };
+
+        var (service, tenantId) = CreateService(sessions, config);
+        var result = await service.ComputeSlaMetricsAsync(tenantId, 1);
+
+        Assert.True(result.EvaluationPeriod.HasData);
+        Assert.False(result.EvaluationPeriod.SuccessRateMet);
+        Assert.True(result.EvaluationPeriod.DurationTargetMet);
     }
 
     [Fact]

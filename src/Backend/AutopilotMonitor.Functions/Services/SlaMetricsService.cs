@@ -23,6 +23,7 @@ namespace AutopilotMonitor.Functions.Services
         private readonly IMetricsRepository _metricsRepo;
         private readonly TenantConfigurationService _configService;
         private readonly ILogger<SlaMetricsService> _logger;
+        private readonly Func<DateTime> _nowProvider;
 
         // Per-tenant cache: key = "tenantId:months"
         private static readonly ConcurrentDictionary<string, (SlaMetricsResponse Metrics, DateTime Expiry)> _cache = new();
@@ -32,12 +33,14 @@ namespace AutopilotMonitor.Functions.Services
             IMaintenanceRepository maintenanceRepo,
             IMetricsRepository metricsRepo,
             TenantConfigurationService configService,
-            ILogger<SlaMetricsService> logger)
+            ILogger<SlaMetricsService> logger,
+            Func<DateTime>? nowProvider = null)
         {
             _maintenanceRepo = maintenanceRepo;
             _metricsRepo = metricsRepo;
             _configService = configService;
             _logger = logger;
+            _nowProvider = nowProvider ?? (() => DateTime.UtcNow);
         }
 
         /// <summary>
@@ -95,28 +98,39 @@ namespace AutopilotMonitor.Functions.Services
         private async Task<SlaMetricsResponse> ComputeInternalAsync(
             string tenantId, int months, Shared.Models.TenantConfiguration? config)
         {
-            var now = DateTime.UtcNow;
+            var now = _nowProvider();
             var startDate = new DateTime(now.Year, now.Month, 1).AddMonths(-(months - 1));
             var endDate = now.AddDays(1);
 
-            var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(startDate, endDate, tenantId);
+            // The rolling evaluation window reaches back before the first of the month, which a
+            // 1-month selection does not cover — read from whichever starts earlier, one read.
+            var windowStart = SlaEvaluationWindow.WindowStart(now);
+            var readFrom = windowStart < startDate ? windowStart : startDate;
+            var sessions = await _maintenanceRepo.GetSessionsByDateRangeAsync(readFrom, endDate, tenantId);
 
             // Only consider terminal sessions for SLA computation
-            var terminal = sessions
-                .Where(s => s.Status == SessionStatus.Succeeded || s.Status == SessionStatus.Failed)
-                .ToList();
+            var loadedTerminal = sessions.Where(SlaEvaluationWindow.IsTerminal).ToList();
+            // Trend, week cards and violators stay on the selected months — the wider read must
+            // not grow "1 Month" by the days the evaluation window reaches back.
+            var terminal = loadedTerminal.Where(s => s.StartedAt >= startDate).ToList();
 
             var response = new SlaMetricsResponse
             {
                 TargetSuccessRate = config?.SlaTargetSuccessRate,
                 TargetMaxDurationMinutes = config?.SlaTargetMaxDurationMinutes,
                 TargetAppInstallSuccessRate = config?.SlaTargetAppInstallSuccessRate,
+                EvaluationWindowDays = SlaEvaluationWindow.WindowDays,
             };
+
+            // Headline: the window the breach notifications evaluate (SlaEvaluationWindow).
+            response.EvaluationPeriod = BuildSnapshot(
+                SlaEvaluationWindow.TerminalInWindow(loadedTerminal, now),
+                SlaEvaluationWindow.PeriodKey, isoWeek: false, config);
 
             // Current week snapshot (ISO 8601 week)
             var currentWeekKey = GetIsoWeekKey(now);
             var currentWeekSessions = terminal.Where(s => GetIsoWeekKey(s.StartedAt) == currentWeekKey).ToList();
-            response.CurrentWeek = BuildSnapshot(currentWeekSessions, currentWeekKey, config);
+            response.CurrentWeek = BuildSnapshot(currentWeekSessions, currentWeekKey, isoWeek: true, config);
 
             // Weekly trend (newest first)
             var weekGroups = terminal
@@ -140,24 +154,17 @@ namespace AutopilotMonitor.Functions.Services
             foreach (var group in weekGroups)
             {
                 var weekSessions = group.ToList();
-                var snapshot = BuildSnapshot(weekSessions, group.Key, config);
+                var snapshot = BuildSnapshot(weekSessions, group.Key, isoWeek: true, config);
 
                 // App install rate for this week
                 double appInstallRate = 0;
                 bool appInstallMet = true;
                 if (appInstalls != null)
                 {
-                    var weekApps = appInstalls
-                        .Where(a => GetIsoWeekKey(a.StartedAt) == group.Key &&
-                                    (a.Status == "Succeeded" || a.Status == "Failed") &&
-                                    // PR0 (2026-07-26): skips are not install attempts — they must
-                                    // not pad the SLA app-install success rate.
-                                    !Helpers.MetricsMath.IsSkipTerminalState(a))
-                        .ToList();
+                    var weekApps = SlaEvaluationWindow.AppInstallAttemptsInWeek(appInstalls, group.Key);
                     if (weekApps.Count >= 5)
                     {
-                        var appSucceeded = weekApps.Count(a => a.Status == "Succeeded");
-                        appInstallRate = Math.Round((appSucceeded / (double)weekApps.Count) * 100, 1);
+                        appInstallRate = SlaEvaluationWindow.AppInstallSuccessRate(weekApps);
                         appInstallMet = config?.SlaTargetAppInstallSuccessRate == null ||
                                         appInstallRate >= (double)config.SlaTargetAppInstallSuccessRate;
                     }
@@ -179,18 +186,13 @@ namespace AutopilotMonitor.Functions.Services
             // App install SLA snapshot (current week)
             if (appInstalls != null)
             {
-                var currentWeekApps = appInstalls
-                    .Where(a => GetIsoWeekKey(a.StartedAt) == currentWeekKey &&
-                                (a.Status == "Succeeded" || a.Status == "Failed") &&
-                                // PR0 (2026-07-26): same convention as the weekly trend above.
-                                !Helpers.MetricsMath.IsSkipTerminalState(a))
-                    .ToList();
+                var currentWeekApps = SlaEvaluationWindow.AppInstallAttemptsInWeek(appInstalls, currentWeekKey);
 
                 if (currentWeekApps.Count >= 5)
                 {
                     var appSucceeded = currentWeekApps.Count(a => a.Status == "Succeeded");
                     var appFailed = currentWeekApps.Count(a => a.Status == "Failed");
-                    var appRate = Math.Round((appSucceeded / (double)currentWeekApps.Count) * 100, 1);
+                    var appRate = SlaEvaluationWindow.AppInstallSuccessRate(currentWeekApps);
 
                     var topFailing = currentWeekApps
                         .Where(a => a.Status == "Failed")
@@ -276,33 +278,30 @@ namespace AutopilotMonitor.Functions.Services
         }
 
         private static SlaSnapshot BuildSnapshot(
-            List<SessionSummary> sessions, string weekKey,
+            List<SessionSummary> sessions, string periodKey, bool isoWeek,
             Shared.Models.TenantConfiguration? config)
         {
             var total = sessions.Count;
             var succeeded = sessions.Count(s => s.Status == SessionStatus.Succeeded);
             var failed = sessions.Count(s => s.Status == SessionStatus.Failed);
-            var successRate = total > 0 ? Math.Round((succeeded / (double)total) * 100, 1) : 0;
+            var successRate = SlaEvaluationWindow.SuccessRate(sessions);
 
-            var completed = sessions
-                .Where(s => s.DurationSeconds.HasValue && s.DurationSeconds.Value > 0)
-                .ToList();
-            var durations = completed
-                .Select(s => s.DurationSeconds!.Value / 60.0)
-                .OrderBy(d => d)
-                .ToList();
-
+            var durations = SlaEvaluationWindow.DurationsMinutes(sessions);
             var avgDuration = durations.Count > 0 ? Math.Round(durations.Average(), 1) : 0;
-            var p95Duration = MetricsMath.Percentile(durations, 95);
+            var p95Duration = SlaEvaluationWindow.P95Minutes(durations);
 
             var durationTarget = config?.SlaTargetMaxDurationMinutes;
             var durationViolations = durationTarget.HasValue
-                ? completed.Count(s => s.DurationSeconds!.Value > durationTarget.Value * 60)
+                ? durations.Count(d => d > durationTarget.Value)
                 : 0;
 
+            // An empty period breaches nothing: with no finished enrollment (or none carrying a
+            // duration) the rate/P95 are 0 by convention, and 0 must not be judged against a target.
             return new SlaSnapshot
             {
-                Week = weekKey,
+                Period = periodKey,
+                Week = isoWeek ? periodKey : "",
+                HasData = total > 0,
                 TotalCompleted = total,
                 Succeeded = succeeded,
                 Failed = failed,
@@ -310,8 +309,10 @@ namespace AutopilotMonitor.Functions.Services
                 AvgDurationMinutes = avgDuration,
                 P95DurationMinutes = p95Duration,
                 DurationViolationCount = durationViolations,
-                SuccessRateMet = config?.SlaTargetSuccessRate == null || successRate >= (double)config.SlaTargetSuccessRate,
-                DurationTargetMet = durationTarget == null || p95Duration <= durationTarget.Value,
+                SuccessRateMet = total == 0 || config?.SlaTargetSuccessRate == null
+                                 || successRate >= (double)config.SlaTargetSuccessRate,
+                DurationTargetMet = durations.Count == 0 || durationTarget == null
+                                    || p95Duration <= durationTarget.Value,
             };
         }
     }
