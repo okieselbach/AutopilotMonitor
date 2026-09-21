@@ -81,6 +81,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // says something about the agent, not about the device's enrollment progress.
             SharedConstants.EventTypes.ImeTrackerDegraded,
             SharedConstants.EventTypes.ImePatternHits,
+            // Bookkeeping of runs that were deliberately not reported as activity.
+            SharedConstants.EventTypes.ScriptRecurrenceSummary,
         };
 
         /// <summary>

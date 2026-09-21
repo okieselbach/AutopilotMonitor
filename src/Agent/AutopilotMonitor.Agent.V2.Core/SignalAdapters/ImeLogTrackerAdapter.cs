@@ -94,6 +94,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         private readonly Action<AppPackageState, DateTime?> _ourOnDoTelemetryReceived;
         private readonly Action<ScriptExecutionState> _ourOnScriptCompleted;
         private readonly Action<ScriptStartedInfo> _ourOnScriptStarted;
+        private readonly Action<ScriptRecurrenceSummary>? _prevOnScriptRecurrenceSummary;
+        private readonly Action<ScriptRecurrenceSummary> _ourOnScriptRecurrenceSummary;
         private readonly Action<string, string> _ourOnImeTokenFailure;
 
         // Dedup state for DecisionSignals.
@@ -195,6 +197,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _prevOnDoTelemetryReceived = _tracker.OnDoTelemetryReceived;
             _prevOnScriptCompleted = _tracker.OnScriptCompleted;
             _prevOnScriptStarted = _tracker.OnScriptStarted;
+            _prevOnScriptRecurrenceSummary = _tracker.OnScriptRecurrenceSummary;
             _prevOnImeTokenFailure = _tracker.OnImeTokenFailure;
             _prevOnTrackerDegraded = _tracker.OnTrackerDegraded;
 
@@ -209,6 +212,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _ourOnDoTelemetryReceived = OnDoTelemetryReceived;
             _ourOnScriptCompleted = OnScriptCompleted;
             _ourOnScriptStarted = OnScriptStarted;
+            _ourOnScriptRecurrenceSummary = OnScriptRecurrenceSummary;
             _ourOnImeTokenFailure = OnImeTokenFailure;
 
             _tracker.OnEspPhaseChanged = _ourOnEspPhaseChanged;
@@ -219,6 +223,7 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             _tracker.OnDoTelemetryReceived = _ourOnDoTelemetryReceived;
             _tracker.OnScriptCompleted = _ourOnScriptCompleted;
             _tracker.OnScriptStarted = _ourOnScriptStarted;
+            _tracker.OnScriptRecurrenceSummary = _ourOnScriptRecurrenceSummary;
             _tracker.OnImeTokenFailure = _ourOnImeTokenFailure;
             _tracker.OnTrackerDegraded = _ourOnTrackerDegraded;
         }
@@ -245,6 +250,8 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 _tracker.OnScriptCompleted = _prevOnScriptCompleted;
             if (ReferenceEquals(_tracker.OnScriptStarted, _ourOnScriptStarted))
                 _tracker.OnScriptStarted = _prevOnScriptStarted;
+            if (ReferenceEquals(_tracker.OnScriptRecurrenceSummary, _ourOnScriptRecurrenceSummary))
+                _tracker.OnScriptRecurrenceSummary = _prevOnScriptRecurrenceSummary;
             if (ReferenceEquals(_tracker.OnImeTokenFailure, _ourOnImeTokenFailure))
                 _tracker.OnImeTokenFailure = _prevOnImeTokenFailure;
         }
@@ -295,6 +302,12 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
         {
             _prevOnScriptStarted?.Invoke(info);
             EmitScriptStarted(info);
+        }
+
+        private void OnScriptRecurrenceSummary(ScriptRecurrenceSummary summary)
+        {
+            _prevOnScriptRecurrenceSummary?.Invoke(summary);
+            EmitScriptRecurrenceSummary(summary);
         }
 
         private void OnImeTokenFailure(string errorCode, string message)
@@ -1464,10 +1477,13 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
             };
             if (!string.IsNullOrEmpty(info.ScriptType)) data["scriptType"] = info.ScriptType!;
             if (!string.IsNullOrEmpty(info.PolicyType)) data["policyType"] = info.PolicyType!;
-            var patternId = _tracker.LastMatchedPatternId;
+            // A held start of a recurring health script arrives with its own line's stamp and
+            // pattern — by now the tracker's "last matched" line is the result line.
+            var wasHeld = info.SourceTimestampUtc.HasValue;
+            var patternId = wasHeld ? info.PatternId : _tracker.LastMatchedPatternId;
             if (!string.IsNullOrEmpty(patternId)) data["patternId"] = patternId!;
 
-            var now = ResolveOccurredAt(out var derivedFromClock, out var rawSourceTs);
+            var now = ResolveOccurredAt(info.SourceTimestampUtc, out var derivedFromClock, out var rawSourceTs);
 
             // Historic replay — suppressing here also kills the immediateUpload flood the
             // replayed batch caused (session eaf3d8c4: 3× ingress_backpressure).
@@ -1485,11 +1501,40 @@ namespace AutopilotMonitor.Agent.V2.Core.SignalAdapters
                 message: $"{label} {shortId}: started",
                 // Live UI indicator — flush immediately so the running card appears within seconds,
                 // not at the next batch boundary (which would defeat the purpose of a live signal).
-                immediateUpload: true,
+                // A held start is no longer live and rides the normal batch.
+                immediateUpload: !wasHeld,
                 data: data,
                 occurredAtUtc: now);
 
             _logger?.Debug($"ImeAdapter: script started policyId={shortId} type={info.ScriptType ?? "?"} policyType={info.PolicyType ?? "?"}");
+        }
+
+        private void EmitScriptRecurrenceSummary(ScriptRecurrenceSummary summary)
+        {
+            if (summary == null || string.IsNullOrEmpty(summary.PolicyId)) return;
+
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            var data = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["policyId"] = summary.PolicyId,
+                ["scriptType"] = "remediation",
+                ["runsObserved"] = summary.RunsObserved.ToString(culture),
+                ["runsCollapsed"] = summary.RunsCollapsed.ToString(culture),
+                ["runsWithoutResult"] = summary.RunsWithoutResult.ToString(culture),
+                ["collapsedResults"] = summary.CollapsedResults.ToString(culture),
+            };
+            if (summary.FirstCollapsedAtUtc.HasValue)
+                data["firstCollapsedAt"] = NormalizeUtc(summary.FirstCollapsedAtUtc.Value).ToString("o", culture);
+            if (summary.LastCollapsedAtUtc.HasValue)
+                data["lastCollapsedAt"] = NormalizeUtc(summary.LastCollapsedAtUtc.Value).ToString("o", culture);
+
+            var shortId = summary.PolicyId.Length >= 8 ? summary.PolicyId.Substring(0, 8) : summary.PolicyId;
+            _post.Emit(
+                eventType: SharedEventTypes.ScriptRecurrenceSummary,
+                source: SourceLabel,
+                message: $"Health script {shortId}: {summary.RunsCollapsed} further run(s) repeated the last reported result",
+                severity: EventSeverity.Info,
+                data: data);
         }
 
         private static bool IsRemediation(string? scriptType) =>

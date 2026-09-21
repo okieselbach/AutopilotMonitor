@@ -252,10 +252,22 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 // duration when the consolidated [HS] new result line arrives (the slot above is
                 // cleared by the early-signal HS-COMPLIANCE handler, so timing lives in its own
                 // map). Prefer the source CMTrace timestamp; latest start wins on a policy re-run.
-                _healthScriptStartTimes[id] = LastMatchedLogTimestamp ?? DateTime.UtcNow;
+                var startedAtUtc = LastMatchedLogTimestamp ?? DateTime.UtcNow;
+                _healthScriptStartTimes[id] = startedAtUtc;
                 _logger.Info($"ImeLogTracker: health script started: {id}");
-                try { OnScriptStarted?.Invoke(new ScriptStartedInfo { PolicyId = id, ScriptType = "remediation", PolicyType = policyType }); }
-                catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
+
+                // A replayed line of a previous enrollment bypasses the recurrence gate: the
+                // adapter drops its event, and a dropped run must not count as the policy's
+                // first report.
+                if (!_currentLineIsHistoricReplay
+                    && !_recurringScripts.OnStart(id, startedAtUtc, policyType, LastMatchedPatternId))
+                {
+                    _stateDirty = true;
+                    _logger.Debug($"ImeLogTracker: health script {id} is a recurring policy — start held until its result is known");
+                    return;
+                }
+                _stateDirty = true;
+                RaiseScriptStarted(new ScriptStartedInfo { PolicyId = id, ScriptType = "remediation", PolicyType = policyType });
             }
             else
             {
@@ -795,6 +807,17 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         }
 
         /// <summary>
+        /// Test seam: a health-script start line for <paramref name="id"/> stamped
+        /// <paramref name="startedAtUtc"/>, without driving the regex pipeline.
+        /// </summary>
+        internal void HandleHealthScriptStartForTest(string id, DateTime startedAtUtc)
+        {
+            LastMatchedLogTimestamp = startedAtUtc;
+            var match = System.Text.RegularExpressions.Regex.Match(id ?? string.Empty, @"(?<id>.+)");
+            HandleScriptStarted(match, new Dictionary<string, string> { ["scriptType"] = "remediation" });
+        }
+
+        /// <summary>
         /// Test seam: simulates the full HS-SCRIPT-START → HS-RUN-CONTEXT / HS-EXITCODE /
         /// HS-STDOUT / HS-STDERR → HS-COMPLIANCE sequence by directly populating the
         /// per-policy slot and then invoking the compliance handler. Lets unit tests verify
@@ -1052,8 +1075,57 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         private void EmitScriptEvent(ScriptExecutionState script)
         {
             if (script == null || string.IsNullOrEmpty(script.PolicyId)) return;
+
+            // Health scripts recur for as long as the device is up; platform scripts run once.
+            if (string.Equals(script.ScriptType, "remediation", StringComparison.OrdinalIgnoreCase)
+                && !_currentLineIsHistoricReplay)
+            {
+                var emit = _recurringScripts.OnResult(script, LastMatchedLogTimestamp ?? UtcNowProvider(), out var releasedStart);
+                _stateDirty = true;
+                if (!emit)
+                {
+                    _logger.Debug($"ImeLogTracker: health script {script.PolicyId} {script.ScriptPart} repeats its last reported result — counted, not emitted");
+                    return;
+                }
+                if (releasedStart != null) RaiseScriptStarted(releasedStart);
+            }
+
             OnScriptCompleted?.Invoke(script);
         }
+
+        private void RaiseScriptStarted(ScriptStartedInfo info)
+        {
+            try { OnScriptStarted?.Invoke(info); }
+            catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptStarted handler threw: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// A held start whose run produced no result for <see cref="HeldScriptStartGrace"/> is
+        /// emitted after all: the script did not finish. On shutdown the shorter
+        /// <see cref="HeldScriptStartShutdownGrace"/> applies — a start read moments before the
+        /// stop stays held for the next run of this session instead of reading as unfinished.
+        /// </summary>
+        internal void FlushRecurringScripts(DateTime nowUtc, bool shuttingDown)
+        {
+            var released = _recurringScripts.ReleaseStartsWithoutResult(
+                nowUtc, shuttingDown ? HeldScriptStartShutdownGrace : HeldScriptStartGrace);
+            foreach (var start in released) RaiseScriptStarted(start);
+
+            if (shuttingDown)
+            {
+                foreach (var summary in _recurringScripts.TakeSummaries())
+                {
+                    try { OnScriptRecurrenceSummary?.Invoke(summary); }
+                    catch (Exception ex) { _logger.Warning($"ImeLogTracker: OnScriptRecurrenceSummary handler threw: {ex.Message}"); }
+                }
+            }
+
+            if (_recurringScripts.ConsumeDirty()) _stateDirty = true;
+        }
+
+        // IME aborts a health script after roughly 30 minutes.
+        internal static readonly TimeSpan HeldScriptStartGrace = TimeSpan.FromMinutes(30);
+        internal static readonly TimeSpan HeldScriptStartShutdownGrace = TimeSpan.FromMinutes(5);
 
         private static string TruncateOutput(string output)
         {

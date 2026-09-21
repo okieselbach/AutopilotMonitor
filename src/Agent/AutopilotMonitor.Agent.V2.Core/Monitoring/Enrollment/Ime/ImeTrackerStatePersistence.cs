@@ -153,6 +153,11 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         public List<ScriptExecutionState> PendingPlatformScripts { get; set; }
         public List<string> ScriptTimeoutSuspectedPosted { get; set; }
 
+        // Recurring health-script runs collapsed per policy. Saved in the same write as
+        // FilePositions on purpose: after a hard kill both fall back together, so re-read lines
+        // are counted again instead of twice. Null on older state files → empty.
+        public Dictionary<string, RecurringScriptPolicyState> RecurringScripts { get; set; }
+
         // Cumulative tracker health + per-pattern histogram (ime_pattern_hits / ime_tracker_degraded,
         // 2026-08-30). Restart-safe on purpose: WhiteGlove Part 2 reports the whole session and the
         // one-shot degraded event must not fire twice. Null on older state files → zero.

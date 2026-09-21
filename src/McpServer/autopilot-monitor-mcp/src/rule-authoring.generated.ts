@@ -1076,6 +1076,7 @@ export const RULE_GUARDRAILS = {
     "script_completed",
     "script_failed",
     "script_timeout_suspected",
+    "script_recurrence_summary",
     "esp_phase_changed",
     "ime_agent_version",
     "ime_token_failure",

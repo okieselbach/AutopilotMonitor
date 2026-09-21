@@ -520,6 +520,11 @@ namespace AutopilotMonitor.Shared
             // start→completion duration (works on replay since start carries the source log
             // timestamp). Warning, advisory ("suspected"); no state mutation.
             public const string ScriptTimeoutSuspected = "script_timeout_suspected";
+            // Per health-script policy, when the agent stops: how many further runs repeated the
+            // last reported result and were counted instead of emitted. IME re-runs remediation
+            // policies on its own schedule for as long as the device is up; the first run and
+            // every run with a different result are still emitted in full.
+            public const string ScriptRecurrenceSummary = "script_recurrence_summary";
             // One-shot per agent run: the IME adapter detected replayed log content from a
             // previous enrollment (source lines > 24 h stale, e.g. IME logs surviving a
             // re-enrollment) and suppressed the historic script (script_started/completed/

@@ -192,6 +192,13 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         // UI dedupe (dataCompleteness scoring).
         private ScriptExecutionState _pendingHealthScript;
 
+        // Collapses recurring health-script runs; persisted with the file positions.
+        private readonly RecurringScriptGate _recurringScripts = new RecurringScriptGate();
+
+        // Set for the duration of one pattern dispatch: the matched line is older than
+        // HistoricReplayThreshold, so the adapter drops whatever it produces.
+        private bool _currentLineIsHistoricReplay;
+
         // Cycle start timestamps for health (remediation) scripts, keyed by policyId. Captured
         // from the HS-SCRIPT-START line ([HS] ProcessScript) so the consolidated HS-NEW-RESULT
         // emit can surface the cycle's total run duration (start → result) on its phase events —
@@ -497,6 +504,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
         /// 30 s – 3 min depending on script duration and IME's batched reporting cycle.
         /// </summary>
         public Action<ScriptStartedInfo> OnScriptStarted { get; set; }
+
+        /// <summary>
+        /// Fires when the tracker stops, once per health-script policy whose repeated runs were
+        /// counted instead of emitted since the last summary (see <see cref="RecurringScriptGate"/>).
+        /// </summary>
+        public Action<ScriptRecurrenceSummary> OnScriptRecurrenceSummary { get; set; }
 
         /// <summary>
         /// Fires on every pattern match with the matched <c>PatternId</c>. Plan §4.x M4.4.4.
@@ -994,6 +1007,9 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 try { FlushPendingPlatformScriptResults(UtcNowProvider(), force: true); }
                 catch (Exception ex) { _logger.Warning($"ImeLogTracker: shutdown script flush failed: {ex.Message}"); }
 
+                try { FlushRecurringScripts(UtcNowProvider(), shuttingDown: true); }
+                catch (Exception ex) { _logger.Warning($"ImeLogTracker: shutdown recurring-script flush failed: {ex.Message}"); }
+
                 // Final state save on shutdown
                 if (_stateDirty)
                 {
@@ -1024,6 +1040,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
 
             await CheckLogFilesAsync(token);
             FlushPendingPlatformScriptResults(UtcNowProvider());
+            FlushRecurringScripts(UtcNowProvider(), shuttingDown: false);
             CheckPendingTokenFailure(UtcNowProvider());
 
             var endMs = MonotonicMillisProvider();
@@ -1163,6 +1180,8 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                     _scriptTimeoutSuspectedPosted.Add(id);
             }
 
+            _recurringScripts.Restore(state.RecurringScripts);
+
             // Health counters + histogram: a restart (or WhiteGlove Part 2) must report the
             // whole session, not only the lines seen since the last start. Null on state files
             // written before these fields existed → counters start at zero.
@@ -1239,6 +1258,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
                 PlatformScriptResultEmittedAt = new Dictionary<string, DateTime>(_platformScriptResultEmitted, StringComparer.OrdinalIgnoreCase),
                 PendingPlatformScripts = _pendingPlatformScripts.Values.ToList(),
                 ScriptTimeoutSuspectedPosted = _scriptTimeoutSuspectedPosted.ToList(),
+                RecurringScripts = _recurringScripts.ToPersisted(),
             };
 
             lock (_healthLock)

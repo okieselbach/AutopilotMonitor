@@ -551,6 +551,7 @@ namespace AutopilotMonitor.Agent.V2.Core.Monitoring.Enrollment.Ime
             // replays historic logs on purpose and bypasses the guard.
             var isStaleReplayLine = !SimulationMode && entry != null
                 && (UtcNowProvider() - NormalizeUtc(ResolveEntryUtc(entry))) > HistoricReplayThreshold;
+            _currentLineIsHistoricReplay = isStaleReplayLine;
             if (isStaleReplayLine && AppMutatingActions.Contains(pattern.Action?.ToLower() ?? string.Empty))
             {
                 _logger.Debug($"ImeLogTracker: skipped app action '{pattern.Action}' for historic line ({ResolveEntryUtc(entry):o})");

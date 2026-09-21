@@ -142,4 +142,14 @@ public class ScriptStartedInfo
 
     /// <summary>Numeric IME PolicyType from the start line (captured as string), e.g. "6" for health scripts.</summary>
     public string PolicyType { get; set; }
+
+    /// <summary>
+    /// Source timestamp of the start line when the signal is emitted later than it was read
+    /// (a held start of a recurring health script, see <see cref="RecurringScriptGate"/>). Null
+    /// for a start emitted while its own line is the tracker's last matched one.
+    /// </summary>
+    public System.DateTime? SourceTimestampUtc { get; set; }
+
+    /// <summary>Pattern id of the start line; set together with <see cref="SourceTimestampUtc"/>.</summary>
+    public string PatternId { get; set; }
 }
