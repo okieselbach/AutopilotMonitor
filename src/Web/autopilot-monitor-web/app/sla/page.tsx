@@ -40,6 +40,7 @@ import { DocsLink } from "@/components/DocsLink";
 import { DOCS_PATHS } from "@/lib/docsPaths";
 import { fetchJson } from "@/lib/apiClient";
 import { notifyApiError } from "@/contexts/NotificationContext";
+import { buildSlaChecks, formatSlaWindow, summarizeSlaChecks } from "@/lib/slaStatus";
 
 
 
@@ -229,28 +230,32 @@ export default function SlaPage() {
 
               {/* SLA Gauges */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
+                {/* Success rate + duration headline the rolling window their breach notifications
+                    evaluate; app installs are judged per week. */}
                 {metrics.targetSuccessRate != null && (
                   <SlaGauge
-                    value={metrics.currentWeek.successRate}
+                    value={metrics.evaluationPeriod.successRate}
                     target={metrics.targetSuccessRate}
-                    label="Enrollment Success Rate"
+                    label={`Enrollment Success Rate · ${formatSlaWindow(metrics.evaluationWindowDays)}`}
                     unit="%"
+                    noData={!metrics.evaluationPeriod.hasData}
                   />
                 )}
                 {metrics.targetMaxDurationMinutes != null && (
                   <SlaGauge
-                    value={metrics.currentWeek.p95DurationMinutes}
+                    value={metrics.evaluationPeriod.p95DurationMinutes}
                     target={metrics.targetMaxDurationMinutes}
-                    label="P95 Enrollment Duration"
+                    label={`P95 Enrollment Duration · ${formatSlaWindow(metrics.evaluationWindowDays)}`}
                     unit="min"
                     invert
+                    noData={!metrics.evaluationPeriod.hasData}
                   />
                 )}
                 {metrics.targetAppInstallSuccessRate != null && metrics.appInstallSla && (
                   <SlaGauge
                     value={metrics.appInstallSla.successRate}
                     target={metrics.targetAppInstallSuccessRate}
-                    label="App Install Success Rate"
+                    label="App Install Success Rate · this week"
                     unit="%"
                   />
                 )}
@@ -420,16 +425,28 @@ export default function SlaPage() {
 /* ---------- Overall status banner ---------- */
 
 function OverallStatusBanner({ metrics }: { metrics: SlaMetricsResponse }) {
-  const checks: { label: string; met: boolean }[] = [];
-  if (metrics.targetSuccessRate != null)
-    checks.push({ label: "Success Rate", met: metrics.currentWeek.successRateMet });
-  if (metrics.targetMaxDurationMinutes != null)
-    checks.push({ label: "Duration", met: metrics.currentWeek.durationTargetMet });
-  if (metrics.targetAppInstallSuccessRate != null && metrics.appInstallSla)
-    checks.push({ label: "App Installs", met: metrics.appInstallSla.targetMet });
+  const checks = buildSlaChecks(metrics);
+  const { state, metCount, judgedCount } = summarizeSlaChecks(checks);
+  const windowLabel = formatSlaWindow(metrics.evaluationWindowDays);
 
-  const allMet = checks.every(c => c.met);
-  const metCount = checks.filter(c => c.met).length;
+  if (state === "noData") {
+    return (
+      <div className="rounded-lg shadow p-4 mb-8 flex items-center gap-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <svg className="h-8 w-8 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">No completed enrollments</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
+            {windowLabel} · targets are evaluated once an enrollment finishes
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const allMet = state === "met";
+  const judgedChecks = checks.filter((c) => c.hasData);
 
   return (
     <div className={`rounded-lg shadow p-4 mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between ${
@@ -452,12 +469,12 @@ function OverallStatusBanner({ metrics }: { metrics: SlaMetricsResponse }) {
             {allMet ? "All SLA Targets Met" : "SLA Targets Breached"}
           </span>
           <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-            {metCount}/{checks.length} targets on track
+            {windowLabel} · {metCount}/{judgedCount} targets on track
           </span>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
-        {checks.map((c) => (
+        {judgedChecks.map((c) => (
           <div key={c.label} className="flex items-center gap-1.5">
             {c.met ? (
               <svg className="h-4 w-4 shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

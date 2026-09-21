@@ -6,13 +6,33 @@ interface SlaGaugeProps {
   label: string;
   unit: string;
   invert?: boolean;
+  /** Nothing finished in the period: neutral card — an empty period is neither on target nor breached. */
+  noData?: boolean;
 }
 
 /**
  * SLA compliance gauge using a simple arc visualization.
  * Matches the FleetStatCard design language (border-l-4 + colored backgrounds).
  */
-export function SlaGauge({ value, target, label, unit, invert = false }: SlaGaugeProps) {
+export function SlaGauge({ value, target, label, unit, invert = false, noData = false }: SlaGaugeProps) {
+  if (noData) {
+    return (
+      <div className="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg border-l-4 border-gray-300 dark:border-gray-600 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</span>
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+            No data
+          </span>
+        </div>
+        <div className="text-3xl font-bold text-gray-400 dark:text-gray-500 mb-1">—</div>
+        <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full mt-2 mb-2" />
+        <div className="text-xs text-gray-400 dark:text-gray-500">
+          Target: {target}{unit}
+        </div>
+      </div>
+    );
+  }
+
   const getStatus = (): "met" | "warning" | "breached" => {
     if (invert) {
       if (value <= target) return "met";
