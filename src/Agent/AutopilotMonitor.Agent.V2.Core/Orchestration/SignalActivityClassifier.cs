@@ -61,6 +61,15 @@ namespace AutopilotMonitor.Agent.V2.Core.Orchestration
             // detection — the exact scenario the power watcher exists to observe.
             SharedConstants.EventTypes.PowerStateChange,
 
+            // Same for the network link: a dock or access point that flaps for hours (field:
+            // 288 lost/connected pairs in 11 h, each with its connectivity check) is not
+            // enrollment progress. Counted as activity it kept the periodic collectors running
+            // for the whole episode and hid the stall it was causing, because every flap reset
+            // the stall clock. Progress that follows a reconnect arrives as its own download,
+            // app or phase event.
+            SharedConstants.EventTypes.NetworkStateChange,
+            SharedConstants.EventTypes.NetworkConnectivityCheck,
+
             // Same reasoning for the system timeline watcher: a clock step, a wake from standby,
             // or a backfilled episode at agent start is environment observation and must not
             // reset the idle/stall clocks.

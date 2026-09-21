@@ -37,6 +37,12 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         [InlineData("modern_deployment_log")]
         // Environment observation — battery drain on an idle device must not reset idle clocks.
         [InlineData("power_state_change")]
+        // A flapping link is environment too: it must neither keep the collectors awake nor
+        // reset the stall clock of the enrollment it is stalling.
+        [InlineData("network_state_change")]
+        [InlineData("network_connectivity_check")]
+        // Bookkeeping of health-script runs that were deliberately not reported.
+        [InlineData("script_recurrence_summary")]
         // Agent health / control / transport — not device/enrollment progress (P2).
         [InlineData("collector_degraded")]
         [InlineData("telemetry_upload_poisoned")]
@@ -64,6 +70,18 @@ namespace AutopilotMonitor.Agent.V2.Core.Tests.Orchestration
         public void Non_periodic_informational_event_is_activity()
         {
             var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = "esp_phase_changed" };
+            Assert.True(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
+        }
+
+        [Theory]
+        // Only the link-change pair is exempt. The device-info snapshots are emitted at start
+        // and at the end, not per flap, and stay activity.
+        [InlineData("network_interface_info")]
+        [InlineData("wifi_signal_info")]
+        [InlineData("network_bandwidth_estimate")]
+        public void Other_network_events_remain_activity(string eventType)
+        {
+            var payload = new Dictionary<string, string> { [SignalPayloadKeys.EventType] = eventType };
             Assert.True(SignalActivityClassifier.IsRealActivity(DecisionSignalKind.InformationalEvent, payload));
         }
 
