@@ -428,13 +428,13 @@ function HomeContent() {
               title="Active Sessions"
               value={dashboardStats ? dashboardStats.activeCount.toString() : "..."}
               description="Currently enrolling"
-              color="blue"
+              icon="activity"
             />
             <StatsCard
               title="Success Rate"
               value={dashboardStats ? `${dashboardStats.successRatePct}%` : "..."}
               description="Last 7 days"
-              color="green"
+              icon="success"
             />
             {/* Median, not mean — a few overnight/WhiteGlove outliers dominate the average
                 of the right-skewed duration distribution; P90 keeps the tail visible. */}
@@ -452,19 +452,20 @@ function HomeContent() {
                   ? `P90 ${formatDuration(dashboardStats.p90DurationMinutes * 60)} · last 7 days`
                   : "Last 7 days"
               }
-              color="purple"
+              icon="duration"
             />
             <StatsCard
               title="Total Today"
               value={dashboardStats ? dashboardStats.totalToday.toString() : "..."}
               description="Started today"
-              color="indigo"
+              icon="today"
             />
             <StatsCard
               title="Failed Today"
               value={dashboardStats ? dashboardStats.failedToday.toString() : "..."}
-              description="Needs attention"
-              color="red"
+              description={dashboardStats && dashboardStats.failedToday === 0 ? "No failures" : "Needs attention"}
+              icon="failed"
+              alert={!!dashboardStats && dashboardStats.failedToday > 0}
             />
           </div>
 

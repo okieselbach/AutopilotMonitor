@@ -1,43 +1,76 @@
 "use client";
 
+import type { ReactNode } from "react";
+
+export type StatsCardIcon = "activity" | "success" | "duration" | "today" | "failed";
+
+// Outline glyphs on a 24px grid, one per metric.
+const iconShapes: Record<StatsCardIcon, ReactNode> = {
+  activity: <polyline points="2 12 6 12 9 4 15 20 18 12 22 12" />,
+  success: (
+    <>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="m8.5 12.2 2.4 2.4 4.6-4.9" />
+    </>
+  ),
+  duration: (
+    <>
+      <circle cx="12" cy="14" r="8" />
+      <path d="M10 2h4" />
+      <path d="M12 14l3-3" />
+    </>
+  ),
+  today: (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <path d="M8 2v4" />
+      <path d="M16 2v4" />
+      <path d="M3 10h18" />
+    </>
+  ),
+  failed: (
+    <>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="m15 9-6 6" />
+      <path d="m9 9 6 6" />
+    </>
+  ),
+};
+
 export function StatsCard({
   title,
   value,
   description,
-  color,
+  icon,
+  alert = false,
 }: {
   title: string;
   value: string;
   description: string;
-  color: "blue" | "green" | "purple" | "red" | "indigo";
+  icon: StatsCardIcon;
+  /** Colors value and icon red — the only color on the row, reserved for a metric that needs attention. */
+  alert?: boolean;
 }) {
-  const colorClasses = {
-    blue: "bg-blue-500",
-    green: "bg-green-500",
-    purple: "bg-purple-500",
-    red: "bg-red-500",
-    indigo: "bg-indigo-500",
-  };
-
   return (
     <div className="bg-white overflow-hidden shadow rounded-lg">
       <div className="p-5">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <div className={`${colorClasses[color]} rounded-md p-3`}>
-              <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-          </div>
-          <div className="ml-5 w-0 flex-1">
-            <dl>
-              <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-              <dd className="flex items-baseline">
-                <div className="text-2xl font-semibold text-gray-900">{value}</div>
-              </dd>
-            </dl>
-          </div>
+        <div className="flex items-start justify-between gap-3">
+          <dl className="min-w-0">
+            <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
+            <dd className={`text-2xl font-semibold ${alert ? "text-red-600" : "text-gray-900"}`}>{value}</dd>
+          </dl>
+          <svg
+            className={`h-5 w-5 flex-shrink-0 ${alert ? "text-red-600" : "text-gray-500"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {iconShapes[icon]}
+          </svg>
         </div>
         <div className="mt-2">
           <div className="text-sm text-gray-500">{description}</div>
