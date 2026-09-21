@@ -57,7 +57,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             // sessionId-scoped sub-tree probe — handy when the operator opens the browser by
             // following a "deletion_started" audit row (sessionId in hand, manifestId not).
-            var sessionFilter = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty)["sessionId"];
+            var sessionFilter = req.Query["sessionId"];
 
             // Group entries by sessionId so the UI can render a two-level tree without extra
             // bookkeeping. SortedDictionary on the outer level keeps the order deterministic;

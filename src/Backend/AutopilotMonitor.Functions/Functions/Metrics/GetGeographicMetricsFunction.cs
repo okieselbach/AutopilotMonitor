@@ -35,7 +35,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 var tenantId = TenantHelper.GetTenantId(req);
                 _logger.LogInformation("Fetching geographic metrics for tenant {TenantId}", tenantId);
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var groupBy = query["groupBy"] ?? "city";

@@ -30,7 +30,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 // Optional time filter: ?days=7 (default: 30, clamped to [1, 365] for consistency
                 // with metrics/summary, metrics/usage, and metrics/platform).
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var cutoff = DateTime.UtcNow.AddDays(-days);

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 // Authentication + authorization enforced by PolicyEnforcementMiddleware (GlobalReadOrDelegatedSubset).
                 var userEmail = TenantHelper.GetUserIdentifier(req);
                 var callerTenantId = TenantHelper.GetTenantId(req);
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
 
                 // Delegated ("MSP") callers are admitted by the subset tier with AllowedTenantIds set; the
                 // aggregate (no ?tenantId=) is then bounded to that managed subset. Null for GA/Reader = all

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -45,7 +44,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             try
             {
                 var callerTenantId = TenantHelper.GetTenantId(req);
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var category = query["category"];
                 var filterTenantId = query["tenantId"];
 

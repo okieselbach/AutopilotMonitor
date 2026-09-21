@@ -208,6 +208,8 @@ public class SessionAnnotationFunctionsTests
         var req = BuildRequest(Principal(("tid", TenantId)), requestCtx, new { });
         Mock.Get(req).SetupGet(r => r.Url)
             .Returns(new Uri("https://localhost/api/global/session-annotations"));
+        // Query is virtual: without CallBase a loose mock answers null instead of parsing Url.
+        Mock.Get(req).SetupGet(r => r.Query).CallBase();
 
         var res = await function.Run(req);
 

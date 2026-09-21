@@ -43,7 +43,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
                 var requestCtx = req.GetRequestContext();
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var max = QueryParams.Int(query["max"], MaxListSize, 1, MaxListSize);
 
                 var backups = await _backupRepo.ListByPartitionAsync(requestCtx.TargetTenantId, max);

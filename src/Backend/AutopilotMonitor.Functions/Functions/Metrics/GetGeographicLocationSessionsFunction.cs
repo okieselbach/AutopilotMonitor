@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var locationKey = query["locationKey"];
                 var country = query["country"];
                 // Accept either the legacy opaque locationKey (still used by the web UI,

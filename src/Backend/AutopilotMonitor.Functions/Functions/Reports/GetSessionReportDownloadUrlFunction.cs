@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
@@ -37,7 +36,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
             {
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var blobName = query["blobName"];
 
                 if (string.IsNullOrEmpty(blobName))

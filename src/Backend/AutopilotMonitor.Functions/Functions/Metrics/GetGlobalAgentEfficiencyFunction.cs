@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
                 var limit = QueryParams.Int(query["limit"], @default: 500, min: 1, max: 2000);
 

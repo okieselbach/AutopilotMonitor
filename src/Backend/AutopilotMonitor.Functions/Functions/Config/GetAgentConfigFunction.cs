@@ -65,7 +65,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
             try
             {
                 // Get tenantId from query parameter
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var tenantId = query["tenantId"];
 
                 if (string.IsNullOrEmpty(tenantId))

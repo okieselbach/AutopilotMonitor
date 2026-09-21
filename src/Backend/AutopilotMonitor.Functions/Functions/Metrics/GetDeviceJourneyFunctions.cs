@@ -48,7 +48,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware;
                 // cross-tenant access via TargetTenantId (TenantScoping.QueryParam).
                 var requestCtx = req.GetRequestContext();
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var rawSerial = query["serialNumber"];
                 var sessionId = query["sessionId"];
 
@@ -123,7 +123,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             {
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var days = QueryParams.Int(query["days"], DeviceJourneyMetricsResponseBuilder.DefaultWindowDays, 1, DeviceJourneyMetricsResponseBuilder.MaxWindowDays);
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
@@ -167,7 +167,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             try
             {
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var tenantIdFilter = query["tenantId"];
                 var days = QueryParams.Int(query["days"], DeviceJourneyMetricsResponseBuilder.DefaultWindowDays, 1, DeviceJourneyMetricsResponseBuilder.MaxWindowDays);
                 var partition = string.IsNullOrWhiteSpace(tenantIdFilter) ? "global" : tenantIdFilter!;

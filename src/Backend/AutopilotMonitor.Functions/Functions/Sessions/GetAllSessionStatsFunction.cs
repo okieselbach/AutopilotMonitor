@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             {
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware.
                 var callerTenantId = TenantHelper.GetTenantId(req);
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
 
                 if (!GetSessionStatsFunction.TryParseDays(query["days"], out var days, out var error))
                 {

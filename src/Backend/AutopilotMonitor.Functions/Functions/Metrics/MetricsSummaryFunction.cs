@@ -48,7 +48,7 @@ public class MetricsSummaryFunction
             var days = QueryParams.Int(req.Query["days"], @default: 30, min: 1, max: 365);
             // Optional tenantId filter — when set, GA scopes the cross-tenant summary to one
             // tenant. When absent, returns the full cross-tenant view (null → all tenants).
-            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+            var query = req.Query;
             var filterTenantId = query["tenantId"];
             if (!string.IsNullOrWhiteSpace(filterTenantId))
             {

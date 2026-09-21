@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware;
                 // cross-tenant access via TargetTenantId (TenantScoping.QueryParam).
                 var requestCtx = req.GetRequestContext();
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var ruleId = query["ruleId"];
 
                 if (string.IsNullOrWhiteSpace(ruleId))

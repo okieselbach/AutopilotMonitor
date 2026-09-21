@@ -1,4 +1,3 @@
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
         {
             try
             {
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var windowMinutes = QueryParams.Int(query["windowMinutes"], DefaultWindowMinutes, MinWindowMinutes, MaxWindowMinutes);
 
                 var now = DateTime.UtcNow;

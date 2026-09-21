@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -36,7 +35,7 @@ public class SearchSessionsByEventFunction
     {
         try
         {
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
 
             string? tenantId;
             string? filterTenantId;

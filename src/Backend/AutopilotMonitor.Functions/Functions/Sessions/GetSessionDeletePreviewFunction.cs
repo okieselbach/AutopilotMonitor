@@ -7,7 +7,6 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Deletion;
 using AutopilotMonitor.Shared.DataAccess;
@@ -69,7 +68,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
 
             var requestCtx = req.GetRequestContext();
             var actorEmail = TenantHelper.GetUserIdentifier(req);
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
             var mode = (query["mode"] ?? "summary").ToLowerInvariant();
             if (mode != "summary" && mode != "full" && mode != "download")
             {

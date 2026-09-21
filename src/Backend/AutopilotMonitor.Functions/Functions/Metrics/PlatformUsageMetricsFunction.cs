@@ -39,7 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
                 // Optional tenantId query parameter: when provided, return tenant-specific metrics
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var tenantId = query["tenantId"];
                 var days = QueryParams.Int(query["days"], @default: 90, min: 1, max: 365);
 

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -34,7 +33,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
                 string tenantId = TenantHelper.GetTenantId(req);
                 string userIdentifier = TenantHelper.GetUserIdentifier(req);
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var parsed = DateWindowPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {

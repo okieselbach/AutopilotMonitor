@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Security;
@@ -97,7 +96,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
                 var actualTableName = Constants.TableNames.All
                     .First(t => t.Equals(tableName, StringComparison.OrdinalIgnoreCase));
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var partitionKey = query["partitionKey"];
                 var rowKeyPrefix = query["rowKeyPrefix"];
                 var filter = query["filter"];

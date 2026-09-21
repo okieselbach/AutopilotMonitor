@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/rules/gather")] HttpRequestData req)
         {
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
-            var tenantId = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? "").Get("tenantId");
+            var tenantId = req.Query.Get("tenantId");
 
             if (string.IsNullOrEmpty(tenantId))
             {
@@ -66,7 +66,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/rules/analyze")] HttpRequestData req)
         {
             // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
-            var tenantId = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? "").Get("tenantId");
+            var tenantId = req.Query.Get("tenantId");
 
             if (string.IsNullOrEmpty(tenantId))
             {
@@ -211,7 +211,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules
         /// </summary>
         private static string ResolveTenantId(HttpRequestData req, out string? error)
         {
-            var tenantId = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? "").Get("tenantId");
+            var tenantId = req.Query.Get("tenantId");
             error = string.IsNullOrEmpty(tenantId) ? "tenantId query parameter is required" : null;
             return tenantId ?? string.Empty;
         }

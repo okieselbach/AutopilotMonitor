@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Optional ?agentVersion= selects the hash-oracle line like the agent's
                 // X-Agent-Version header would; absent → the current (V2) line, never the
                 // legacy fallback an absent header means on the agent channel.
-                var agentVersion = System.Web.HttpUtility.ParseQueryString(req.Url.Query)["agentVersion"];
+                var agentVersion = req.Query["agentVersion"];
                 var agentMajor = string.IsNullOrWhiteSpace(agentVersion)
                     ? AgentConfigResolver.CurrentAgentMajor
                     : AgentConfigResolver.ParseAgentMajor(agentVersion);

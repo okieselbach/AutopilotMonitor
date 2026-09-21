@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Shared.DataAccess;
 using AutopilotMonitor.Shared.Models;
@@ -54,7 +53,7 @@ public class ProgressPortalFunction
             // access enforced by PolicyEnforcementMiddleware (catalog: TenantScoping.QueryParam).
             var requestCtx = req.GetRequestContext();
 
-            var query = HttpUtility.ParseQueryString(req.Url.Query);
+            var query = req.Query;
             if (string.IsNullOrEmpty(query["tenantId"]))
             {
                 return await req.BadRequestAsync("tenantId query parameter is required");
@@ -180,7 +179,7 @@ public class ProgressPortalFunction
             var requestCtx = req.GetRequestContext();
             var userIdentifier = requestCtx.UserPrincipalName;
 
-            var query = HttpUtility.ParseQueryString(req.Url.Query);
+            var query = req.Query;
             if (string.IsNullOrEmpty(query["tenantId"]))
             {
                 return await req.BadRequestAsync("tenantId query parameter is required");

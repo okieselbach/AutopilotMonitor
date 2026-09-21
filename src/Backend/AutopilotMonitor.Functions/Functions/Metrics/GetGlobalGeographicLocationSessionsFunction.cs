@@ -34,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
                 var userEmail = TenantHelper.GetUserIdentifier(req);
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var locationKey = query["locationKey"];
                 var country = query["country"];
                 // Accept either the legacy opaque locationKey (web UI pairs it with groupBy)

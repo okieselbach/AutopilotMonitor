@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Reports
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
                 var callerTenantId = TenantHelper.GetTenantId(req);
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var parsed = SessionReportsPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {

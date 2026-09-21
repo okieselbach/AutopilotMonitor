@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
@@ -54,7 +53,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
         {
             try
             {
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var state = query["state"] ?? string.Empty;
                 if (!IsAllowedState(state))
                 {

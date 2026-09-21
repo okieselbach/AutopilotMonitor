@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared.Diagnostics;
@@ -57,7 +56,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 if (read.Error != null) return read.Error;
                 var blobName = read.Value?.BlobName;
                 if (string.IsNullOrEmpty(blobName))
-                    blobName = HttpUtility.ParseQueryString(req.Url.Query)["blobName"];
+                    blobName = req.Query["blobName"];
 
                 if (string.IsNullOrEmpty(blobName))
                 {

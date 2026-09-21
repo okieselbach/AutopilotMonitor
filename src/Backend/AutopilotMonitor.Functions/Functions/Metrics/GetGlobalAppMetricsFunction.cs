@@ -31,7 +31,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
                 _logger.LogInformation($"Fetching global app metrics (User: {userEmail})");
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 // Clamped to [1, 365] like the tenant variant and the other metrics endpoints — an
                 // unbounded days= here was the one way to request an unlimited cross-tenant scan.
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);

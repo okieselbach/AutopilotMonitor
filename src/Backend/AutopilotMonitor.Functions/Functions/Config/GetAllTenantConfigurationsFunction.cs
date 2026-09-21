@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
@@ -46,7 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
                 string userIdentifier = TenantHelper.GetUserIdentifier(req);
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var parsed = TenantConfigPagination.ParseQuery(query);
                 if (parsed.Error != null)
                 {

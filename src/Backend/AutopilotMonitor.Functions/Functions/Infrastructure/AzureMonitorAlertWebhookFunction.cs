@@ -54,7 +54,7 @@ namespace AutopilotMonitor.Functions.Functions.Infrastructure
             [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "ops/alert-webhook")] HttpRequestData req)
         {
             var configuredSecret = Environment.GetEnvironmentVariable(SecretSettingName);
-            var providedSecret = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty)["secret"];
+            var providedSecret = req.Query["secret"];
 
             if (!SecretMatches(providedSecret, configuredSecret))
             {

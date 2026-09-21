@@ -156,6 +156,8 @@ public sealed class BootstrapRouteFailClosedTests
 
         reqMock.SetupGet(r => r.Headers).Returns(headers);
         reqMock.SetupGet(r => r.Url).Returns(new Uri(url));
+        // Query is virtual: without CallBase a loose mock answers null instead of parsing Url.
+        reqMock.SetupGet(r => r.Query).CallBase();
         return reqMock.Object;
     }
 }

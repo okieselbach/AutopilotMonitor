@@ -42,7 +42,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             try
             {
-                var qs = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? "");
+                var qs = req.Query;
                 tenantId = qs.Get("tenantId");
 
                 if (string.IsNullOrWhiteSpace(tenantId))

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Diagnostics;
@@ -48,7 +47,7 @@ namespace AutopilotMonitor.Functions.Helpers
                 return (tooMany, default);
             }
 
-            var ticket = HttpUtility.ParseQueryString(req.Url.Query)["t"];
+            var ticket = req.Query["t"];
             if (string.IsNullOrEmpty(ticket))
             {
                 return (await req.BadRequestAsync("Missing download ticket."), default);

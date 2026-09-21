@@ -32,7 +32,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
             try
             {
                 var userEmail = TenantHelper.GetUserIdentifier(req);
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
 
                 var scopedTenantId = query["tenantId"];
                 if (!AppsAnalyticsHelper.IsValidOptionalTenantIdQueryParam(scopedTenantId))

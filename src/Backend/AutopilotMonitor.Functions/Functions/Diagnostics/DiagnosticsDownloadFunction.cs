@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services.Diagnostics;
 using AutopilotMonitor.Shared;
@@ -49,7 +48,7 @@ namespace AutopilotMonitor.Functions.Functions.Diagnostics
                 // ?tenantId= query param (GA bypass already applied).
                 var requestCtx = req.GetRequestContext();
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var rawBlobName = query["blobName"];
 
                 if (string.IsNullOrEmpty(query["tenantId"]) || string.IsNullOrEmpty(rawBlobName))

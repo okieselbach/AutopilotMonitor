@@ -44,7 +44,7 @@ public class QuickSearchSessionsFunction
                     retryAfterSeconds: rateLimitResult.RetryAfter is { } retryAfter ? (int)retryAfter.TotalSeconds : null);
             }
 
-            var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+            var query = req.Query;
             var q = query["q"]?.Trim();
 
             if (string.IsNullOrEmpty(q) || q.Length < 2)

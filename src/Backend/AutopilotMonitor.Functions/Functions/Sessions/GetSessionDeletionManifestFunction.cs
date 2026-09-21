@@ -6,7 +6,6 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
@@ -56,7 +55,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
                 return await BadRequest(req, "sessionId is required");
             }
 
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
             var tenantId = query["tenantId"];
             var manifestId = query["manifestId"];
             var mode = (query["mode"] ?? "summary").ToLowerInvariant();

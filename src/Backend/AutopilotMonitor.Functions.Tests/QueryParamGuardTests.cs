@@ -71,4 +71,67 @@ public class QueryParamGuardTests
             "Baseline entries without a TryParse any more — remove them (the ratchet only shrinks):\n  " +
             string.Join("\n  ", stale));
     }
+
+    // ── One source of the query collection ──────────────────────────────────────────────
+    // `req.Query` IS `HttpUtility.ParseQueryString(req.Url.Query)`, cached per request (the
+    // fact below pins that against a worker update). A second spelling of the same call is
+    // only a pattern for the next function to copy, so the request query is read through
+    // `req.Query` and ParseQueryString stays for strings that are not the request's query.
+
+    private static readonly Regex ParseQueryStringCall = new(@"\bParseQueryString\(", RegexOptions.Compiled);
+
+    /// <summary>ParseQueryString over something other than the request query: file → why.</summary>
+    private static readonly IReadOnlyDictionary<string, string> ParseQueryStringBaseline = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["Functions/Config/GetTenantConfigurationFunction.cs"] = "ShouldRedact takes the raw query string so the redaction decision is unit-testable without a request",
+        ["Functions/Diagnostics/GetDiagnosticsUploadUrlFunction.cs"] = "query of the tenant's stored SAS URL",
+        ["Services/Diagnostics/SasPermissionParser.cs"] = "query of a SAS URL",
+    };
+
+    [Fact]
+    public void The_request_query_is_read_through_req_Query_only()
+    {
+        var root = FunctionsRoot();
+        var offenders = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        var files = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
+            .Where(rel => !rel.StartsWith("bin/", StringComparison.Ordinal) && !rel.StartsWith("obj/", StringComparison.Ordinal))
+            .OrderBy(p => p, StringComparer.Ordinal);
+
+        foreach (var rel in files)
+        {
+            if (!ParseQueryStringCall.IsMatch(File.ReadAllText(Path.Combine(root, rel)))) continue;
+            seen.Add(rel);
+            if (!ParseQueryStringBaseline.ContainsKey(rel)) offenders.Add(rel);
+        }
+
+        Assert.True(offenders.Count == 0,
+            "HttpUtility.ParseQueryString in the Functions project — read the request query through " +
+            "req.Query, or add the file to the baseline with what it parses instead:\n  " + string.Join("\n  ", offenders));
+
+        var stale = ParseQueryStringBaseline.Keys.Where(k => !seen.Contains(k)).ToList();
+        Assert.True(stale.Count == 0,
+            "Baseline entries without a ParseQueryString any more — remove them:\n  " + string.Join("\n  ", stale));
+    }
+
+    [Fact]
+    public void Req_Query_is_ParseQueryString_over_the_request_url()
+    {
+        var url = new Uri("https://localhost/api/x?a=1&a=2&b=%20x%2B&c&=orphan&D=Case");
+        var req = new Moq.Mock<Microsoft.Azure.Functions.Worker.Http.HttpRequestData>(
+            Moq.Mock.Of<Microsoft.Azure.Functions.Worker.FunctionContext>()) { CallBase = true };
+        req.SetupGet(r => r.Url).Returns(url);
+
+        var viaRequest = req.Object.Query;
+        var viaHelper = System.Web.HttpUtility.ParseQueryString(url.Query);
+
+        Assert.Equal(viaHelper.AllKeys, viaRequest.AllKeys);
+        foreach (var key in viaHelper.AllKeys)
+            Assert.Equal(viaHelper.GetValues(key), viaRequest.GetValues(key));
+        Assert.Equal("1,2", viaRequest["a"]);   // repeated key: comma-joined on both paths
+        Assert.Equal(" x+", viaRequest["b"]);
+        Assert.Same(viaRequest, req.Object.Query); // parsed once per request
+    }
 }

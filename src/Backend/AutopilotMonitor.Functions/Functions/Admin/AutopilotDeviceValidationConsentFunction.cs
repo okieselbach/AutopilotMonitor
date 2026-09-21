@@ -92,7 +92,7 @@ public class AutopilotDeviceValidationConsentFunction
             return await req.ErrorAsync(HttpStatusCode.InternalServerError, Constants.ApiErrorCodes.InternalError, "Validator app client ID is not configured on the backend.");
         }
 
-        var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+        var query = req.Query;
         var redirectUri = query["redirectUri"];
         if (string.IsNullOrWhiteSpace(redirectUri))
         {

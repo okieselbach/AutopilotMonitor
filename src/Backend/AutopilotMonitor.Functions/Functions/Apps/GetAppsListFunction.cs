@@ -33,7 +33,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var days = QueryParams.Int(query["days"], @default: 30, min: 1, max: 365);
 
                 var paging = AppsAnalyticsHelper.ParseAppsPaging(query);

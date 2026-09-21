@@ -1,4 +1,3 @@
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
@@ -31,7 +30,7 @@ namespace AutopilotMonitor.Functions.Functions.Rules.Submissions
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
                 var callerTenantId = TenantHelper.GetTenantId(req);
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var parsed = RuleSubmissionsPagination.ParseQuery(query);
                 if (parsed.Error != null) return await req.BadRequestAsync(parsed.Error);
 

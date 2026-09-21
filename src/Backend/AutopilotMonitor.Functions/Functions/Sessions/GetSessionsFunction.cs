@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -32,7 +31,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             {
                 // Authentication + MemberRead authorization enforced by PolicyEnforcementMiddleware
                 var tenantId = TenantHelper.GetTenantId(req);
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
 
                 var parsed = SessionListPagination.ParseQuery(query, acceptFilterTenantId: false);
                 if (parsed.Error != null)

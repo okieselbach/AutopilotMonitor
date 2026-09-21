@@ -41,7 +41,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
 
             try
             {
-                var qs = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? "");
+                var qs = req.Query;
 
                 months = QueryParams.Int(qs.Get("months"), months, 1, SlaMetricsService.MaxMonths);
 

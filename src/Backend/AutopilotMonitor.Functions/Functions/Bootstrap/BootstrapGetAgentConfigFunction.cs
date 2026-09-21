@@ -62,7 +62,7 @@ namespace AutopilotMonitor.Functions.Functions.Bootstrap
                     return await req.UnauthorizedAsync("X-Bootstrap-Token header is required");
                 }
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var tenantId = query["tenantId"];
 
                 if (string.IsNullOrEmpty(tenantId))

@@ -40,7 +40,7 @@ namespace AutopilotMonitor.Functions.Functions.Metrics
             try
             {
                 // Authentication + GlobalReadOrAdmin authorization enforced by PolicyEnforcementMiddleware
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var tenantIdFilter = query["tenantId"];
                 var days = QueryParams.Int(query["days"], VerdictCalibrationResponseBuilder.DefaultWindowDays, 1, VerdictCalibrationResponseBuilder.MaxWindowDays);
                 var partition = "global";

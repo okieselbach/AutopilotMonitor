@@ -48,7 +48,7 @@ public class CustomsArchiveQueryFunction
     public async Task<HttpResponseData> ListRuns(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "global/customs-archive")] HttpRequestData req)
     {
-        var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+        var query = req.Query;
         var filterTenantId = query["tenantId"];
 
         var summaries = new Dictionary<string, CustomsArchiveRunSummary>(System.StringComparer.Ordinal);

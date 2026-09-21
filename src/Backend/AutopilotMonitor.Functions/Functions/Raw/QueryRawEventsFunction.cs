@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
@@ -70,7 +69,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         private async Task<HttpResponseData> QueryEvents(
             HttpRequestData req, string? tenantId, string scope, string basePath, string? filterTenantId)
         {
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
             var sessionId = query["sessionId"];
             var eventType = query["eventType"];
             var severity = query["severity"];

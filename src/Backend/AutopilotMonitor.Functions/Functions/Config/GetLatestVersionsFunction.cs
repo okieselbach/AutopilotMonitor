@@ -1,7 +1,6 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Functions.Helpers;
@@ -35,7 +34,7 @@ namespace AutopilotMonitor.Functions.Functions.Config
         {
             try
             {
-                var query = HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var refreshRaw = query["refresh"];
                 var forceRefresh = !string.IsNullOrEmpty(refreshRaw)
                     && (refreshRaw.Equals("true", StringComparison.OrdinalIgnoreCase) || refreshRaw == "1");

@@ -1,7 +1,6 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
-using System.Web;
 using AutopilotMonitor.Functions.Services;
 using AutopilotMonitor.Shared.Models;
 using AutopilotMonitor.Functions.Helpers;
@@ -40,7 +39,7 @@ namespace AutopilotMonitor.Functions.Functions.Admin
             {
                 // Authentication + GlobalAdminOnly authorization enforced by PolicyEnforcementMiddleware
 
-                var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+                var query = req.Query;
                 var (filterKind, tenantId) = ParseTenantFilter(query["tenantId"]);
 
                 if (filterKind == TenantFilterKind.Invalid)

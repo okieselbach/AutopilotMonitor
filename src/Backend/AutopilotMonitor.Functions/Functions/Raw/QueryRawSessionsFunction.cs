@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Shared.DataAccess;
@@ -68,7 +67,7 @@ namespace AutopilotMonitor.Functions.Functions.Raw
         private async Task<HttpResponseData> QuerySessions(
             HttpRequestData req, string? tenantId, string scope, string basePath, string? filterTenantId)
         {
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
 
             var status = query["status"];
             var startedAfter = query["startedAfter"];

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Web;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Pagination;
 using AutopilotMonitor.Functions.Services;
@@ -36,7 +35,7 @@ namespace AutopilotMonitor.Functions.Functions.Sessions
             }
 
             var sessionPrefix = $"[Session: {sessionId.Substring(0, Math.Min(8, sessionId.Length))}]";
-            var query = HttpUtility.ParseQueryString(req.Url.Query ?? string.Empty);
+            var query = req.Query;
             var pagination = SessionEventsPagination.ParseQuery(query);
             if (pagination.Error != null)
             {

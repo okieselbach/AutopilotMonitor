@@ -45,7 +45,7 @@ namespace AutopilotMonitor.Functions.Functions.Apps
                     return await req.BadRequestAsync("appName is required");
                 }
 
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var query = req.Query;
                 var scopedTenantId = query["tenantId"];
                 if (!AppsAnalyticsHelper.IsValidOptionalTenantIdQueryParam(scopedTenantId))
                 {
