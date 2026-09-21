@@ -202,7 +202,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
         /// not permanently rejected as a bad version string), and the last archive activity is
         /// older than <see cref="RequeueBackoff"/> — or there never was any (versions sighted
         /// before the archiver existed, or archived by hand by an operator; the
-        /// 409 path then heals the row to Archived).
+        /// pre-walk archive check then turns the row to Archived without a download).
         /// </summary>
         public static bool ShouldRequeueOnSighting(
             ImeVersionSighting? sighting, string? msiDownloadUrl, string? msiMatchedBy, DateTime nowUtc)
@@ -246,6 +246,13 @@ namespace AutopilotMonitor.Functions.Services.Ime
 
             try
             {
+                // The archive may already hold this version (operator backfill, earlier attempt).
+                // This must be checked BEFORE the walk: the 409 below is only reachable when a
+                // host still serves the build, which is never true for a version Microsoft has
+                // moved past — the row would stay Failed:VersionMismatch next to its own blob.
+                var existing = await TryCompleteFromArchiveAsync(envelope, version, blobPath, cancellationToken);
+                if (existing is not null) return existing;
+
                 var adminConfig = await GetAdminConfigurationAsync();
                 var maxSizeBytes = (long)adminConfig.MaxImeMsiDownloadSizeMB * 1024 * 1024;
 
@@ -385,7 +392,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
             ImeMsiArchiveEnvelope envelope, string version, string blobPath, string sourceUrl,
             IReadOnlyList<CandidateAttempt> attempts, CancellationToken cancellationToken)
         {
-            if (await ProvenanceExistsAsync($"{version}/provenance.json", cancellationToken))
+            if (await ArchiveBlobExistsAsync($"{version}/provenance.json", cancellationToken))
             {
                 _logger.LogInformation(
                     "ImeMsiArchiver: blob {BlobPath} already exists — treating re-delivery as archived",
@@ -394,21 +401,7 @@ namespace AutopilotMonitor.Functions.Services.Ime
                     blobPath, null, null, sourceUrl);
             }
 
-            string sha256;
-            long totalBytes;
-            string? archivedProductVersion;
-            using (var archived = await OpenArchivedMsiAsync(blobPath, cancellationToken))
-            using (var spool = CreateSpool())
-            {
-                using (var hashing = new HashingCappedReadStream(archived, maxBytes: 0))
-                {
-                    await hashing.CopyToAsync(spool, cancellationToken);
-                    sha256 = hashing.Sha256Hex;
-                    totalBytes = hashing.TotalBytes;
-                }
-                spool.Position = 0;
-                archivedProductVersion = ReadProductVersion(spool);
-            }
+            var (sha256, totalBytes, archivedProductVersion) = await InspectArchivedMsiAsync(blobPath, cancellationToken);
 
             await WriteProvenanceAsync(envelope, version, sourceUrl, sha256, totalBytes, archivedProductVersion, attempts, cancellationToken);
 
@@ -419,8 +412,62 @@ namespace AutopilotMonitor.Functions.Services.Ime
                 blobPath, sha256, totalBytes, sourceUrl);
         }
 
+        /// <summary>
+        /// Pre-walk check: when the archive already holds an installer for this version AND
+        /// its ProductVersion is the observed one, the job is done without touching the CDN.
+        /// Hash and size come from the archived bytes so the row describes the blob; a missing
+        /// sidecar is written (no source URL — the bytes did not come from this attempt).
+        /// An entry holding another build is NOT accepted: the folder invariant is "the bytes
+        /// are that version", so the walk runs and the row keeps telling the truth. Returns
+        /// null when there is no verified entry. Failures propagate (retryable), like the heal.
+        /// </summary>
+        private async Task<ImeMsiArchiveResult?> TryCompleteFromArchiveAsync(
+            ImeMsiArchiveEnvelope envelope, string version, string blobPath, CancellationToken cancellationToken)
+        {
+            if (!await ArchiveBlobExistsAsync(blobPath, cancellationToken)) return null;
+
+            var (sha256, totalBytes, archivedProductVersion) = await InspectArchivedMsiAsync(blobPath, cancellationToken);
+            if (!VersionsMatch(version, archivedProductVersion))
+            {
+                _logger.LogWarning(
+                    "ImeMsiArchiver: archive entry {BlobPath} holds ProductVersion {ProductVersion} — not the observed {Version}; not accepted, walking the hosts",
+                    blobPath, archivedProductVersion ?? "(unreadable)", version);
+                return null;
+            }
+
+            if (!await ArchiveBlobExistsAsync($"{version}/provenance.json", cancellationToken))
+            {
+                await WriteProvenanceAsync(envelope, version, sourceUrl: null, sha256, totalBytes, archivedProductVersion,
+                    Array.Empty<CandidateAttempt>(), cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "ImeMsiArchiver: {Version} is already archived ({SizeBytes} bytes, sha256 {Sha256}) — no download",
+                version, totalBytes, sha256);
+            return new ImeMsiArchiveResult(true, Statuses.Archived, Retryable: false,
+                blobPath, sha256, totalBytes, SourceUrl: null);
+        }
+
+        /// <summary>Hash, size and ProductVersion of the installer that sits in the archive.</summary>
+        private async Task<(string Sha256, long TotalBytes, string? ProductVersion)> InspectArchivedMsiAsync(
+            string blobPath, CancellationToken cancellationToken)
+        {
+            using var archived = await OpenArchivedMsiAsync(blobPath, cancellationToken);
+            using var spool = CreateSpool();
+            string sha256;
+            long totalBytes;
+            using (var hashing = new HashingCappedReadStream(archived, maxBytes: 0))
+            {
+                await hashing.CopyToAsync(spool, cancellationToken);
+                sha256 = hashing.Sha256Hex;
+                totalBytes = hashing.TotalBytes;
+            }
+            spool.Position = 0;
+            return (sha256, totalBytes, ReadProductVersion(spool));
+        }
+
         private async Task WriteProvenanceAsync(
-            ImeMsiArchiveEnvelope envelope, string version, string sourceUrl,
+            ImeMsiArchiveEnvelope envelope, string version, string? sourceUrl,
             string sha256, long totalBytes, string? productVersion,
             IReadOnlyList<CandidateAttempt> attempts, CancellationToken cancellationToken)
         {
@@ -429,7 +476,8 @@ namespace AutopilotMonitor.Functions.Services.Ime
                 version,
                 productVersion,
                 url = sourceUrl,
-                urlFromEvent = string.Equals(sourceUrl, envelope.MsiDownloadUrl, StringComparison.OrdinalIgnoreCase),
+                urlFromEvent = sourceUrl is not null
+                    && string.Equals(sourceUrl, envelope.MsiDownloadUrl, StringComparison.OrdinalIgnoreCase),
                 msiMatchedBy = envelope.MsiMatchedBy,
                 sha256,
                 msiBytes = totalBytes,
@@ -497,8 +545,8 @@ namespace AutopilotMonitor.Functions.Services.Ime
             }, cancellationToken);
         }
 
-        /// <summary>True when the provenance sidecar already exists in the archive container.</summary>
-        protected virtual async Task<bool> ProvenanceExistsAsync(string blobPath, CancellationToken cancellationToken)
+        /// <summary>True when the blob (installer or provenance sidecar) already exists in the archive container.</summary>
+        protected virtual async Task<bool> ArchiveBlobExistsAsync(string blobPath, CancellationToken cancellationToken)
         {
             var containerClient = _blobStorage.GetContainerClient(Constants.BlobContainers.ImeArchive);
             return (await containerClient.GetBlobClient(blobPath).ExistsAsync(cancellationToken)).Value;

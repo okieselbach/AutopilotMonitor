@@ -442,6 +442,96 @@ public class ImeMsiArchiverTests
     }
 
     // =========================================================================
+    // Archive already holds the version before the walk (operator backfill of a
+    // build no host serves any more). The 409 path can never be reached for it —
+    // without the pre-walk check the row stays Failed:VersionMismatch forever.
+    // =========================================================================
+
+    [Fact]
+    public async Task ArchiveAsync_VersionAlreadyInArchive_NoHostServesIt_ArchivedWithoutDownload()
+    {
+        var archivedPayload = new byte[1024];
+        new Random(11).NextBytes(archivedPayload);
+        var expectedSha = Convert.ToHexString(SHA256.HashData(archivedPayload)).ToLowerInvariant();
+        var archiver = new RecordingArchiver
+        {
+            ArchivedMsiExists = true,
+            ArchivedPayload = archivedPayload,
+            DefaultProductVersion = "9.9.9.0", // every host has moved on
+        };
+        archiver.ProductVersionByUrl[RecordingArchiver.ArchivedOrigin] = Version;
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.True(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.Archived, result.Status);
+        Assert.False(result.Retryable);
+        Assert.Equal($"{Version}/IntuneWindowsAgent.msi", result.BlobPath);
+        // The row must describe the archived bytes; the source URL of a backfill is unknown.
+        Assert.Equal(expectedSha, result.Sha256);
+        Assert.Equal(archivedPayload.Length, result.SizeBytes);
+        Assert.Null(result.SourceUrl);
+        Assert.Equal(0, archiver.DownloadCalls);
+        Assert.Equal(0, archiver.UploadCalls);
+        Assert.Equal(0, archiver.ProvenanceCalls); // sidecar came with the backfill
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_VersionAlreadyInArchive_MissingSidecar_IsWrittenWithoutSourceUrl()
+    {
+        var archiver = new RecordingArchiver { ArchivedMsiExists = true, ProvenanceExists = false };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.True(result.Success);
+        Assert.Equal(0, archiver.DownloadCalls);
+        Assert.Equal(1, archiver.ProvenanceCalls);
+        Assert.Equal($"{Version}/provenance.json", archiver.ProvenanceLastPath);
+        using var doc = System.Text.Json.JsonDocument.Parse(archiver.ProvenanceLastJson);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, doc.RootElement.GetProperty("url").ValueKind);
+        // A null source must not compare equal to a null event URL.
+        Assert.False(doc.RootElement.GetProperty("urlFromEvent").GetBoolean());
+        Assert.Equal(0, doc.RootElement.GetProperty("candidates").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("1.103.101.0")] // another ring's build filed under this version
+    [InlineData(null)]          // not a readable package
+    public async Task ArchiveAsync_ArchiveEntryIsNotTheObservedVersion_NotAccepted_WalkRuns(string? archivedProductVersion)
+    {
+        var archiver = new RecordingArchiver
+        {
+            ArchivedMsiExists = true,
+            DefaultProductVersion = "9.9.9.0",
+        };
+        archiver.ProductVersionByUrl[RecordingArchiver.ArchivedOrigin] = archivedProductVersion;
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedVersionMismatch, result.Status);
+        Assert.Equal(ImeMsiArchiver.BuildCandidateUrls(EventUrl).Count, archiver.DownloadCalls);
+        Assert.Equal(0, archiver.ProvenanceCalls);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_ArchiveCheckFails_RetryableError_NoDownload()
+    {
+        var archiver = new RecordingArchiver
+        {
+            ArchivedMsiExists = true,
+            ArchivedOpenException = new RequestFailedException(500, "read failed"),
+        };
+
+        var result = await archiver.ArchiveAsync(Envelope());
+
+        Assert.False(result.Success);
+        Assert.Equal(ImeMsiArchiver.Statuses.FailedError, result.Status);
+        Assert.True(result.Retryable);
+        Assert.Equal(0, archiver.DownloadCalls);
+    }
+
+    // =========================================================================
     // Provenance-write gap (daily review 2026-08-18): MSI upload is write-once,
     // so a first attempt that dies between the MSI and the provenance upload
     // funnels every retry into the 409 path — which must heal the sidecar.
@@ -660,6 +750,10 @@ public class ImeMsiArchiverTests
         public Exception? UploadException { get; set; }
         public Exception? ProvenanceException { get; set; }
         public bool ProvenanceExists { get; set; } = true;
+        /// <summary>Whether the archive already holds an installer for the version BEFORE the walk (operator backfill).</summary>
+        public bool ArchivedMsiExists { get; set; }
+        /// <summary>Key into <see cref="ProductVersionByUrl"/> for the archived bytes — they have no URL of their own.</summary>
+        public const string ArchivedOrigin = "archive://existing";
         public byte[]? ArchivedPayload { get; set; }
         public Exception? ArchivedOpenException { get; set; }
 
@@ -722,12 +816,15 @@ public class ImeMsiArchiverTests
             return Task.CompletedTask;
         }
 
-        protected override Task<bool> ProvenanceExistsAsync(string blobPath, CancellationToken cancellationToken)
-            => Task.FromResult(ProvenanceExists);
+        protected override Task<bool> ArchiveBlobExistsAsync(string blobPath, CancellationToken cancellationToken)
+            => Task.FromResult(blobPath.EndsWith("provenance.json", StringComparison.Ordinal)
+                ? ProvenanceExists
+                : ArchivedMsiExists);
 
         protected override Task<Stream> OpenArchivedMsiAsync(string blobPath, CancellationToken cancellationToken)
         {
             if (ArchivedOpenException is not null) throw ArchivedOpenException;
+            _currentUrl = ArchivedOrigin;
             return Task.FromResult<Stream>(new MemoryStream(ArchivedPayload ?? Payload));
         }
     }
