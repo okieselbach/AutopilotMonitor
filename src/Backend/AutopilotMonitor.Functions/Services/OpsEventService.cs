@@ -984,7 +984,7 @@ namespace AutopilotMonitor.Functions.Services
 
         public Task RecordExcessiveSessionEventsAsync(string tenantId, string sessionId, int eventCount, int threshold)
             => WriteAsync(OpsEventCategory.Agent, OpsEventTypes.ExcessiveSessionEvents, OpsEventSeverity.Warning,
-                $"Session {sessionId} has {eventCount} events (threshold {threshold}) — likely agent loop bug",
+                $"Session {sessionId} has {eventCount} events (threshold {threshold}) — unusually high event volume",
                 tenantId, "System.Maintenance", new { sessionId, eventCount, threshold });
 
         /// <summary>

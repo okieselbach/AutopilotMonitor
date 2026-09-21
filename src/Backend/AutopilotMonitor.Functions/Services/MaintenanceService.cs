@@ -816,6 +816,23 @@ namespace AutopilotMonitor.Functions.Services
         internal static bool IsAutoActionEligible(SessionStatus status) => status == SessionStatus.InProgress;
 
         /// <summary>
+        /// Pure gate: would the STORED counter trigger a warn or an auto-action that has not
+        /// fired yet? Only then is the authoritative recount worth its Events-partition scan.
+        /// The auto tier counts only while the session is still eligible — otherwise a finished
+        /// session above the auto threshold would be rescanned on every sweep until retention.
+        /// </summary>
+        internal static bool HasPendingExcessiveEventAction(
+            int storedEventCount, SessionStatus status, bool alreadyAlerted, bool alreadyAutoActioned,
+            int warnThreshold, string? autoMode, int autoThreshold)
+        {
+            var warnPending = warnThreshold > 0 && storedEventCount > warnThreshold && !alreadyAlerted;
+            var autoPending = !alreadyAutoActioned
+                && IsAutoActionEligible(status)
+                && DecideAutoAction(storedEventCount, autoMode, autoThreshold) != null;
+            return warnPending || autoPending;
+        }
+
+        /// <summary>
         /// Scans every tenant for sessions whose EventCount exceeds the configured warn
         /// threshold (<see cref="AdminConfiguration.ExcessiveEventCountThreshold"/>) or the
         /// auto-action threshold (<see cref="AdminConfiguration.ExcessiveEventAutoActionThreshold"/>).
@@ -880,8 +897,20 @@ namespace AutopilotMonitor.Functions.Services
                     try
                     {
                         var runaways = await _sessionRepo.GetSessionsWithEventCountAboveAsync(tenantId, queryThreshold);
-                        foreach (var session in runaways)
+                        foreach (var candidate in runaways)
                         {
+                            if (!HasPendingExcessiveEventAction(
+                                    candidate.EventCount, candidate.Status,
+                                    candidate.ExcessiveEventsAlerted, candidate.ExcessiveEventsAutoActioned,
+                                    warnEnabled ? warnThreshold : 0, autoEnabled ? autoMode : "Off", autoThreshold))
+                                continue;
+
+                            // The stored EventCount is an at-least-once increment: replayed batches
+                            // dedupe as rows but double the counter, and nothing corrects it while
+                            // the session is still running. Warn and block on the recounted rows only.
+                            var session = await RecountRunawayCandidateAsync(tenantId, candidate);
+                            if (session == null) continue;
+
                             // Warn-tier: emit once per session, regardless of auto-action state.
                             if (warnEnabled && session.EventCount > warnThreshold && !session.ExcessiveEventsAlerted)
                             {
@@ -959,6 +988,32 @@ namespace AutopilotMonitor.Functions.Services
             {
                 _logger.LogError(ex, "Failed to scan for excessive-event sessions");
             }
+        }
+
+        /// <summary>
+        /// Replaces the stored counters of a runaway candidate with the authoritative Events row
+        /// count and returns the re-read session. Returns <c>null</c> when the count could not be
+        /// verified — the candidate is then left alone until the next sweep rather than warned
+        /// about or blocked on an unverified number.
+        /// </summary>
+        private async Task<SessionSummary?> RecountRunawayCandidateAsync(string tenantId, SessionSummary candidate)
+        {
+            var scan = await _sessionRepo.ReconcileSessionCountersAsync(tenantId, candidate.SessionId);
+            var recounted = scan == null ? null : await _sessionRepo.GetSessionAsync(tenantId, candidate.SessionId);
+            if (recounted == null)
+            {
+                _logger.LogWarning(
+                    "Excessive-event scan: could not verify the event count of session {SessionId} (tenant {TenantId}, stored {StoredCount}); skipped until the next sweep",
+                    candidate.SessionId, tenantId, candidate.EventCount);
+                return null;
+            }
+
+            if (recounted.EventCount != candidate.EventCount)
+                _logger.LogWarning(
+                    "Excessive-event scan: session {SessionId} (tenant {TenantId}) stored EventCount {StoredCount} corrected to {ActualCount} rows",
+                    candidate.SessionId, tenantId, candidate.EventCount, recounted.EventCount);
+
+            return recounted;
         }
 
         /// <summary>

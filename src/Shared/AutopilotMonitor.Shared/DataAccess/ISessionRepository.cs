@@ -178,7 +178,8 @@ namespace AutopilotMonitor.Shared.DataAccess
         // --- Excessive-Event Detection ---
         /// <summary>
         /// Returns sessions in <paramref name="tenantId"/> whose EventCount exceeds <paramref name="threshold"/>.
-        /// Used by maintenance to surface runaway sessions (likely agent loop bugs).
+        /// Used by maintenance to find runaway candidates; the stored counter can overcount, so
+        /// the caller recounts before acting on it.
         /// </summary>
         Task<List<SessionSummary>> GetSessionsWithEventCountAboveAsync(string tenantId, int threshold);
 

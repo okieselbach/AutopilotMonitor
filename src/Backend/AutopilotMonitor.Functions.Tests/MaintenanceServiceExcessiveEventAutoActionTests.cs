@@ -116,6 +116,53 @@ public class MaintenanceServiceExcessiveEventAutoActionTests
         Assert.False(MaintenanceService.IsAutoActionEligible(status));
     }
 
+    // ── Recount gate ──────────────────────────────────────────────────────────
+    // The stored counter doubles on replayed batches, so every warn and every block is
+    // decided on a recount. The gate keeps that Events-partition scan to candidates that
+    // still have something to fire.
+
+    [Fact]
+    public void HasPendingAction_WarnNotYetFired_IsPending()
+    {
+        Assert.True(MaintenanceService.HasPendingExcessiveEventAction(
+            storedEventCount: 2001, SessionStatus.Succeeded, alreadyAlerted: false, alreadyAutoActioned: false,
+            warnThreshold: 2000, autoMode: "Off", autoThreshold: 2500));
+    }
+
+    [Fact]
+    public void HasPendingAction_BlockNotYetFiredOnRunningSession_IsPending()
+    {
+        Assert.True(MaintenanceService.HasPendingExcessiveEventAction(
+            storedEventCount: 2501, SessionStatus.InProgress, alreadyAlerted: true, alreadyAutoActioned: false,
+            warnThreshold: 2000, autoMode: "Block", autoThreshold: 2500));
+    }
+
+    [Fact]
+    public void HasPendingAction_FinishedSessionAboveBlockThreshold_IsNotRescannedForever()
+    {
+        // Warned long ago, can never be blocked any more: without the eligibility term this
+        // row would cost a full partition scan on every sweep until retention removes it.
+        Assert.False(MaintenanceService.HasPendingExcessiveEventAction(
+            storedEventCount: 9000, SessionStatus.Incomplete, alreadyAlerted: true, alreadyAutoActioned: false,
+            warnThreshold: 2000, autoMode: "Block", autoThreshold: 2500));
+    }
+
+    [Fact]
+    public void HasPendingAction_BothAlreadyFired_IsNotPending()
+    {
+        Assert.False(MaintenanceService.HasPendingExcessiveEventAction(
+            storedEventCount: 9000, SessionStatus.InProgress, alreadyAlerted: true, alreadyAutoActioned: true,
+            warnThreshold: 2000, autoMode: "Block", autoThreshold: 2500));
+    }
+
+    [Fact]
+    public void HasPendingAction_WarnDisabledAndModeOff_IsNotPending()
+    {
+        Assert.False(MaintenanceService.HasPendingExcessiveEventAction(
+            storedEventCount: 9000, SessionStatus.InProgress, alreadyAlerted: false, alreadyAutoActioned: false,
+            warnThreshold: 0, autoMode: "Off", autoThreshold: 2500));
+    }
+
     // ── Status parsing feeding that gate ──────────────────────────────────────
     // The runaway query projects a subset of columns. SessionStatus.InProgress is ordinal 0,
     // so an unparsed Status would leave every row looking in-progress and the gate above
