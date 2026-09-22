@@ -599,9 +599,9 @@ describe('list_tenants — extractTenantList keep-list projection', () => {
 
 describe('list_tenants — filterTenantList (query / tenantId resolution)', () => {
   const tenants = [
-    { tenantId: '047b2e1f-a271-4bc1-97a4-703bf7adf135', domainName: 'rewe-group.com' },
-    { tenantId: '739614a3-9800-4868-ba08-7e2c16128a9f', domainName: 'HanseMerkur.onmicrosoft.com' },
-    { tenantId: '661d1080-0353-4416-a568-f85f2d4f2ff5', domainName: 'douglas.de' },
+    { tenantId: '11111111-1111-4111-8111-111111111111', domainName: 'fabrikam-group.com' },
+    { tenantId: '22222222-2222-4222-8222-222222222222', domainName: 'NorthwindTraders.onmicrosoft.com' },
+    { tenantId: '33333333-3333-4333-8333-333333333333', domainName: 'tailspin.de' },
   ];
 
   it('returns the list unchanged for a blank / whitespace filter', () => {
@@ -611,28 +611,28 @@ describe('list_tenants — filterTenantList (query / tenantId resolution)', () =
   });
 
   it('resolves a name to its tenant via case-insensitive domainName substring', () => {
-    const [m] = filterTenantList(tenants, { query: 'REWE' });
-    expect(m.domainName).toBe('rewe-group.com');
-    expect(m.tenantId).toBe('047b2e1f-a271-4bc1-97a4-703bf7adf135');
-    expect(filterTenantList(tenants, { query: 'merkur' })).toHaveLength(1);
+    const [m] = filterTenantList(tenants, { query: 'FABRIKAM' });
+    expect(m.domainName).toBe('fabrikam-group.com');
+    expect(m.tenantId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(filterTenantList(tenants, { query: 'northwind' })).toHaveLength(1);
   });
 
   it('matches a substring anywhere in the domainName, not just a prefix', () => {
-    expect(filterTenantList(tenants, { query: 'group' })[0].domainName).toBe('rewe-group.com');
+    expect(filterTenantList(tenants, { query: 'group' })[0].domainName).toBe('fabrikam-group.com');
   });
 
   it('also matches against a partial tenantId (forgiving GUID paste)', () => {
-    expect(filterTenantList(tenants, { query: '739614a3' })[0].domainName)
-      .toBe('HanseMerkur.onmicrosoft.com');
+    expect(filterTenantList(tenants, { query: '22222222' })[0].domainName)
+      .toBe('NorthwindTraders.onmicrosoft.com');
   });
 
   it('tenantId filter is an exact case-insensitive match and wins over query', () => {
     const exact = filterTenantList(tenants, {
-      tenantId: '661D1080-0353-4416-A568-F85F2D4F2FF5',
-      query: 'rewe',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      query: 'fabrikam',
     });
     expect(exact).toHaveLength(1);
-    expect(exact[0].domainName).toBe('douglas.de');
+    expect(exact[0].domainName).toBe('tailspin.de');
   });
 
   it('returns an empty list when nothing matches (no throw)', () => {
@@ -641,7 +641,7 @@ describe('list_tenants — filterTenantList (query / tenantId resolution)', () =
   });
 
   it('tolerates rows missing domainName / tenantId', () => {
-    expect(filterTenantList([{ tenantId: 'x' }, {}], { query: 'rewe' })).toEqual([]);
+    expect(filterTenantList([{ tenantId: 'x' }, {}], { query: 'fabrikam' })).toEqual([]);
   });
 });
 

@@ -839,15 +839,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'server-side. Tenants are sorted by tenantId and returned in pages (default 100). For lean ID discovery pass ' +
         '`fields=tenantId,domainName` — the projection is applied server-side and is echoed in nextLink, so it carries ' +
         'across every page automatically. ' +
-        'RESOLVE A TENANT DIRECTLY (no manual paging): pass `query` to substring-match a name — e.g. query="rewe" ' +
-        'returns rewe-group.com with its tenantId in one call — or pass `tenantId` to fetch that exact entry. In either ' +
+        'RESOLVE A TENANT DIRECTLY (no manual paging): pass `query` to substring-match a name — e.g. query="contoso" ' +
+        'returns contoso.com with its tenantId in one call — or pass `tenantId` to fetch that exact entry. In either ' +
         'filter mode the tool auto-paginates internally and returns only the matches (no "continuation" needed). ' +
         'Pagination (only when NEITHER filter is set): when "nextLink" is present, more tenants are available — call ' +
         'again and pass that whole string back as "continuation". Stop when nextLink is absent.',
       inputSchema: {
         query: z.string().optional()
           .describe('Resolve a tenant by name: case-insensitive substring match against domainName (the human-readable ' +
-                    'label — there is no separate displayName) and, forgivingly, against tenantId. e.g. "rewe" → rewe-group.com. ' +
+                    'label — there is no separate displayName) and, forgivingly, against tenantId. e.g. "contoso" → contoso.com. ' +
                     'Auto-paginates internally and returns every match in one call. Ignored if tenantId is also set.'),
         tenantId: z.string().optional()
           .describe('Fetch exactly one tenant by its (case-insensitive) tenantId. Returns that single entry, or an empty ' +
