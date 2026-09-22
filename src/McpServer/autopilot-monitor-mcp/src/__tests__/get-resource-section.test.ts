@@ -17,10 +17,10 @@ type ToolHandler = (args: Record<string, unknown>, extra: unknown) => Promise<{
 const GA = { token: 'ga', isGlobalAdmin: true };
 const extra = { signal: new AbortController().signal };
 
-function getResourceTool(): { handler: ToolHandler; description: string } {
+function getResourceTool(): { handler: ToolHandler; description: string; inputSchema: { shape: { section: { description?: string } } } } {
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   registerTools(server, undefined, undefined, undefined, true, true, false);
-  const registry = (server as unknown as { _registeredTools: Record<string, { handler: ToolHandler; description: string }> })._registeredTools;
+  const registry = (server as unknown as { _registeredTools: Record<string, { handler: ToolHandler; description: string; inputSchema: { shape: { section: { description?: string } } } }> })._registeredTools;
   return registry.get_resource;
 }
 
@@ -56,11 +56,14 @@ describe('get_resource section', () => {
     expect(text(res)).toContain('gatherRules');
   });
 
-  it('lists every object-shaped resource with its sections in the description', () => {
-    const { description } = getResourceTool();
+  it('lists every object-shaped resource with its sections in the `section` argument description', () => {
+    // The tool description stays under the 2048-char host cap (D-269); the per-resource key list
+    // lives on the argument it applies to, still derived from the live catalog.
+    const { inputSchema } = getResourceTool();
+    const sectionDescription = inputSchema.shape.section.description ?? '';
     for (const name of ['rule_authoring_guide', 'rule_schemas', 'rule_guardrails', 'diag_zip_layout'] as const) {
       const keys = Object.keys(getResourceContent(name) as Record<string, unknown>);
-      expect(description).toContain(`${name} → ${keys.join(', ')}`);
+      expect(sectionDescription).toContain(`${name} → ${keys.join(', ')}`);
     }
   });
 });

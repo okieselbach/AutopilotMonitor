@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { ApiError, apiFetch, buildQuery, jsonBody, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
-import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription } from './shared.js';
+import { READ_ONLY, MAX_RESULT_SIZE_CHARS, LEAN_EVENT_FIELDS, LEAN_EVENT_OMISSION, leanFieldSelection, SUMMARY_EVENT_FIELDS, toolResultText, SessionIdSchema, isBenignHealthDetectionReport, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { lookupErrorCode } from '../error-code-catalog.js';
 import { assertKnownEventType, assertKnownDevicePropertyKeys } from '../resource-catalog.js';
@@ -106,34 +106,28 @@ const phaseName = (phase: unknown, enrollmentType: unknown): string => {
 // ── Registration ────────────────────────────────────────────────────────
 
 export function registerSessionTools(server: McpServer, ga: boolean, delegated: boolean = false): void {
+  // Session-bound reads (get_session, events, summary, diagnostics) resolve the tenant from the
+  // session itself; the standard scope / default-tenant wording would be wrong for them.
+  const SESSION_TENANT_TEXT = 'Optional; resolved from the session when omitted.';
+  const sessionTenantIdDescription = tenantIdDescription(ga, delegated, SESSION_TENANT_TEXT, SESSION_TENANT_TEXT);
+
   // Tool 1: search_sessions
   server.registerTool(
     'search_sessions',
     {
       title: 'Search Sessions',
       description:
-        'Search enrollment sessions' +
-        (ga ? '. Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant' : ' in your tenant') + '. ' +
-        'Basic properties (status, serial number, manufacturer, model, etc.) filter on the session index. ' +
-        'Use deviceProperties for any device hardware/config filter — keys use "eventType.propertyName" notation. ' +
-        'Consult the device_properties catalog (call get_resource(name="device_properties")) for available keys. ' +
-        'Examples: {"tpm_status.specVersion": "2.0"}, {"hardware_spec.ramTotalGB": ">=8"}, {"secureboot_status.uefiSecureBootEnabled": "True"}. ' +
-        'Array values are searched as substring match (e.g. disks containing "NVMe"). ' +
-        'For COUNTING / AGGREGATION queries (e.g. "how many V2 enrollments?", "how many failed in last 7 days?") pass ' +
-        '`fields=sessionId,status,agentVersion,startedAt` (or a similar lean subset): full SessionSummary objects are ~1.5KB ' +
-        'each and can trip the response cap before pagination would normally deliver the answer. With projection a 100-session ' +
-        'aggregate fits in <10KB. ' +
-        'For VERSION sweeps use `agentVersionPrefix=2.0.` or `imeAgentVersionPrefix=1.23.` instead of one call per build — ' +
-        'matches every patch in the line in a single response. ' +
-        'deviceProperties key prefixes are validated against the event_types catalog — a typo is rejected with a clear ' +
-        'error, not a silent empty result. For deviceProperties / serial / geo / time filters the tool auto-scans ' +
-        'forward past empty pages, so a returned "count": 0 with no "nextLink" means truly no matches, while ' +
-        '"moreToScan": true means the per-call scan budget was hit (pass nextLink as "continuation" to keep scanning). ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for interactive queries; ' +
-        'raise it (up to 1000) for full sweeps. Pass the whole nextLink string as "continuation" so all backend-echoed ' +
-        'query params round-trip correctly.',
+        'Search enrollment sessions. Basic properties (status, serial number, manufacturer, model, versions, dates, ...) ' +
+        'filter on the session index; deviceProperties filters on device hardware/config with "eventType.propertyName" keys ' +
+        '(syntax and catalog on that argument). ' +
+        'Counting / aggregation: a full SessionSummary is ~1.5 KB, so pass a lean fields= projection ' +
+        '(e.g. "sessionId,status,agentVersion,startedAt"). Version sweeps: agentVersionPrefix / imeAgentVersionPrefix ' +
+        'match a whole build line in one call. ' +
+        'deviceProperties / serial / geo / time filters are applied after the index read, so the tool scans forward past ' +
+        'empty pages: "count": 0 without nextLink means no matches; "moreToScan": true means the per-call scan budget ' +
+        'was hit — pass the nextLink as continuation to keep scanning.',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         status: z.enum(SESSION_STATUSES).optional()
           .describe('Enrollment status filter. Pending = White Glove pre-provisioning done, awaiting user enrollment; ' +
                     'Stalled = no progress for a while (non-terminal, can heal back to InProgress).'),
@@ -148,8 +142,8 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         isSelfDeployingProfile: z.boolean().optional().describe(
           'Filter by self-deploying/kiosk Autopilot profile (CloudAssignedOobeConfig bits 0x20|0x40, agent-detected at registration)'),
         isCloudPc: z.boolean().optional().describe(
-          'Filter by Windows 365 Cloud PC (agent-detected marker AND: Windows365 registry key + CloudManagedDesktopExtension service; sticky-true). ' +
-          'Independent of validatedBy="CloudPc" (server-side Graph verification). Sessions from agents predating the field read as false.'),
+          'Windows 365 Cloud PC as detected by the agent (Windows365 registry key AND CloudManagedDesktopExtension service; sticky-true). ' +
+          'Independent of validatedBy="CloudPc" (server-side Graph check). False on sessions from agents predating the field.'),
         geoCountry: z.string().optional().describe('Country of enrollment (2-letter ISO code, e.g. "DE", "US")'),
         startedAfter: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started after this'),
         startedBefore: IsoDateString.optional().describe('ISO 8601 datetime — only sessions started before this'),
@@ -165,29 +159,22 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
         rebootCountMax: z.coerce.number().int().min(0).optional()
           .describe('Maximum number of reboots observed during enrollment (<=).'),
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
-          .describe('Active network connection type during enrollment ("WiFi" or "Ethernet"), indexed for cheap exact-match ' +
-                    'filtering (e.g. "how many machines enrolled over WiFi?"). Last emission wins — a device that switches media ' +
-                    'mid-enrollment reports the most recent state. Sessions that predate the projection lack the column and are excluded.'),
+          .describe('Active network media during enrollment, indexed for exact match. Last emission wins (a device that ' +
+                    'switches media reports the most recent state). Sessions predating the column are excluded.'),
         fields: z.string().optional()
-          .describe('Comma-separated lean projection (e.g. "sessionId,status,agentVersion,startedAt"). ' +
-                    'Use for counting / aggregation to avoid the response cap. Available: sessionId, tenantId, status, ' +
-                    'serialNumber, manufacturer, model, deviceName, osBuild, osName, startedAt, completedAt, ' +
-                    'durationSeconds, currentPhase, failureReason, eventCount, enrollmentType, isPreProvisioned, ' +
-                    'isUserDriven, isHybridJoin, isSelfDeployingProfile, isCloudPc, agentVersion, imeAgentVersion, geoCountry, rebootCount, ' +
-                    'avgApiLatencyMs, apiRequestCount (agent→backend HTTP round-trip; weight latency by apiRequestCount when aggregating, ' +
-                    'e.g. fields=geoCountry,avgApiLatencyMs,apiRequestCount for a per-country latency sweep; null on sessions from agents predating the field), ' +
-                    'connectionType ("WiFi"/"Ethernet"; null on sessions predating the projection).'),
+          .describe('Comma-separated projection keys: sessionId, tenantId, status, serialNumber, manufacturer, model, ' +
+                    'deviceName, osBuild, osName, startedAt, completedAt, durationSeconds, currentPhase, failureReason, ' +
+                    'eventCount, enrollmentType, isPreProvisioned, isUserDriven, isHybridJoin, isSelfDeployingProfile, ' +
+                    'isCloudPc, agentVersion, imeAgentVersion, geoCountry, rebootCount, connectionType, avgApiLatencyMs, ' +
+                    'apiRequestCount (weight avgApiLatencyMs by it). A key newer than the recording agent is null.'),
         deviceProperties: z.record(z.string(), z.string()).optional().describe(
-          'Dynamic device property filters. Keys use "eventType.propertyName" dot notation. ' +
-          'See the device_properties catalog (call get_resource(name="device_properties")) for all available keys and types. ' +
-          'Values: exact match by default. Prefix with >=, <=, >, < for numeric ranges (e.g. ">=8"). ' +
-          'Trailing "*" is a prefix wildcard (e.g. {"hardware_spec.cpuArchitecture": "ARM*"} matches ARM + ARM64). ' +
-          'Booleans: use "True" or "False". Arrays: substring match in any element.'
+          'Keys "eventType.propertyName" from get_resource(name="device_properties"); unknown prefix rejected. ' +
+          'Exact match; numeric ">=8" (>=, <=, >, <); "ARM*" = prefix; "True"/"False"; arrays: substring of any element. ' +
+          'E.g. {"tpm_status.specVersion": "2.0"}.'
         ),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
-        continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for full sweeps.')),
+        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -232,21 +219,15 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Search Sessions by Event',
       description:
-        'Find sessions that contain a specific event type (e.g. app install failure, phase transitions, errors). ' +
-        (ga ? 'Omit tenantId for cross-tenant search (Global Admin). ' : '') +
-        'Check the event_types catalog (call get_resource(name="event_types")) for valid eventType values. ' +
-        'Use this to answer: which devices had a failed Teams install, which sessions had an error in DeviceSetup phase. ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
-        'interactive queries; raise it (up to 1000) for full sweeps. For broad analysis, use pageSize=1000 and follow ' +
-        'nextLink repeatedly until absent. Pass the whole nextLink string as "continuation" so all backend-echoed query ' +
-        'params round-trip correctly.',
+        'Find sessions that contain a given event type, read from the event-type index (e.g. every session with ' +
+        'app_install_failed or enrollment_failed). eventType is validated against the event_types catalog; an unknown ' +
+        'type is rejected, not an empty result.',
       inputSchema: {
-        eventType: z.string().describe('Event type string — see event_types catalog (call get_resource(name="event_types")) for valid values (e.g. "app_install_failed", "enrollment_failed")'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        eventType: z.string().describe('Event type string from get_resource(name="event_types") (e.g. "app_install_failed", "enrollment_failed")'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
-        continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for full sweeps.')),
+        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -279,10 +260,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     'get_session',
     {
       title: 'Get Session',
-      description: 'Get full details of a single enrollment session including all device metadata. Set includeAnalysis=true to also get AI rule analysis results explaining why the session failed and remediation suggestions.',
+      description: 'Full record of one enrollment session including all device metadata. includeAnalysis=true adds the rule analysis (why the session failed, remediation).',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
+        tenantId: z.string().optional().describe(sessionTenantIdDescription),
         includeAnalysis: z.boolean().optional().default(false).describe('Include rule analysis results (failure explanations and remediation steps)'),
       },
       annotations: READ_ONLY,
@@ -322,28 +303,20 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Get Session Diagnostics (Agent Log ZIP)',
       description:
-        'Returns a short-lived, ready-to-use download URL for the agent DIAGNOSTICS ZIP of a session ' +
-        '(agent logs, DecisionCore journal/signals, IME logs, final-status.json). The archive layout and ' +
-        'the file priority order are the static "diag_zip_layout" resource — read it ONCE via ' +
-        'get_resource(name="diag_zip_layout"); it is not repeated in this response. This is the ' +
-        'highest-value source for root-causing why an enrollment went wrong: correlate the on-device ' +
-        'agent log against the backend Events table.\n\n' +
-        'CLIENT REQUIREMENT: this needs a client that can download files and run local file/shell tools ' +
-        '(e.g. Claude Code or another agentic client). A pure chat client (Claude Desktop, claude.ai web) ' +
-        'has no local filesystem and CANNOT unzip the binary archive — there this tool only yields a ' +
-        'download link a human could open manually, not an automated analysis.\n\n' +
-        'HOW TO USE: download the ZIP from "downloadUrl" — NO auth header needed, it is a short-lived ' +
-        'signed ticket (~10 min) — then unzip and analyze it LOCALLY. The backend never unzips or parses ' +
-        'it; you process it on your side and enrich with get_session_events / query_raw_events / ' +
-        'search_knowledge. Read files in the diag_zip_layout priority order; AppWorkload*.log can be ' +
-        'hundreds of MB → grep, never read whole.\n\n' +
-        'If "available" is false there is no uploaded diagnostics package (upload mode may be Off or ' +
-        'OnFailure on a successful session) — proceed with backend telemetry only. ' +
-        'Tenant admins get their own tenant\'s diagnostics; ' +
-        (ga ? 'Global Admins can pass tenantId to target any tenant.' : 'tenantId is optional and defaults to your tenant.'),
+        'Returns a short-lived signed download URL (~10 min, no auth header) for the agent DIAGNOSTICS ZIP of a ' +
+        'session: agent logs, DecisionCore journal/signals, IME logs, final-status.json. The archive layout and file ' +
+        'priority order are the static "diag_zip_layout" resource — read it once via get_resource(name="diag_zip_layout"); ' +
+        'the response does not repeat it. Correlating the on-device agent log against the backend Events table is the ' +
+        'highest-value way to root-cause an enrollment.\n\n' +
+        'CLIENT REQUIREMENT: the client must download and unzip the archive locally (e.g. Claude Code); the backend ' +
+        'never unzips or parses it. A pure chat client without a filesystem only gets a link a human can open.\n\n' +
+        'Read files in the diag_zip_layout priority order; AppWorkload*.log can be hundreds of MB — grep, never read ' +
+        'whole. Enrich with get_session_events / query_raw_events / search_knowledge. ' +
+        '"available": false means no diagnostics package was uploaded (upload mode Off, or OnFailure on a successful ' +
+        'session) — proceed with backend telemetry only.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
+        tenantId: z.string().optional().describe(sessionTenantIdDescription),
       },
       annotations: READ_ONLY,
     },
@@ -419,32 +392,24 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Get Session Events',
       description:
-        'RAW EVENT RETRIEVAL (fallback when ranked search misses). ' +
-        'Returns up to pageSize events from a single session. Filter by eventType, severity, or source (app name). ' +
-        'Use this when search_events returns incomplete results and you need the full unfiltered event stream, ' +
-        'or for root cause analysis when you need every event in chronological sequence. ' +
-        'If you omit tenantId, the backend auto-resolves it from the session' + (ga ? ' (Global Admin can access any tenant)' : '') + '. ' +
-        'eventType is validated against the event_types catalog — a typo is rejected with a clear error, not a silent ' +
-        'empty result. When you filter, the tool auto-scans forward past empty pages, so a returned "count": 0 is ' +
-        'meaningful: with no "nextLink" it means truly no matching events; with "moreToScan": true it means the ' +
-        'per-call scan budget was hit before a match (pass nextLink as "continuation" to keep scanning). ' +
-        'Pagination: if the response includes "nextLink", more events are available — call this tool again and pass the ' +
-        'whole nextLink string (e.g. "/api/sessions/{id}/events?pageSize=...&continuation=...&tenantId=...") as ' +
-        '"continuation". The tool follows it verbatim so query params the backend echoes (tenantId, ' +
-        'filters, etc.) round-trip correctly. Stop when the response no longer contains a nextLink. Sessions with ' +
-        'thousands of events are fully reachable across multiple calls.',
+        'RAW EVENT RETRIEVAL (fallback when ranked search_events misses, or when every event of one session is needed ' +
+        'in chronological sequence). Filter by eventType (validated against the event_types catalog; an unknown type is ' +
+        'rejected, not an empty result), severity or source (app name). An unfiltered read omits the per-event "data" ' +
+        'payload by default and says so in omittedFields; a filtered read includes it (see fields). ' +
+        'Filters are applied after the partition read, so the tool scans forward past empty pages: "count": 0 without ' +
+        'nextLink means no matching events; "moreToScan": true means the per-call scan budget was hit — pass the ' +
+        'nextLink as continuation to keep scanning.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session.', 'Tenant ID. If omitted, auto-resolved from the session.')),
-        eventType: z.string().optional().describe('Filter to only events of this type — valid values come from the event_types catalog (call get_resource(name="event_types")); an invented type is rejected, not an empty result'),
+        tenantId: z.string().optional().describe(sessionTenantIdDescription),
+        eventType: z.string().optional().describe('Only events of this type; values from get_resource(name="event_types")'),
         severity: z.enum(EVENT_SEVERITIES).optional(),
         source: z.string().optional().describe('Filter by event source/app name (e.g. "MicrosoftTeams")'),
         fields: z.string().optional()
-          .describe('Comma-separated projection. Omitted on an UNFILTERED read (no eventType/severity/source) = lean timeline default "' + LEAN_EVENT_FIELDS + '" — the multi-KB "data" payload is NOT included and the response says so (omittedFields). Omitted on a FILTERED read = full events including "data". List "data" for the whole payload, or "data.<key>" entries (e.g. "data.errorCode,data.scriptType") for just those payload keys. Valid keys: eventId, sessionId, tenantId, eventType, severity, source, phase, phaseName, timestamp, receivedAt, sentAt, message, sequence, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal, data, data.<key>.'),
+          .describe('Projection. Omitted on an UNFILTERED read = lean default "' + LEAN_EVENT_FIELDS + '" without the multi-KB "data" payload (omittedFields says so); omitted on a FILTERED read = full events incl. "data". List "data" for the whole payload or "data.<key>" (e.g. "data.errorCode") for single keys. Further keys: eventId, sessionId, tenantId, receivedAt, sentAt, rowKey, originalTimestamp, timestampClamped, causedByTransitionStepIndex, causedBySignalOrdinal.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
-        continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so query params the backend echoes round-trip correctly.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
+        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -482,21 +447,17 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Get Session Summary',
       description:
-        'Get a concise, structured summary of an enrollment session optimized for analysis. ' +
-        'Returns: session overview (status, duration, device, enrollment config), ' +
-        'observation coverage (coverage: from when the agent actually watched, IME log tracker / collector / ' +
-        'upload / diagnostics-package health, and coverage.gaps — one line per known blind spot; read it before ' +
-        'treating a missing event as proof that something did not happen), ' +
-        'key events timeline (errors, warnings, phase transitions, app installs — noise filtered out, ' +
-        'capped at 50 most-relevant entries; stats.keyEventsTruncated indicates if more were dropped), ' +
-        'rule analysis results (probable cause, remediation), and aggregate stats. A key event that carries an ' +
-        'error code shows it as errorCode plus errorText (symbol and catalog meaning); heavy event payloads ' +
-        '(data JSON) are otherwise NOT included — pull them via get_session_events for the same sessionId when needed. ' +
-        'Use this as the first tool when investigating a session. ' +
-        'For raw unfiltered events use get_session_events. For full metadata use get_session.',
+        'First tool when investigating a session. Returns: overview (status, duration, device, enrollment config); ' +
+        'observation coverage (from when the agent actually watched, IME log tracker / collector / upload / ' +
+        'diagnostics-package health, and coverage.gaps — one line per known blind spot; read it before treating a ' +
+        'missing event as proof that something did not happen); a key-event timeline (errors, warnings, phase ' +
+        'transitions, app installs; noise filtered; capped at the 50 most relevant, stats.keyEventsTruncated says if ' +
+        'more were dropped); rule analysis (probable cause, remediation); aggregate stats. A key event with an error ' +
+        'code shows errorCode plus errorText (symbol and catalog meaning); event payloads (data) are otherwise not ' +
+        'included — get_session_events returns them. get_session returns the full metadata.',
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. If omitted, auto-resolved from the session (Global Admin can access any tenant).', 'Tenant ID. If omitted, auto-resolved from the session.')),
+        tenantId: z.string().optional().describe(sessionTenantIdDescription),
       },
       annotations: READ_ONLY,
     },
@@ -711,13 +672,12 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Enrollment Metrics',
       description:
-        'Get aggregated enrollment metrics: failure rates, slowest/most-failing apps, session counts. ' +
-        (ga ? 'Omit tenantId for cross-tenant platform overview (Global Admin). Specify tenantId for single-tenant metrics. ' : '') +
-        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
+        'Aggregated enrollment metrics over a trailing window: failure rates, slowest and most-failing apps, session counts ' +
+        '(a summary block plus an app-metrics block; one failing block is reported in partialErrors, not as an error).',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant overview (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365). Defaults to 30. Applied to both summary and app metrics.'),
+          .describe(daysDescription(30, 365, 'Applies to both the summary and the app metrics.')),
       },
       annotations: READ_ONLY,
     },
@@ -764,27 +724,20 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'Search Sessions by CVE',
       description:
-        "Find enrollment sessions where a specific CVE was detected in the device's software inventory. " +
-        (ga ? "Omit tenantId for cross-tenant search (Global Admin). " : "") +
-        "Requires vulnerability scanning to be enabled. " +
-        "Use this to answer: which devices are affected by CVE-2024-XXXX, show all critical vulnerability sessions. " +
+        "Find enrollment sessions whose software inventory reported a given CVE (requires vulnerability scanning to be " +
+        "enabled): which devices are affected by CVE-YYYY-NNNN, narrowed by minCvssScore / overallRisk. " +
         "The per-session vulnerability report (get_session_summary / vulnerability_report event) lists each CVE with " +
-        "cvssScore, cvssVector, isKev, epssScore (FIRST EPSS, 0-1), epssPercentile and priority (act/attend/track). " +
-        "This endpoint is fully paginated — there is no truncation. The default pageSize=" + DEFAULT_FIRST_PAGE_SIZE + " is tuned for typical " +
-        "interactive queries; raise it (up to 1000) for full exposure audits. For \"how many of my devices have CVE-X\" " +
-        "use pageSize=1000 and follow nextLink repeatedly until absent. Pass the whole nextLink string as " +
-        "\"continuation\" so all backend-echoed query params (cveId, minCvssScore, overallRisk) round-trip correctly.",
+        "cvssScore, cvssVector, isKev, epssScore (FIRST EPSS, 0-1), epssPercentile and priority (act/attend/track).",
       inputSchema: {
         cveId: z.string()
           .regex(/^CVE-\d{4}-\d{4,}$/i, 'Must be a CVE identifier like "CVE-2024-21447" (CVE-YYYY-NNNN+).')
           .describe('CVE identifier (e.g. "CVE-2024-21447"). Validated — a non-CVE string is rejected, not silently empty.'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         minCvssScore: z.coerce.number().min(0).max(10).optional().describe('Minimum CVSS score filter (e.g. 7.0 for high+critical)'),
         overallRisk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many affected sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
-        continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Raise it for a full exposure audit.')),
+        continuation: z.string().optional().describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -818,11 +771,10 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'List Blocked Devices',
       description:
-        'List devices currently blocked from enrolling. Blocked devices have their enrollment sessions rejected by the backend. ' +
-        'Global Admin only — both the tenant-scoped (?tenantId=) and cross-tenant variants of this endpoint require Global Admin. ' +
-        'Tenant Admins and Operators receive 403 (the backend manages the device block list as a platform-wide concern).',
+        'List devices currently blocked from enrolling; the backend rejects their enrollment sessions. The block list is ' +
+        'platform-wide.',
       inputSchema: {
-        tenantId: z.string().optional().describe('Tenant ID to scope results. Optional — both forms require Global Admin.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
       },
       annotations: READ_ONLY,
     },
@@ -850,15 +802,15 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'IME Pattern Health',
       description:
-        'Operator view of IME log-pattern drift: for every IME agent version, how many sessions reported the ' +
-        'session-end pattern histogram and in what share of them each shipped pattern matched (cells), which ' +
-        'version is the fleet baseline, which patterns are EXPECTED (>= expectedHitRate on the baseline), and the ' +
-        'open drift alerts (an expected pattern that matched in none of >= minCandidateSessions sessions on a newer ' +
-        'version — Microsoft probably changed the log wording). Workflow on an alert: search_sessions with ' +
-        'imeAgentVersion=<version> -> get_session_diagnostics on a session with a package -> validate the pattern ' +
-        'against the real IME log -> compare with the IME decompile -> fix the pattern in rules/ime-log-patterns. ' +
-        'Only sessions that reached a terminal run report a histogram (crashes/kills are excluded from the denominator). ' +
-        'catalog says where the shipped-pattern list comes from (the last GitHub reseed or the deployed backend build) and when it was written.',
+        'IME log-pattern drift: per IME agent version, how many sessions reported the session-end pattern histogram ' +
+        'and in what share of them each shipped pattern matched (cells); the fleet baseline version; which patterns ' +
+        'are EXPECTED (>= expectedHitRate on the baseline); and the open drift alerts (an expected pattern that ' +
+        'matched in none of >= minCandidateSessions sessions on a newer version — Microsoft probably changed the log ' +
+        'wording). On an alert: search_sessions with imeAgentVersion=<version> -> get_session_diagnostics on a session ' +
+        'with a package -> validate the pattern against the real IME log -> compare with the IME decompile -> fix it ' +
+        'in rules/ime-log-patterns. Only sessions that reached a terminal run report a histogram (crashes/kills are ' +
+        'excluded from the denominator). catalog says where the shipped-pattern list comes from (the last GitHub ' +
+        'reseed or the deployed backend build) and when it was written.',
       inputSchema: {},
       annotations: READ_ONLY,
     },
@@ -881,10 +833,9 @@ export function registerSessionTools(server: McpServer, ga: boolean, delegated: 
     {
       title: 'IME Version History',
       description:
-        'Get the history of all IME (Intune Management Extension) agent versions seen across enrollments. ' +
-        'Shows when each version was first and last seen, and how many sessions reported it. ' +
-        'This is a permanent archive that survives data retention — useful for tracking Microsoft IME release rollouts over time. ' +
-        'Available to all tenant members (no tenantId needed, data is global).',
+        'History of every IME (Intune Management Extension) agent version seen across enrollments: first and last seen, ' +
+        'session count. A permanent platform-wide archive that survives data retention (no tenantId; data is global) — ' +
+        'tracks Microsoft IME rollouts over time.',
       inputSchema: {},
       annotations: READ_ONLY,
     },

@@ -133,16 +133,19 @@ export function isBenignHealthDetectionReport(
  * existing GA / tenant-user texts; the delegated text is shared so the contract reads identically
  * everywhere.
  */
-export function tenantIdDescription(ga: boolean, delegated: boolean, gaText: string, tenantText: string): string {
+export function tenantIdDescription(
+  ga: boolean,
+  delegated: boolean,
+  gaText = 'Scope to one tenant; omit for cross-tenant.',
+  tenantText = 'Optional; defaults to your tenant.',
+): string {
   if (delegated) {
     // Deliberately says nothing about pagination: this string is shared across tools whose follow-up
     // pages behave differently — backend-nextLink pagers re-send tenantId inside the continuation, but
     // offset-based client-side pagers (geo-offset:/inv-offset:) still need it re-passed every page. The
     // per-tool `continuation` arg description owns those mechanics; here we only state the invariant.
-    return 'REQUIRED: name the tenant to query — one of YOUR managed tenants (delegated/MSP), or your own ' +
-      'home tenant if you are a member of it. There is no cross-tenant aggregate here and no implicit default — ' +
-      'every query must name a specific tenant. Call list_tenants to see your tenants with display names; ' +
-      'for a bounded overview across ALL your managed tenants call get_fleet_overview instead.';
+    // Short on purpose: the instructions carry the managed-tenant list, list_tenants and get_fleet_overview.
+    return 'REQUIRED: one of your managed tenants (or your own home tenant if you are a member); there is no default.';
   }
   return ga ? gaText : tenantText;
 }
@@ -318,4 +321,24 @@ function overflowResult(data: unknown, responseChars: number, maxResultSizeChars
       [OVERFLOW_META_KEY]: { responseChars },
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Shared argument descriptions. The catalog is always-on model context (D-269): mechanics that
+// every paginated tool shares are said once here (and once in the server instructions), so a
+// tool's own text carries only what is specific to it.
+// ---------------------------------------------------------------------------
+
+/** pageSize: the follow-up-call rule lives in the instructions; only the bounds are per tool. */
+export function pageSizeDescription(defaultSize: number, max = 1000, note?: string): string {
+  return `Rows per page (1-${max}; default ${defaultSize} on the first page).${note ? ` ${note}` : ''}`;
+}
+
+/** continuation: the nextLink is preferred because it echoes the backend-resolved filters. */
+export const CONTINUATION_DESCRIPTION =
+  'The whole nextLink string from the previous response (preferred — it carries the resolved filters) or its opaque continuation value.';
+
+/** days: a trailing window ending now. */
+export function daysDescription(defaultDays: number, max: number, note?: string): string {
+  return `Trailing window in days (1-${max}; default ${defaultDays}).${note ? ` ${note}` : ''}`;
 }

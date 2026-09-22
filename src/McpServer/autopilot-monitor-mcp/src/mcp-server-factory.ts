@@ -52,14 +52,11 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
   const scopeLine = ga
     ? 'Scope: omit tenantId for cross-tenant queries (platform scope); pass tenantId to scope to one tenant.'
     : delegated
-      ? 'Scope: you are a delegated (MSP) administrator. Every query MUST name a tenant via tenantId — the one ' +
-        'exception is get_fleet_overview, a bounded aggregate across all your managed tenants. ' +
-        `Your managed tenants: ${managedTenants.join(', ')}.` +
-        (homeTenantId ? ` If you are a member of your own home tenant (${homeTenantId}), you may query it by naming it too.` : '') +
-        ' Call list_tenants to resolve these IDs to tenant display names (domainName). ' +
-        'Quota: every request draws on your own organization\'s MCP budget (your home tenant\'s plan, grown by each ' +
-        'delegation slot it has purchased); a read into a managed tenant never draws on that tenant\'s budget and never ' +
-        'blocks it — a tenant-level 429 always means your own organization\'s window is exhausted.'
+      ? 'Scope: delegated (MSP) administrator — every query MUST name a tenant via tenantId (only ' +
+        'get_fleet_overview aggregates over all your managed tenants). ' +
+        `Managed tenants: ${managedTenants.join(', ')}.` +
+        (homeTenantId ? ` Home tenant ${homeTenantId} may be named too if you are a member.` : '') +
+        ' list_tenants resolves IDs to domain names.'
       : 'Scope: all queries are automatically limited to your tenant.';
   // Role-aware headline: everyone below a real Global Admin keeps the exact READ-ONLY
   // contract (and wording) this server has always advertised. A strict GA additionally
@@ -68,26 +65,44 @@ export function buildInstructions(deps: ServerDeps, ga: boolean, strictGa: boole
   const headline = strictGa
     ? 'Autopilot-Monitor is a telemetry server for Windows Autopilot enrollment sessions. All investigation ' +
       'tools are read-only; as a Global Admin you additionally have tenant-configuration write tools ' +
-      '(update_tenant_config, revert_tenant_config). Call get_tenant_config_schema before composing a patch — ' +
-      'it lists every field with its exact name and JSON type. Every config write is snapshotted first and ' +
-      'verified after — use list_tenant_config_backups + revert_tenant_config to roll back.'
+      '(update_tenant_config, revert_tenant_config): call get_tenant_config_schema before composing a patch; ' +
+      'every write is snapshotted first and verified after — list_tenant_config_backups + revert_tenant_config roll back.'
     : 'Autopilot-Monitor is a READ-ONLY telemetry server for Windows Autopilot enrollment sessions.';
+  // Hosts truncate this text (Claude Code: silently at 2048 characters), so the lines are ordered by
+  // what the model must not lose: the role's scope first, then the workflow, then the mechanics.
   return [
     headline,
-    '',
-    'Investigating one session: call get_session_summary FIRST (status, observation coverage, filtered timeline, stats, rule analysis in one call), then drill in. Read coverage.gaps before treating a missing event as evidence — the agent watches only from its own start, and a degraded tracker or collector makes an absence unprovable.',
-    ...(deps.docs
-      ? ['Product questions ("how do I…", "what does X mean", "where is my data stored"): use search_docs — the ' +
-         'published customer documentation. search_knowledge is a DIFFERENT corpus (analysis rules and IME log ' +
-         'patterns) and answers why an enrollment failed, not how the product works.']
-      : []),
-    'Searching events: use search_events (hybrid keyword+semantic ranking; depth="fast" then "deep" for exhaustive recall) for ranked hits, or get_session_events / query_raw_events for the raw unranked stream.',
-    'Counting / aggregating: pass a lean `fields=` projection and use `agentVersionPrefix=`/`imeAgentVersionPrefix=` sweeps to stay under the per-response size cap.',
-    'Pagination: when a response carries `nextLink`, pass that whole string back as `continuation`; stop when it is absent. Results are never silently truncated: a page above a tool\'s response cap is refused with an overflow error that names the pageSize that fits — re-send the same call with it.',
-    'Catalogs: call get_resource(name="event_types"|"device_properties") to discover valid eventType strings and deviceProperties keys before filtering.',
-    'Error codes: lookup_error_code explains one HRESULT / MSI exit code / symbol / IME enforcement state from the shared catalog; search_knowledge finds the rules that name a code.',
     scopeLine,
+    '',
+    'One session: call get_session_summary FIRST (status, coverage, filtered timeline, stats, rule analysis), then drill in. Read coverage.gaps before treating a missing event as evidence — the agent watches only from its own start, and a degraded tracker or collector makes an absence unprovable.',
+    ...(deps.docs
+      ? ['Product questions ("how do I…", "what does X mean"): search_docs = the published customer documentation. ' +
+         'search_knowledge is a DIFFERENT corpus (analysis rules, IME log patterns): why an enrollment failed, not how the product works.']
+      : []),
+    'Events: search_events for ranked hits (hybrid keyword+semantic; depth="fast", then "deep" for exhaustive recall); get_session_events / query_raw_events for the raw unranked stream.',
+    'Counting / aggregating: pass a lean `fields=` projection; sweep versions with `agentVersionPrefix=` / `imeAgentVersionPrefix=`.',
+    'Pagination: pass a response\'s whole `nextLink` back as `continuation`; stop when it is absent. Nothing is silently truncated: a page above a tool\'s response cap is refused with an overflow error naming the pageSize that fits — re-send with it. A follow-up call keeps the nextLink\'s pageSize and projection unless you pass new ones.',
+    'Catalogs: get_resource(name="event_types"|"device_properties") lists valid eventType strings and deviceProperties keys.',
+    'Error codes: lookup_error_code explains one HRESULT / MSI exit code / symbol / IME enforcement state; search_knowledge finds the rules naming it.',
   ].join('\n');
+}
+
+/**
+ * The SDK converts every zod inputSchema with a `$schema` draft URL on top (56 tools = ~3 KB of
+ * catalog that no host needs; the draft is fixed by the protocol). Wrap the `tools/list` handler
+ * the SDK registered and drop the key. Like sortToolCatalog this touches one SDK-internal field
+ * (`_requestHandlers`, the plain method → handler map) and nothing else.
+ */
+function stripSchemaUrls(s: McpServer): void {
+  type ListHandler = (...args: unknown[]) => Promise<{ tools?: Array<{ inputSchema?: Record<string, unknown> }> }>;
+  const internal = s.server as unknown as { _requestHandlers?: Map<string, ListHandler> };
+  const prev = internal._requestHandlers?.get('tools/list');
+  if (!prev) return;
+  internal._requestHandlers!.set('tools/list', async (...args) => {
+    const result = await prev(...args);
+    for (const tool of result.tools ?? []) delete tool.inputSchema?.['$schema'];
+    return result;
+  });
 }
 
 /** Cache lifetime advertised on role-dependent list/discover results (2026-07-28 `ttlMs`). */
@@ -134,6 +149,7 @@ export function createMcpServer(deps: ServerDeps, ga: boolean, strictGa: boolean
     },
   );
   registerTools(s, deps.knowledgeBase, deps.eventTypeIndex, deps.docs, ga, strictGa, delegated);
+  stripSchemaUrls(s);
   registerResources(s);
   // A delegated caller has no platform scope, so prompts get the tenant-user surface (ga=false) —
   // the cross-tenant prompt wording would be misleading for a tenant-bounded MSP user. strictGa

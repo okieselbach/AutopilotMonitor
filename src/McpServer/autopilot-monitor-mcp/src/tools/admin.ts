@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { apiFetch, buildQuery, DEFAULT_FIRST_PAGE_SIZE, effectivePageSize, enforceDelegatedTenant, enforceDelegatedTenantForPage, followNextLink, getCallerUpnDomain, getDelegatedTenantIds, getHomeTenantId, pageSizeForCall, pickGlobalOrTenantPath, scanUntilMatch, scanWithTimeoutFallback, jsonBody } from '../client.js';
 import { withToolTelemetry } from '../telemetry.js';
 import { getResourceContent, assertKnownEventType, RESOURCE_NAMES } from '../resource-catalog.js';
-import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription } from './shared.js';
+import { READ_ONLY, READ_ONLY_OPEN, MUTATING, MAX_RESULT_SIZE_CHARS, LEAN_RAW_EVENT_FIELDS, LEAN_RAW_EVENT_OMISSION, leanFieldSelection, toolResultText, SessionIdSchema, TenantGuidSchema, tenantIdDescription, pageSizeDescription, CONTINUATION_DESCRIPTION, daysDescription } from './shared.js';
 import { toolError } from './error-handler.js';
 import { API_BASE_URL } from '../config.js';
 import { collectDeploymentState } from '../deployment-state.js';
@@ -417,17 +417,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'API Usage',
       description:
-        'Get API/MCP usage statistics. Shows request counts per endpoint per day. ' +
-        'Use to monitor platform usage, identify heavy users, or debug rate limiting. ' +
-        'Use userId for a specific user, daily for aggregated summaries, or neither for global per-record breakdown. ' +
-        'The daily and global breakdowns are Global Admin only; the per-user (userId) view also works for a ' +
-        'Tenant Admin querying a user within their own tenant. ' +
-        'The global per-record breakdown spans every user/endpoint and can run to thousands of rows, so results ' +
-        'are paged: the default pageSize is 50 (these per-record rows are verbose — a bare no-arg call stays under the ' +
-        'inline response budget) and the response carries a "nextLink" when more remain — pass that whole string back ' +
-        'as "continuation" to get the next slice, and stop when nextLink is absent. Raise pageSize (up to 2000) to ' +
-        'amortize round-trips on a full sweep. Narrow with dateFrom/dateTo (default is the full retention window) or ' +
-        'daily=true for a compact summary.',
+        'API/MCP usage statistics: request counts per endpoint per day. Use to monitor platform usage, identify ' +
+        'heavy users, or debug rate limiting. userId gives one user\'s view, daily=true a compact daily summary, ' +
+        'neither the global per-record breakdown (thousands of verbose rows — paged client-side over the full set, ' +
+        'so a larger pageSize saves round-trips). dateFrom/dateTo default to the full retention window.',
       inputSchema: {
         userId: z.string().optional().describe('Specific user object ID to query usage for'),
         tenantId: z.string().optional().describe('Filter usage by tenant ID'),
@@ -435,9 +428,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateTo: z.string().optional().describe('End date (YYYY-MM-DD)'),
         daily: z.boolean().optional().default(false).describe('Return daily aggregated summary instead of per-endpoint breakdown'),
         pageSize: z.coerce.number().int().min(1).max(2000).optional().default(50)
-          .describe('Rows to return per call (1-2000, default 50 — these per-record rows are verbose). Follow nextLink for more; raise it for full sweeps.'),
+          .describe(pageSizeDescription(50, 2000)),
         continuation: z.string().optional()
-          .describe('Pass the whole nextLink string from the prior response to fetch the next slice.'),
+          .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,
     },
@@ -465,18 +458,16 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Geographic Metrics',
       description:
-        'Get geographic distribution of enrollments — where devices are enrolling from, with performance comparisons. ' +
-        'Shows per-location: session counts, success rates, avg/median/p95 duration, throughput, outlier detection, and ' +
-        'API latency (agent→backend HTTP round-trip): medianApiLatencyMs is the robust display metric for judging ' +
+        'Geographic distribution of enrollments — where devices enroll from, with performance comparisons. ' +
+        'Per location: session counts, success rates, avg/median/p95 duration, throughput, outlier detection, and ' +
+        'API latency (agent→backend HTTP round-trip): medianApiLatencyMs is the robust metric for judging ' +
         'backend-region distance (apiLatencyVsGlobalPct compares against the global median); avgApiLatencyMs is the ' +
         'request-weighted mean, which a single corrupt session average can inflate by orders of magnitude. ' +
-        (ga ? 'Omit tenantId for cross-tenant view (Global Admin). ' : '') +
-        'Use get_geographic_sessions to drill into a specific location. ' +
-        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90).',
+        'Use get_geographic_sessions to drill into a location.',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time range in days (1-365). Defaults to 30.'),
+          .describe(daysDescription(30, 365)),
         groupBy: z.enum(['country', 'region', 'city']).optional().default('city')
           .describe('Geographic grouping level (default: "city")'),
       },
@@ -504,27 +495,24 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Geographic Sessions',
       description:
-        'Drill into a specific geographic location and list its enrollment sessions (lean rows). ' +
-        'Preferred: pass the structured country / region / city you saw in get_geographic_metrics ' +
+        'Drill into one geographic location and list its enrollment sessions (lean rows). ' +
+        'Preferred: pass the structured country / region / city seen in get_geographic_metrics ' +
         '(country alone lists the whole country; add region, then city, to narrow). ' +
         'Alternatively pass locationKey verbatim from a get_geographic_metrics row (e.g. "US", ' +
         '"Saxony, DE", or "Falkenstein, Saxony, DE") — any grouping level resolves. ' +
-        'A busy location can hold thousands of sessions, so results are paged: the default pageSize is 50 ' +
-        'and the response carries a "nextLink" when more remain — pass that whole string back as "continuation" ' +
-        'to get the next slice, and stop when nextLink is absent. (Pagination is applied to the location result ' +
-        'set, so raise pageSize for fewer round-trips when you need a full sweep.)',
+        'Pages are cut client-side from the whole location result set, so a larger pageSize saves round-trips.',
       inputSchema: {
         locationKey: z.string().optional().describe('Location key copied verbatim from a get_geographic_metrics row (e.g. "US", "Saxony, DE", "Falkenstein, Saxony, DE"). Any grouping level works. If provided, country/region/city are ignored.'),
         country: z.string().optional().describe('Country filter, matched against the session GeoCountry exactly as shown by get_geographic_metrics (typically a 2-letter code, e.g. "DE", "US", "CH"). Used when locationKey is not provided; lists the whole country on its own.'),
         region: z.string().optional().describe('Region/state filter (e.g. "Saxony", "North Carolina"). Optional; used with country to narrow.'),
         city: z.string().optional().describe('City filter (e.g. "Falkenstein"). Optional; used with country to narrow.'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time range in days (1-365). Defaults to 30.'),
+          .describe(daysDescription(30, 365)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional().default(50)
-          .describe('Sessions to return per call (1-1000, default 50). Follow nextLink for more; raise it for full sweeps.'),
+          .describe(pageSizeDescription(50)),
         continuation: z.string().optional()
-          .describe('Pass the whole nextLink string from the prior response to fetch the next slice.'),
+          .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,
     },
@@ -577,20 +565,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Platform Metrics',
       description:
-        'Get aggregated platform-level agent performance metrics across recent sessions. ' +
-        'Returns: avg/max/p95 CPU, memory (working set, private bytes), network (bytes up/down, latency, requests), ' +
-        'spool queue stats, event delivery latency percentiles, agent crash rates (incl. top exceptions), ' +
-        'top sessions by CPU/memory, and per-agent-version breakdown. Global Admin only. ' +
-        'Only the newest maxSessions sessions inside the window are analyzed (default 100), so on a ' +
-        'busy install widening days alone may not change the result — raise maxSessions to widen the ' +
-        'sample. The response echoes sessionLimit, sessionsScanned, and a truncated flag based on the ' +
-        'sessions actually scanned. days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90). ' +
-        'For per-agent-version percentiles computed server-side, prefer get_agent_efficiency_metrics. ' +
-        'Note totalBytesDown counts the agent\'s own HTTP traffic to the backend, NOT app downloads ' +
-        '(app/Delivery Optimization bytes live in get_app_install_metrics / get_geographic_metrics).',
+        'Aggregated platform-level agent performance metrics across recent sessions: avg/max/p95 CPU, memory ' +
+        '(working set, private bytes), network (bytes up/down, latency, requests), spool queue stats, event delivery ' +
+        'latency percentiles, agent crash rates (incl. top exceptions), top sessions by CPU/memory, and a ' +
+        'per-agent-version breakdown. Only the newest maxSessions sessions inside the window are analyzed, so on a ' +
+        'busy install widening days alone may not change the result — raise maxSessions. The response echoes ' +
+        'sessionLimit, sessionsScanned and a truncated flag. For per-agent-version percentiles computed server-side ' +
+        'prefer get_agent_efficiency_metrics. totalBytesDown counts the agent\'s own HTTP traffic to the backend, NOT ' +
+        'app downloads (those live in get_app_install_metrics / get_geographic_metrics).',
       inputSchema: {
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365). Defaults to 30.'),
+          .describe(daysDescription(30, 365)),
         maxSessions: z.coerce.number().int().min(1).max(2000).optional().default(100)
           .describe('Newest N sessions in the window to analyze (1-2000, default 100). Raise for a wider sample on busy installs.'),
       },
@@ -695,22 +680,20 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Agent Efficiency Metrics',
       description:
-        'Get agent efficiency metrics aggregated by agent version, computed server-side: ' +
-        'p50/p95/max/avg percentiles for CPU, working set, private bytes, thread count, handle count, ' +
-        'spool depth/file size, API latency and request counts, plus crash rates (incl. top exceptions) ' +
-        'and spool-pressure session counts per version. Includes an overall cross-version bucket and ' +
-        'the top offender sessions per dimension (maxCpuPercent / maxWorkingSetMb / maxHandleCount) — ' +
-        'drill into those with get_session_summary only when a threshold is violated, instead of ' +
-        'pulling raw snapshot rows. Compare sessionsScanned against sessionLimit to detect truncation. ' +
-        'Global Admin only. Omit tenantId for the cross-tenant aggregate; pass it to scope to one tenant. ' +
-        'Prefer this over get_platform_metrics for version-comparison and efficiency reviews.',
+        'Agent efficiency metrics aggregated by agent version, computed server-side: p50/p95/max/avg for CPU, ' +
+        'working set, private bytes, thread count, handle count, spool depth/file size, API latency and request ' +
+        'counts, plus crash rates (incl. top exceptions) and spool-pressure session counts per version. Includes an ' +
+        'overall cross-version bucket and the top offender sessions per dimension (maxCpuPercent / maxWorkingSetMb / ' +
+        'maxHandleCount) — drill into those with get_session_summary only when a threshold is violated. Compare ' +
+        'sessionsScanned against sessionLimit to detect truncation. Prefer this over get_platform_metrics for ' +
+        'version comparisons and efficiency reviews.',
       inputSchema: {
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365). Defaults to 30.'),
+          .describe(daysDescription(30, 365)),
         maxSessions: z.coerce.number().int().min(1).max(2000).optional().default(500)
           .describe('Newest N sessions in the window to analyze (1-2000, default 500).'),
         tenantId: z.string().optional()
-          .describe('Optional tenant GUID to scope the aggregate to a single tenant. Omit for cross-tenant.'),
+          .describe(tenantIdDescription(ga, delegated)),
       },
       annotations: READ_ONLY,
     },
@@ -735,16 +718,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Usage Metrics',
       description:
-        (ga
-          ? 'Get usage statistics. Omit tenantId for the cross-tenant platform overview (Global Admin), or pass tenantId to filter it to a single tenant. '
-          : 'Get usage statistics for your tenant: session volumes, feature adoption, success rate, active users. ') +
-        'days accepts any value 1-365 (e.g. 5, 7, 12, 30, 90). ' +
+        'Usage statistics: session volumes, feature adoption, success rate, active users' +
+        (ga ? ' — platform-wide or for one tenant. ' : ' for your tenant. ') +
         'Tenant-scoped responses also carry sessions.totalAllTime — the cumulative enrollment count since the ' +
         'tenant signed up (retention-independent, unaffected by days); all other session counts are window-bound.',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter the platform-wide view to a single tenant (Global Admin only). Omit for the whole platform.', 'Optional; ignored — usage is scoped to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, undefined, 'Ignored — usage is scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365). Defaults to 30. Sessions.Total / Tenants.Total reflect this window.'),
+          .describe(daysDescription(30, 365, 'Sessions.Total / Tenants.Total reflect this window.')),
       },
       annotations: READ_ONLY,
     },
@@ -778,18 +759,18 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         (delegated
           ? 'Bounded aggregate across ALL the tenants you manage as a delegated (MSP) administrator — the only tool that ' +
             'needs no tenantId. '
-          : 'Platform-wide enrollment overview across every tenant (Global Admin / Reader). ') +
+          : 'Platform-wide enrollment overview across every tenant. ') +
         'Returns enrollment stats (counts, success rate, durations, today) plus the most recent sessions, merged ' +
         'server-side newest-first' + (delegated ? ' and bounded to your managed tenants' : '') + '. ' +
-        'For filtered searches or one tenant use search_sessions / get_session_summary with a tenantId. Pagination of the ' +
-        'session list: pass the whole nextLink back as "continuation" (stats come with the first page only).',
+        'For filtered searches or one tenant use search_sessions / get_session_summary with a tenantId. ' +
+        'Stats come with the first page only.',
       inputSchema: {
         days: z.coerce.number().int().min(1).max(365).optional().default(7)
-          .describe('Window in days for the stats and the session list (1-365, default 7).'),
+          .describe(daysDescription(7, 365, 'Applies to the stats and the session list.')),
         pageSize: z.coerce.number().int().min(1).max(200).optional()
-          .describe('Sessions per page (1-200; default ' + FLEET_OVERVIEW_PAGE_SIZE + ' on the first page). On a follow-up call an explicit value overrides the pageSize embedded in the nextLink; omit it to keep that size.'),
+          .describe(pageSizeDescription(FLEET_OVERVIEW_PAGE_SIZE, 200)),
         continuation: z.string().optional()
-          .describe('The full nextLink from a prior response to fetch the next page of sessions (stats are not repeated).'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -833,34 +814,28 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
             'resolve a tenant\'s display name (domainName) to the tenantId that every other tool requires ' +
             '(e.g. "sessions of tenant contoso.com" → look up its tenantId here first). '
           : 'List onboarded tenants with their identity, plan tier, and lifecycle status (onboarded/disabled dates). ' +
-            'Global Admin only. Use this to discover tenant IDs for the tenantId parameter of other tools when running ' +
-            'cross-tenant investigations. ') +
-        'Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped ' +
-        'server-side. Tenants are sorted by tenantId and returned in pages (default 100). For lean ID discovery pass ' +
-        '`fields=tenantId,domainName` — the projection is applied server-side and is echoed in nextLink, so it carries ' +
-        'across every page automatically. ' +
-        'RESOLVE A TENANT DIRECTLY (no manual paging): pass `query` to substring-match a name — e.g. query="contoso" ' +
-        'returns contoso.com with its tenantId in one call — or pass `tenantId` to fetch that exact entry. In either ' +
-        'filter mode the tool auto-paginates internally and returns only the matches (no "continuation" needed). ' +
-        'Pagination (only when NEITHER filter is set): when "nextLink" is present, more tenants are available — call ' +
-        'again and pass that whole string back as "continuation". Stop when nextLink is absent.',
+            'Use it to discover tenant IDs for the tenantId parameter of other tools. ') +
+        'Returns only non-sensitive fields — secrets (webhook URLs, SAS URLs) are stripped server-side. ' +
+        'Tenants are sorted by tenantId. For lean ID discovery pass `fields=tenantId,domainName`. ' +
+        'RESOLVE A TENANT DIRECTLY: pass `query` to substring-match a name (query="contoso" returns contoso.com with ' +
+        'its tenantId) or `tenantId` to fetch that exact entry; in either filter mode the tool auto-paginates ' +
+        'internally and returns only the matches, with no continuation. Pagination applies only when neither ' +
+        'filter is set.',
       inputSchema: {
         query: z.string().optional()
-          .describe('Resolve a tenant by name: case-insensitive substring match against domainName (the human-readable ' +
-                    'label — there is no separate displayName) and, forgivingly, against tenantId. e.g. "contoso" → contoso.com. ' +
-                    'Auto-paginates internally and returns every match in one call. Ignored if tenantId is also set.'),
+          .describe('Resolve a tenant by name: case-insensitive substring match against domainName (there is no separate ' +
+                    'displayName) and, forgivingly, against tenantId. Auto-paginates internally and returns every match in one ' +
+                    'call. Ignored if tenantId is also set.'),
         tenantId: z.string().optional()
-          .describe('Fetch exactly one tenant by its (case-insensitive) tenantId. Returns that single entry, or an empty ' +
-                    'list if no such tenant exists. Takes precedence over query.'),
+          .describe('Fetch exactly one tenant by its (case-insensitive) tenantId; an empty list if none exists. Takes ' +
+                    'precedence over query.'),
         fields: z.string().optional()
-          .describe('Comma-separated subset of safe fields to return (e.g. "tenantId,domainName" for lean ID discovery). ' +
-                    'tenantId is always included. Default: all safe fields. Applied server-side; unknown/secret keys are ignored.'),
+          .describe('Comma-separated subset of safe fields to return (e.g. "tenantId,domainName"). tenantId is always ' +
+                    'included; default: all safe fields. Applied server-side; unknown/secret keys are ignored.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default 100 on the first page) for the unfiltered listing. Ignored in filter mode (query/tenantId), ' +
-                    'which scans with a large internal page size. Tenants are sorted by tenantId; follow nextLink to fetch more. ' +
-                    'On a follow-up call an explicit value overrides the pageSize embedded in the nextLink; omit it to keep that size.'),
+          .describe(pageSizeDescription(100, 1000, 'Ignored in filter mode (query/tenantId).')),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (pageSize, fields) round-trip correctly. Ignored in filter mode.'),
+          .describe(CONTINUATION_DESCRIPTION + ' Ignored in filter mode.'),
       },
       annotations: READ_ONLY,
     },
@@ -949,18 +924,12 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Audit Logs',
       description:
-        'Get audit trail of administrative actions: config changes, device blocks, user management, report submissions. ' +
-        (ga ? 'Omit tenantId for cross-tenant audit log (Global Admin). ' : '') +
-        'Forensics: dateFrom / dateTo (ISO 8601 UTC) bound the search window exactly; without either, the backend defaults to the last 30 days. ' +
-        'Narrow further with exact-match field filters — action (e.g. "config_updated", "device_blocked"), performedBy (actor UPN), ' +
-        'entityType (e.g. "TenantConfiguration", "Device"), entityId (the affected entity\'s id). All are applied server-side and ' +
-        'are case-sensitive equality matches; combine them to answer questions like "every action alice@contoso.com took on this device". ' +
-        'Pagination: when "nextLink" is present in the response, more entries are available — call this tool again and pass the ' +
-        'whole nextLink string (e.g. "/api/global/audit/logs?pageSize=...&continuation=...&dateFrom=...&dateTo=...") as ' +
-        '"continuation". The tool follows it verbatim so the backend-defaulted date window AND any field filters round-trip ' +
-        'correctly (otherwise a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
+        'Audit trail of administrative actions: config changes, device blocks, user management, report submissions. ' +
+        'dateFrom / dateTo (ISO 8601 UTC) bound the window exactly; without either the backend defaults to the last 30 days. ' +
+        'action, performedBy, entityType and entityId are server-side, case-sensitive equality filters; combine them ' +
+        '(e.g. every action one actor took on one device).',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID for tenant-scoped audit log. Omit for cross-tenant view (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the audit window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the audit window.'),
         action: z.string().optional().describe('Exact-match filter on the action (e.g. "config_updated", "device_blocked", "deletion_started").'),
@@ -968,9 +937,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         entityType: z.string().optional().describe('Exact-match filter on the affected entity type (e.g. "TenantConfiguration", "Device", "User").'),
         entityId: z.string().optional().describe('Exact-match filter on the affected entity id (e.g. a tenantId, deviceId, or report id).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many entries per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and field filters) round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1000,37 +969,33 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Operational Events',
       description:
-        'Get operational events for platform monitoring. Shows consent flow results, maintenance runs, security blocks, ' +
-        'tenant offboards, agent timeouts, and blob storage health. Global Admin only. ' +
-        'FILTER FIRST — every filter below is applied by the STORAGE QUERY, so a narrow question costs a narrow response: ' +
+        'Operational events for platform monitoring: consent flow results, maintenance runs, security blocks, ' +
+        'tenant offboards, agent timeouts, blob storage health. ' +
+        'FILTER FIRST — every filter is applied by the storage query, so a narrow question costs a narrow response: ' +
         'eventType for one exact type (e.g. "AgentEmergencyBreak"), severity / minSeverity for one level or a threshold, ' +
-        `category to narrow to ${OPS_EVENT_CATEGORIES.join(', ')}, days / dateFrom / dateTo for the window. ` +
-        'Do NOT pull a whole category and filter the events yourself — name the filter instead. ' +
-        'Window: days=1 is the last 24h (shorthand, ignored when dateFrom or dateTo is given); dateFrom / dateTo (ISO 8601 UTC) ' +
-        'bound it exactly; with none of the three, the backend defaults to the last 30 days. ' +
-        'eventType is an EXACT, case-sensitive match against the stored type; call get_resource(name="ops_event_types") ' +
-        'for the full vocabulary. An unknown type is not an error, it is an empty result. ' +
-        'Pagination: when "nextLink" is present in the response, more events are available — call this tool again and pass the ' +
-        'whole nextLink string (e.g. "/api/global/ops-events?pageSize=...&continuation=...&dateFrom=...&dateTo=...") as ' +
-        '"continuation". The tool follows it verbatim so the backend-defaulted date window and the filters round-trip correctly ' +
-        '(otherwise a follow-up call would compute a fresh "now" and the token fingerprint would mismatch). Stop when nextLink is absent.',
+        `category (${OPS_EVENT_CATEGORIES.join(', ')}), days / dateFrom / dateTo for the window. ` +
+        'Do NOT pull a whole category and filter the events yourself. ' +
+        'Window: days=1 is the last 24h (ignored when dateFrom or dateTo is given); dateFrom / dateTo (ISO 8601 UTC) ' +
+        'bound it exactly; with none of the three the backend defaults to the last 30 days. ' +
+        'eventType is an EXACT, case-sensitive match against the stored type — get_resource(name="ops_event_types") lists ' +
+        'the vocabulary; an unknown type is an empty result, not an error.',
       inputSchema: {
         category: z.enum(OPS_EVENT_CATEGORIES).optional().describe('Filter by category (OpsEvents partition key).'),
         eventType: z.string().optional()
-          .describe('Exact event type, case-sensitive (e.g. "AgentEmergencyBreak", "MaintenanceFailed"). Applied server-side — prefer this over fetching a whole category.'),
+          .describe('Exact event type, case-sensitive (e.g. "AgentEmergencyBreak", "MaintenanceFailed"). Prefer this over fetching a whole category.'),
         severity: z.enum(OPS_EVENT_SEVERITIES).optional()
-          .describe('Exact severity. Use minSeverity instead when you want "this level and worse".'),
+          .describe('Exact severity. Use minSeverity instead for "this level and worse".'),
         minSeverity: z.enum(OPS_EVENT_SEVERITIES).optional()
-          .describe('Threshold: this severity and everything above it (Info < Warning < Error < Critical) — the same ladder the ops alert rules use.'),
-        tenantId: z.string().optional().describe('Optional — filter events to a single tenant. Omit for cross-tenant view.'),
+          .describe('Threshold: this severity and everything above it (Info < Warning < Error < Critical) — the ladder the ops alert rules use.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(90).optional()
-          .describe('Shorthand window: only events from the last N days (1 = last 24h). Ignored when dateFrom or dateTo is given.'),
+          .describe('Shorthand window: only events from the last N days (1-90; 1 = last 24h). Ignored when dateFrom or dateTo is given.'),
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound of the window.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive upper bound of the window.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many events per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params (incl. resolved dateFrom/dateTo and filters) round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1068,27 +1033,24 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Verdict Calibration (classifier thermometer)',
       description:
         'Answer "which code path produced our session verdicts, and does any of them look wrong?". Per verdict ' +
-        'path (VerdictPaths vocabulary — agent:complete, agent:failed, sweep:r5_incomplete, maxlife:r6, ' +
-        'late:r4, retro:r6, rule:<id>, manual:failed, register:superseded, legacy:* for pre-instrumentation ' +
-        'rows derived read-side): session count and share in the window, derivedCount (rows attributed by ' +
-        'derivation — weaker evidence), the 7-day re-enrollment proxy (eligible7d = terminal sessions old ' +
-        'enough to judge, reEnrolled7d = the same device registered another terminal session within 7 days; ' +
-        'reEnrollRatePct is null below 20 eligible), the correction stream attributed to the PRIOR path ' +
-        '(overriddenByAdmin / overriddenByLateCompletion / overriddenOther — a path that is frequently ' +
-        'overridden was wrong), and a 7d-vs-28d share trend (window7, baseline28, lift; lift null without ' +
-        'baseline; window/baseline denominators are the single `trend.windowSessions` / `trend.baselineSessions`). ' +
-        'reEnrollRatePct and lift are always present — null means withheld, not missing. Read it as calibration: ' +
-        'a Succeeded path whose re-enrollment rate sits at Failed level reconciles too boldly; an Incomplete ' +
-        'path whose rate matches the Succeeded background is too cautious; a rising sweep:*/maxlife:* share ' +
-        'is an agent-liveness signal, not a classifier one. Omit tenantId for the cross-tenant aggregate, or ' +
-        'pass tenantId to scope to one tenant. minSharePct / top trim the long tail of one-session paths ' +
-        '(rows carrying overrides are never trimmed); what was dropped is reported in `omitted`, totals and ' +
-        'trend always cover the full window. Rows come from the 2-hourly maintenance sweep (computedAt); ' +
-        'empty before its first run.',
+        'path (agent:complete, agent:failed, sweep:r5_incomplete, maxlife:r6, late:r4, retro:r6, rule:<id>, ' +
+        'manual:failed, register:superseded, legacy:* for pre-instrumentation rows derived read-side): session ' +
+        'count and share in the window, derivedCount (attributed by derivation — weaker evidence), the 7-day ' +
+        're-enrollment proxy (eligible7d = terminal sessions old enough to judge, reEnrolled7d = the same device ' +
+        'registered another terminal session within 7 days; reEnrollRatePct is null below 20 eligible), the ' +
+        'correction stream attributed to the PRIOR path (overriddenByAdmin / overriddenByLateCompletion / ' +
+        'overriddenOther — a frequently overridden path was wrong), and a 7d-vs-28d share trend (window7, ' +
+        'baseline28, lift; lift null without baseline; denominators are `trend.windowSessions` / ' +
+        '`trend.baselineSessions`). reEnrollRatePct and lift are always present — null means withheld, not ' +
+        'missing. Read it as calibration: a Succeeded path with a Failed-level re-enrollment rate reconciles too ' +
+        'boldly; an Incomplete path at the Succeeded background is too cautious; a rising sweep:*/maxlife:* share ' +
+        'is an agent-liveness signal, not a classifier one. minSharePct / top trim the long tail (rows carrying ' +
+        'overrides are never trimmed); `omitted` reports what was dropped, totals and trend always cover the full ' +
+        'window. Rows come from the 2-hourly maintenance sweep (computedAt); empty before its first run.',
       inputSchema: {
-        tenantId: z.string().optional().describe('Optional — scope to one tenant. Omit for the cross-tenant aggregate.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(180).optional()
-          .describe('Window in days (default 30, max 180 — aggregate retention). The 7d/28d trend is always today-anchored.'),
+          .describe(daysDescription(30, 180, 'The 7d/28d trend is always today-anchored.')),
         minSharePct: z.coerce.number().min(0).max(100).optional()
           .describe('Drop paths whose share of the window is below this percentage (e.g. 1). Paths with overrides are always kept.'),
         top: z.coerce.number().int().min(1).max(100).optional()
@@ -1113,17 +1075,14 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'List Session Reports',
       description:
-        'List session reports submitted by tenant admins. Reports contain user comments, screenshots, and agent logs for troubleshooting. ' +
-        'Global Admin only — returns reports across all tenants by default; pass tenantId to filter to one tenant. ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
-        'interactive queries; raise it (up to 1000) for bulk pulls. Pass the whole nextLink string as "continuation" so ' +
-        'all backend-echoed query params round-trip correctly.',
+        'List session reports submitted by tenant admins: user comments, screenshots, and agent logs for ' +
+        'troubleshooting. Fetch one with get_session_report_download (blobName).',
       inputSchema: {
-        tenantId: z.string().optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many reports per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1157,17 +1116,16 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'List custom gather/analyze rules that tenant admins submitted for the community pool, newest first, with ' +
         'the effective status (pending | approved | declined | withdrawn | published — "published" is derived: the ' +
-        'approved rule\'s published id exists in the global catalog). Platform scope; pass tenantId to filter to one ' +
-        'tenant and status to one status. Each row carries the submission id — pass it to get_rule_submission for the ' +
-        'frozen rule, findings, fire stats and the repo-ready file. Fully paginated; pass the whole nextLink as "continuation".',
+        'approved rule\'s published id exists in the global catalog). Each row carries the submission id — pass it to ' +
+        'get_rule_submission for the frozen rule, findings, fire stats and the repo-ready file.',
       inputSchema: {
-        tenantId: TenantGuidSchema.optional().describe('Optional — filter to a single tenant. Omit for the cross-tenant view.'),
+        tenantId: TenantGuidSchema.optional().describe(tenantIdDescription(ga, delegated)),
         status: z.enum(RULE_SUBMISSION_STATUSES).optional()
-          .describe('Optional — one effective status. "published" lists the approved submissions whose rule is live in the global catalog.'),
+          .describe('One effective status. "published" lists the approved submissions whose rule is live in the global catalog.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Follow nextLink for more.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('The "continuation" value or the full nextLink path of a prior response; the latter is preferred.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1230,7 +1188,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Review Rule Submission',
       description:
-        'Record the decision on a submitted rule. Global Admin only. approve needs publishedRuleId — the reserved ' +
+        'Record the decision on a submitted rule. approve needs publishedRuleId — the reserved ' +
         'built-in id the rule will ship under (ANALYZE-<CAT>-NNN / GATHER-<CAT>-NNN, three digits; take ' +
         'suggestedPublishedRuleId from get_rule_submission unless you have a reason not to) — and may set ' +
         'willBeAdapted when the published rule will differ from the submitted one. decline needs reviewComment. ' +
@@ -1273,7 +1231,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Delete Rule Submission',
       description:
         'Hard-delete one rule submission so it disappears from the operator list and the submitting tenant\'s list ' +
-        'alike. Global Admin only; not part of normal operations — for test and demo submissions, or when a tenant asks ' +
+        'alike. Not part of normal operations — for test and demo submissions, or when a tenant asks ' +
         'for removal. A rule already published from the submission stays in the repository and the catalog.',
       inputSchema: {
         submissionId: z.string().trim().regex(/^[0-9a-f]{12}$/i).describe('The 12-character submission id.'),
@@ -1301,7 +1259,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Pull the rule catalog of one kind from the public repository\'s main branch (rules/dist) into the global ' +
         'rule partition — the step that makes a committed and pushed community rule live for every tenant without a ' +
-        'backend deploy. Global Admin only. Also sunsets GitHub-sourced rules the repository no longer ships, so run it ' +
+        'backend deploy. Also sunsets GitHub-sourced rules the repository no longer ships, so run it ' +
         'only after the push landed. Returns deleted/written counts; the proof of a publish is get_rule_submission ' +
         'showing status "published", not this count.',
       inputSchema: {
@@ -1360,8 +1318,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       description:
         'Returns a short-lived, ready-to-use download URL for one blob of the operator session-reports store: ' +
         'the report ZIP a tenant admin submitted (blobName from list_session_reports), the preserved copy of the ' +
-        'session\'s diagnostics archive (diagnosticsBlobName, when the reporter attached it), or a diag-files report. ' +
-        'Global Admin / Global Reader only.\n\n' +
+        'session\'s diagnostics archive (diagnosticsBlobName, when the reporter attached it), or a diag-files report.\n\n' +
         'CLIENT REQUIREMENT: needs a client that can download files and run local file/shell tools (e.g. Claude ' +
         'Code); a pure chat client only gets a link a human can open.\n\n' +
         'HOW TO USE: download the ZIP from "downloadUrl" — NO auth header (short-lived signed ticket, ~10 min) — ' +
@@ -1426,10 +1383,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         '(root_cause_confirmed | analysis_wrong | different_problem | inconclusive), an optional free-text note, the ' +
         'author, and a snapshot of the rule ids that had fired for the session at write time (ruleIds). ' +
         'Evaluate rule quality by filtering: verdict + ruleId → confirmed vs false-positive rate per rule; ' +
-        'lane=globaladmin → the platform team\'s own labels. Platform scope only. ' +
-        'Pagination: when "nextLink" is present, pass the whole string back as "continuation"; stop when absent.',
+        'lane=globaladmin → the platform team\'s own labels.',
       inputSchema: {
-        tenantId: TenantGuidSchema.optional().describe('Optional — filter to a single tenant. Omit for cross-tenant view.'),
+        tenantId: TenantGuidSchema.optional().describe(tenantIdDescription(ga, delegated)),
         lane: z.enum(ANNOTATION_LANES).optional()
           .describe('Optional — filter to one annotation lane.'),
         verdict: z.enum(ANNOTATION_VERDICTS).optional()
@@ -1442,9 +1398,9 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         dateFrom: z.string().optional().describe('ISO 8601 UTC timestamp — inclusive lower bound on the last-updated time.'),
         dateTo: z.string().optional().describe('ISO 8601 UTC timestamp — exclusive upper bound on the last-updated time.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many annotations per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so all filters round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1473,7 +1429,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
       title: 'Annotate Session',
       description:
         'Write the platform team\'s annotation on an enrollment session — a structured verdict about the analysis ' +
-        'plus an optional note. Global Admin only; always writes the platform-internal "globaladmin" lane (never a ' +
+        'plus an optional note. Always writes the platform-internal "globaladmin" lane (never a ' +
         'tenant\'s own lanes), which tenant users cannot see. Use after debugging a session to label it: verdict ' +
         'root_cause_confirmed | analysis_wrong | different_problem | inconclusive. The backend stamps the author from ' +
         'your identity and snapshots the currently-fired rule ids onto the annotation for later rule-quality ' +
@@ -1513,41 +1469,21 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Query Raw Events',
       description:
-        'RAW CROSS-SESSION EVENT QUERY (fallback for broader scope). ' +
-        'Query raw enrollment events with flexible filters across sessions. ' +
-        (ga ? 'Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant. ' : '') +
-        'Use this when search_events does not cover the time range or session scope you need, ' +
-        'or when you need exact event-type filtering across many sessions. ' +
-        'Returns the LITERAL stored Events rows — every column verbatim, PascalCase, incl. ' +
-        'PartitionKey/RowKey/Timestamp. It is deliberately UNENRICHED: "DataJson" is the raw stored ' +
-        'string (not parsed), Severity/Phase are the raw ints, and there are no decoded Win32/NTSTATUS ' +
-        'error meanings. For the enriched/structured stream (parsed Data, decoded error text) use ' +
-        'get_session_events or search_events instead. ' +
-        'eventType is validated against the event_types catalog — a typo is rejected with a clear error, not a silent ' +
-        'empty result. When you filter, the tool auto-scans forward past empty pages, so a returned "count": 0 with no ' +
-        '"nextLink" means truly no matches, while "moreToScan": true means the per-call scan budget was hit (pass ' +
-        'nextLink as "continuation" to keep scanning). ' +
-        'This endpoint is fully paginated — there is no truncation. The default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + ' is tuned for typical ' +
-        'interactive queries; raise it (up to 1000) for forensics-grade exact recall. For broad analysis, use ' +
-        'pageSize=1000 and follow nextLink repeatedly until absent. EXCEPTION: a page that includes DataJson (named in ' +
-        'fields, or a filtered read without fields) is capped at pageSize=' + RAW_EVENTS_PAYLOAD_PAGE_MAX + ' (default ' +
-        RAW_EVENTS_PAYLOAD_PAGE_DEFAULT + ') — the payload carries kilobytes per row, and a larger value is refused before ' +
-        'any work is done. Pass the whole nextLink string as "continuation" ' +
-        'so all backend-echoed query params round-trip correctly. Note: pageSize is the index-scan cadence — a single ' +
-        'indexed session can contribute multiple events, so total events per page may exceed pageSize. ' +
-        'The server bounds every page by a scan budget: a page that ends early carries "partial": true — nothing is ' +
-        'missing up to its nextLink, simply keep following it. If a call still times out, the tool retries once with ' +
-        'a halved pageSize on the same cursor and marks the page with "retriedWithPageSize". ' +
-        'startedAfter/startedBefore filter on the EVENT time (the sanitized agent timestamp — OccurredUtc, or the ' +
-        'RowKey prefix on older rows), not on the raw "Timestamp" column, which is the storage write time and is ' +
-        'reset by storage migrations. ' +
-        'For COUNTING / AGGREGATION pass a lean `fields=` projection (e.g. `fields=EventType,Severity,OccurredUtc`) — ' +
-        'a pure pass-through over the real column names that drops the heavy `DataJson` payload (a single ' +
-        'app_install_failed event can be tens of KB), so responses stay small; PartitionKey + RowKey are always ' +
-        'kept. ' +
-        (ga ? 'When querying by sessionId you may omit tenantId — it is auto-resolved from the session (Global Admin).' : ''),
+        'Raw cross-session event query: the LITERAL stored Events rows — every column verbatim, PascalCase, incl. ' +
+        'PartitionKey/RowKey/Timestamp. Deliberately unenriched: DataJson is the raw stored string (not parsed), ' +
+        'Severity/Phase are raw ints, no decoded error meanings; for the enriched stream use get_session_events or ' +
+        'search_events. Use it when search_events does not cover the time range or session scope, or for exact ' +
+        'event-type filtering across many sessions. eventType is validated against the event_types catalog (a typo ' +
+        'is rejected, not an empty result). With a filter the tool auto-scans past empty pages: "count": 0 without ' +
+        'nextLink means no matches; "moreToScan": true means the per-call scan budget was hit — continue with nextLink. ' +
+        'pageSize is the index-scan cadence (one indexed session can contribute several events, so a page may hold ' +
+        'more than pageSize). A page that ends early carries "partial": true — nothing is missing up to its nextLink. ' +
+        'On a timeout the tool retries once with a halved pageSize on the same cursor and marks the page ' +
+        '"retriedWithPageSize". startedAfter/startedBefore filter on the EVENT time (OccurredUtc, or the RowKey ' +
+        'prefix on older rows), not on the storage-write "Timestamp" column, which storage migrations reset. ' +
+        (ga ? 'With sessionId, tenantId may be omitted (auto-resolved from the session).' : ''),
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant search, or to auto-resolve from a sessionId query (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Scope to one tenant; omit for cross-tenant or to auto-resolve from sessionId.')),
         sessionId: SessionIdSchema.optional().describe('Filter to a specific session'),
         eventType: z.string().optional().describe('Event type filter (e.g. "app_install_failed", "error_detected")'),
         severity: z.enum(EVENT_SEVERITIES).optional(),
@@ -1555,11 +1491,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         startedAfter: z.string().optional().describe('ISO 8601 datetime — only events after this'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime — only events before this'),
         fields: z.string().optional()
-          .describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Stored columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Omitted on an UNFILTERED read (no eventType/severity/source) = every column EXCEPT DataJson (the multi-KB payload), and the response says so (omittedFields); omitted on a FILTERED read = the full raw row including DataJson. List DataJson explicitly to force it either way.'),
+          .describe('Keep-list of column names; PartitionKey + RowKey always kept. Columns: PartitionKey, RowKey, Timestamp (storage write time), OccurredUtc (event time), EventId, SessionId, TenantId, EventType, Severity (int), Source, Phase (int), Message, Sequence, DataJson (raw string), ReceivedAt, SentAt, OriginalTimestamp, TimestampClamped, CausedByTransitionStepIndex, CausedBySignalOrdinal. Default: all but DataJson on an unfiltered read; the full row on a filtered read (eventType/severity/source).'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Index rows walked per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid) — omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE, 1000, 'Index rows walked per call. When the projection includes DataJson the ceiling is ' + RAW_EVENTS_PAYLOAD_PAGE_MAX + ' (default ' + RAW_EVENTS_PAYLOAD_PAGE_DEFAULT + '); a larger value is refused.')),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1609,15 +1545,10 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'PartitionKey/RowKey/Timestamp (e.g. OsEdition, OsDisplayVersion, ImeAgentVersion, GeoRegion/City/Loc, ' +
         'FailureSource, CurrentPhaseDetail, LastEventAt, ResumedAt, StalledAt, PlatformScriptCount, DeletionState, ...). ' +
         'For the curated/typed view (camelCase summary, durationSeconds, deviceProperties filtering) use ' +
-        'search_sessions or get_session instead. ' +
-        (ga ? 'Specify tenantId for a specific tenant, or omit for cross-tenant access (Global Admin only). ' : '') +
-        'For COUNTING / AGGREGATION pass a lean `fields=Status,AgentVersion,StartedAt` (or similar) — a pure pass-through ' +
-        'over the real column names that avoids the response cap fat raw rows trip; PartitionKey + RowKey are always kept. ' +
-        'For VERSION sweeps use `agentVersionPrefix=2.0.` instead of one call per build. ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + '; raise it (up to 1000) for bulk pulls. ' +
-        'Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip correctly.',
+        'search_sessions or get_session instead. For counting pass a lean projection such as ' +
+        '`fields=Status,AgentVersion,StartedAt` (PartitionKey + RowKey are always kept).',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID to query. Omit for cross-tenant access (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         status: z.enum(SESSION_STATUSES).optional(),
         startedAfter: z.string().optional().describe('ISO 8601 datetime'),
         startedBefore: z.string().optional().describe('ISO 8601 datetime'),
@@ -1640,11 +1571,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         isCloudPc: z.boolean().optional().describe('Filter Windows 365 Cloud PC sessions (agent-detected W365 markers, sticky-true; independent of ValidatedBy="CloudPc")'),
         connectionType: z.enum(['WiFi', 'Ethernet']).optional()
           .describe('Active network connection type ("WiFi" or "Ethernet", exact match on the indexed column; last emission wins). Sessions predating the projection lack the column and are excluded.'),
-        fields: z.string().optional().describe('Comma-separated pass-through projection over the literal stored column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); narrows the row but never drops a real column. PartitionKey + RowKey are always kept. Omit for the full raw row.'),
+        fields: z.string().optional().describe('Keep-list of literal column names (case-insensitive, PascalCase, e.g. "Status,OsEdition,ImeAgentVersion,GeoCity"); PartitionKey + RowKey are always kept. Omit for the full raw row.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many sessions per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1684,7 +1615,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     'list_tables',
     {
       title: 'List Tables',
-      description: 'List all available Azure Table Storage tables that can be queried via query_table. Global Admin only.',
+      description: 'List all available Azure Table Storage tables that can be queried via query_table.',
       inputSchema: {},
       annotations: READ_ONLY,
     },
@@ -1704,27 +1635,22 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Query Table',
       description:
-        'Query any Azure Table Storage table directly with OData filters. Table names come from list_tables — a guessed name is a NotFound, not an empty result. Global Admin only. ' +
-        'Use list_tables to see available tables. Useful for inspecting TenantConfiguration, RuleResults, or any raw data ' +
-        'where no specialized tool exists. ' +
-        'For COUNTING / AGGREGATION queries pass `fields=PartitionKey,RowKey,Status,AgentVersion` (or similar lean subset) ' +
-        'to drop unneeded columns client-side — full TableEntity rows can be 1KB+ each and trip the response cap quickly. ' +
-        'This endpoint is fully paginated — there is no truncation. Default pageSize=' + DEFAULT_FIRST_PAGE_SIZE + '; raise it (up to 1000) for ' +
-        'full-table dumps. Pass the whole nextLink string as "continuation" so all backend-echoed query params round-trip ' +
-        'correctly.',
+        'Query any Azure Table Storage table directly with OData filters. Table names come from list_tables — a guessed ' +
+        'name is a NotFound, not an empty result. Useful for TenantConfiguration, RuleResults, or any raw data where no ' +
+        'specialized tool exists. Full TableEntity rows can be 1 KB+ each, so pass a lean `fields=` keep-list for ' +
+        'counting (dropped client-side after fetch).',
       inputSchema: {
         tableName: z.string().describe('Table name (e.g. "Sessions", "Events", "RuleResults", "TenantConfiguration")'),
         partitionKey: z.string().optional().describe('Filter by exact partition key (usually TenantId)'),
         rowKeyPrefix: z.string().optional().describe('Filter by row key prefix'),
         filter: z.string().optional().describe('OData filter expression (e.g. "Status eq \'Failed\'")'),
         fields: z.string().optional()
-          .describe('Comma-separated column names to keep (e.g. "PartitionKey,RowKey,Status"). Other columns are dropped ' +
-                    'client-side after fetch. Useful for aggregation/counting on wide tables. Always includes PartitionKey ' +
-                    'and RowKey for cursor stability.'),
+          .describe('Comma-separated column names to keep (e.g. "PartitionKey,RowKey,Status"); other columns are dropped ' +
+                    'client-side. PartitionKey and RowKey are always kept.'),
         pageSize: z.coerce.number().int().min(1).max(1000).optional()
-          .describe('Page size (1-1000; default ' + DEFAULT_FIRST_PAGE_SIZE + ' on the first page). Returns this many rows per call; follow nextLink for more. On a follow-up call an explicit value overrides the pageSize embedded in the nextLink (the cursor stays valid); omit it to keep the size the nextLink carries.'),
+          .describe(pageSizeDescription(DEFAULT_FIRST_PAGE_SIZE)),
         continuation: z.string().optional()
-          .describe('Either the opaque "continuation" value from a prior response or the full nextLink path — both are accepted; the latter is preferred so backend-echoed query params round-trip correctly.'),
+          .describe(CONTINUATION_DESCRIPTION),
       },
       annotations: READ_ONLY,
     },
@@ -1769,19 +1695,19 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Query Platform Logs (KQL)',
       description:
-        'Run a KQL query against one of the platform telemetry stores. Global Admin only. ' +
+        'Run a KQL query against one of the platform telemetry stores. ' +
         'The query is forwarded VERBATIM (same REST API as az monitor app-insights/log-analytics query); ' +
         'the result is the Kusto shape `tables[].columns/rows` plus `source`, `budgetSeconds`, `elapsedMs` and — ' +
         'when the store cut the result (size cap, shard timeout) — `partial: true` with `partialReason`. ' +
         'Sources: "backend" (default) = the API\'s Application Insights: requests (one canonical row per HTTP call, ' +
         'customDimensions.Source == \'WorkerMiddleware\'), traces, exceptions, customEvents, dependencies; ' +
         '"web" = the portal\'s Application Insights: pageViews, browser customEvents, browserTimings, client dependencies; ' +
-        '"mcp" = the MCP Container App\'s Log Analytics workspace: ContainerAppConsoleLogs_CL (column Log_s is the ' +
-        'raw JSON line — parse_json(Log_s)) and ContainerAppSystemLogs_CL. ' +
-        'Budget: the backend runs the query for at most budgetSeconds (default 30, max 180) and answers 504 with a ' +
-        'hint when exceeded — there is no continuation (Kusto has none): narrow the timespan, aggregate with ' +
-        'summarize, cap rows with take. Both `timespan` and any ago() in the query bound the window; keep them ' +
-        'consistent. Write string literals in single quotes (the call is JSON) and project only the columns you need.',
+        '"mcp" = the MCP Container App\'s Log Analytics workspace: ContainerAppConsoleLogs_CL (Log_s is the raw JSON ' +
+        'line — parse_json(Log_s)) and ContainerAppSystemLogs_CL. ' +
+        'Budget: the backend runs the query for at most budgetSeconds and answers 504 with a hint when exceeded — ' +
+        'there is no continuation (Kusto has none): narrow the timespan, aggregate with summarize, cap rows with take. ' +
+        'Both `timespan` and any ago() in the query bound the window; keep them consistent. Write string literals in ' +
+        'single quotes (the call is JSON).',
       inputSchema: {
         query: z.string().describe('KQL query (e.g. "traces | where message contains \'error\' | take 50")'),
         timespan: z.string().optional().default('PT1H').describe('ISO 8601 duration (default: PT1H = last 1 hour). Examples: PT30M, PT6H, P1D, P7D'),
@@ -1826,7 +1752,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Get Tenant Configuration',
       description:
-        'Read a tenant\'s full configuration (all ~90 settings). Global Admin only. ' +
+        'Read a tenant\'s full configuration (all ~90 settings). ' +
         'Secrets (webhook URLs, SAS URLs, custom headers) are ALWAYS redacted to "***REDACTED***" in this view — ' +
         'never copy a redacted placeholder into update_tenant_config; provide the real value or leave the field out. ' +
         'Use this before update_tenant_config to see current values and exact field names.',
@@ -1877,9 +1803,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Update Tenant Configuration',
       description:
-        'Change specific fields of a tenant\'s configuration — transactional and verified. Global Admin only. ' +
-        'Unsure about a field\'s exact name, type, or writability? Call get_tenant_config_schema FIRST — it lists ' +
-        'every field with its JSON type, so the patch is right on the first attempt. ' +
+        'Change specific fields of a tenant\'s configuration — transactional and verified. ' +
         'Pass ONLY the fields to change (camelCase or PascalCase); omitted fields stay untouched; an explicit JSON ' +
         'null clears a nullable field. The backend snapshots the row first (fail-closed), writes conditionally, ' +
         're-reads, and verifies that exactly the intended fields changed — on any drift it rolls back automatically. ' +
@@ -1919,7 +1843,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'List Tenant Config Backups',
       description:
-        'List a tenant\'s pre-write configuration snapshots, newest first. Global Admin only. ' +
+        'List a tenant\'s pre-write configuration snapshots, newest first. ' +
         'Every config write (portal, plan changes, MCP patches) snapshots the row beforehand; the newest 2 are kept. ' +
         'Returns metadata only — backupId, when, who, source, reason, and a masked field diff (never raw values). ' +
         'Use a backupId with revert_tenant_config to roll a tenant back.',
@@ -1946,7 +1870,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Revert Tenant Configuration',
       description:
-        'Restore a tenant\'s configuration from a named pre-write snapshot. Global Admin only. ' +
+        'Restore a tenant\'s configuration from a named pre-write snapshot. ' +
         'The revert snapshots the CURRENT state first, so a revert is itself revertible — which is exactly why ' +
         'backupId is required and there is no "latest" default: a repeated revert without an id would restore the ' +
         'snapshot the previous revert just created and undo it. Reverting the same backupId twice is a no-op. ' +
@@ -1989,19 +1913,17 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Rule Statistics',
       description:
-        'Get rule firing statistics for analyze and gather rules. Shows which rules fire most often, ' +
-        'their hit rates (fires/evaluations), and daily trends. Use to identify commonly triggered rules, ' +
-        'optimize rule definitions, or understand tenant-specific failure patterns. ' +
+        'Rule firing statistics for analyze and gather rules: which rules fire most often, hit rates ' +
+        '(fires/evaluations), and daily trends. Use to identify commonly triggered rules, optimize rule definitions, ' +
+        'or understand tenant-specific failure patterns. ' +
         'The tenant-scoped response also carries "regressions": active rule-frequency regression episodes ' +
         '(analyze rules whose 7-day hit rate rose >=2x over their 28-day baseline with disjoint Wilson ' +
         'intervals) incl. window/baseline counts and an optional dimension concentration — correlation ' +
-        'only, never causal. ' +
-        (ga ? 'Without tenantId returns global stats (cross-tenant; no regressions there). With tenantId returns tenant-specific stats. ' : '') +
-        'By default per-rule daily trend rows are OMITTED (they dominate response size: one row per rule ' +
-        'per day). Set includeTrends=true to get them — then also pass a tight `startDate`/`endDate` ' +
-        'window (7 days is usually plenty) and/or `ruleType`, or the response can trip the response cap.',
+        'only, never causal' + (ga ? '; the cross-tenant response has none' : '') + '. ' +
+        'Per-rule daily trend rows are OMITTED by default (one row per rule per day); includeTrends=true returns ' +
+        'them — then also pass a tight `startDate`/`endDate` window (7 days is usually plenty) and/or `ruleType`.',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Filter by tenant ID. Omit for global (cross-tenant) stats.', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         ruleType: z.enum(['analyze', 'gather']).optional().describe('Filter by rule type'),
         startDate: z.string().optional().describe('Start date (YYYY-MM-DD). Defaults to 30 days ago.'),
         endDate: z.string().optional().describe('End date (YYYY-MM-DD). Defaults to today.'),
@@ -2051,15 +1973,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'probability of exploitation within 30 days, 0-1, null when unscored) and priority ("act" = in CISA KEV, ' +
         '"attend" = EPSS >= 0.1 or CVSS >= 9.0, "track" = everything else) — rank remediation by priority, then EPSS, ' +
         'not by CVSS alone. ' +
-        (ga ? 'Omit tenantId for a cross-tenant overview (Global Admin; also returns affected tenant count); pass tenantId to scope to one tenant. ' : '') +
+        (ga ? 'The cross-tenant overview also returns the affected tenant count. ' : '') +
         'Use this to answer "how exposed is the fleet / this ' +
         'tenant?" and "which CVEs affect the most devices?" — for the device list of a single CVE use search_sessions_by_cve. ' +
         'If "truncated" is true, the underlying index scan hit its cap and counts are a lower bound (narrow with tenantId). ' +
         'Requires vulnerability scanning to be enabled (an empty summary means no findings, not necessarily "not affected").',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Omit for cross-tenant overview (Global Admin only).', 'Optional tenant ID. Defaults to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365, default 30). Filters CVEs by when they were detected.'),
+          .describe(daysDescription(30, 365, 'Filters CVEs by detection time.')),
         topN: z.coerce.number().int().min(1).max(100).optional().default(20)
           .describe('How many top CVEs to return, ranked by affected device count (1-100, default 20).'),
       },
@@ -2094,17 +2016,11 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'rollup — total bytes downloaded and how much came ' +
         'from peers / Microsoft Connected Cache (MCC) vs. the CDN, plus a peerOffloadPercent (bandwidth saved by ' +
         'not pulling from the internet). Use this to answer "which app breaks or slows down my enrollments?" and ' +
-        '"how much install bandwidth is served locally?". ' +
-        (ga
-          ? 'Omit tenantId for the cross-tenant fleet aggregate (Global Admin), or pass tenantId to scope to a single tenant. '
-          : '') +
-        'days accepts any value 1-365 (default 30).',
+        '"how much install bandwidth is served locally?".',
       inputSchema: {
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
-          'Filter to a single tenant (Global Admin only). Omit for the cross-tenant fleet aggregate.',
-          'Optional; ignored — metrics are scoped to your tenant.')),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, undefined, 'Ignored — metrics are scoped to your tenant.')),
         days: z.coerce.number().int().min(1).max(365).optional().default(30)
-          .describe('Time window in days (1-365). Defaults to 30. Filters apps by install StartedAt.'),
+          .describe(daysDescription(30, 365, 'Filters apps by install StartedAt.')),
       },
       annotations: READ_ONLY,
     },
@@ -2143,16 +2059,13 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'for the fleet rollup: rolling 30-day median/p75/p90 per segment per enrollment class (classes are ' +
         'never mixed) plus the top time-consuming ESP-blocking apps with "up to" what-if savings bounds. ' +
         'breakdown=null means the session has no computable attribution (pre-feature, non-terminal, or ' +
-        'Incomplete) — that is "unknown", never zero. ' +
-        (ga
-          ? 'Fleet mode: omit tenantId for the cross-tenant aggregate, or pass tenantId to scope to one tenant. '
-          : ''),
+        'Incomplete) — that is "unknown", never zero.',
       inputSchema: {
         sessionId: SessionIdSchema.optional()
           .describe('Session (GUID) whose breakdown to fetch. Omit for the fleet rollup.'),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
-          'Session mode: the session\'s tenant (needed cross-tenant). Fleet mode: filter to one tenant; omit for the cross-tenant aggregate.',
-          'Optional; ignored — data is scoped to your tenant.')),
+          'Session mode: the session\'s tenant. Fleet mode: scope to one tenant; omit for cross-tenant.',
+          'Ignored — data is scoped to your tenant.')),
       },
       annotations: READ_ONLY,
     },
@@ -2194,18 +2107,15 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
         'exclusion disclosure, and the repeat-devices list (devices whose current journey took ≥2 attempts). ' +
         'Open journeys (device not successfully enrolled yet, incl. WhiteGlove awaiting its user session) ' +
         'never count toward FTR. ' +
-        (ga
-          ? 'Fleet mode: omit tenantId for the cross-tenant aggregate (no repeat-devices list there), or pass ' +
-            'tenantId to scope to one tenant. Device mode: pass tenantId for cross-tenant serial lookups. '
-          : ''),
+        (ga ? 'The cross-tenant fleet rollup has no repeat-devices list.' : ''),
       inputSchema: {
         serialNumber: z.string().min(1).max(128).optional()
           .describe('Device serial number (trimmed, case-insensitive). Omit for the fleet FTR rollup.'),
         days: z.coerce.number().int().min(1).max(180).optional()
-          .describe('Fleet mode window in days (default 30, max 180 — aggregate retention).'),
+          .describe(daysDescription(30, 180, 'Fleet mode only.')),
         tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated,
-          'Device mode: the device\'s tenant (needed cross-tenant). Fleet mode: filter to one tenant; omit for the cross-tenant aggregate.',
-          'Optional; ignored — data is scoped to your tenant.')),
+          'Device mode: the device\'s tenant. Fleet mode: scope to one tenant; omit for cross-tenant.',
+          'Ignored — data is scoped to your tenant.')),
       },
       annotations: READ_ONLY,
     },
@@ -2241,7 +2151,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
   const inventoryScopeShape: z.ZodRawShape = ga
     ? {
         tenantId: z.string().optional()
-          .describe('Tenant whose inventory to read (required for scope="inventory" as Global Admin; ignored for scope="unmatched").'),
+          .describe('Tenant whose inventory to read (required for scope="inventory"; ignored for scope="unmatched").'),
         scope: z.enum(['inventory', 'unmatched']).optional().default('inventory')
           .describe('"inventory" = one tenant\'s full software catalog (needs tenantId). "unmatched" = cross-tenant software with no CPE mapping yet.'),
       }
@@ -2250,7 +2160,7 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           // Delegated (MSP) callers get the per-tenant inventory only (no cross-tenant "unmatched" scope),
           // but DO need a tenantId selector to name one of their managed tenants (required; enforced below).
           tenantId: z.string().optional()
-            .describe('Required: a tenantId from YOUR managed tenants (delegated/MSP). There is no cross-tenant view.'),
+            .describe(tenantIdDescription(false, true)),
         }
       : {};
   server.registerTool(
@@ -2262,23 +2172,20 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
           'version, publisher, registry source, CPE mapping for vulnerability correlation, session count, last seen). ' +
           'scope="inventory" (default) returns one tenant\'s full catalog — pass tenantId to choose the tenant. ' +
           'scope="unmatched" returns the cross-tenant list of software with no CPE mapping yet (the CPE-mapping gaps), ' +
-          'ranked by how many sessions reference them. ' +
-          'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.'
+          'ranked by how many sessions reference them.'
         : delegated
           ? 'List installed software discovered on enrolled devices, deduplicated per tenant (normalized vendor/name/' +
-            'version, publisher, registry source, session count, last seen). As a delegated (MSP) user pass a tenantId ' +
-            'from YOUR managed tenants (required) — there is no cross-tenant view. ' +
-            'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.'
+            'version, publisher, registry source, session count, last seen). Pass a tenantId from YOUR managed ' +
+            'tenants — there is no cross-tenant view.'
           : 'List the installed software discovered on your tenant\'s enrolled devices, deduplicated (normalized ' +
             'vendor/name/version, publisher, registry source, how many sessions reference it, last seen). ' +
-            'Use this to see your device software portfolio. ' +
-            'Results are paged: when "nextLink" is present, pass that whole string back as "continuation"; stop when it is absent.',
+            'Use this to see your device software portfolio.',
       inputSchema: {
         ...inventoryScopeShape,
         pageSize: z.coerce.number().int().min(1).max(500).optional().default(100)
-          .describe('Page size (1-500, default 100). Follow nextLink to fetch more.'),
+          .describe(pageSizeDescription(100, 500)),
         continuation: z.string().optional()
-          .describe('The "continuation"/"nextLink" value from a prior response to fetch the next page.'),
+          .describe(CONTINUATION_DESCRIPTION + ' Offset cursor: re-send the same filters with it.'),
       },
       annotations: READ_ONLY,
     },
@@ -2344,24 +2251,22 @@ export function registerAdminTools(server: McpServer, ga: boolean, strictGa: boo
     {
       title: 'Get Catalog Resource',
       description:
-        'Returns the contents of a named static catalog resource. Use this when ' +
-        'the host MCP client cannot list/read MCP-protocol resources (common with ' +
-        'stateless HTTP MCP servers). Available names:\n' +
-        '  - "event_types": catalog of valid eventType strings for search_sessions_by_event\n' +
-        '  - "device_properties": catalog of dot-notation keys for the deviceProperties filter on search_sessions\n' +
-        '  - "diag_zip_layout": expected file layout of an agent diagnostics ZIP (what get_session_diagnostics returns you for local analysis)\n' +
-        '  - "rule_authoring_guide": complete guide for authoring gather/analyze rules (read FIRST when asked to create a rule; then validate_rule / test_analyze_rule)\n' +
+        'Returns a named static catalog resource (for hosts that cannot read MCP resources). Names:\n' +
+        '  - "event_types": valid eventType strings (search_sessions_by_event, event filters)\n' +
+        '  - "device_properties": dot-notation keys for the deviceProperties filter of search_sessions\n' +
+        '  - "ops_event_types": categories, severities and types get_ops_events filters by\n' +
+        '  - "diag_zip_layout": file layout of an agent diagnostics ZIP (get_session_diagnostics)\n' +
+        '  - "rule_authoring_guide": how to author gather/analyze rules (read FIRST; then validate_rule / test_analyze_rule)\n' +
         '  - "rule_schemas": the JSON Schemas for gather and analyze rules (the exact contract)\n' +
         '  - "rule_guardrails": on-device collection allowlists a gather rule target must satisfy\n' +
-        'The rule trio is large (tens of KB together). Pass "section" to read ONE top-level part — ' +
-        'e.g. section="analyzeRules" of rule_authoring_guide when authoring an analyze rule, or ' +
-        'section="gatherRuleSchema" of rule_schemas. Sections per resource: ' + describeResourceSections() + '.',
+        'The rule trio is tens of KB: pass "section" to read ONE top-level key (e.g. section="analyzeRules" of ' +
+        'rule_authoring_guide, section="gatherRuleSchema" of rule_schemas); an unknown section is refused with the list of valid ones.',
       inputSchema: {
         name: z
           .enum(RESOURCE_NAMES)
           .describe('Resource name'),
         section: z.string().trim().min(1).max(64).optional()
-          .describe('Optional top-level key of the resource to return on its own (see the section list in the description). Omit for the whole resource.'),
+          .describe('One top-level key of the resource (' + describeResourceSections() + '). Omit for the whole resource.'),
       },
       annotations: READ_ONLY_OPEN,
     },

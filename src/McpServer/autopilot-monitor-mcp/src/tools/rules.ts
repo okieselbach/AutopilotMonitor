@@ -28,14 +28,13 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
     {
       title: 'Validate Rule Draft',
       description:
-        'Validates a DRAFT gather or analyze rule without deploying anything: JSON-Schema check ' +
-        '(the exact contract from get_resource(name="rule_schemas")), guardrail pre-flight for ' +
-        'gather targets (registry/file/WMI/command/event-log allowlists with the agent\'s ' +
-        'matching semantics), and semantic lint (unreachable confidence threshold, non-evaluable ' +
-        'confidenceFactor conditions, unknown event types, unanchored allow-list regex, ' +
-        'unresolvable {{token}} placeholders). Returns findings as error/warning/info. ' +
-        'Fix all errors, then dry-run analyze rules with test_analyze_rule against a real session. ' +
-        'Read get_resource(name="rule_authoring_guide") first when authoring from scratch.',
+        'Validates a DRAFT gather or analyze rule locally, deploying nothing: JSON-Schema check (the contract from ' +
+        'get_resource(name="rule_schemas")), guardrail pre-flight for gather targets (registry/file/WMI/command/' +
+        'event-log allowlists with the agent\'s matching semantics) and semantic lint (unreachable confidence ' +
+        'threshold, non-evaluable confidenceFactor conditions, unknown event types, unanchored allow-list regex, ' +
+        'unresolvable {{token}} placeholders). Returns findings as error/warning/info. Fix all errors, then dry-run ' +
+        'analyze rules with test_analyze_rule against a real session. Read get_resource(name="rule_authoring_guide") ' +
+        'first when authoring from scratch.',
       inputSchema: {
         rule: z.record(z.string(), z.unknown()).describe('The draft rule JSON object (gather or analyze — detected automatically)'),
       },
@@ -72,15 +71,13 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
     {
       title: 'Test Logparser Pattern Against Sample Lines',
       description:
-        'Tests a logparser gather-rule regex against pasted sample log lines using the AGENT\'s ' +
-        'exact .NET matching semantics — the dry-run for logparser rules (which run on devices ' +
-        'and cannot be tested against a session). Use this INSTEAD of testing the regex in ' +
-        'JS/PHP/Python: .NET behaves subtly differently, and logparser matching is ' +
-        'case-SENSITIVE (unlike analyze-rule regex conditions). Paste 10-50 representative raw ' +
-        'lines from the customer\'s log file (include lines that must match AND lines that must ' +
-        'not). format="cmtrace" (default) parses each line as CMTrace/IME format first and runs ' +
-        'the regex against the parsed message; format="text" matches the raw line. Returns ' +
-        'per-line outcomes with the exact capture groups that would land in the emitted ' +
+        'Tests a logparser gather-rule regex against pasted sample log lines with the AGENT\'s exact .NET matching ' +
+        'semantics — the dry-run for logparser rules, which run on devices and cannot be tested against a session. ' +
+        'Use this instead of testing the regex in JS/PHP/Python: .NET differs subtly, and logparser matching is ' +
+        'case-SENSITIVE (unlike analyze-rule regex conditions). Paste 10-50 representative raw lines from the ' +
+        'customer\'s log file, including lines that must match AND lines that must not. format="cmtrace" (default) ' +
+        'parses each line as CMTrace/IME format first and runs the regex against the parsed message; format="text" ' +
+        'matches the raw line. Returns per-line outcomes with the exact capture groups that would land in the emitted ' +
         'timeline event\'s data. Nothing is stored.',
       inputSchema: {
         pattern: z.string().min(1).max(2000).describe('The regex (named groups become event data fields), .NET syntax'),
@@ -110,19 +107,17 @@ export function registerRuleTools(server: McpServer, ga: boolean): void {
     {
       title: 'Test Analyze Rule Against Session (Dry-Run)',
       description:
-        'Dry-runs a DRAFT analyze rule against one real session\'s events and returns the full ' +
-        'diagnostic trace: verdict (fired / required_condition_not_met / below_confidence_threshold ' +
-        '/ skipped_by_precondition / no_conditions_matched / no_events), per-condition ' +
-        'matched/evidence with matchingEventCount (how many session events even have that ' +
-        'eventType — the first thing to check when a condition unexpectedly misses), the ' +
-        'confidence breakdown per factor, and the interpolated explanation preview. ' +
-        'NOTHING is persisted — safe to iterate. Use a recent session (older sessions predate ' +
-        'newly deployed gather rules). Test both directions: a session where the rule should ' +
-        'fire AND one where it should stay silent.' +
-        (ga ? ' Platform-scope callers can target any tenant\'s session — the tenant is resolved from the session automatically.' : ''),
+        'Dry-runs a DRAFT analyze rule against one real session\'s events and returns the full diagnostic trace: ' +
+        'verdict (fired / required_condition_not_met / below_confidence_threshold / skipped_by_precondition / ' +
+        'no_conditions_matched / no_events), per-condition matched/evidence with matchingEventCount (how many session ' +
+        'events have that eventType at all — the first thing to check when a condition unexpectedly misses), the ' +
+        'confidence breakdown per factor, and the interpolated explanation preview. NOTHING is persisted — safe to ' +
+        'iterate. Use a recent session (older sessions predate newly deployed gather rules). Test both directions: a ' +
+        'session where the rule should fire AND one where it should stay silent.' +
+        (ga ? ' Any tenant\'s session can be targeted; the tenant is resolved from the session.' : ''),
       inputSchema: {
         sessionId: SessionIdSchema.describe('Session UUID to evaluate the draft against'),
-        rule: z.record(z.string(), z.unknown()).describe('The draft analyze rule JSON object. Condition shapes — including the allowed condition `source` values — come from get_resource(name="rule_schemas"); run validate_rule first if the draft has not been validated yet'),
+        rule: z.record(z.string(), z.unknown()).describe('The draft analyze rule JSON object. Condition shapes, including the allowed condition `source` values, come from get_resource(name="rule_schemas"); run validate_rule first if not yet validated'),
       },
       annotations: READ_ONLY,
     },

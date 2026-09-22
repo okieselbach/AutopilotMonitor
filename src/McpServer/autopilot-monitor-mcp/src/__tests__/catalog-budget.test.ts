@@ -13,7 +13,7 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createMcpRequestHandler } from '../mcp-http.js';
-import { createServerForCaller, type ServerDeps } from '../mcp-server-factory.js';
+import { buildInstructions, createServerForCaller, type ServerDeps } from '../mcp-server-factory.js';
 import { runWithCaller } from '../client.js';
 import type { SearchProvider } from '../search-provider.js';
 
@@ -34,18 +34,22 @@ interface Role {
   isGlobalAdmin: boolean;
   isGlobalReader: boolean;
   delegatedTenantIds?: string[];
-  /** Ratchet: serialized `tools` array of tools/list, in characters (baseline 2026-09-22 + ~3 %). */
+  /** Ratchet: serialized `tools` array of tools/list, in characters (post-diet baseline 2026-09-22 + ~3 %). */
   maxCatalogChars: number;
 }
 const ROLES: Role[] = [
-  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 115_000 },
-  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 98_000 },
-  { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false, maxCatalogChars: 67_000 },
-  { label: 'delegated', isGlobalAdmin: false, isGlobalReader: false, delegatedTenantIds: ['11111111-1111-4111-8111-111111111111'], maxCatalogChars: 78_000 },
+  { label: 'global-admin', isGlobalAdmin: true, isGlobalReader: false, maxCatalogChars: 92_000 },
+  { label: 'global-reader', isGlobalAdmin: false, isGlobalReader: true, maxCatalogChars: 77_000 },
+  { label: 'tenant-user', isGlobalAdmin: false, isGlobalReader: false, maxCatalogChars: 53_000 },
+  { label: 'delegated', isGlobalAdmin: false, isGlobalReader: false, delegatedTenantIds: ['11111111-1111-4111-8111-111111111111'], maxCatalogChars: 58_000 },
 ];
 
-/** Argument descriptions repeated verbatim across tools (chars beyond the first occurrence). */
-const MAX_DUPLICATED_ARG_DESCRIPTION_CHARS = 3_000;
+/**
+ * Shared-mechanics arguments should read the same everywhere (shared.ts helpers); each distinct
+ * wording is one more contract the model has to reconcile. Ratchet on the variant count in the
+ * Global Admin catalog (2026-09-22 post-diet baseline; pre-diet: tenantId 28, pageSize 14, continuation 10).
+ */
+const MAX_ARG_DESCRIPTION_VARIANTS: Record<string, number> = { tenantId: 13, pageSize: 8, continuation: 3, days: 9 };
 
 /**
  * Domains a description may name. Anything else that looks like a domain is treated as a
@@ -115,21 +119,26 @@ describe('catalog size ratchet (per role)', () => {
   }
 });
 
-describe('duplicated argument descriptions (verbatim repeats across tools)', () => {
-  it('stay under the ratchet for the Global Admin catalog', () => {
-    const seen = new Map<string, number>();
-    let duplicated = 0;
-    for (const t of snap('global-admin').tools) {
-      for (const p of Object.values(t.inputSchema.properties ?? {})) {
-        const d = p.description;
-        if (!d) continue;
-        const n = seen.get(d) ?? 0;
-        if (n > 0) duplicated += d.length;
-        seen.set(d, n + 1);
-      }
+describe('schema overhead', () => {
+  it('no inputSchema carries the $schema draft URL (stripped after registration)', () => {
+    for (const r of ROLES) {
+      const carrying = snap(r.label).tools.filter((t) => '$schema' in (t.inputSchema as Record<string, unknown>)).map((t) => t.name);
+      expect(carrying, r.label).toEqual([]);
     }
-    expect(duplicated).toBeLessThanOrEqual(MAX_DUPLICATED_ARG_DESCRIPTION_CHARS);
   });
+});
+
+describe('shared-mechanics arguments have few wording variants', () => {
+  for (const [arg, max] of Object.entries(MAX_ARG_DESCRIPTION_VARIANTS)) {
+    it(`${arg}: at most ${max} distinct descriptions in the Global Admin catalog`, () => {
+      const variants = new Set<string>();
+      for (const t of snap('global-admin').tools) {
+        const d = t.inputSchema.properties?.[arg]?.description;
+        if (d) variants.add(d);
+      }
+      expect([...variants].length, [...variants].join('\n---\n')).toBeLessThanOrEqual(max);
+    });
+  }
 });
 
 describe('no customer identifiers in any catalog text', () => {
@@ -153,9 +162,17 @@ describe('no customer identifiers in any catalog text', () => {
 });
 
 describe('host truncation cap (2048 chars, silent)', () => {
-  // Known over-cap texts on 2026-09-22 — each one loses guidance in Claude Code today. Remove an
-  // entry once its text is under the cap; never add one without shortening being scheduled.
-  const KNOWN_OVER_CAP = new Set(['instructions:global-admin', 'instructions:delegated', 'query_raw_events', 'get_resource']);
+  // Texts known to exceed the cap. Empty since the 2026-09-22 diet; an entry here means a text
+  // loses guidance in Claude Code today, so add one only with the shortening scheduled.
+  const KNOWN_OVER_CAP = new Set<string>([]);
+
+  it('the delegated instructions keep room for a realistic managed-tenant list', () => {
+    const five = Array.from({ length: 5 }, (_, i) => `${String(i).repeat(8)}-0000-4000-8000-000000000000`);
+    const text = buildInstructions(DEPS, false, false, true, five, 'aaaaaaaa-0000-4000-8000-000000000000');
+    expect(text.length).toBeLessThanOrEqual(HOST_TEXT_CAP_CHARS);
+    // The scope line (the only role-specific guidance) sits before anything the cap could cut.
+    expect(text.indexOf('Scope:')).toBeLessThan(200);
+  });
 
   it('every instructions string and tool description fits, except the known over-cap texts', () => {
     const over: string[] = [];

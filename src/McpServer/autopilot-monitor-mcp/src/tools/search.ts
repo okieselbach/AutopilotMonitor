@@ -1053,29 +1053,24 @@ export function registerSearchTools(
     {
       title: 'Search Events',
       description:
-        'HYBRID EVENT SEARCH (try this first for ranked hits). ' +
-        'Cross-session candidate event TYPES are selected semantically (vector embeddings) AND lexically; per-event ' +
-        'ranking blends prefix-aware, synonym-aware keyword matching with the event type\'s semantic relevance — so ' +
-        'intent-only queries surface even with no literal word overlap (e.g. "machine restarted unexpectedly" finds ' +
-        'system_reboot_detected; "app stuck downloading" finds download_progress). Hits that matched purely on ' +
-        'semantic type-relevance (no keyword) are flagged `semanticOnly`; `semanticOnlyCount` totals them. ' +
-        'Problem queries (error/fail/stuck/timeout…) lift failure/Warning events and damp benign Info/Trace. ' +
-        '`depth`: "fast" (default) is quick; "deep" scans more pages per type with a lower threshold for exhaustive ' +
-        'recall when accuracy is critical. Returns the top `topK` (NOT every match) — compare resultCount vs ' +
-        'eventsMatched. `matchedSessionIds` are the sessions behind the ranked hits (drill in next); ' +
-        '`sessionsSearchedCount` is how many were scanned. ' +
-        'IMPORTANT — cross-session recall is event-TYPE-driven: without a sessionId the scan maps the query to known ' +
-        'event types (see event_types catalog) and fetches only those. A concept with no related event type still ' +
-        'won\'t surface cross-session even when it sits inside another event\'s data — pass a sessionId (scans EVERY ' +
-        'field of EVERY event, complete) for that. ' +
-        'If `truncated` is true, recall is incomplete — narrow per `recallNote` or use depth="deep".' +
-        (ga ? ' Omit tenantId for cross-tenant search (Global Admin), or specify tenantId for single-tenant.' : ''),
+        'Hybrid keyword + semantic event search, ranked (try this first). Candidate event TYPES are ' +
+        'selected semantically and lexically; each event is then scored by prefix- and synonym-aware keyword matching ' +
+        'blended with its type\'s semantic relevance, so intent-only queries hit without literal word overlap ' +
+        '("machine restarted unexpectedly" finds system_reboot_detected; "app stuck downloading" finds download_progress). ' +
+        'Hits with no keyword match are flagged `semanticOnly` (`semanticOnlyCount` totals them). Problem wording ' +
+        '(error/fail/stuck/timeout) lifts failure and Warning events and damps benign Info/Trace. ' +
+        'Returns only the top `topK` — compare resultCount with eventsMatched; `matchedSessionIds` are the sessions to ' +
+        'drill into next, `sessionsSearchedCount` how many were scanned. ' +
+        'Cross-session recall is event-TYPE-driven: without a sessionId the query is mapped to known event types ' +
+        '(event_types catalog) and only those are fetched, so a concept with no related event type does not surface ' +
+        'even when it sits inside another event\'s data — pass a sessionId for a complete scan of every event field. ' +
+        '`truncated: true` means incomplete recall: narrow per `recallNote` or use depth="deep".',
       inputSchema: {
-        query: z.string().describe('Natural language description of what to find (e.g. "machine restarted unexpectedly", "app download stuck", "certificate error")'),
-        sessionId: SessionIdSchema.optional().describe('Search within a specific session. If omitted, searches across recent failed sessions.'),
-        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated, 'Tenant ID. Required for non-Global Admin users; Global Admin can omit to search across tenants.', 'Optional tenant ID. Defaults to your tenant.')),
+        query: z.string().describe('Natural-language description of what to find (e.g. "machine restarted unexpectedly", "app download stuck", "certificate error")'),
+        sessionId: SessionIdSchema.optional().describe('Search within one session (complete scan). Omitted: cross-session search by event type.'),
+        tenantId: z.string().optional().describe(tenantIdDescription(ga, delegated)),
         depth: z.enum(['fast', 'deep']).optional().default('fast')
-          .describe('"fast" (default): a few pages per type, quick. "deep": broad multi-page scan per type with a lower threshold, for exhaustive recall when accuracy is critical.'),
+          .describe('"fast" (default): a few pages per type. "deep": more pages per type and a lower threshold, for exhaustive recall.'),
         topK: z.coerce.number().min(1).max(50).optional()
           .describe('Number of matching events to return (1-50). Defaults: 10 (fast) / 20 (deep).'),
         minScore: z.coerce.number().min(0).max(1).optional()
@@ -1083,7 +1078,7 @@ export function registerSearchTools(
         keywords: z.array(z.string()).optional()
           .describe('Additional exact keywords, merged (case-insensitively) with those auto-extracted from the query.'),
         guaranteedTopRanked: z.coerce.number().min(0).max(50).optional().default(3)
-          .describe('How many top results (by pure relevance score) are locked to the head in rank order, exempt from cross-session diversification. Default 3 keeps the strongest hits on top while spreading the rest across sessions. Set =topK to trust the ranking and disable diversification entirely; set 0 for maximum session diversity. Ignored for single-session (sessionId) searches.'),
+          .describe('How many top hits (by pure score) stay at the head in rank order, exempt from cross-session diversification (default 3). Set =topK to disable diversification, 0 for maximum session spread. Ignored with sessionId.'),
       },
       annotations: READ_ONLY,
     },
@@ -1179,27 +1174,25 @@ export function registerSearchTools(
     {
       title: 'Search Knowledge Base',
       description:
-        'Semantic/fuzzy search over the Autopilot Monitor knowledge base: analysis rules, gather rules, IME log patterns, ' +
-        'and (literal matches only) the error-code catalog. ' +
-        'Use natural language queries like "app install timeout", "BitLocker issues", "detection script failure". ' +
-        'Returns the most relevant rules and patterns ranked by similarity. ' +
-        'Great for finding remediation steps, understanding error patterns, or discovering relevant diagnostic rules. ' +
+        'Semantic search over the knowledge base: analysis rules, gather rules, IME log patterns and (literal matches ' +
+        'only) the error-code catalog — why an enrollment failed and how to remediate, not how the product works ' +
+        '(that is search_docs). Natural-language queries such as "app install timeout", "BitLocker issues", ' +
+        '"detection script failure". ' +
         'QUERY IN ENGLISH: the rules and the embedding model are English-only, so a query in another language ' +
-        'matches nothing at all. Translate the user\'s question first and answer them in their own language. ' +
-        'ERROR CODES: a query containing an HRESULT/Win32 hex code (e.g. "0x87D1041C", "0x80070002") also triggers a ' +
-        'literal substring fallback — any rule that names the code verbatim AND the catalog entry for the code itself ' +
-        '(type "error-code": symbol, meaning, family) are returned regardless of minScore, since such opaque codes embed ' +
-        'poorly and the semantic score alone would miss them. Those hits are flagged `matchType: "error-code"`. ' +
-        'For one known code, lookup_error_code is the direct answer (decimal, symbol and enforcement-state input too).',
+        'matches nothing; translate the user\'s question first and answer them in their own language. ' +
+        'ERROR CODES: a query containing an HRESULT/Win32 hex code ("0x87D1041C", "0x80070002") also runs a literal ' +
+        'substring fallback — rules naming the code verbatim and the catalog entry for the code itself (type ' +
+        '"error-code": symbol, meaning, family) are returned regardless of minScore, flagged `matchType: "error-code"`, ' +
+        'because opaque codes embed poorly. For one known code, lookup_error_code is the direct answer (accepts ' +
+        'decimal, symbol and enforcement-state input too).',
       inputSchema: {
         query: z.string().describe('Natural language search query (e.g. "app download timeout", "TPM not ready", "ESP stuck")'),
         topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
         type: z.enum(['all', 'analyze-rule', 'gather-rule', 'ime-log-pattern', 'error-code']).optional().default('all')
           .describe('Filter by document type. Default: search all types.'),
         minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
-          .describe('Minimum similarity score threshold (0-1, default 0.25). Lower = more results, higher = stricter matching. ' +
-            'Short keyword queries on all-MiniLM embeddings score low (a relevant-but-marginal hit lands ~0.25-0.35), so the ' +
-            'default is tuned to keep that band; error codes bypass this entirely via the literal fallback.'),
+          .describe('Minimum similarity (0-1, default 0.25). Short keyword queries score low on all-MiniLM embeddings ' +
+            '(a relevant-but-marginal hit lands ~0.25-0.35), so the default keeps that band; error-code hits bypass it.'),
       },
       annotations: READ_ONLY,
     },
@@ -1286,14 +1279,14 @@ export function registerSearchTools(
       title: 'Look Up Error Code',
       description:
         'Explain ONE Windows / MSI / Windows Update / AppX / Intune error code from the shared error-code catalog ' +
-        '(the same catalog the backend uses to enrich events and the portal shows in tooltips). ' +
+        '(the catalog the backend enriches events with). ' +
         'Input: hex ("0x87D30067", "87d30067"), signed or unsigned decimal as the IME logs print it ("-2016214937"), ' +
         'an MSI exit code ("1603"), a symbol ("ERROR_INSTALL_FAILURE", "WU_E_ALL_UPDATES_FAILED", "UnzipError") or an ' +
         'IME app enforcement state by number or name ("6001", "NotAttemptedDependencyWithFailure"). ' +
-        'Returns the normalised hex, the signed decimal, symbol, category (family), the catalog meaning, confidence ' +
-        'and source kind; a 0x8007xxxx value that resolves through its low word to an MSI exit code reports ' +
-        '`derivedFromWin32`. `imeRetriesDuringEsp` marks the MSI return codes the IME retries automatically during ' +
-        'the ESP. An unknown code answers `found: false` with the normalised hex — say so rather than guessing a meaning. ' +
+        'Returns normalised hex, signed decimal, symbol, category (family), meaning, confidence and source kind; ' +
+        'a 0x8007xxxx value that resolves through its low word to an MSI exit code reports `derivedFromWin32`; ' +
+        '`imeRetriesDuringEsp` marks the MSI return codes the IME retries automatically during the ESP. ' +
+        'An unknown code answers `found: false` with the normalised hex — say so rather than guessing a meaning. ' +
         'For "which rule covers this code" use search_knowledge with the code in the query.',
       inputSchema: {
         code: z.string().min(1).max(80).describe('The code, symbol or enforcement state to explain (one value).'),
@@ -1325,27 +1318,20 @@ export function registerSearchTools(
       {
         title: 'Search Product Documentation',
         description:
-          'PRODUCT DOCUMENTATION SEARCH — the published Autopilot Monitor customer documentation ' +
+          'The published Autopilot Monitor customer documentation ' +
           `(${DOCS_BASE_URL}), chunked by section and ranked semantically. ` +
-          'Use this for questions about how the PRODUCT works rather than what a specific enrollment did: ' +
-          'setup and onboarding, agent deployment, portal features, roles and permissions, settings, ' +
-          'notifications, network endpoints, security/privacy/data-residency, plans, and troubleshooting guidance. ' +
-          'PREFER THIS OVER FETCHING OR WEB-SEARCHING THE DOCS SITE: it returns the matching SECTIONS ' +
-          '(~1k tokens for topK=3) instead of whole pages (~9k tokens raw, ~600k rendered), it is the exact ' +
-          'version this server ships rather than a cached or third-party copy, and it matches on meaning — ' +
-          '"where is my data stored" finds the page that says "Germany West Central" with no shared words, ' +
-          'which keyword or web search cannot do. ' +
-          'Each result carries the page `title`, its `heading` breadcrumb and a citable `url` — quote the url when ' +
-          'answering so the user can verify. ' +
-          'If semantic matching returns too few hits, exact keyword matches are APPENDED (flagged ' +
-          '`matchType: "keyword"`, and their scores are on a different scale — rank order across the two is ' +
-          'not comparable). ' +
+          'For how the PRODUCT works, not what one enrollment did: onboarding, agent deployment, portal features, ' +
+          'roles, settings, notifications, network endpoints, security/privacy/data residency, plans, troubleshooting. ' +
+          'Prefer this over fetching the docs site: exact shipped version, semantic match. ' +
+          'Each result carries the page `title`, `heading` breadcrumb and a citable `url` — quote the url in the answer. ' +
+          'When semantic matching finds too little, exact keyword matches are added (appended, or in front when no ' +
+          'semantic hit is convincing), flagged `matchType: "keyword"`; their scores use a different scale, so rank ' +
+          'order across the two is not comparable. ' +
           'QUERY IN ENGLISH: the documentation and the embedding model are English-only, so a query in another ' +
-          'language matches nothing at all (it returns zero results rather than poor ones). Translate the ' +
-          'user\'s question first and answer them in their own language. ' +
-          'NOT the same corpus as search_knowledge: that one holds analysis/gather rules and IME log patterns and ' +
-          'explains why an enrollment failed. Rule of thumb — "how does X work?" → search_docs; ' +
-          '"why did this session fail?" → search_knowledge or get_session_summary.',
+          'language returns zero results; translate the user\'s question first and answer in their language. ' +
+          'NOT the same corpus as search_knowledge (rules and IME log patterns: why an enrollment failed). ' +
+          'Rule of thumb: "how does X work?" → search_docs; "why did this session fail?" → search_knowledge or ' +
+          'get_session_summary.',
         inputSchema: {
           query: z.string().describe('Natural language question (e.g. "how do I deploy the agent with Intune", "where is my data stored", "which roles exist")'),
           topK: z.coerce.number().min(1).max(20).optional().default(5).describe('Number of results to return (1-20, default 5)'),
@@ -1353,8 +1339,8 @@ export function registerSearchTools(
             .describe('Restrict to one documentation area, matching the bundle\'s top-level folder ' +
               `(one of: ${docs.sections.join(', ')}). Omit to search everything.`),
           minScore: z.coerce.number().min(0).max(1).optional().default(0.25)
-            .describe('Minimum similarity score (0-1, default 0.25). Short keyword queries score low on ' +
-              'all-MiniLM embeddings, so the default is tuned to keep the relevant-but-marginal band.'),
+            .describe('Minimum similarity (0-1, default 0.25). Short keyword queries score low on all-MiniLM ' +
+              'embeddings, so the default keeps the relevant-but-marginal band.'),
         },
         annotations: READ_ONLY,
       },
