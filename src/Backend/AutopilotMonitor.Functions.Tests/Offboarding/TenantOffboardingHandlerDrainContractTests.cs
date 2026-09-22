@@ -383,6 +383,77 @@ public class TenantOffboardingHandlerDrainContractTests
             Times.Never(), "Drain-skip-gate must also bypass the enumerate+enqueue phase");
     }
 
+    // ── Farewell mail record (Side-effect 6) ────────────────────────────────────
+    // The send fails soft and its success log never reaches Application Insights, so the ops
+    // event is the only record of whether the departing customer got the farewell mail.
+
+    [Fact]
+    public async Task Completed_WithCapturedAddress_ProviderAccepts_RecordsFarewellEmailSent()
+    {
+        var harness = Harness.New();
+        harness.Repo.History[HistoryRowKey].NotificationEmail = "it@contoso.invalid";
+
+        await harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0));
+
+        Assert.Equal("Completed", harness.Repo.History[HistoryRowKey].Status);
+        var call = Assert.Single(harness.Farewell.Calls);
+        Assert.Equal(("it@contoso.invalid", "contoso.invalid", TenantId), call);
+        var evt = Assert.Single(harness.OpsEvents, e => e.EventType.StartsWith("FarewellEmail", StringComparison.Ordinal));
+        Assert.Equal(OpsEventTypes.FarewellEmailSent, evt.EventType);
+        Assert.Equal(OpsEventSeverity.Info, evt.Severity);
+        Assert.Equal(TenantId, evt.TenantId);
+        Assert.Contains("it@contoso.invalid", evt.Message);
+    }
+
+    [Fact]
+    public async Task Completed_WithoutCapturedAddress_RecordsFarewellEmailSkipped_AndNeverCallsSender()
+    {
+        var harness = Harness.New();
+        harness.Repo.History[HistoryRowKey].NotificationEmail = null;
+
+        await harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0));
+
+        Assert.Equal("Completed", harness.Repo.History[HistoryRowKey].Status);
+        Assert.Empty(harness.Farewell.Calls);
+        var evt = Assert.Single(harness.OpsEvents, e => e.EventType.StartsWith("FarewellEmail", StringComparison.Ordinal));
+        Assert.Equal(OpsEventTypes.FarewellEmailSkipped, evt.EventType);
+        Assert.Equal(OpsEventSeverity.Warning, evt.Severity);
+        Assert.Contains("no contact address", evt.Message);
+    }
+
+    [Fact]
+    public async Task Completed_ProviderRefuses_RecordsFarewellEmailFailed()
+    {
+        var harness = Harness.New();
+        harness.Repo.History[HistoryRowKey].NotificationEmail = "it@contoso.invalid";
+        harness.Farewell.Result = false;
+
+        await harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0));
+
+        var evt = Assert.Single(harness.OpsEvents, e => e.EventType.StartsWith("FarewellEmail", StringComparison.Ordinal));
+        Assert.Equal(OpsEventTypes.FarewellEmailFailed, evt.EventType);
+        Assert.Equal(OpsEventSeverity.Error, evt.Severity);
+        Assert.Contains("did not accept", evt.Message);
+    }
+
+    [Fact]
+    public async Task Completed_SenderThrows_RecordsFarewellEmailFailed_AndStillCompletes()
+    {
+        // Fail-soft contract: the History row is already Completed when the mail goes out; a
+        // throwing sender must neither propagate nor stop the TenantConfiguration delete after it.
+        var harness = Harness.New();
+        harness.Repo.History[HistoryRowKey].NotificationEmail = "it@contoso.invalid";
+        harness.Farewell.ThrowOnSend = new HttpRequestException("simulated provider outage");
+
+        await harness.Sut.HandleAsync(harness.Envelope(drainPollCount: 0));
+
+        Assert.Equal("Completed", harness.Repo.History[HistoryRowKey].Status);
+        Assert.Equal("Completed", harness.Repo.Markers[TenantId].Status);
+        var evt = Assert.Single(harness.OpsEvents, e => e.EventType.StartsWith("FarewellEmail", StringComparison.Ordinal));
+        Assert.Equal(OpsEventTypes.FarewellEmailFailed, evt.EventType);
+        Assert.Contains("HttpRequestException", evt.Message);
+    }
+
     [Fact]
     public async Task History_AlreadyCompleted_IsNoOp()
     {
@@ -436,6 +507,9 @@ public class TenantOffboardingHandlerDrainContractTests
         public CountingSafeWipeService SafeWipeProbe { get; } = new();
         public Mock<IMaintenanceRepository> Maintenance { get; } = new();
         public Mock<IConfigRepository> ConfigRepo { get; } = new();
+        public FakeOffboardFarewellEmailSender Farewell { get; } = new();
+        /// <summary>Every ops event the handler recorded, in order (the repository is a capturing mock).</summary>
+        public List<OpsEventEntry> OpsEvents { get; } = new();
         public List<string> EnumeratorYields { get; } = new();
         public Exception? EnumeratorThrow { get; set; }
 
@@ -475,7 +549,7 @@ public class TenantOffboardingHandlerDrainContractTests
                     It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Dictionary<string, string>?>()))
                 .ReturnsAsync(true);
 
-            var opsService = BuildRealOpsService();
+            var opsService = BuildRealOpsService(h.OpsEvents);
 
             var unusedTableStorage = new Mock<TableStorageService>(
                 Mock.Of<TableServiceClient>(),
@@ -494,7 +568,7 @@ public class TenantOffboardingHandlerDrainContractTests
                 opsService,
                 Mock.Of<ITenantCustomsArchiveRepository>(),
                 h.ConfigRepo.Object,
-                new FakeOffboardFarewellEmailSender(),
+                h.Farewell,
                 NullLogger<TenantOffboardingHandler>.Instance);
 
             return h;
@@ -578,10 +652,12 @@ public class TenantOffboardingHandlerDrainContractTests
             }, "\"0xFAKE_PTR_1\"");
         }
 
-        private static OpsEventService BuildRealOpsService()
+        private static OpsEventService BuildRealOpsService(List<OpsEventEntry> captured)
         {
             var opsRepo = new Mock<IOpsEventRepository>();
-            opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>())).Returns(Task.CompletedTask);
+            opsRepo.Setup(r => r.SaveOpsEventAsync(It.IsAny<OpsEventEntry>()))
+                .Callback<OpsEventEntry>(captured.Add)
+                .Returns(Task.CompletedTask);
             var memCache = new MemoryCache(new MemoryCacheOptions());
             var adminConfig = new Mock<AdminConfigurationService>(
                 Mock.Of<IConfigRepository>(), NullLogger<AdminConfigurationService>.Instance, memCache);

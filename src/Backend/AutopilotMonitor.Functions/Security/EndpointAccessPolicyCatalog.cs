@@ -134,11 +134,24 @@ public sealed class EndpointPolicyEntry
     /// </summary>
     public bool ApplicationAllowed { get; }
 
+    /// <summary>
+    /// When true, the tenant suspension gate lets the caller through while the ONLY reason the tenant
+    /// is suspended is the offboarding tombstone (<c>Disabled=true</c> with the offboarding reason,
+    /// <see cref="Functions.Admin.TenantOffboardFunction.IsOffboardingTombstone"/>). An operator
+    /// suspension (any other reason, or a DisabledUntil window) still denies. Exists for the one route
+    /// a departing admin must reach AFTER their tenant has been tombstoned: the farewell feedback
+    /// (<c>POST tenants/{tenantId}/offboard/feedback</c>), which the offboard endpoint tombstones
+    /// before it even answers 202. Never grants anything else — policy tier, cross-tenant check and
+    /// the function's own active-marker check stay in force.
+    /// </summary>
+    public bool AllowedDuringOffboarding { get; }
+
     // Pre-compiled regex for matching actual request paths against the route template
     internal Regex RouteRegex { get; }
 
     public EndpointPolicyEntry(string httpMethod, string routeTemplate, EndpointPolicy policy,
-        TenantScoping tenantScoping = TenantScoping.None, bool excludeDelegated = false, bool applicationAllowed = false)
+        TenantScoping tenantScoping = TenantScoping.None, bool excludeDelegated = false, bool applicationAllowed = false,
+        bool allowedDuringOffboarding = false)
     {
         HttpMethod = httpMethod.ToUpperInvariant();
         RouteTemplate = routeTemplate;
@@ -146,6 +159,7 @@ public sealed class EndpointPolicyEntry
         TenantScoping = tenantScoping;
         ExcludeDelegated = excludeDelegated;
         ApplicationAllowed = applicationAllowed;
+        AllowedDuringOffboarding = allowedDuringOffboarding;
         RouteRegex = BuildRouteRegex(routeTemplate);
     }
 
@@ -367,7 +381,9 @@ public static class EndpointAccessPolicyCatalog
         new("PATCH",  "tenants/{tenantId}/admins/{adminUpn}/enable",      EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("PATCH",  "tenants/{tenantId}/admins/{adminUpn}/permissions", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("DELETE", "tenants/{tenantId}/offboard", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
-        new("POST",   "tenants/{tenantId}/offboard/feedback", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
+        // Farewell feedback is submitted AFTER the offboard endpoint has tombstoned the tenant (Disabled=true
+        // before the 202), so the suspension gate must let the departing admin through — for this route only.
+        new("POST",   "tenants/{tenantId}/offboard/feedback", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam, allowedDuringOffboarding: true),
         new("GET",    "config/{tenantId}/autopilot-device-validation/consent-url",     EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("GET",    "config/{tenantId}/autopilot-device-validation/consent-status",  EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),
         new("POST",   "config/{tenantId}/autopilot-device-validation/consent-failure", EndpointPolicy.TenantAdminOrGA, TenantScoping.RouteParam),

@@ -201,6 +201,14 @@ interface AuthContextType {
   isLoading: boolean;
   isActivationPending: boolean;
   activationMessage: string;
+  /**
+   * auth/me answered 403 TenantSuspended: the caller's tenant is suspended by an operator or is
+   * the offboarding tombstone (mid-wipe). The user stays signed in so ProtectedRoute can show the
+   * suspended page (and, for an offboarding, the farewell feedback form) instead of the portal.
+   */
+  isTenantSuspended: boolean;
+  /** The backend's DisabledReason text (e.g. "Offboarding in progress"); empty when not suspended. */
+  suspensionMessage: string;
   login: (options?: { auto?: boolean }) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
@@ -269,6 +277,30 @@ function toUserInfo(data: AuthMeResponse, account: AccountInfo): UserInfo {
   };
 }
 
+/**
+ * Auth state from the token claims alone, with every entitlement off. Used when auth/me could not
+ * confirm anything: the tenant is pending activation or suspended (the user stays signed in and
+ * sees the matching page), or the call failed for a non-auth reason.
+ */
+function claimsOnlyUserInfo(account: AccountInfo): UserInfo {
+  return {
+    displayName: account.name || '',
+    upn: account.username || '',
+    tenantId: account.tenantId || '',
+    objectId: account.homeAccountId || '',
+    isGlobalAdmin: false,
+    isGlobalReader: false,
+    isTenantAdmin: false,
+    isDelegated: false,
+    delegatedTenantIds: [],
+    role: null,
+    canManageBootstrapTokens: false,
+    hasMcpAccess: false,
+    bootstrapTokenEnabled: false,
+    unrestrictedModeEnabled: false,
+  };
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /**
@@ -283,6 +315,8 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
   const isLoadingRef = useRef(true);
   const [isActivationPending, setActivationPending] = useState(false);
   const [activationMessage, setActivationMessage] = useState('');
+  const [isTenantSuspended, setTenantSuspended] = useState(false);
+  const [suspensionMessage, setSuspensionMessage] = useState('');
 
   /**
    * Fetches user info from backend API
@@ -328,11 +362,15 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
       if (!response.ok) {
         if (response.status === 403) {
           const errorData = await response.json();
+          // Suspended (operator kill-switch or the offboarding tombstone): keep the user signed
+          // in with claim-only info so ProtectedRoute renders the suspended page — an admin who
+          // just offboarded their tenant reloads into the farewell feedback form, not into a
+          // browser alert and a forced logout.
           if (errorData.error === 'TenantSuspended') {
-            console.error('[Auth] Tenant suspended:', errorData.message);
-            alert(`Access Denied\n\n${errorData.message}`);
-            await instance.logoutRedirect({ account });
-            return null;
+            console.warn('[Auth] Tenant suspended:', errorData.message);
+            setTenantSuspended(true);
+            setSuspensionMessage(errorData.message || 'Your tenant has been suspended.');
+            return claimsOnlyUserInfo(account);
           }
           // 'PendingActivation' is the current backend code; 'PrivatePreview' is the legacy
           // code kept accepted so web and backend can deploy in any order.
@@ -341,22 +379,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
             setActivationPending(true);
             setActivationMessage(errorData.message || 'Your organization is being activated.');
             // Return basic user info so the user stays logged in but sees the activation page
-            return {
-              displayName: account.name || '',
-              upn: account.username || '',
-              tenantId: account.tenantId || '',
-              objectId: account.homeAccountId || '',
-              isGlobalAdmin: false,
-              isGlobalReader: false,
-              isTenantAdmin: false,
-              isDelegated: false,
-              delegatedTenantIds: [],
-              role: null,
-              canManageBootstrapTokens: false,
-              hasMcpAccess: false,
-              bootstrapTokenEnabled: false,
-              unrestrictedModeEnabled: false,
-            };
+            return claimsOnlyUserInfo(account);
           }
         }
         throw new Error(`Failed to fetch user info: ${response.statusText}`);
@@ -364,10 +387,12 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
 
       const data = (await response.json()) as AuthMeResponse;
 
-      // A successful auth/me means the tenant is (now) activated — clear any pending
-      // state so the activation page's poll can redirect into the portal.
+      // A successful auth/me means the tenant is (now) activated and not suspended — clear any
+      // pending state so the activation page's poll can redirect into the portal.
       setActivationPending(false);
       setActivationMessage('');
+      setTenantSuspended(false);
+      setSuspensionMessage('');
 
       learnHomedAppFromAuthMe(data);
 
@@ -391,22 +416,7 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
 
       // Fallback to token claims only for non-auth errors (network issues,
       // backend cold starts, etc.) so the user can still see the app.
-      return {
-        displayName: account.name || '',
-        upn: account.username || '',
-        tenantId: account.tenantId || '',
-        objectId: account.homeAccountId || '',
-        isGlobalAdmin: false,
-        isGlobalReader: false,
-        isTenantAdmin: false,
-        isDelegated: false,
-        delegatedTenantIds: [],
-        role: null,
-        canManageBootstrapTokens: false,
-        hasMcpAccess: false,
-        bootstrapTokenEnabled: false,
-        unrestrictedModeEnabled: false,
-      };
+      return claimsOnlyUserInfo(account);
     }
   }, [instance]);
 
@@ -555,11 +565,13 @@ function AuthProviderInternal({ children }: { children: React.ReactNode }) {
     isLoading,
     isActivationPending,
     activationMessage,
+    isTenantSuspended,
+    suspensionMessage,
     login,
     logout,
     getAccessToken,
     refreshUserInfo,
-  }), [isAuthenticated, user, isLoading, isActivationPending, activationMessage, login, logout, getAccessToken, refreshUserInfo]);
+  }), [isAuthenticated, user, isLoading, isActivationPending, activationMessage, isTenantSuspended, suspensionMessage, login, logout, getAccessToken, refreshUserInfo]);
 
   return (
     <AuthContext.Provider value={value}>

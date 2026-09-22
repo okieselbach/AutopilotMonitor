@@ -94,6 +94,16 @@ namespace AutopilotMonitor.Shared.DataAccess
         public const string WelcomeEmailSent              = "WelcomeEmailSent";
         public const string WelcomeEmailSkipped           = "WelcomeEmailSkipped";
         public const string WelcomeEmailFailed            = "WelcomeEmailFailed";
+        /// <summary>
+        /// Post-offboarding farewell mail, recorded by the offboarding worker after the History
+        /// row went Completed. Sent (Info) = the provider accepted it; Skipped (Warning) = no
+        /// contact address was captured before the wipe, the customer left in silence; Failed
+        /// (Error) = an address was there and the mail did not go out. The only record of the
+        /// send: its success log is Information and never reaches Application Insights.
+        /// </summary>
+        public const string FarewellEmailSent             = "FarewellEmailSent";
+        public const string FarewellEmailSkipped          = "FarewellEmailSkipped";
+        public const string FarewellEmailFailed           = "FarewellEmailFailed";
         public const string TenantTrialStarted            = "TenantTrialStarted";
         public const string TenantTrialExpiring           = "TenantTrialExpiring";
         public const string TenantTrialExpired            = "TenantTrialExpired";
@@ -139,7 +149,7 @@ namespace AutopilotMonitor.Shared.DataAccess
             ConsentFlowStarted, ConsentFlowSuccess, ConsentFlowFailed, ConsentRedirectUriMismatch, AppHomingFlipped, AppHomingFlippedWithEntraRoles,
             MaintenanceCompleted, MaintenanceFailed, MaintenanceLongRunning, MaintenanceStarted, MaintenanceSkippedLocked, SessionSweepCompleted, SessionSweepFailed, OpsEventCleanup, OrphanEventsCleaned, SessionDeletionMaintenanceStarted, SessionDeletionMaintenanceBudgetExceeded, SessionDeletionMaintenanceSkippedLocked, SessionDeletionMaintenanceLongRunning, SessionDeletionMaintenanceLongRunningSevere, SessionDeletionMaintenanceFailed, SessionDeletionStrandedQueued, SessionDeletionPoisoned, SessionDeletionMaintenanceCompleted, SessionDeletionMaintenanceFanoutSkipped, CriticalTableBackupCompleted, CriticalTableBackupPartial, CriticalTableBackupFailed, CriticalTableBackupSkippedLocked, BackupRowRestored, VerdictCalibrationDrift,
             DeviceBlocked, VersionBlocked, SessionTenantConflict, SessionOwnerMismatch, KillSignalDelivered, EmbeddedCertExpiringSoon, EmbeddedCertExpiringUrgent, EmbeddedCertExpired, EmbeddedCertBundleEmpty, SignalRConnectionsHigh, SignalRConnectionsCritical, SignalRMessagesHigh, SignalRMessagesCritical, PoisonQueueBacklogHigh, PoisonQueueBacklogCritical, ExcessiveSessionEventsAutoActioned, PrivilegedRouteDenied, McpServicePrincipalFirstSeen,
-            OffboardingFeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
+            OffboardingFeedbackReceived, TenantOffboarded, TenantOffboardingFailed, TenantAutoApproved, WelcomeEmailSent, WelcomeEmailSkipped, WelcomeEmailFailed, FarewellEmailSent, FarewellEmailSkipped, FarewellEmailFailed, TenantTrialStarted, TenantTrialExpiring, TenantTrialExpired, TenantPlanDowngraded, TenantRetentionGraceExpiring, TenantRetentionGraceEnded, RuleFrequencyRegression, AppVersionDurationRegression, CollectLogsQuickConfigEnabled, DiagnosticsUploadEnabled, DiagnosticsUploadDisabled,
             SessionActionQueued, SessionTimeouts, AgentEmergencyBreak, AgentBinaryIntegrityMismatch, CmTraceTimeSkewRegression, ExcessiveSessionEvents, NewImeVersionDetected, ImePatternDriftSuspected, BlobStorageMissing, BlobStorageUnreachable, TelemetryItemsRejected,
             SlaBreachNotification, SlaConsecutiveFailures, SlaEvaluationCompleted,
             AzureMonitorAlert,

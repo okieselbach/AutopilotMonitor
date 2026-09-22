@@ -186,6 +186,13 @@ const OPS_EVENT_TYPES: Record<string, string[]> = {
     "WelcomeEmailSent",
     "WelcomeEmailSkipped",
     "WelcomeEmailFailed",
+    // Offboarding farewell mail, recorded by the offboarding worker after the wipe completed.
+    // Same three-way record as the welcome mail: Skipped (Warning) = no contact address was
+    // captured before the wipe, Failed (Error) = the provider refused an address we had,
+    // Sent (Info) = confirmation. Dual-register per memory feedback_ops_event_types_dual_register.
+    "FarewellEmailSent",
+    "FarewellEmailSkipped",
+    "FarewellEmailFailed",
     // A tenant admin turned on-demand diagnostics upload (the Collect Logs capability) on or
     // off — portal Settings, the Collect Logs quick-config dialog, MCP update_tenant_config,
     // or a config revert. Fires on the flip only. Backend

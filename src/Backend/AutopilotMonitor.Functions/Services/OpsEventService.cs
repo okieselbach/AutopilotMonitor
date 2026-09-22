@@ -663,6 +663,47 @@ namespace AutopilotMonitor.Functions.Services
                 tenantId, "System.Activation", new { domainName, toEmail, reason });
         }
 
+        // ── Offboarding farewell mail ──
+        // Same shape as the welcome mail above, for the same reason: the send fails soft and its
+        // success log is Information, so without these events a lost farewell mail (2026-09-22:
+        // a tenant WITH a captured address, no trace either way) leaves no record at all.
+        // Dispatched by TenantOffboardingHandler after History → Completed. All three
+        // dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES.
+
+        /// <summary>The provider accepted the farewell mail. Info-tier confirmation.</summary>
+        public Task RecordFarewellEmailSentAsync(string tenantId, string? domainName, string toEmail)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailSent, OpsEventSeverity.Info,
+                $"Farewell email sent to {toEmail} for offboarded tenant {tenantLabel}",
+                tenantId, "System.Offboarding", new { domainName, toEmail });
+        }
+
+        /// <summary>
+        /// The offboarding completed but no farewell mail went out because no contact address
+        /// was captured before the wipe. Warning-tier: nothing is broken, but a customer left
+        /// without the "sorry to see you go" and its feedback channels.
+        /// </summary>
+        public Task RecordFarewellEmailSkippedAsync(string tenantId, string? domainName, string reason)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailSkipped, OpsEventSeverity.Warning,
+                $"No farewell email for offboarded tenant {tenantLabel} — {reason}",
+                tenantId, "System.Offboarding", new { domainName, reason });
+        }
+
+        /// <summary>
+        /// An address was captured and the mail did not go out: provider refused, provider not
+        /// configured, or the send threw. Error-tier — this one IS a defect.
+        /// </summary>
+        public Task RecordFarewellEmailFailedAsync(string tenantId, string? domainName, string toEmail, string reason)
+        {
+            var tenantLabel = string.IsNullOrWhiteSpace(domainName) ? tenantId : $"{domainName} ({tenantId})";
+            return WriteAsync(OpsEventCategory.Tenant, OpsEventTypes.FarewellEmailFailed, OpsEventSeverity.Error,
+                $"Farewell email to {toEmail} failed for offboarded tenant {tenantLabel} — {reason}",
+                tenantId, "System.Offboarding", new { domainName, toEmail, reason });
+        }
+
         // ── Tenant trial lifecycle (informational — enforcement is read-time) ──
         // Both types are dual-registered in OpsAlertRulesSection.tsx OPS_EVENT_TYPES
         // (memory feedback_ops_event_types_dual_register). Dispatched by TrialExpirySweepFunction.

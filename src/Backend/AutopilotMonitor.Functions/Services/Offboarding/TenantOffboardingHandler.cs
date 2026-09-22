@@ -774,22 +774,10 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
             // Side-effect 6: post-completion farewell email to the captured Preview-Notification-
             // Email. Fail-soft: any sender exception MUST NOT propagate, the offboarding
             // correctness contract is independent of email delivery and the History row is
-            // already Completed. Skips silently when no email was captured at Phase 1
-            // (tenant never set a preview notification address).
-            if (!string.IsNullOrWhiteSpace(history.NotificationEmail))
-            {
-                try
-                {
-                    await _farewellEmail.SendAsync(
-                        history.NotificationEmail!, history.DomainName ?? string.Empty, tenantId, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Offboard farewell email send threw for tenant={Tenant} — ignored (best-effort)",
-                        tenantId);
-                }
-            }
+            // already Completed. Every outcome leaves an ops event (Sent / Skipped / Failed):
+            // the send's own success log is Information and never reaches Application
+            // Insights from the worker, which made a lost farewell mail invisible.
+            await SendFarewellEmailAsync(history, tenantId, ct);
 
             // ── 2.F-final — TenantConfiguration delete (PR3.B Codex Finding 2 reorder) ──
             //
@@ -830,6 +818,49 @@ namespace AutopilotMonitor.Functions.Services.Offboarding
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Side-effect 6 — the farewell mail plus its ops-event record. Never throws: the History
+        /// row is already Completed and the TenantConfiguration delete that follows must run.
+        /// Outcomes: no address captured at Phase 1 → <c>FarewellEmailSkipped</c> (Warning: the
+        /// customer left in silence, nothing is broken); provider accepted → <c>FarewellEmailSent</c>
+        /// (Info); provider refused, provider not configured or the send threw →
+        /// <c>FarewellEmailFailed</c> (Error: an address was there and the mail did not go out).
+        /// </summary>
+        private async Task SendFarewellEmailAsync(OffboardingHistoryEntry history, string tenantId, CancellationToken ct)
+        {
+            var domainName = history.DomainName ?? string.Empty;
+            var toEmail = history.NotificationEmail;
+
+            if (string.IsNullOrWhiteSpace(toEmail))
+            {
+                await _opsEvents.RecordFarewellEmailSkippedAsync(tenantId, domainName,
+                    "no contact address was set before the offboarding");
+                return;
+            }
+
+            try
+            {
+                var sent = await _farewellEmail.SendAsync(toEmail!, domainName, tenantId, ct);
+                if (sent)
+                {
+                    await _opsEvents.RecordFarewellEmailSentAsync(tenantId, domainName, toEmail!);
+                }
+                else
+                {
+                    await _opsEvents.RecordFarewellEmailFailedAsync(tenantId, domainName, toEmail!,
+                        "the email provider did not accept the message (or is not configured)");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Offboard farewell email send threw for tenant={Tenant} — ignored (best-effort)",
+                    tenantId);
+                await _opsEvents.RecordFarewellEmailFailedAsync(tenantId, domainName, toEmail!,
+                    $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// PR3.B §3 — Phase 2.D-archive. For each rules table, archive every row to

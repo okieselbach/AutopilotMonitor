@@ -94,18 +94,21 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
 
     /// <summary>
     /// Sends the post-offboarding "sorry to see you go" farewell email.
-    /// No-op if the API key or recipient email is not configured. Best-effort: failures
-    /// are logged as warnings and never propagated (the offboarding correctness contract
-    /// does not depend on email delivery).
+    /// No-op (returns false) if the API key or recipient email is not configured. Best-effort:
+    /// failures are logged as warnings and never propagated (the offboarding correctness
+    /// contract does not depend on email delivery); the caller turns the result into the
+    /// FarewellEmailSent / FarewellEmailFailed ops events.
     /// </summary>
-    public async Task SendAsync(string toEmail, string domainName, string tenantId, CancellationToken ct = default)
+    public async Task<bool> SendAsync(string toEmail, string domainName, string tenantId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            _logger.LogDebug(
+            // Warning, not Debug: an unconfigured provider is operator misconfiguration, and worker
+            // logs below Warning never reach Application Insights.
+            _logger.LogWarning(
                 "{ConfigKey} not configured — skipping offboard farewell email for tenant {TenantId}",
                 ApiKeyConfigKey, tenantId);
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(toEmail))
@@ -113,7 +116,7 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
             _logger.LogDebug(
                 "No notification email captured — skipping offboard farewell email for tenant {TenantId} ({Domain})",
                 tenantId, domainName);
-            return;
+            return false;
         }
 
         var sent = await SendViaMandrillAsync(
@@ -129,6 +132,8 @@ public class EmailService : IEmailService, IOffboardFarewellEmailSender
                 "Offboard farewell email sent to {ToEmail} for tenant {TenantId} ({Domain})",
                 toEmail, tenantId, domainName);
         }
+
+        return sent;
     }
 
     /// <inheritdoc />

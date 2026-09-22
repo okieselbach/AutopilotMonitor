@@ -10,6 +10,7 @@ import { activeAuthApp } from "../lib/msalConfig";
 import { DOCS_PATHS } from "../lib/docsPaths";
 import { DOCS_URL } from "../utils/config";
 import { useAdminMode } from "../hooks/useAdminMode";
+import OffboardingFeedbackForm from "./OffboardingFeedbackForm";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -31,11 +32,18 @@ interface ProtectedRouteProps {
 }
 
 /**
+ * The backend's DisabledReason on the offboarding tombstone (TenantOffboardFunction.OffboardingDisabledReason).
+ * A suspension carrying exactly this text is a tenant mid-offboarding, not an operator suspension.
+ */
+const OFFBOARDING_SUSPENSION_MESSAGE = "Offboarding in progress";
+
+/**
  * Protects routes by requiring authentication. Optionally requires Global Admin, platform scope
  * (Global Admin or read-only Global Reader), or fleet scope (platform scope OR a delegated MSP admin).
+ * A suspended tenant (auth/me 403 TenantSuspended) gets the suspended page instead of the children.
  */
 export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGlobalScope = false, requireFleetScope = false }: ProtectedRouteProps) {
-  const { isAuthenticated, user, hasGlobalScope, hasFleetScope, isLoading, login } = useAuth();
+  const { isAuthenticated, user, hasGlobalScope, hasFleetScope, isLoading, login, logout, getAccessToken, isTenantSuspended, suspensionMessage } = useAuth();
   const router = useRouter();
 
   // Once authenticated, remember it so transient auth-state flips (e.g. MSAL
@@ -173,6 +181,57 @@ export function ProtectedRoute({ children, requireGlobalAdmin = false, requireGl
   // Render nothing while the demo-mode bounce above navigates away.
   if (demoBlockedPlatformRoute) {
     return null;
+  }
+
+  // Suspended tenant (auth/me 403 TenantSuspended): the portal is closed for this user, so none
+  // of the page's own API calls may start. An offboarding tombstone gets the farewell page with
+  // the feedback form — the offboard endpoint tombstones the tenant before it even answers, so
+  // a reload during the ~6-minute preparation window lands here instead of on the banner.
+  if (isTenantSuspended && user) {
+    const offboarding = suspensionMessage === OFFBOARDING_SUSPENSION_MESSAGE;
+    return (
+      <div className="min-h-screen bg-[var(--lp-bg)] flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center space-y-4">
+          <svg className="h-12 w-12 text-amber-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          {offboarding ? (
+            <>
+              <h2 className="text-xl font-semibold text-gray-900">Your organization is being offboarded</h2>
+              <p className="text-gray-600">
+                All Autopilot Monitor data for your tenant is being permanently deleted, including this
+                account&apos;s access. Nothing else is needed from you.
+              </p>
+              {user.tenantId && (
+                <OffboardingFeedbackForm
+                  tenantId={user.tenantId}
+                  offboardingKey={user.tenantId}
+                  getAccessToken={getAccessToken}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <h2 className="text-xl font-semibold text-gray-900">Access suspended</h2>
+              <p className="text-gray-600">{suspensionMessage || "Your tenant has been suspended."}</p>
+              <p className="text-sm text-gray-500">
+                If you believe this is a mistake, contact me on{" "}
+                <a href="https://www.linkedin.com/in/oliver-kieselbach/" target="_blank" rel="noopener noreferrer" className="text-green-700 underline hover:text-green-800">LinkedIn</a>
+                {" "}or open a{" "}
+                <a href="https://github.com/okieselbach/AutopilotMonitor/issues" target="_blank" rel="noopener noreferrer" className="text-green-700 underline hover:text-green-800">GitHub issue</a>.
+              </p>
+            </>
+          )}
+          <p className="text-xs text-gray-400">Signed in as {user.upn}</p>
+          <button
+            onClick={() => { logout().catch(() => { /* MSAL already logged the error */ }); }}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Show nothing if the route's platform requirement isn't met.

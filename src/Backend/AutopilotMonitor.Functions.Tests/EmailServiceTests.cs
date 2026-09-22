@@ -32,24 +32,28 @@ public sealed class EmailServiceTests
     // ----- configuration gates -----
 
     [Fact]
-    public async Task SendAsync_EmptyApiKey_NoOps_AndLogsMissingKeyDebugLine()
+    public async Task SendAsync_EmptyApiKey_NoOps_ReturnsFalse_AndLogsMissingKeyWarning()
     {
         var (sut, handler, logger) = Build(apiKey: "");
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId, CancellationToken.None);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId, CancellationToken.None);
 
+        Assert.False(sent);
         Assert.Equal(0, handler.CallCount);
+        // Warning, not Debug: same reasoning as the welcome mail — worker logs below Warning never
+        // reach Application Insights, and the handler records FarewellEmailFailed on the false.
         Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("Email:ApiKey not configured"));
+            e => e.Level == LogLevel.Warning && e.Message.Contains("Email:ApiKey not configured"));
     }
 
     [Fact]
-    public async Task SendAsync_EmptyRecipient_NoOps_AndLogsMissingEmailDebugLine()
+    public async Task SendAsync_EmptyRecipient_NoOps_ReturnsFalse_AndLogsMissingEmailDebugLine()
     {
         var (sut, handler, logger) = Build(apiKey: "any-non-empty-key");
 
-        await sut.SendAsync("", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("", "contoso.invalid", TenantId);
 
+        Assert.False(sent);
         Assert.Equal(0, handler.CallCount);
         Assert.Contains(logger.Entries,
             e => e.Level == LogLevel.Debug && e.Message.Contains("No notification email captured"));
@@ -65,7 +69,7 @@ public sealed class EmailServiceTests
         await sut.SendAsync("", "contoso.invalid", TenantId);
 
         Assert.Contains(logger.Entries,
-            e => e.Level == LogLevel.Debug && e.Message.Contains("Email:ApiKey not configured"));
+            e => e.Level == LogLevel.Warning && e.Message.Contains("Email:ApiKey not configured"));
         Assert.DoesNotContain(logger.Entries,
             e => e.Message.Contains("No notification email captured"));
     }
@@ -123,8 +127,9 @@ public sealed class EmailServiceTests
     {
         var (sut, handler, logger) = Build(apiKey: "md-test-key");
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
 
+        Assert.True(sent);
         using var doc = JsonDocument.Parse(handler.LastBody!);
         var message = doc.RootElement.GetProperty("message");
         Assert.Equal(EmailTemplates.OffboardingFarewellSubject, message.GetProperty("subject").GetString());
@@ -161,8 +166,9 @@ public sealed class EmailServiceTests
             responder: _ => Json(HttpStatusCode.InternalServerError,
                 "{\"status\":\"error\",\"code\":-1,\"name\":\"Invalid_Key\",\"message\":\"Invalid API key\"}"));
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
 
+        Assert.False(sent);
         Assert.Contains(logger.Entries,
             e => e.Level == LogLevel.Warning && e.Message.Contains("500") && e.Message.Contains("Invalid_Key"));
         Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Information);
@@ -175,8 +181,9 @@ public sealed class EmailServiceTests
             responder: _ => Json(HttpStatusCode.OK,
                 "[{\"email\":\"ops@contoso.invalid\",\"status\":\"rejected\",\"reject_reason\":\"hard-bounce\",\"_id\":\"abc\"}]"));
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
 
+        Assert.False(sent);
         Assert.Contains(logger.Entries,
             e => e.Level == LogLevel.Warning && e.Message.Contains("rejected") && e.Message.Contains("hard-bounce"));
         Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Information);
@@ -192,8 +199,9 @@ public sealed class EmailServiceTests
             responder: _ => Json(HttpStatusCode.OK,
                 $"[{{\"email\":\"ops@contoso.invalid\",\"status\":\"{status}\",\"_id\":\"abc\"}}]"));
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
 
+        Assert.True(sent);
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information);
         Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Warning);
     }
@@ -204,8 +212,9 @@ public sealed class EmailServiceTests
         var (sut, _, logger) = Build(apiKey: "md-test-key",
             responder: _ => Json(HttpStatusCode.OK, "not json"));
 
-        await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
+        var sent = await sut.SendAsync("ops@contoso.invalid", "contoso.invalid", TenantId);
 
+        Assert.False(sent);
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning);
         Assert.DoesNotContain(logger.Entries, e => e.Level == LogLevel.Information);
     }

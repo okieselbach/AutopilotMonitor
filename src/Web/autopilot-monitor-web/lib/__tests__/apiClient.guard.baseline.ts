@@ -15,7 +15,6 @@ export const PERMANENT: Record<string, string> = {
   "app/dashboard/hooks/useDeleteSession.ts": "bulk runner collects the expiry and toasts once after the batch",
   "app/dashboard/hooks/useTenantSecurityConfig.ts": "fail-soft banner data; the expiry is the one failure the user must hear about",
   "app/sessions/hooks/useSessionDetail.ts": "a network failure keeps the retry flag, an expiry must not",
-  "app/settings/components/OffboardingSection.tsx": "expiry message tells the user the offboarding continues in the background",
   // Rule documents: the pages edit a LOCAL rule shape (app/*/types.ts) whose nested types diverge from the
   // wire (RuleCondition.itemField optional vs required, suppressByEvent inline vs SuppressByEventConfig,
   // GatherRule.triggerPhase nullable vs string) and the PUT accepts toggle partials the service merges.
@@ -56,5 +55,4 @@ export const TOKENEXPIRED_BASELINE: Record<string, number> = {
   "app/dashboard/hooks/useTenantSecurityConfig.ts": 1,
   "app/sessions/hooks/useSessionDetail.ts": 1,
   "app/settings/TenantConfigContext.tsx": 2,
-  "app/settings/components/OffboardingSection.tsx": 1,
 };

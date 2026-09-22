@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Claims;
 using AutopilotMonitor.Functions.Extensions;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Helpers;
 using AutopilotMonitor.Functions.Security;
 using AutopilotMonitor.Functions.Services;
@@ -303,10 +304,13 @@ public class PolicyEnforcementMiddleware : IFunctionsWorkerMiddleware
         // and nobody without platform scope reaches a suspended target. Platform operators (GA/Reader) bypass —
         // they must still administer the suspended tenant. Anonymous/device routes bring their own gate
         // (SecurityValidator → 403 TenantDisabled). Cached, side-effect-free read; a missing row is not disabled.
+        // An AllowedDuringOffboarding route ignores the offboarding tombstone alone (the departing admin's
+        // farewell feedback arrives after their own tenant was tombstoned); any other suspension still holds.
         if (principal != null && !hasGlobalScope)
         {
             var gateConfigs = await LoadGateConfigsAsync(jwtTenantId, targetTenantId);
-            var suspended = gateConfigs.FirstOrDefault(c => c.IsCurrentlyDisabled());
+            var suspended = gateConfigs.FirstOrDefault(c => c.IsCurrentlyDisabled()
+                && !(catalogEntry.AllowedDuringOffboarding && TenantOffboardFunction.IsOffboardingTombstone(c)));
             if (suspended != null)
             {
                 _logger.LogWarning("[PolicyEnforcement] BLOCKED suspended tenant: user={User} tenant={Tenant} path={Path}",

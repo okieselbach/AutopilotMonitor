@@ -238,6 +238,22 @@ public class EndpointPolicyCatalogCompletenessTests
     }
 
     /// <summary>
+    /// AllowedDuringOffboarding punches a hole in the tenant suspension gate (offboarding tombstone only).
+    /// It exists for exactly one route — the farewell feedback a departing admin submits after the offboard
+    /// endpoint has already tombstoned their tenant. Any second route here needs the same justification.
+    /// </summary>
+    [Fact]
+    public void AllowedDuringOffboarding_IsOnlyTheFarewellFeedbackRoute()
+    {
+        var routes = EndpointAccessPolicyCatalog.Entries
+            .Where(e => e.AllowedDuringOffboarding)
+            .Select(e => $"{e.HttpMethod} {e.RouteTemplate}")
+            .ToList();
+
+        Assert.Equal(new[] { "POST tenants/{tenantId}/offboard/feedback" }, routes);
+    }
+
+    /// <summary>
     /// Every entry with TenantScoping.RouteParam must have {tenantId} in its route template.
     /// Prevents misattributed scoping declarations.
     /// </summary>

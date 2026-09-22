@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AutopilotMonitor.Functions.Functions.Admin;
 using AutopilotMonitor.Functions.Functions.Config;
 using AutopilotMonitor.Functions.Middleware;
 using AutopilotMonitor.Functions.Security;
@@ -1621,6 +1622,82 @@ public class PolicyEnforcementMiddlewareTests
 
         Assert.True(result.Allowed);
         h.ConfigRepo.Verify(r => r.GetTenantConfigurationAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    // ── Offboarding tombstone vs. the farewell feedback route (AllowedDuringOffboarding) ──────
+    // The offboard endpoint tombstones the tenant (Disabled=true, offboarding reason) BEFORE it answers
+    // 202, so the departing admin submits the farewell feedback from an already-suspended tenant. That
+    // one route opts out of the tombstone gate; every other route and every other suspension stay closed.
+
+    private static void AsOffboardingTombstone(Harness h, string tenantId) =>
+        AsSuspended(h, tenantId, reason: TenantOffboardFunction.OffboardingDisabledReason);
+
+    [Fact]
+    public async Task OffboardingTombstone_FeedbackRoute_IsAllowed_ForDepartingTenantAdmin()
+    {
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsOffboardingTombstone(h, TenantA);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/tenants/{TenantA}/offboard/feedback", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.True(result.Allowed);
+        Assert.Equal(TenantA, result.Context!.TargetTenantId);
+    }
+
+    [Fact]
+    public async Task OffboardingTombstone_OtherRoutes_StayForbidden()
+    {
+        // The opt-out is per route: the same tombstone still closes the rest of the API.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsOffboardingTombstone(h, TenantA);
+
+        var read = await h.Middleware.DecideAsync("GET", "/api/sessions", null, AuthedPrincipal(TenantA, upn));
+        var write = await h.Middleware.DecideAsync("DELETE", $"/api/tenants/{TenantA}/offboard", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(read.Allowed);
+        Assert.Equal("TenantSuspended", read.ErrorCode);
+        Assert.Equal(TenantOffboardFunction.OffboardingDisabledReason, read.ErrorMessage);
+        Assert.False(write.Allowed);
+        Assert.Equal("TenantSuspended", write.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OperatorSuspension_FeedbackRoute_StaysForbidden()
+    {
+        // The opt-out is for the offboarding tombstone only: a tenant an operator suspended (any other
+        // reason) cannot reach the feedback route either — nothing in the flag grants access.
+        const string upn = "admin@contoso.com";
+        var h = BuildHarness();
+        h.AsTenantAdmin(TenantA, upn);
+        AsSuspended(h, TenantA, reason: "Abuse investigation");
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/tenants/{TenantA}/offboard/feedback", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal("TenantSuspended", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task OffboardingTombstone_FeedbackRoute_NonMember_StillNeedsTenantAdmin()
+    {
+        // Policy tier is untouched by the flag: a plain member (no tenant admin role) is denied by the
+        // TenantAdminOrGA tier before the suspension gate is even reached.
+        const string upn = "viewer@contoso.com";
+        var h = BuildHarness();
+        AsOffboardingTombstone(h, TenantA);
+
+        var result = await h.Middleware.DecideAsync(
+            "POST", $"/api/tenants/{TenantA}/offboard/feedback", null, AuthedPrincipal(TenantA, upn));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(403, result.StatusCode);
+        Assert.NotEqual("TenantSuspended", result.ErrorCode);
     }
 
     // ── Tenant MCP switch (TenantConfiguration.McpDisabled) — the per-request half ────────────
