@@ -163,6 +163,7 @@ namespace AutopilotMonitor.Shared.Models
         /// <summary>The managing tenant that owns the group (self-service); absent for operator-created groups and direct grants.</summary>
         public string? OwnerTenantId { get; set; }
         public string? OwnerDomain { get; set; }
+        /// <summary>The owned group's name for a self-service delegation; the neutral operator label ("Platform support") for every operator-provisioned entry — internal group names never reach a customer.</summary>
         public string Name { get; set; } = default!;
         /// <summary>self-service | operator</summary>
         public string Source { get; set; } = default!;

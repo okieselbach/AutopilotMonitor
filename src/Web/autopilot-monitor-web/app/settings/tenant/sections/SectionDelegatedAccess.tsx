@@ -209,7 +209,7 @@ export function SectionDelegatedAccess() {
                   <li key={key} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                     <span className="font-medium text-gray-900">{m.ownerDomain || m.name}</span>
                     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${m.source === "self-service" ? "bg-sky-100 text-sky-800" : "bg-gray-100 text-gray-700"}`}>
-                      {m.source === "self-service" ? "Delegated by you" : "Platform operators"}
+                      {m.source === "self-service" ? "Delegated by you" : "Provisioned by operators"}
                     </span>
                     <span className="text-xs text-gray-500">
                       {m.assignees.length} reader{m.assignees.length === 1 ? "" : "s"}

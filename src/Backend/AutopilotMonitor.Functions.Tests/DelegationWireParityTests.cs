@@ -194,7 +194,7 @@ public class DelegationWireParityTests
                 managers = new object[]
                 {
                     new { groupId = (string?)("msp-" + Home), ownerTenantId = (string?)Home, ownerDomain = (string?)"partner.example", name = "Customers of partner.example", source = "self-service", assignees, sinceUtc = (DateTime?)since, revocable = true },
-                    new { groupId = nullGroup, ownerTenantId = nullOwner, ownerDomain = nullDomain, name = "Platform operators", source = "operator", assignees, sinceUtc = (DateTime?)null, revocable = false },
+                    new { groupId = nullGroup, ownerTenantId = nullOwner, ownerDomain = nullDomain, name = "Platform support", source = "operator", assignees, sinceUtc = (DateTime?)null, revocable = false },
                 },
             },
             new TenantManagerListResponse
@@ -204,7 +204,7 @@ public class DelegationWireParityTests
                 {
                     new() { GroupId = "msp-" + Home, OwnerTenantId = Home, OwnerDomain = "partner.example", Name = "Customers of partner.example", Source = "self-service",
                             Assignees = new List<TenantManagerAssignee> { new() { Upn = "analyst@partner.example", Role = "DelegatedReader", IsEnabled = true } }, SinceUtc = since, Revocable = true },
-                    new() { Name = "Platform operators", Source = "operator",
+                    new() { Name = "Platform support", Source = "operator",
                             Assignees = new List<TenantManagerAssignee> { new() { Upn = "analyst@partner.example", Role = "DelegatedReader", IsEnabled = true } }, Revocable = false },
                 },
             });

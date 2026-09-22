@@ -47,6 +47,11 @@ public class DelegationSelfService
 {
     public const string SourceSelfService = "self-service";
     public const string SourceOperator = "operator";
+    /// <summary>
+    /// The one label a managed tenant sees for every operator-provisioned access (operator-created groups and
+    /// direct grants alike). Operator groups are internal organisation — their names never reach a customer.
+    /// </summary>
+    public const string OperatorLabel = "Platform support";
     private const string AuditGroupAccess = "DelegatedGroupAccess";
     private const string AuditInvitation = "DelegationInvitation";
     private const string AuditManagedTenant = "DelegationManagedTenant";
@@ -377,8 +382,11 @@ public class DelegationSelfService
                     .Select(r => r.AcceptedAt)
                     .Max();
             }
-            result.Add(new TenantManagerView(group.GroupId, owner, owner != null ? await DomainAsync(owner) : null,
-                group.Name, owner != null ? SourceSelfService : SourceOperator, group.Assignees, since, Revocable: owner != null));
+            // An owned group carries its managing tenant's name; an operator group is internal and shows
+            // only the neutral label (its assignees stay visible — the customer must know who can read it).
+            result.Add(owner != null
+                ? new TenantManagerView(group.GroupId, owner, await DomainAsync(owner), group.Name, SourceSelfService, group.Assignees, since, Revocable: true)
+                : new TenantManagerView(group.GroupId, null, null, OperatorLabel, SourceOperator, group.Assignees, null, Revocable: false));
         }
 
         var direct = (await _adminRepo.GetDelegatedAssigneesAsync(target))
@@ -386,7 +394,7 @@ public class DelegationSelfService
             .Select(r => new TenantGroupAssignment { Upn = r.Upn, GroupId = string.Empty, Role = r.Role, IsEnabled = r.IsEnabled, AssignedBy = r.GrantedBy, AssignedAt = r.GrantedAt })
             .ToList();
         if (direct.Count > 0)
-            result.Add(new TenantManagerView(null, null, null, "Platform operators", SourceOperator, direct, direct.Min(d => d.AssignedAt), Revocable: false));
+            result.Add(new TenantManagerView(null, null, null, OperatorLabel, SourceOperator, direct, direct.Min(d => d.AssignedAt), Revocable: false));
 
         return result;
     }

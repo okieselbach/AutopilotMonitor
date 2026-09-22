@@ -526,7 +526,41 @@ public class DelegationSelfServiceTests
         Assert.Equal(Now.AddDays(-3), owned.SinceUtc);
         var direct = managers.Single(m => m.GroupId == null);
         Assert.Equal(DelegationSelfService.SourceOperator, direct.Source);
+        Assert.Equal(DelegationSelfService.OperatorLabel, direct.Name);
         Assert.False(direct.Revocable);
         Assert.Single(direct.Assignees); // the revoked row confers nothing
+    }
+
+    [Fact]
+    public async Task ListManagers_OperatorGroup_ShowsNeutralLabelNotItsName_ButItsAssignees()
+    {
+        const string operatorGroupId = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+        var h = Build();
+        h.Repo.Setup(x => x.GetGroupIdsContainingTenantAsync(Customer)).ReturnsAsync(new List<string> { operatorGroupId });
+        h.Repo.Setup(x => x.GetTenantGroupAsync(operatorGroupId)).ReturnsAsync(new TenantGroup
+        {
+            GroupId = operatorGroupId,
+            Name = "Internal MSP customers north",
+            OwnerTenantId = null,
+            TenantIds = new List<string> { Customer, Other },
+            Assignees = new List<TenantGroupAssignment>
+            {
+                new() { Upn = "ops@vendor.example", GroupId = operatorGroupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
+                new() { Upn = "ops2@vendor.example", GroupId = operatorGroupId, Role = Constants.DelegatedRoles.DelegatedReader, IsEnabled = true },
+            },
+        });
+
+        var managers = await h.Svc.ListManagersAsync(Customer);
+
+        var group = Assert.Single(managers);
+        Assert.Equal(operatorGroupId, group.GroupId);
+        Assert.Equal(DelegationSelfService.OperatorLabel, group.Name);
+        Assert.DoesNotContain("north", group.Name, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(group.OwnerTenantId);
+        Assert.Null(group.OwnerDomain);
+        Assert.Null(group.SinceUtc);
+        Assert.Equal(DelegationSelfService.SourceOperator, group.Source);
+        Assert.False(group.Revocable);
+        Assert.Equal(2, group.Assignees.Count);
     }
 }
