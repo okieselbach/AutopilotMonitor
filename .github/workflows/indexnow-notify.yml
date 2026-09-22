@@ -3,6 +3,9 @@ name: IndexNow Notify (Bing/Yandex)
 on:
   workflow_dispatch:
 
+# The job only talks to public endpoints; it never needs a repository token.
+permissions: {}
+
 jobs:
   notify:
     runs-on: ubuntu-latest

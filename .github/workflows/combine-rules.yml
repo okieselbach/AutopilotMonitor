@@ -30,11 +30,16 @@ jobs:
         with:
           node-version: '22'
 
-      # Exact versions and no lifecycle scripts: this job holds contents:write and pushes to
+      # Lockfile and no lifecycle scripts: this job holds contents:write and pushes to
       # main, so an install-time script from a hijacked package would run with a token that
-      # can rewrite the repository. ajv is pure JS and needs no install hooks.
-      - name: Install ajv-cli
-        run: npm install -g --ignore-scripts ajv-cli@5.0.0 ajv-formats@3.0.1
+      # can rewrite the repository. rules/scripts/package-lock.json pins ajv-cli, ajv-formats
+      # and every transitive package (Dependabot keeps it current); ajv is pure JS and
+      # needs no install hooks.
+      - name: Install ajv-cli from the lockfile
+        working-directory: rules/scripts
+        run: |
+          npm ci --ignore-scripts
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Validate Gather Rules
         run: |

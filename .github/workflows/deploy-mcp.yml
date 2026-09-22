@@ -27,6 +27,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # The published customer documentation lives in its own PUBLIC repo and is
       # baked into the image as the search_docs corpus (see the Dockerfile). No
@@ -38,6 +40,7 @@ jobs:
       - name: Check out documentation bundle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           repository: autopilotmonitor/autopilotmonitor-docs
           path: mcp-docs
 
@@ -46,7 +49,7 @@ jobs:
         run: echo "sha=$(git -C mcp-docs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Login to Azure (OIDC)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -77,7 +80,7 @@ jobs:
           "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
 
       - name: Login to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
+        run: az acr login --name "$ACR_NAME"
 
       - name: Build and push container image
         run: |
@@ -87,17 +90,17 @@ jobs:
             --build-arg BUILD_NUMBER=${{ steps.version.outputs.build_number }} \
             --build-arg BUILD_COMMIT=${{ steps.version.outputs.short_sha }} \
             --build-arg BUILD_UTC=${{ steps.version.outputs.build_utc }} \
-            -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:${{ env.IMAGE_TAG }} \
-            -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:latest \
+            -t "$ACR_NAME.azurecr.io/$CONTAINER_APP_NAME:$IMAGE_TAG" \
+            -t "$ACR_NAME.azurecr.io/$CONTAINER_APP_NAME:latest" \
             .
-          docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }} --all-tags
+          docker push "$ACR_NAME.azurecr.io/$CONTAINER_APP_NAME" --all-tags
 
       - name: Deploy to Container App
         run: |
           az containerapp update \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_NAME }}.azurecr.io/${{ env.CONTAINER_APP_NAME }}:${{ env.IMAGE_TAG }}
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_NAME.azurecr.io/$CONTAINER_APP_NAME:$IMAGE_TAG"
 
       # `az containerapp update` returns once the revision is provisioned, not once
       # it serves traffic — and with minReplicas=0 the first request also pays a cold

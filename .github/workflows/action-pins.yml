@@ -1,5 +1,13 @@
-name: Action Pin Gate
+name: Workflow gates
 
+# Two checks over the workflow files themselves:
+#   * verify-pins -- every third-party action is referenced by a full commit SHA plus a
+#                    version comment (stricter than zizmor's unpinned-uses audit).
+#   * zizmor      -- static analysis of every workflow (permissions, credential
+#                    persistence, template injection, ...). Configuration and the
+#                    reasoned ignores live in zizmor.yml at the repository root; the
+#                    same run is expected locally before a workflow change is committed.
+#
 # Every third-party action must be referenced by a full commit SHA, never by a tag.
 # Tags are mutable: whoever controls an action repository can repoint v4 at new code,
 # and that code runs inside jobs that hold the code-signing identity, the storage
@@ -8,7 +16,8 @@ name: Action Pin Gate
 #
 # Lives in its own workflow rather than in ci.yml: CI deliberately ignores changes to
 # the other workflow files, so a guard placed there would stay silent for exactly the
-# commits it needs to inspect.
+# commits it needs to inspect. Dependabot's action-pin PRs are the main customer: they
+# rewrite workflow files without anyone running zizmor locally.
 #
 # Like CI, this reports rather than blocks: main is deliberately unprotected, so a red
 # run is a signal to act on, not a merge barrier. Making it binding means adding
@@ -22,10 +31,10 @@ name: Action Pin Gate
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/**']
+    paths: ['.github/workflows/**', '.github/dependabot.yml', 'zizmor.yml']
   pull_request:
     branches: [main]
-    paths: ['.github/workflows/**']
+    paths: ['.github/workflows/**', '.github/dependabot.yml', 'zizmor.yml']
   workflow_dispatch:
 
 permissions:
@@ -37,15 +46,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Every third-party action is pinned to a SHA
         run: |
           set -uo pipefail
           failed=0
           while IFS=: read -r file line ref; do
-            # Reusable workflows from this repository move with the commit that calls
-            # them, so there is nothing to pin.
-            case "$ref" in ./*) continue ;; esac
+            # Reusable workflows from this repository (workspace-relative ./ or the
+            # self-repository form $/) move with the commit that calls them, so there is
+            # nothing to pin.
+            case "$ref" in ./*|\$/*) continue ;; esac
 
             if [[ "$ref" =~ ^[^@]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*[^[:space:]] ]]; then
               printf 'ok  %s:%s  %s\n' "$file" "$line" "$ref"
@@ -68,3 +80,24 @@ jobs:
             exit 1
           fi
           echo "All action references are pinned to commit SHAs."
+
+  zizmor:
+    name: zizmor audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # SARIF upload: findings land in the Code scanning tab next to CodeQL
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # zizmor itself is version-pinned like every other tool here; bump it together with
+      # the local install so the gate and the pre-commit run agree on the finding set.
+      # Informational findings (template expansion of our own step outputs in pwsh) are
+      # visible locally but do not fail the gate.
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: 1.30.1
+          min-severity: low

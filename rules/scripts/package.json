@@ -1,0 +1,9 @@
+{
+  "name": "autopilot-monitor-rules-tooling",
+  "private": true,
+  "description": "Validator tooling for rules/ - combine-rules.yml installs from the lockfile so nothing unpinned reaches a job that pushes to main.",
+  "devDependencies": {
+    "ajv-cli": "5.0.0",
+    "ajv-formats": "3.0.1"
+  }
+}

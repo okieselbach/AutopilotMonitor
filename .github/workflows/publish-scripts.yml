@@ -26,7 +26,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # OIDC federated login for the storage writes (secret-less)
 
 # Shared with build-agent.yml: a script publish and an agent release both touch
 # version.json, and the bootstrapVersion read-modify-write must not interleave with the
@@ -46,15 +45,24 @@ env:
   CODE_SIGN_TIMESTAMP_URL: http://timestamp.acs.microsoft.com
 
 jobs:
+  # $/ is the self-repository form: this repository at the running commit, never a
+  # path some earlier step could have written to the workspace.
   gates:
-    uses: ./.github/workflows/bootstrap-script-gates.yml
+    uses: $/.github/workflows/bootstrap-script-gates.yml
 
   publish:
     name: Publish to the download alias
     needs: gates
     runs-on: windows-latest
+    # Job-scoped: only the publish job federates to Azure, the gates job never holds an
+    # OIDC token it does not need.
+    permissions:
+      contents: read
+      id-token: write   # OIDC federated login for the storage writes (secret-less)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Check code-signing configuration
         shell: pwsh
@@ -70,7 +78,7 @@ jobs:
       # both federated credentials are bound to the ref, so this job must never carry a
       # GitHub `environment:`.
       - name: Login to Azure (code-signing identity)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -91,7 +99,7 @@ jobs:
       # runs the same publisher with -DryRun and deliberately without a login -- a dry run
       # must never need Azure credentials.
       - name: Login to Azure (OIDC)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}

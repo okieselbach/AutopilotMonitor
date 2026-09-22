@@ -1,5 +1,9 @@
 version: 2
 
+# Cooldown: a version is proposed only once it has been public for 7 days, so a
+# release that is yanked or found malicious within its first week never reaches a
+# PR. Security updates are exempt from the cooldown by Dependabot's own rules.
+#
 # Grouping: every ecosystem gets one batched PR for minor/patch version
 # updates and one batched PR for security updates. Groups apply to version
 # updates only by default, so the security-updates groups are declared
@@ -10,6 +14,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       dotnet:
@@ -23,6 +29,8 @@ updates:
     directory: /src/Web/autopilot-monitor-web
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       web:
@@ -41,6 +49,8 @@ updates:
     directory: /src/McpServer/autopilot-monitor-mcp
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       mcp:
@@ -55,6 +65,22 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
+  # Validator tooling for rules/ (ajv-cli); combine-rules.yml installs it from this
+  # lockfile with contents:write in hand, so the pins must not go stale.
+  - package-ecosystem: npm
+    directory: /rules/scripts
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      rules-tooling:
+        patterns: ['*']
+      rules-tooling-security:
+        applies-to: security-updates
+        patterns: ['*']
+
   # Every action is referenced by commit SHA with the version in a trailing comment;
   # action-pins.yml fails any workflow change that reintroduces a mutable tag. Dependabot
   # is what keeps those pins current: it rewrites the SHA and the comment together, so the
@@ -63,6 +89,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ['*']

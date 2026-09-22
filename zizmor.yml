@@ -1,0 +1,9 @@
+# zizmor (GitHub Actions static analysis) configuration. Read by the zizmor job in
+# .github/workflows/action-pins.yml and by the local run before a workflow commit.
+# Every ignore carries its reason; an ignore without one is itself a finding.
+rules:
+  artipacked:
+    ignore:
+      # Pushes the regenerated rule outputs to main with the job token that checkout
+      # leaves in the credential helper -- the one job that needs persisted credentials.
+      - combine-rules.yml

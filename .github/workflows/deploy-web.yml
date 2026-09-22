@@ -37,13 +37,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           lfs: false
           fetch-depth: 0  # Full history needed for git-based sitemap lastmod dates
 
       # Only the version manifest at the very end needs Azure; logging in here rather than
       # next to that step keeps a credential problem from surfacing after a live deploy.
       - name: Login to Azure (OIDC)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -58,6 +59,7 @@ jobs:
       - name: Check out documentation bundle
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           repository: autopilotmonitor/autopilotmonitor-docs
           path: whats-new-docs
           fetch-depth: 0

@@ -41,6 +41,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       # The loader executes as SYSTEM on every enrolling device — a parse error or
       # non-ASCII mojibake (PS 5.1 codepage roulette) must fail the build, not the fleet.
@@ -86,7 +88,7 @@ jobs:
       # are bound to the ref, so this job must never be given an `environment:` -- that would
       # change the OIDC subject claim and break both logins.
       - name: Login to Azure (code-signing identity)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -105,7 +107,7 @@ jobs:
 
       # The blob upload below is authorized by this federated identity, not by a SAS.
       - name: Login to Azure (OIDC)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}

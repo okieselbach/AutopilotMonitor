@@ -30,6 +30,7 @@
 - Stage explicit file lists; never `git add -A` or a directory. Pushing is the user's call.
 - New API responses need a typed DTO plus the parity fact. MCP vocabularies are generated from the wire types, never retyped.
 - Every route belongs in the route policy catalog; every new event type goes into the MCP resource catalog.
+- Workflow files under `.github/` go through zizmor before they are committed (`zizmor .` from the repository root, findings from severity low on): fix every finding or ignore it in `zizmor.yml` with a reason. The `zizmor` job in `action-pins.yml` runs the same check on every push.
 - The about, terms and privacy pages under `src/Web/autopilot-monitor-web/app/` state facts customers rely on: verify every claim against the code before writing it and update them in the same change as the fact they describe.
 
 ## Code Quality
