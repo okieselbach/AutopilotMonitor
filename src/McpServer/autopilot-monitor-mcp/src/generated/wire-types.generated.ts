@@ -4972,6 +4972,7 @@ export interface TenantManagerItem {
   /** The managing tenant that owns the group (self-service); absent for operator-created groups and direct grants. */
   ownerTenantId?: string;
   ownerDomain?: string;
+  /** The owned group's name for a self-service delegation; the neutral operator label ("Platform support") for every operator-provisioned entry — internal group names never reach a customer. */
   name: string;
   /** self-service | operator */
   source: string;

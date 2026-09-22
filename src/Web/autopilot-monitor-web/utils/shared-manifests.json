@@ -22740,7 +22740,8 @@
           "type": {
             "kind": "primitive",
             "name": "string"
-          }
+          },
+          "doc": "The owned group's name for a self-service delegation; the neutral operator label (\"Platform support\") for every operator-provisioned entry — internal group names never reach a customer."
         },
         {
           "name": "source",
