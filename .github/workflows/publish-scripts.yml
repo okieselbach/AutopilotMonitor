@@ -78,7 +78,7 @@ jobs:
       # both federated credentials are bound to the ref, so this job must never carry a
       # GitHub `environment:`.
       - name: Login to Azure (code-signing identity)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ env.CODE_SIGN_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -99,7 +99,7 @@ jobs:
       # runs the same publisher with -DryRun and deliberately without a login -- a dry run
       # must never need Azure credentials.
       - name: Login to Azure (OIDC)
-        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
